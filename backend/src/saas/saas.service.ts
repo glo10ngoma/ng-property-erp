@@ -1639,6 +1639,50 @@ export class SaasService {
        WHERE i.building_id = $1 AND i.issue_date BETWEEN $2 AND $3 AND i.organization_id = $4 AND i.deleted_at IS NULL`,
       params,
     );
+    const invoices = await this.db.query(
+      `SELECT i.id, i.tenant_id, i.invoice_number, i.issue_date, i.due_date, i.status, i.total,
+              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
+              u.number AS unit_number,
+              COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
+              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
+       FROM invoices i
+       JOIN tenants t ON t.id = i.tenant_id
+       LEFT JOIN units u ON u.id = i.unit_id
+       LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
+       WHERE i.building_id = $1
+         AND i.issue_date BETWEEN $2 AND $3
+         AND i.organization_id = $4
+         AND i.deleted_at IS NULL
+       ORDER BY i.issue_date DESC, i.invoice_number`,
+      params,
+    );
+    const payments = await this.db.query(
+      `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference,
+              i.invoice_number, i.tenant_id,
+              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
+              u.number AS unit_number
+       FROM payments p
+       JOIN invoices i ON i.id = p.invoice_id
+       JOIN tenants t ON t.id = i.tenant_id
+       LEFT JOIN units u ON u.id = i.unit_id
+       WHERE i.building_id = $1
+         AND p.payment_date BETWEEN $2 AND $3
+         AND p.organization_id = $4
+         AND p.deleted_at IS NULL
+       ORDER BY p.payment_date DESC, p.id DESC`,
+      params,
+    );
+    const paidTenantIds = new Set(payments.rows.map((row) => row.tenant_id).filter(Boolean));
+    const tenantsPaid = Array.from(
+      new Map(payments.rows.filter((row) => row.tenant_id).map((row) => [row.tenant_id, { tenant_id: row.tenant_id, tenant_name: row.tenant_name, unit_number: row.unit_number }])).values(),
+    );
+    const tenantsUnpaid = Array.from(
+      new Map(
+        invoices.rows
+          .filter((row) => row.tenant_id && !paidTenantIds.has(row.tenant_id) && row.status !== 'PAID')
+          .map((row) => [row.tenant_id, { tenant_id: row.tenant_id, tenant_name: row.tenant_name, unit_number: row.unit_number, remaining_amount: row.remaining_amount }]),
+      ).values(),
+    );
     const occupied = units.rows.filter((unit) => unit.status === 'OCCUPIED').length;
     return {
       building: requireRow(building.rows[0], 'Building'),
@@ -1649,6 +1693,12 @@ export class SaasService {
       tenants: tenants.rows,
       finances: finances.rows[0],
       units: units.rows,
+      payments: payments.rows,
+      tenants_paid: tenantsPaid,
+      tenants_unpaid: tenantsUnpaid,
+      paid_invoices: invoices.rows.filter((row) => row.status === 'PAID'),
+      unpaid_invoices: invoices.rows.filter((row) => row.status !== 'PAID' && row.status !== 'CANCELLED'),
+      overdue_invoices: invoices.rows.filter((row) => row.status !== 'PAID' && new Date(row.due_date) < new Date()),
     };
   }
 
@@ -1730,6 +1780,16 @@ export class SaasService {
        ORDER BY p.payment_date DESC`,
       [id, organizationId],
     );
+    const documents = await this.db.query(
+      `SELECT ld.*, l.status AS lease_status, u.number AS unit_number, b.name AS building_name
+       FROM lease_documents ld
+       JOIN leases l ON l.id = ld.lease_id
+       JOIN units u ON u.id = l.unit_id
+       JOIN buildings b ON b.id = u.building_id
+       WHERE l.tenant_id = $1 AND ld.organization_id = $2 AND ld.deleted_at IS NULL
+       ORDER BY ld.uploaded_at DESC, ld.id DESC`,
+      [id, organizationId],
+    );
     const report = await this.paymentsReport({ tenantId: id });
     return {
       tenant: requireRow(tenant.rows[0], 'Tenant'),
@@ -1745,6 +1805,7 @@ export class SaasService {
         status: lease.guarantee_status,
       })),
       payments: payments.rows,
+      documents: documents.rows,
       ...report,
     };
   }
