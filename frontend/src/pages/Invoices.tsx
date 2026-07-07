@@ -1,13 +1,14 @@
-import { Eye, Plus, Trash2 } from 'lucide-react';
+import { Eye, Plus, Trash2, X } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useState } from 'react';
 import { api, exportCsv, includesText, invoiceDisplayStatus, itemLabel, money, shortDate, statusLabel } from '../api';
 import { useAuth } from '../auth';
-import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage, TableToolbar, TenantSearchSelect } from '../components';
+import { EmptyState, Modal, PageHeader, SearchableSelect, StatusBadge, SuccessMessage, TableToolbar, TenantSearchSelect } from '../components';
 import { useApiList } from '../hooks';
 
 type Invoice = { id: number; invoice_number: string; first_name: string; last_name: string; building_name: string; unit_number: string; issue_date: string; due_date: string; month: number; year: number; total: number; paid_amount: number; remaining_amount: number; status: string };
 type Tenant = { id: number; first_name: string; last_name: string; phone?: string; monthly_rent: number; building_name: string; unit_number: string };
+type Lease = { id: number; tenant_id: number; tenant_name: string; building_name: string; unit_number: string; monthly_rent: number; status: string };
 
 const lineTypes = ['Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Other'];
 
@@ -15,8 +16,11 @@ export function Invoices() {
   const { can } = useAuth();
   const { data, reload } = useApiList<Invoice>('/invoices');
   const tenants = useApiList<Tenant>('/tenants');
+  const leases = useApiList<Lease>('/leases');
   const [open, setOpen] = useState(false);
   const [tenantId, setTenantId] = useState<number | null>(null);
+  const [leaseId, setLeaseId] = useState<number | null>(null);
+  const [rent, setRent] = useState(0);
   const now = new Date();
   const [invoiceForm, setInvoiceForm] = useState({
     issue_date: now.toISOString().slice(0, 10),
@@ -32,7 +36,11 @@ export function Invoices() {
   const navigate = useNavigate();
   const tenant = tenants.data.find((item) => item.id === tenantId) ?? tenants.data[0];
   const selectedTenantId = tenantId ?? tenant?.id ?? null;
-  const total = Number(tenant?.monthly_rent ?? 0) + extraLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+  const tenantLeases = leases.data.filter((lease) => Number(lease.tenant_id) === Number(selectedTenantId) && lease.status === 'ACTIVE');
+  const selectedLease = tenantLeases.find((lease) => lease.id === leaseId) ?? tenantLeases[0];
+  const invoiceRent = rent || Number(selectedLease?.monthly_rent ?? tenant?.monthly_rent ?? 0);
+  const total = Number(invoiceRent ?? 0) + extraLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+  const leaseOptions = tenantLeases.map((lease) => ({ value: lease.id, label: `Bail #${lease.id}`, meta: `${lease.building_name} - ${lease.unit_number} - ${money(lease.monthly_rent)}` }));
   const buildingOptions = Array.from(new Set(data.map((invoice) => invoice.building_name).filter(Boolean)));
   const tenantOptions = Array.from(new Set(data.map((invoice) => `${invoice.first_name} ${invoice.last_name}`).filter(Boolean)));
   const filtered = data.filter((invoice) => {
@@ -54,14 +62,19 @@ export function Invoices() {
 
   async function save() {
     if (!tenant) return;
+    if (!selectedLease) {
+      setSuccess('Selectionnez un bail actif avant de creer la facture.');
+      return;
+    }
     const response = await api.post('/invoices', {
       tenant_id: tenant.id,
+      lease_id: selectedLease.id,
       month: Number(invoiceForm.month),
       year: Number(invoiceForm.year),
       issue_date: invoiceForm.issue_date,
       due_date: invoiceForm.due_date,
       items: [
-        { description: 'Monthly rent', amount: Number(tenant.monthly_rent) },
+        { description: 'Monthly rent', amount: Number(invoiceRent) },
         ...extraLines.filter((line) => Number(line.amount) > 0),
       ],
     });
@@ -124,7 +137,9 @@ export function Invoices() {
       {open && (
         <Modal title="Nouvelle facture" onClose={() => setOpen(false)}>
           <div className="form-grid">
-            <label>Locataire<TenantSearchSelect tenants={tenants.data} value={selectedTenantId} onChange={setTenantId} required /></label>
+            <label>Locataire<TenantSearchSelect tenants={tenants.data} value={selectedTenantId} onChange={(value) => { setTenantId(value); setLeaseId(null); setRent(0); }} required /></label>
+            <label>Bail actif<SearchableSelect options={leaseOptions} value={selectedLease?.id ?? null} onChange={(value) => { setLeaseId(value ? Number(value) : null); const lease = leases.data.find((item) => item.id === value); if (lease) setRent(Number(lease.monthly_rent)); }} placeholder="Rechercher un bail" emptyMessage="Aucun bail actif trouve" /></label>
+            {selectedLease && <div className="summary-band"><div className="summary-item"><span>Immeuble</span><strong>{selectedLease.building_name}</strong></div><div className="summary-item"><span>Unite</span><strong>{selectedLease.unit_number}</strong></div></div>}
             <div className="lease-section-grid">
               <label>Date de facture<input type="date" value={invoiceForm.issue_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, issue_date: event.target.value })} required /></label>
               <label>Date d'echeance<input type="date" value={invoiceForm.due_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, due_date: event.target.value })} required /></label>
@@ -133,11 +148,12 @@ export function Invoices() {
               <label>Periode debut<input type="date" value={periodStart(invoiceForm.month, invoiceForm.year)} readOnly /></label>
               <label>Periode fin<input type="date" value={periodEnd(invoiceForm.month, invoiceForm.year)} readOnly /></label>
             </div>
-            <div className="invoice-line fixed"><span>Loyer mensuel</span><strong>{money(tenant?.monthly_rent)}</strong></div>
+            <label>Loyer contractuel<input type="number" value={invoiceRent} onChange={(event) => setRent(Number(event.target.value))} /></label>
             {extraLines.map((line, index) => (
               <div className="invoice-line" key={index}>
                 <select value={line.description} onChange={(e) => setExtraLines((lines) => lines.map((l, i) => i === index ? { ...l, description: e.target.value } : l))}>{lineTypes.map((type) => <option key={type} value={type}>{itemLabel(type)}</option>)}</select>
                 <input type="number" value={line.amount} onChange={(e) => setExtraLines((lines) => lines.map((l, i) => i === index ? { ...l, amount: Number(e.target.value) } : l))} />
+                <button type="button" className="icon-btn danger" onClick={() => setExtraLines((lines) => lines.filter((_, i) => i !== index))}><X size={16} /></button>
               </div>
             ))}
             <button type="button" className="secondary" onClick={() => setExtraLines([...extraLines, { description: 'Other', amount: 0 }])}>Ajouter une ligne</button>

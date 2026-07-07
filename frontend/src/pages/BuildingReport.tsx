@@ -105,24 +105,36 @@ export function BuildingReport() {
     <section>
       <PageHeader
         title="Rapport immeuble"
-        action={<button className="secondary" onClick={() => navigate('/buildings')}><ArrowLeft size={16} />Retour</button>}
+        action={(
+          <div className="actions">
+            <button className="secondary" onClick={() => navigate('/buildings')}><ArrowLeft size={16} />Retour</button>
+            <button type="button" className="secondary" onClick={() => exportCsv('rapport-immeuble.csv', exportRows)}><Download size={16} />CSV</button>
+            <button type="button" className="secondary" onClick={() => exportExcel('rapport-immeuble.xls', exportRows)}><FileSpreadsheet size={16} />Excel</button>
+            <button type="button" className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
+          </div>
+        )}
       />
 
       {report && (
-        <div className="summary-band">
-          <SummaryCard label="Nom immeuble" value={text(report.building.name)} />
-          <SummaryCard label="Type" value={text(report.building.building_type, 'Residence')} />
-          <SummaryCard label="Ville" value={text(report.building.city)} />
-          <SummaryCard label="Statut" value={text(report.building.status, 'Actif')} />
-          <SummaryCard label="Unites" value={report.units_total} />
-          <SummaryCard label="Occupees" value={report.occupied_units} />
-          <SummaryCard label="Libres" value={report.vacant_units} />
-          <SummaryCard label="Occupation" value={`${report.occupancy_rate}%`} />
-          <SummaryCard label="Periode" value={`${shortDate(report.period.start)} - ${shortDate(report.period.end)}`} wide />
-          <SummaryCard label="Adresse" value={text(report.building.address)} wide />
-        </div>
+        <section className="detail-section">
+          <h4>Informations immeuble</h4>
+          <div className="summary-band">
+            <SummaryCard label="Nom immeuble" value={text(report.building.name)} />
+            <SummaryCard label="Type" value={text(report.building.building_type, 'Residence')} />
+            <SummaryCard label="Ville" value={text(report.building.city)} />
+            <SummaryCard label="Statut" value={text(report.building.status, 'Actif')} />
+            <SummaryCard label="Unites" value={report.units_total} />
+            <SummaryCard label="Occupees" value={report.occupied_units} />
+            <SummaryCard label="Libres" value={report.vacant_units} />
+            <SummaryCard label="Occupation" value={`${report.occupancy_rate}%`} />
+            <SummaryCard label="Periode" value={`${shortDate(report.period.start)} - ${shortDate(report.period.end)}`} wide />
+            <SummaryCard label="Adresse" value={text(report.building.address)} wide />
+          </div>
+        </section>
       )}
 
+      <section className="detail-section">
+        <h4>Filtres</h4>
       <div className="quick-form">
         <select value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })}>
           <option value="">Mois</option>
@@ -147,14 +159,14 @@ export function BuildingReport() {
           {units.map((unit) => <option key={String(unit.id)} value={String(unit.id)}>{String(unit.number ?? '-')}</option>)}
         </select>
         <button type="button" onClick={loadReport}><RefreshCw size={16} />Actualiser</button>
-        <button type="button" className="secondary" onClick={() => exportCsv('rapport-immeuble.csv', exportRows)}><Download size={16} />CSV</button>
-        <button type="button" className="secondary" onClick={() => exportExcel('rapport-immeuble.xls', exportRows)}><FileSpreadsheet size={16} />Excel</button>
-        <button type="button" className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
       </div>
+      </section>
 
       {!report && <EmptyState message={loading ? 'Chargement...' : 'Aucune donnee.'} />}
       {report && (
         <>
+          <section className="detail-section">
+          <h4>Resume financier</h4>
           <div className="mini-stats">
             <div className="mini-stat"><span>Locataires ayant paye</span><strong>{report.tenants_paid.length}</strong></div>
             <div className="mini-stat"><span>Locataires non payeurs</span><strong>{report.tenants_unpaid.length}</strong></div>
@@ -165,6 +177,7 @@ export function BuildingReport() {
             <div className="mini-stat"><span>Total encaisse</span><strong>{money(report.finances.total_paid)}</strong></div>
             <div className="mini-stat"><span>Reste a encaisser</span><strong>{money(report.finances.remaining)}</strong></div>
           </div>
+          </section>
 
           <TenantTable rows={tenants} />
           <UnitTable title="Unites / appartements occupes" rows={occupiedUnits} />
@@ -188,7 +201,7 @@ function TenantTable({ rows }: { rows: ReportRow[] }) {
       <h4>Locataires de cet immeuble</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Locataire</th><th>Telephone</th><th>Unite</th><th>Bail actif</th><th className="right">Loyer</th><th>Devise</th><th>Statut paiement</th><th className="right">Total facture</th><th>Devise</th><th className="right">Total paye</th><th>Devise</th><th className="right">Reste</th><th>Devise</th></tr></thead>
+          <thead><tr><th>Locataire</th><th>Telephone</th><th>Unite</th><th>Bail actif</th><th className="right">Loyer</th><th>Statut paiement</th><th className="right">Total facture</th><th className="right">Total paye</th><th className="right">Reste</th><th>Devise</th></tr></thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
@@ -196,11 +209,12 @@ function TenantTable({ rows }: { rows: ReportRow[] }) {
                 <td>{text(row.phone)}</td>
                 <td>{text(row.unit_number)}</td>
                 <td>{text(row.lease_status)}</td>
-                <AmountCell value={row.monthly_rent} />
+                <td className="right">{amount(row.monthly_rent)}</td>
                 <td><StatusBadge value={String(row.payment_status ?? 'UNPAID')} /></td>
-                <AmountCell value={row.total_invoiced} />
-                <AmountCell value={row.total_paid} />
-                <AmountCell value={row.remaining_amount} />
+                <td className="right">{amount(row.total_invoiced)}</td>
+                <td className="right">{amount(row.total_paid)}</td>
+                <td className="right">{amount(row.remaining_amount)}</td>
+                <td>USD</td>
               </tr>
             ))}
           </tbody>
@@ -232,7 +246,7 @@ function InvoiceTable({ title, rows }: { title: string; rows: ReportRow[] }) {
       <h4>{title}</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Facture</th><th>Locataire</th><th>Unite</th><th>Periode</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Montant</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th className="right">Reste</th><th>Devise</th></tr></thead>
+          <thead><tr><th>Facture</th><th>Locataire</th><th>Unite</th><th>Periode</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Montant</th><th className="right">Paye</th><th className="right">Reste</th><th>Devise</th></tr></thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
@@ -243,9 +257,10 @@ function InvoiceTable({ title, rows }: { title: string; rows: ReportRow[] }) {
                 <td>{date(row.issue_date)}</td>
                 <td>{date(row.due_date)}</td>
                 <td><StatusBadge value={invoiceDisplayStatus(String(row.status ?? ''), String(row.due_date ?? ''))} /></td>
-                <AmountCell value={row.total} />
-                <AmountCell value={row.paid_amount} />
-                <AmountCell value={row.remaining_amount} />
+                <td className="right">{amount(row.total)}</td>
+                <td className="right">{amount(row.paid_amount)}</td>
+                <td className="right">{amount(row.remaining_amount)}</td>
+                <td>USD</td>
               </tr>
             ))}
           </tbody>

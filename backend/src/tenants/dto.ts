@@ -38,6 +38,14 @@ export class CreateTenantDto {
 
   @IsOptional()
   @IsString()
+  id_document_file_name?: string;
+
+  @IsOptional()
+  @IsString()
+  id_document_file_url?: string;
+
+  @IsOptional()
+  @IsString()
   nationality?: string;
 
   @IsOptional()

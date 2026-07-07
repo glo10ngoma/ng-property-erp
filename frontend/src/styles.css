@@ -6,7 +6,7 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; }
+body { margin: 0; min-width: 320px; font-size: 15px; }
 button, input, select, textarea { font: inherit; }
 button, .icon-btn {
   border: 0;
@@ -59,7 +59,7 @@ button, .icon-btn {
 .finance-band strong { font-size: 23px; }
 .table-wrap { background: white; border: 1px solid #dce5eb; border-radius: 8px; overflow: auto; max-height: calc(100vh - 230px); }
 table { width: 100%; border-collapse: collapse; }
-th, td { padding: 6px 10px; border-bottom: 1px solid #edf1f4; text-align: left; vertical-align: middle; white-space: nowrap; font-size: 13px; }
+th, td { padding: 6px 10px; border-bottom: 1px solid #edf1f4; text-align: left; vertical-align: middle; white-space: nowrap; font-size: 13.5px; }
 th { background: #f8fafb; color: #5a6d78; font-size: 11px; text-transform: uppercase; position: sticky; top: 0; z-index: 1; }
 tbody tr.clickable-row { cursor: pointer; }
 tbody tr.clickable-row:hover { background: #f8fafb; }
@@ -104,6 +104,7 @@ tbody tr.clickable-row:hover { background: #f8fafb; }
 .detail-list span { color: #637783; font-size: 13px; }
 .detail-list strong { font-weight: 700; }
 input, select, textarea { width: 100%; border: 1px solid #cad6df; border-radius: 6px; min-height: 36px; padding: 7px 9px; background: white; color: #1f2933; }
+input[readonly], textarea[readonly], .locked-field { background: #f1f4f6; color: #6b7f8b; cursor: not-allowed; }
 textarea { min-height: 72px; resize: vertical; }
 .invoice-line { display: grid; grid-template-columns: 1fr 160px; gap: 10px; align-items: center; }
 .invoice-line.fixed { background: #f4f7f9; border: 1px solid #dce5eb; border-radius: 6px; padding: 8px 10px; }

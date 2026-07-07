@@ -50,6 +50,16 @@ export class CreateInvoiceDto {
 
 export class UpdateInvoiceDto {
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  month?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(2000)
+  year?: number;
+
+  @IsOptional()
   @IsDateString()
   issue_date?: string;
 

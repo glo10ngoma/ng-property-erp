@@ -1,4 +1,4 @@
-import { ArrowLeft, CreditCard, Pencil, Printer } from 'lucide-react';
+import { ArrowLeft, CreditCard, Pencil, Plus, Printer, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useParams } from 'react-router-dom';
@@ -20,6 +20,7 @@ export function InvoiceDetail() {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [editLines, setEditLines] = useState<Array<{ description: string; amount: number }>>([]);
   const [success, setSuccess] = useState('');
 
   const reload = () => api.get<Invoice>(`/invoices/${id}`).then((response) => setInvoice(response.data));
@@ -42,15 +43,12 @@ export function InvoiceDetail() {
   }
 
   async function saveEdit(form: FormData) {
-    const descriptions = form.getAll('description').map(String);
-    const amounts = form.getAll('amount').map(Number);
     await api.put(`/invoices/${id}`, {
+      month: Number(form.get('month')),
+      year: Number(form.get('year')),
       issue_date: form.get('issue_date'),
       due_date: form.get('due_date'),
-      items: descriptions.map((description, index) => ({
-        description,
-        amount: amounts[index],
-      })),
+      items: editLines.filter((line) => line.description && Number(line.amount) >= 0),
     });
     setSuccess('Facture modifiée avec succès.');
     setEditOpen(false);
@@ -65,7 +63,7 @@ export function InvoiceDetail() {
         <h2>{invoice.invoice_number}</h2>
         <div className="actions">
           <button className="secondary" onClick={() => navigate('/invoices')}><ArrowLeft size={16} />Retour</button>
-          {can('invoices.update') && <button onClick={() => setEditOpen(true)}><Pencil size={16} />Modifier</button>}
+          {can('invoices.update') && <button onClick={() => { setEditLines(invoice.items.map((item) => ({ description: item.description, amount: Number(item.amount) }))); setEditOpen(true); }}><Pencil size={16} />Modifier</button>}
           <button onClick={() => window.print()}><Printer size={16} />Imprimer</button>
           {can('payments.create') && <button onClick={() => setPaymentOpen(true)}><CreditCard size={16} />Enregistrer un paiement</button>}
         </div>
@@ -131,14 +129,23 @@ export function InvoiceDetail() {
               saveEdit(new FormData(event.currentTarget));
             }}
           >
-            <input name="issue_date" type="date" required defaultValue={invoice.issue_date.slice(0, 10)} />
-            <input name="due_date" type="date" required defaultValue={invoice.due_date.slice(0, 10)} />
-            {invoice.items.map((item) => (
-              <div className="invoice-line" key={item.id}>
-                <input name="description" defaultValue={item.description} required />
-                <input name="amount" type="number" step="0.01" defaultValue={item.amount} required />
+            <div className="lease-section-grid">
+              <label>Date de facture<input name="issue_date" type="date" required defaultValue={invoice.issue_date.slice(0, 10)} /></label>
+              <label>Date d'echeance<input name="due_date" type="date" required defaultValue={invoice.due_date.slice(0, 10)} /></label>
+              <label>Mois du loyer<input name="month" type="number" min="1" max="12" required defaultValue={invoice.month} /></label>
+              <label>Annee du loyer<input name="year" type="number" min="2000" required defaultValue={invoice.year} /></label>
+              <label>Periode debut<input type="date" value={periodStart(String(invoice.month), String(invoice.year))} readOnly /></label>
+              <label>Periode fin<input type="date" value={periodEnd(String(invoice.month), String(invoice.year))} readOnly /></label>
+            </div>
+            {editLines.map((item, index) => (
+              <div className="invoice-line" key={index}>
+                <input value={item.description} onChange={(event) => setEditLines((lines) => lines.map((line, i) => i === index ? { ...line, description: event.target.value } : line))} required />
+                <input type="number" step="0.01" value={item.amount} onChange={(event) => setEditLines((lines) => lines.map((line, i) => i === index ? { ...line, amount: Number(event.target.value) } : line))} required />
+                <button type="button" className="icon-btn danger" onClick={() => setEditLines((lines) => lines.filter((_, i) => i !== index))}><X size={16} /></button>
               </div>
             ))}
+            <button type="button" className="secondary" onClick={() => setEditLines([...editLines, { description: 'Other', amount: 0 }])}><Plus size={16} />Ajouter un item</button>
+            <div className="total-row">Total <strong>{money(editLines.reduce((sum, line) => sum + Number(line.amount || 0), 0))}</strong></div>
             <button>Enregistrer</button>
           </form>
         </Modal>
@@ -174,4 +181,14 @@ function periodLabel(month: number, year: number) {
   const start = new Date(Number(year), Number(month) - 1, 1);
   const end = new Date(Number(year), Number(month), 0);
   return `${monthLabel(month)} ${year} (${shortDate(start.toISOString())} - ${shortDate(end.toISOString())})`;
+}
+
+function periodStart(month: string, year: string) {
+  if (!month || !year) return '';
+  return `${year}-${String(month).padStart(2, '0')}-01`;
+}
+
+function periodEnd(month: string, year: string) {
+  if (!month || !year) return '';
+  return new Date(Number(year), Number(month), 0).toISOString().slice(0, 10);
 }

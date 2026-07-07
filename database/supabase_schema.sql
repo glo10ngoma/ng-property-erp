@@ -48,6 +48,8 @@ CREATE TABLE tenants (
   profession VARCHAR(140),
   address TEXT,
   id_number VARCHAR(120),
+  id_document_file_name VARCHAR(220),
+  id_document_file_url TEXT,
   nationality VARCHAR(100),
   emergency_contact_name VARCHAR(160),
   emergency_contact_phone VARCHAR(60),

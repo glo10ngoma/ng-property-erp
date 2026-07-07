@@ -82,10 +82,10 @@ export class TenantsService {
     const { rows } = await this.db.query(
       `INSERT INTO tenants (
          first_name, last_name, post_name, phone, secondary_phone, email, profession, address,
-         id_number, nationality, emergency_contact_name, emergency_contact_phone, notes,
+         id_number, id_document_file_name, id_document_file_url, nationality, emergency_contact_name, emergency_contact_phone, notes,
          unit_id, move_in_date, status, organization_id
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING *`,
       [
         dto.first_name,
         dto.last_name,
@@ -96,6 +96,8 @@ export class TenantsService {
         dto.profession ?? null,
         dto.address ?? null,
         dto.id_number ?? null,
+        dto.id_document_file_name ?? null,
+        dto.id_document_file_url ?? null,
         dto.nationality ?? null,
         dto.emergency_contact_name ?? null,
         dto.emergency_contact_phone ?? null,
@@ -123,14 +125,16 @@ export class TenantsService {
            profession = COALESCE($8, profession),
            address = COALESCE($9, address),
            id_number = COALESCE($10, id_number),
-           nationality = COALESCE($11, nationality),
-           emergency_contact_name = COALESCE($12, emergency_contact_name),
-           emergency_contact_phone = COALESCE($13, emergency_contact_phone),
-           notes = COALESCE($14, notes),
-           unit_id = COALESCE($15, unit_id),
-           move_in_date = COALESCE($16, move_in_date),
-           status = COALESCE($17, status)
-       WHERE id = $1 AND organization_id = $18 AND deleted_at IS NULL RETURNING *`,
+           id_document_file_name = COALESCE($11, id_document_file_name),
+           id_document_file_url = COALESCE($12, id_document_file_url),
+           nationality = COALESCE($13, nationality),
+           emergency_contact_name = COALESCE($14, emergency_contact_name),
+           emergency_contact_phone = COALESCE($15, emergency_contact_phone),
+           notes = COALESCE($16, notes),
+           unit_id = COALESCE($17, unit_id),
+           move_in_date = COALESCE($18, move_in_date),
+           status = COALESCE($19, status)
+       WHERE id = $1 AND organization_id = $20 AND deleted_at IS NULL RETURNING *`,
       [
         id,
         dto.first_name,
@@ -142,6 +146,8 @@ export class TenantsService {
         dto.profession,
         dto.address,
         dto.id_number,
+        dto.id_document_file_name,
+        dto.id_document_file_url,
         dto.nationality,
         dto.emergency_contact_name,
         dto.emergency_contact_phone,

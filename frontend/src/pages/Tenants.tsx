@@ -3,12 +3,12 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, exportCsv, exportExcel, includesText, invoiceDisplayStatus, money, paymentMethodLabel, shortDate } from '../api';
 import { useAuth } from '../auth';
-import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage, TableToolbar } from '../components';
+import { EmptyState, Modal, PageHeader, SearchableSelect, StatusBadge, SuccessMessage, TableToolbar } from '../components';
 import { useApiList } from '../hooks';
 
 type Tenant = {
   id: number; first_name: string; last_name: string; post_name?: string; phone: string; secondary_phone?: string; email?: string;
-  profession?: string; address?: string; id_number?: string; nationality?: string; emergency_contact_name?: string; emergency_contact_phone?: string; notes?: string;
+  profession?: string; address?: string; id_number?: string; id_document_file_name?: string; nationality?: string; emergency_contact_name?: string; emergency_contact_phone?: string; notes?: string;
   unit_id?: number; unit_number?: string; building_name?: string; monthly_rent?: number; move_in_date?: string; created_at?: string; status: string;
 };
 type TenantDetail = Tenant & {
@@ -32,10 +32,17 @@ type TenantReport = {
   remaining: number;
 };
 
+const countryOptions = [
+  'Republique democratique du Congo', 'Congo', 'Angola', 'Burundi', 'Rwanda', 'Ouganda', 'Tanzanie', 'Zambie',
+  'Afrique du Sud', 'Cameroun', 'Cote d Ivoire', 'Senegal', 'Mali', 'France', 'Belgique', 'Canada', 'Etats-Unis',
+].map((country) => ({ value: country, label: country }));
+
 export function Tenants() {
   const { can } = useAuth();
   const { data, reload } = useApiList<Tenant>('/tenants');
   const [editing, setEditing] = useState<Partial<Tenant> | null>(null);
+  const [nationality, setNationality] = useState<string | null>(null);
+  const [identityFileName, setIdentityFileName] = useState('');
   const [viewing, setViewing] = useState<TenantDetail | null>(null);
   const [situation, setSituation] = useState<Tenant | null>(null);
   const [tenantReport, setTenantReport] = useState<TenantReport | null>(null);
@@ -63,7 +70,9 @@ export function Tenants() {
       profession: form.get('profession') || null,
       address: form.get('address') || null,
       id_number: form.get('id_number') || null,
-      nationality: form.get('nationality') || null,
+      id_document_file_name: identityFileName || null,
+      id_document_file_url: null,
+      nationality,
       emergency_contact_name: form.get('emergency_contact_name') || null,
       emergency_contact_phone: form.get('emergency_contact_phone') || null,
       notes: form.get('notes') || null,
@@ -100,7 +109,7 @@ export function Tenants() {
 
   return (
     <section>
-      <PageHeader title="Locataires" action={can('tenants.create') ? <button onClick={() => setEditing({})}><Plus size={16} />Nouveau locataire</button> : undefined} />
+      <PageHeader title="Locataires" action={can('tenants.create') ? <button onClick={() => { setNationality(null); setIdentityFileName(''); setEditing({}); }}><Plus size={16} />Nouveau locataire</button> : undefined} />
       <SuccessMessage message={success} />
       <TableToolbar
         query={query}
@@ -133,7 +142,7 @@ export function Tenants() {
                 <td className="actions" onClick={(event) => event.stopPropagation()}>
                   <button className="icon-btn" title="Voir" onClick={() => openSituation(tenant)}><Eye size={16} /></button>
                   <button className="icon-btn" title="Situation" onClick={() => openSituation(tenant)}><BarChart3 size={16} /></button>
-                  {can('tenants.update') && <button className="icon-btn" title="Modifier" onClick={() => setEditing(tenant)}><Pencil size={16} /></button>}
+                  {can('tenants.update') && <button className="icon-btn" title="Modifier" onClick={() => { setNationality(tenant.nationality ?? null); setIdentityFileName(tenant.id_document_file_name ?? ''); setEditing(tenant); }}><Pencil size={16} /></button>}
                   {can('invoices.create') && <button className="icon-btn" title="Creer une facture" onClick={() => createInvoice(tenant)}><FilePlus size={16} /></button>}
                 </td>
               </tr>
@@ -158,7 +167,9 @@ export function Tenants() {
               <label>Profession<input name="profession" defaultValue={editing.profession} /></label>
               <label className="lease-field-wide">Adresse<input name="address" defaultValue={editing.address} /></label>
               <label>Piece d'identite / numero ID<input name="id_number" defaultValue={editing.id_number} /></label>
-              <label>Nationalite<input name="nationality" defaultValue={editing.nationality} /></label>
+              <label>Nationalite<SearchableSelect options={countryOptions} value={nationality} onChange={(value) => setNationality(value ? String(value) : null)} placeholder="Rechercher un pays" emptyMessage="Aucun pays trouve" /></label>
+              <label className="lease-field-wide">Piece jointe identite<input type="file" accept="application/pdf,image/*" onChange={(event) => setIdentityFileName(event.target.files?.[0]?.name ?? '')} /></label>
+              <label>Nom fichier identite<input value={identityFileName} onChange={(event) => setIdentityFileName(event.target.value)} placeholder="piece-identite.pdf" /></label>
               <label>Contact d'urgence<input name="emergency_contact_name" defaultValue={editing.emergency_contact_name} /></label>
               <label>Telephone contact d'urgence<input name="emergency_contact_phone" defaultValue={editing.emergency_contact_phone} /></label>
               <label className="lease-field-full">Observations<textarea name="notes" defaultValue={editing.notes} /></label>

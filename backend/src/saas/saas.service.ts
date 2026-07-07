@@ -1677,10 +1677,15 @@ export class SaasService {
          COALESCE(SUM(s.paid_amount), 0)::FLOAT AS total_paid,
          COALESCE(SUM(s.remaining_amount), 0)::FLOAT AS remaining
        FROM invoices i
+       LEFT JOIN leases l ON l.id = i.lease_id
+       LEFT JOIN tenants t ON t.id = i.tenant_id
+       LEFT JOIN units iu ON iu.id = i.unit_id
+       LEFT JOIN units lu ON lu.id = l.unit_id
+       LEFT JOIN units tu ON tu.id = t.unit_id
        LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
-       WHERE i.building_id = $1 AND i.issue_date BETWEEN $2 AND $3 AND i.organization_id = $4 AND i.deleted_at IS NULL
+       WHERE COALESCE(i.building_id, iu.building_id, lu.building_id, tu.building_id) = $1 AND i.issue_date BETWEEN $2 AND $3 AND i.organization_id = $4 AND i.deleted_at IS NULL
          AND ($5::INT IS NULL OR i.tenant_id = $5)
-         AND ($6::INT IS NULL OR i.unit_id = $6)
+         AND ($6::INT IS NULL OR COALESCE(i.unit_id, l.unit_id, t.unit_id) = $6)
          AND ${this.invoiceStatusClause('i', 7)}`,
       params,
     );
@@ -1692,14 +1697,15 @@ export class SaasService {
               COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
        FROM invoices i
        JOIN tenants t ON t.id = i.tenant_id
-       LEFT JOIN units u ON u.id = i.unit_id
+       LEFT JOIN leases l ON l.id = i.lease_id
+       LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
        LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
-       WHERE i.building_id = $1
+       WHERE COALESCE(i.building_id, u.building_id) = $1
          AND i.issue_date BETWEEN $2 AND $3
          AND i.organization_id = $4
          AND i.deleted_at IS NULL
          AND ($5::INT IS NULL OR i.tenant_id = $5)
-         AND ($6::INT IS NULL OR i.unit_id = $6)
+         AND ($6::INT IS NULL OR COALESCE(i.unit_id, l.unit_id, t.unit_id) = $6)
          AND ${this.invoiceStatusClause('i', 7)}
        ORDER BY i.issue_date DESC, i.invoice_number`,
       params,
@@ -1712,13 +1718,14 @@ export class SaasService {
        FROM payments p
        JOIN invoices i ON i.id = p.invoice_id
        JOIN tenants t ON t.id = i.tenant_id
-       LEFT JOIN units u ON u.id = i.unit_id
-       WHERE i.building_id = $1
+       LEFT JOIN leases l ON l.id = i.lease_id
+       LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+       WHERE COALESCE(i.building_id, u.building_id) = $1
          AND p.payment_date BETWEEN $2 AND $3
          AND p.organization_id = $4
          AND p.deleted_at IS NULL
          AND ($5::INT IS NULL OR i.tenant_id = $5)
-         AND ($6::INT IS NULL OR i.unit_id = $6)
+         AND ($6::INT IS NULL OR COALESCE(i.unit_id, l.unit_id, t.unit_id) = $6)
          AND ${this.invoiceStatusClause('i', 7)}
        ORDER BY p.payment_date DESC, p.id DESC`,
       params,

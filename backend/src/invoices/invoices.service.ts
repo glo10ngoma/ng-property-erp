@@ -18,9 +18,9 @@ export class InvoicesService {
              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
       FROM invoices i
       JOIN tenants t ON t.id = i.tenant_id
-      JOIN units u ON u.id = t.unit_id
-      JOIN buildings b ON b.id = u.building_id
       LEFT JOIN leases l ON l.id = i.lease_id
+      LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+      LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
       LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
       WHERE i.organization_id = $1 AND i.deleted_at IS NULL
       ORDER BY i.issue_date DESC, i.id DESC
@@ -39,9 +39,9 @@ export class InvoicesService {
               COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
        FROM invoices i
        JOIN tenants t ON t.id = i.tenant_id
-       JOIN units u ON u.id = t.unit_id
-       JOIN buildings b ON b.id = u.building_id
        LEFT JOIN leases l ON l.id = i.lease_id
+       LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+       LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
        LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
        WHERE i.id = $1 AND i.organization_id = $2 AND i.deleted_at IS NULL`,
       [id, organizationId],
@@ -101,9 +101,11 @@ export class InvoicesService {
         `UPDATE invoices
          SET issue_date = COALESCE($2, issue_date),
              due_date = COALESCE($3, due_date),
-             total = COALESCE($4, total)
-         WHERE id = $1 AND organization_id = $5 AND deleted_at IS NULL RETURNING *`,
-        [id, dto.issue_date, dto.due_date, total, this.context.organizationId()],
+             total = COALESCE($4, total),
+             month = COALESCE($5, month),
+             year = COALESCE($6, year)
+         WHERE id = $1 AND organization_id = $7 AND deleted_at IS NULL RETURNING *`,
+        [id, dto.issue_date, dto.due_date, total, dto.month, dto.year, this.context.organizationId()],
       );
       await this.refreshStatus(client, id);
       return rows[0];
