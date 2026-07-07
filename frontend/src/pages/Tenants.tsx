@@ -1,7 +1,7 @@
-import { Eye, FilePlus, Pencil, Plus, Printer } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { BarChart3, Eye, FilePlus, Pencil, Plus, Printer } from 'lucide-react';
 import { useState } from 'react';
-import { api, exportCsv, includesText, invoiceDisplayStatus, money, paymentMethodLabel, shortDate } from '../api';
+import { useNavigate } from 'react-router-dom';
+import { api, exportCsv, exportExcel, includesText, invoiceDisplayStatus, money, paymentMethodLabel, shortDate } from '../api';
 import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage, TableToolbar } from '../components';
 import { useApiList } from '../hooks';
@@ -10,17 +10,23 @@ type Tenant = { id: number; first_name: string; last_name: string; phone: string
 type Unit = { id: number; building_name: string; number: string };
 type TenantDetail = Tenant & {
   situation: string;
-  financial: {
-    total_invoiced: number;
-    total_paid: number;
-    remaining: number;
-    invoices: number;
-    paid_invoices: number;
-    unpaid_invoices: number;
-    overdue_invoices: number;
-  };
+  financial: { total_invoiced: number; total_paid: number; remaining: number; invoices: number; paid_invoices: number; unpaid_invoices: number; overdue_invoices: number };
   invoices: Array<{ id: number; invoice_number: string; total: number; paid_amount: number; remaining_amount: number; due_date: string; status: string }>;
   payments: Array<{ id: number; invoice_number: string; payment_date: string; amount: number; payment_method: string; reference?: string }>;
+};
+type TenantReport = {
+  leases: Array<Record<string, unknown>>;
+  guarantees: Array<Record<string, unknown>>;
+  invoices: Array<Record<string, unknown>>;
+  paid: Array<Record<string, unknown>>;
+  partial: Array<Record<string, unknown>>;
+  unpaid: Array<Record<string, unknown>>;
+  overdue: Array<Record<string, unknown>>;
+  payments: Array<Record<string, unknown>>;
+  documents: Array<Record<string, unknown>>;
+  total_invoiced: number;
+  total_paid: number;
+  remaining: number;
 };
 
 export function Tenants() {
@@ -29,10 +35,24 @@ export function Tenants() {
   const units = useApiList<Unit>('/units');
   const [editing, setEditing] = useState<Partial<Tenant> | null>(null);
   const [viewing, setViewing] = useState<TenantDetail | null>(null);
+  const [situation, setSituation] = useState<Tenant | null>(null);
+  const [tenantReport, setTenantReport] = useState<TenantReport | null>(null);
   const [query, setQuery] = useState('');
+  const [filters, setFilters] = useState({ status: '', building: '', unit: '', start: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10), end: new Date().toISOString().slice(0, 10) });
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(1);
   const [success, setSuccess] = useState('');
   const navigate = useNavigate();
-  const filtered = data.filter((tenant) => includesText(tenant, query));
+
+  const buildings = Array.from(new Set(data.map((tenant) => tenant.building_name).filter(Boolean)));
+  const filtered = data
+    .filter((tenant) => includesText(tenant, query))
+    .filter((tenant) => !filters.status || tenant.status === filters.status)
+    .filter((tenant) => !filters.building || tenant.building_name === filters.building)
+    .filter((tenant) => !filters.unit || tenant.unit_number.toLowerCase().includes(filters.unit.toLowerCase()));
+  const sorted = [...filtered].sort((a, b) => `${a.last_name} ${a.first_name}`.localeCompare(`${b.last_name} ${b.first_name}`));
+  const paged = sorted.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
 
   async function save(form: FormData) {
     const payload = {
@@ -46,7 +66,7 @@ export function Tenants() {
     };
     if (editing?.id) await api.put(`/tenants/${editing.id}`, payload);
     else await api.post('/tenants', payload);
-    setSuccess(editing?.id ? 'Locataire modifié avec succès.' : 'Locataire créé avec succès.');
+    setSuccess(editing?.id ? 'Locataire modifie avec succes.' : 'Locataire cree avec succes.');
     setEditing(null);
     reload();
   }
@@ -59,7 +79,7 @@ export function Tenants() {
       year: now.getFullYear(),
       issue_date: now.toISOString().slice(0, 10),
       due_date: new Date(now.getFullYear(), now.getMonth(), 10).toISOString().slice(0, 10),
-      items: [{ description: 'Monthly rent', amount: Number(tenant.monthly_rent) }],
+      items: [{ description: 'Loyer mensuel', amount: Number(tenant.monthly_rent) }],
     });
     navigate(`/invoices/${response.data.id}`);
   }
@@ -69,13 +89,19 @@ export function Tenants() {
     setViewing(response.data);
   }
 
+  async function openSituation(tenant: Tenant) {
+    setSituation(tenant);
+    const response = await api.get<TenantReport>(`/reports/tenants/${tenant.id}`, { params: { start: filters.start, end: filters.end } });
+    setTenantReport(response.data);
+  }
+
   return (
     <section>
       <PageHeader title="Locataires" action={can('tenants.create') ? <button onClick={() => setEditing({})}><Plus size={16} />Nouveau locataire</button> : undefined} />
       <SuccessMessage message={success} />
       <TableToolbar
         query={query}
-        onQueryChange={setQuery}
+        onQueryChange={(value) => { setQuery(value); setPage(1); }}
         onExport={() => exportCsv('locataires.csv', filtered.map((tenant) => ({
           nom: `${tenant.first_name} ${tenant.last_name}`,
           telephone: tenant.phone,
@@ -86,36 +112,38 @@ export function Tenants() {
           statut: tenant.status,
         })))}
       />
+      <div className="quick-form">
+        <select value={filters.status} onChange={(event) => { setFilters({ ...filters, status: event.target.value }); setPage(1); }}><option value="">Tous les statuts</option><option value="ACTIVE">Actif</option><option value="INACTIVE">Inactif</option></select>
+        <select value={filters.building} onChange={(event) => { setFilters({ ...filters, building: event.target.value }); setPage(1); }}><option value="">Tous les immeubles</option>{buildings.map((building) => <option key={building} value={building}>{building}</option>)}</select>
+        <input value={filters.unit} onChange={(event) => { setFilters({ ...filters, unit: event.target.value }); setPage(1); }} placeholder="Appartement" />
+      </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Nom</th><th>Téléphone</th><th>Appartement</th><th>Immeuble</th><th>Loyer</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Nom</th><th>Telephone</th><th>Appartement</th><th>Immeuble</th><th className="right">Loyer</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
-            {filtered.map((tenant) => (
-              <tr key={tenant.id}>
-                <td>{tenant.first_name} {tenant.last_name}</td><td>{tenant.phone}</td><td>{tenant.unit_number}</td><td>{tenant.building_name}</td><td>{money(tenant.monthly_rent)}</td><td><StatusBadge value={tenant.status} /></td>
-                <td className="actions">
-                  <button className="icon-btn" title="Voir" onClick={() => openDetail(tenant)}><Eye size={16} /></button>
+            {paged.map((tenant) => (
+              <tr key={tenant.id} className="clickable-row" onClick={() => openSituation(tenant)}>
+                <td>{tenant.first_name} {tenant.last_name}</td><td>{tenant.phone}</td><td>{tenant.unit_number}</td><td>{tenant.building_name}</td><td className="right">{money(tenant.monthly_rent)}</td><td><StatusBadge value={tenant.status} /></td>
+                <td className="actions" onClick={(event) => event.stopPropagation()}>
+                  <button className="icon-btn" title="Voir" onClick={() => openSituation(tenant)}><Eye size={16} /></button>
+                  <button className="icon-btn" title="Situation" onClick={() => openSituation(tenant)}><BarChart3 size={16} /></button>
                   {can('tenants.update') && <button className="icon-btn" title="Modifier" onClick={() => setEditing(tenant)}><Pencil size={16} /></button>}
-                  {can('invoices.create') && <button className="icon-btn" title="Créer une facture" onClick={() => createInvoice(tenant)}><FilePlus size={16} /></button>}
+                  {can('invoices.create') && <button className="icon-btn" title="Creer une facture" onClick={() => createInvoice(tenant)}><FilePlus size={16} /></button>}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-        {!data.length && <EmptyState />}
+        {!sorted.length && <EmptyState />}
       </div>
+      <Pagination page={page} totalPages={totalPages} pageSize={pageSize} total={sorted.length} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />
+
       {editing && (
         <Modal title={editing.id ? 'Modifier le locataire' : 'Nouveau locataire'} onClose={() => setEditing(null)}>
-          <form
-            className="form-grid"
-            onSubmit={(event) => {
-              event.preventDefault();
-              save(new FormData(event.currentTarget));
-            }}
-          >
-            <input name="first_name" placeholder="Prénom" defaultValue={editing.first_name} required />
+          <form className="form-grid" onSubmit={(event) => { event.preventDefault(); save(new FormData(event.currentTarget)); }}>
+            <input name="first_name" placeholder="Prenom" defaultValue={editing.first_name} required />
             <input name="last_name" placeholder="Nom" defaultValue={editing.last_name} required />
-            <input name="phone" placeholder="Téléphone" defaultValue={editing.phone} required />
+            <input name="phone" placeholder="Telephone" defaultValue={editing.phone} required />
             <input name="email" placeholder="Email" type="email" defaultValue={editing.email} />
             <select name="unit_id" required defaultValue={editing.unit_id}>{units.data.map((u) => <option key={u.id} value={u.id}>{u.building_name} / {u.number}</option>)}</select>
             <input name="move_in_date" type="date" required defaultValue={editing.move_in_date?.slice(0, 10)} />
@@ -123,53 +151,96 @@ export function Tenants() {
           </form>
         </Modal>
       )}
+
       {viewing && (
-        <Modal title="Détail locataire" onClose={() => setViewing(null)}>
+        <Modal title="Detail locataire" onClose={() => setViewing(null)}>
           <div className="detail-list">
             <span>Nom</span><strong>{viewing.first_name} {viewing.last_name}</strong>
-            <span>Téléphone</span><strong>{viewing.phone}</strong>
+            <span>Telephone</span><strong>{viewing.phone}</strong>
             <span>Email</span><strong>{viewing.email || '-'}</strong>
             <span>Appartement</span><strong>{viewing.unit_number}</strong>
             <span>Immeuble</span><strong>{viewing.building_name}</strong>
             <span>Loyer mensuel</span><strong>{money(viewing.monthly_rent)}</strong>
-            <span>Date d’entrée</span><strong>{viewing.move_in_date ? shortDate(viewing.move_in_date) : '-'}</strong>
+            <span>Date entree</span><strong>{viewing.move_in_date ? shortDate(viewing.move_in_date) : '-'}</strong>
             <span>Situation actuelle</span><strong>{viewing.situation}</strong>
           </div>
           <div className="detail-section">
-            <h4>Situation financière</h4>
+            <h4>Situation financiere</h4>
             <div className="mini-stats">
-              <div className="mini-stat"><span>Total facturé</span><strong>{money(viewing.financial.total_invoiced)}</strong></div>
-              <div className="mini-stat"><span>Total payé</span><strong>{money(viewing.financial.total_paid)}</strong></div>
+              <div className="mini-stat"><span>Total facture</span><strong>{money(viewing.financial.total_invoiced)}</strong></div>
+              <div className="mini-stat"><span>Total paye</span><strong>{money(viewing.financial.total_paid)}</strong></div>
               <div className="mini-stat"><span>Solde restant</span><strong>{money(viewing.financial.remaining)}</strong></div>
               <div className="mini-stat"><span>Retards</span><strong>{viewing.financial.overdue_invoices}</strong></div>
             </div>
           </div>
-          <div className="detail-section">
-            <h4>Historique factures</h4>
-            <div className="compact-list">
-              {viewing.invoices.map((invoice) => (
-                <div className="compact-item" key={invoice.id}>
-                  <span>{invoice.invoice_number} · {shortDate(invoice.due_date)} · <StatusBadge value={invoiceDisplayStatus(invoice.status, invoice.due_date)} /></span>
-                  <strong>{money(invoice.remaining_amount)}</strong>
-                  <button className="icon-btn" title="Voir facture" onClick={() => navigate(`/invoices/${invoice.id}`)}><Eye size={15} /></button>
-                  <button className="icon-btn" title="Imprimer facture" onClick={() => window.open(`/invoices/${invoice.id}`, '_blank')}><Printer size={15} /></button>
-                </div>
-              ))}
-            </div>
+          <ReportList title="Historique factures" rows={viewing.invoices} />
+          <ReportList title="Historique paiements" rows={viewing.payments} />
+        </Modal>
+      )}
+
+      {situation && (
+        <Modal title={`Situation locataire - ${situation.first_name} ${situation.last_name}`} onClose={() => { setSituation(null); setTenantReport(null); }}>
+          <div className="quick-form">
+            <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, start: event.target.value })} />
+            <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, end: event.target.value })} />
+            <button type="button" onClick={() => openSituation(situation)}>Actualiser</button>
           </div>
-          <div className="detail-section">
-            <h4>Historique paiements</h4>
-            <div className="compact-list">
-              {viewing.payments.map((payment) => (
-                <div className="compact-item" key={payment.id}>
-                  <span>{payment.invoice_number} · {shortDate(payment.payment_date)} · {paymentMethodLabel(payment.payment_method)}</span>
-                  <strong>{money(payment.amount)}</strong>
-                </div>
-              ))}
-            </div>
-          </div>
+          {tenantReport && (
+            <>
+              <div className="detail-list">
+                <span>Nom</span><strong>{situation.first_name} {situation.last_name}</strong>
+                <span>Telephone</span><strong>{situation.phone}</strong>
+                <span>Email</span><strong>{situation.email ?? '-'}</strong>
+                <span>Statut</span><strong>{situation.status}</strong>
+              </div>
+              <div className="mini-stats">
+                <div className="mini-stat"><span>Total facture</span><strong>{money(tenantReport.total_invoiced)}</strong></div>
+                <div className="mini-stat"><span>Total paye</span><strong>{money(tenantReport.total_paid)}</strong></div>
+                <div className="mini-stat"><span>Solde restant</span><strong>{money(tenantReport.remaining)}</strong></div>
+                <div className="mini-stat"><span>Retards</span><strong>{tenantReport.overdue.length}</strong></div>
+              </div>
+              <div className="actions detail-section">
+                <button className="secondary" onClick={() => exportCsv('situation-locataire.csv', [...tenantReport.leases, ...tenantReport.invoices, ...tenantReport.payments])}>CSV</button>
+                <button className="secondary" onClick={() => exportExcel('situation-locataire.xls', [...tenantReport.leases, ...tenantReport.invoices, ...tenantReport.payments])}>Excel</button>
+              </div>
+              <ReportList title="Appartements / baux" rows={tenantReport.leases} />
+              <ReportList title="Garanties locatives" rows={tenantReport.guarantees} />
+              <ReportList title="Factures payees" rows={tenantReport.paid} />
+              <ReportList title="Factures partiellement payees" rows={tenantReport.partial} />
+              <ReportList title="Factures non payees" rows={tenantReport.unpaid} />
+              <ReportList title="Factures en retard" rows={tenantReport.overdue} />
+              <ReportList title="Paiements" rows={tenantReport.payments} />
+              <ReportList title="Documents / contrats" rows={tenantReport.documents} />
+            </>
+          )}
         </Modal>
       )}
     </section>
   );
+}
+
+function Pagination({ page, totalPages, pageSize, total, onPage, onPageSize }: { page: number; totalPages: number; pageSize: number; total: number; onPage: (page: number) => void; onPageSize: (size: number) => void }) {
+  return <div className="pagination-bar"><span className="table-meta">{total} ligne(s) affichee(s)</span><div className="actions"><select value={pageSize} onChange={(event) => onPageSize(Number(event.target.value))}>{[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}</select><button className="secondary" disabled={page <= 1} onClick={() => onPage(page - 1)}>Precedent</button><span className="table-meta">{page} / {totalPages}</span><button className="secondary" disabled={page >= totalPages} onClick={() => onPage(page + 1)}>Suivant</button></div></div>;
+}
+
+function ReportList({ title, rows }: { title: string; rows: Array<Record<string, unknown>> }) {
+  return (
+    <div className="detail-section">
+      <h4>{title}</h4>
+      <div className="compact-list">
+        {rows.length ? rows.slice(0, 10).map((row, index) => (
+          <div className="compact-item" key={index}>
+            <span>{String(row.invoice_number ?? row.building_name ?? row.file_name ?? row.payment_method ?? row.tenant_name ?? row.id ?? '-')}</span>
+            <strong>{formatReportValue(row)}</strong>
+          </div>
+        )) : <span className="empty">Aucune donnee.</span>}
+      </div>
+    </div>
+  );
+}
+
+function formatReportValue(row: Record<string, unknown>) {
+  const amount = row.remaining_amount ?? row.amount ?? row.total ?? row.paid_amount;
+  if (typeof amount === 'number' || typeof amount === 'string') return money(Number(amount));
+  return String(row.unit_number ?? row.status ?? row.document_type ?? '');
 }

@@ -661,8 +661,8 @@ export class ReportsController {
   }
 
   @Get('tenants/:id')
-  tenant(@Param('id', ParseIntPipe) id: number) {
-    return this.service.tenantReport(id);
+  tenant(@Param('id', ParseIntPipe) id: number, @Query('start') start?: string, @Query('end') end?: string) {
+    return this.service.tenantReport(id, start, end);
   }
 
   @Get('availability')

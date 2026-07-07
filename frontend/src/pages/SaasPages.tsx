@@ -534,8 +534,16 @@ export function ReportsPage() {
   const invoiceRows = arrayOfRecords(paymentsReport?.invoices);
   const buildingTenants = arrayOfRecords(buildingReport?.tenants);
   const buildingUnits = arrayOfRecords(buildingReport?.units);
+  const buildingPaidTenants = arrayOfRecords(buildingReport?.tenants_paid);
+  const buildingUnpaidTenants = arrayOfRecords(buildingReport?.tenants_unpaid);
+  const buildingPaidInvoices = arrayOfRecords(buildingReport?.paid_invoices);
+  const buildingUnpaidInvoices = arrayOfRecords(buildingReport?.unpaid_invoices);
+  const buildingOverdueInvoices = arrayOfRecords(buildingReport?.overdue_invoices);
   const tenantLeases = arrayOfRecords(tenantReport?.leases);
   const tenantPayments = arrayOfRecords(tenantReport?.payments);
+  const tenantInvoices = arrayOfRecords(tenantReport?.invoices);
+  const tenantGuarantees = arrayOfRecords(tenantReport?.guarantees);
+  const tenantDocuments = arrayOfRecords(tenantReport?.documents);
   const availabilityRows = arrayOfRecords(availability?.buildings);
   const overdueRows = arrayOfRecords(overdue?.invoices);
   const stockRows = arrayOfRecords(stockReport?.items);
@@ -566,6 +574,8 @@ export function ReportsPage() {
       {reportKind === 'reports' && <div className="chart-grid"><ReportBlock title="Revenus par immeuble" rows={summaryRows} filename="rapport-dashboard-revenus.csv" /><ReportBlock title="Garanties locatives" rows={guaranteesRows} filename="rapport-dashboard-garanties.csv" /></div>}
       {reportKind === 'buildings' && <><SummaryCards values={[['Unités', buildingReport?.units_total], ['Occupées', buildingReport?.occupied_units], ['Libres', buildingReport?.vacant_units], ['Taux occupation', `${buildingReport?.occupancy_rate ?? 0}%`], ['Total facturé', money((buildingReport?.finances as Record<string, unknown> | undefined)?.total_invoiced as number)], ['Reste à payer', money((buildingReport?.finances as Record<string, unknown> | undefined)?.remaining as number)]]} /><ReportBlock title="Locataires de l'immeuble" rows={buildingTenants} filename="rapport-immeuble-locataires.csv" /><ReportBlock title="Unités de l'immeuble" rows={buildingUnits} filename="rapport-immeuble-unites.csv" /></>}
       {reportKind === 'tenants' && <><SummaryCards values={[['Baux actifs', arrayOfRecords(tenantReport?.active_leases).length], ['Anciens baux', arrayOfRecords(tenantReport?.old_leases).length], ['Total facturé', money(tenantReport?.total_invoiced as number)], ['Total payé', money(tenantReport?.total_paid as number)], ['Solde restant', money(tenantReport?.remaining as number)], ['Paiements', tenantPayments.length]]} /><ReportBlock title="Baux du locataire" rows={tenantLeases} filename="rapport-locataire-baux.csv" /><ReportBlock title="Paiements du locataire" rows={tenantPayments} filename="rapport-locataire-paiements.csv" /></>}
+      {reportKind === 'buildings' && buildingReport && <><ReportBlock title="Locataires ayant paye" rows={buildingPaidTenants} filename="rapport-immeuble-locataires-payes.csv" /><ReportBlock title="Locataires n'ayant pas paye" rows={buildingUnpaidTenants} filename="rapport-immeuble-locataires-non-payes.csv" /><ReportBlock title="Factures payees" rows={buildingPaidInvoices} filename="rapport-immeuble-factures-payees.csv" /><ReportBlock title="Factures non payees" rows={buildingUnpaidInvoices} filename="rapport-immeuble-factures-non-payees.csv" /><ReportBlock title="Factures en retard" rows={buildingOverdueInvoices} filename="rapport-immeuble-factures-retard.csv" /></>}
+      {reportKind === 'tenants' && tenantReport && <><ReportBlock title="Garanties locatives" rows={tenantGuarantees} filename="rapport-locataire-garanties.csv" /><ReportBlock title="Factures du locataire" rows={tenantInvoices} filename="rapport-locataire-factures.csv" /><ReportBlock title="Documents / contrats" rows={tenantDocuments} filename="rapport-locataire-documents.csv" /></>}
       {reportKind === 'payments' && <><SummaryCards values={[['Paiements reçus', paymentRows.length], ['Locataires ayant payé', arrayOfRecords(paymentsReport?.tenants_paid).length], ['Locataires sans paiement', arrayOfRecords(paymentsReport?.tenants_unpaid).length], ['Total facturé', money(paymentsReport?.total_invoiced as number)], ['Total encaissé', money(paymentsReport?.total_paid as number)], ['Total restant', money(paymentsReport?.remaining as number)]]} /><ReportBlock title="Paiements reçus" rows={paymentRows} filename="rapport-paiements.csv" /><ReportBlock title="Factures de la période" rows={invoiceRows} filename="rapport-factures-periode.csv" /></>}
       {(reportKind === 'availability' || reportKind === 'reports') && <><SummaryCards values={[['Total unités', (availability?.totals as Record<string, unknown> | undefined)?.total_units], ['Occupées', (availability?.totals as Record<string, unknown> | undefined)?.occupied_units], ['Libres', (availability?.totals as Record<string, unknown> | undefined)?.vacant_units], ['Maintenance', (availability?.totals as Record<string, unknown> | undefined)?.maintenance_units], ['Bloquées', (availability?.totals as Record<string, unknown> | undefined)?.blocked_units], ['Loyer potentiel', money((availability?.totals as Record<string, unknown> | undefined)?.vacant_potential_rent as number)]]} /><ReportBlock title="Disponibilité par immeuble" rows={availabilityRows} filename="rapport-disponibilite.csv" /></>}
       {reportKind === 'overdue' && <><SummaryCards values={[['Factures en retard', overdue?.count], ['Total restant', money(overdue?.total_remaining as number)]]} /><ReportBlock title="Impayés et retards" rows={overdueRows} filename="rapport-impayes.csv" /></>}
@@ -675,26 +685,52 @@ function cashCategoryLabel(value: string) {
 }
 
 function QuickForm({ fields, button, onSubmit }: { fields: string[]; button: string; onSubmit: (form: FormData) => void }) {
+  const [open, setOpen] = useState(false);
   return (
-    <form className="quick-form" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); event.currentTarget.reset(); }}>
-      {fields.map((field) => {
-        const [name, label] = field.split(':');
-        const type = name.includes('date') ? 'date' : name.includes('amount') || name.includes('salary') || name.includes('quantity') || name.includes('price') ? 'number' : 'text';
-        return <input key={name} name={name} placeholder={label} type={type} required={['first_name', 'last_name', 'name', 'amount'].includes(name)} />;
-      })}
-      <button>{button}</button>
-    </form>
+    <>
+      <div className="table-toolbar">
+        <button onClick={() => setOpen(true)}>{button}</button>
+      </div>
+      {open && (
+        <Modal title={button} onClose={() => setOpen(false)}>
+          <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); event.currentTarget.reset(); setOpen(false); }}>
+            {fields.map((field) => {
+              const [name, label] = field.split(':');
+              const type = name.includes('date') ? 'date' : name.includes('amount') || name.includes('salary') || name.includes('quantity') || name.includes('price') ? 'number' : 'text';
+              return <input key={name} name={name} placeholder={label} type={type} required={['first_name', 'last_name', 'name', 'amount'].includes(name)} />;
+            })}
+            <button>Enregistrer</button>
+          </form>
+        </Modal>
+      )}
+    </>
   );
 }
 
 function Table({ headers, rows }: { headers: string[]; rows: Array<Array<ReactNode>> }) {
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pagedRows = rows.slice((safePage - 1) * pageSize, safePage * pageSize);
   return (
-    <div className="table-wrap">
-      <table>
-        <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
-        <tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
-      </table>
-      {!rows.length && <EmptyState />}
-    </div>
+    <>
+      <div className="table-wrap">
+        <table>
+          <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
+          <tbody>{pagedRows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
+        </table>
+        {!rows.length && <EmptyState />}
+      </div>
+      <div className="pagination-bar">
+        <span className="table-meta">{rows.length} ligne(s)</span>
+        <div className="actions">
+          <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>{[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}</select>
+          <button className="secondary" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>Precedent</button>
+          <span className="table-meta">{safePage} / {totalPages}</span>
+          <button className="secondary" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>Suivant</button>
+        </div>
+      </div>
+    </>
   );
 }
