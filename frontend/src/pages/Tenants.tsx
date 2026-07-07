@@ -6,8 +6,11 @@ import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage, TableToolbar } from '../components';
 import { useApiList } from '../hooks';
 
-type Tenant = { id: number; first_name: string; last_name: string; phone: string; email?: string; unit_id: number; unit_number: string; building_name: string; monthly_rent: number; move_in_date?: string; status: string };
-type Unit = { id: number; building_name: string; number: string };
+type Tenant = {
+  id: number; first_name: string; last_name: string; post_name?: string; phone: string; secondary_phone?: string; email?: string;
+  profession?: string; address?: string; id_number?: string; nationality?: string; emergency_contact_name?: string; emergency_contact_phone?: string; notes?: string;
+  unit_id?: number; unit_number?: string; building_name?: string; monthly_rent?: number; move_in_date?: string; created_at?: string; status: string;
+};
 type TenantDetail = Tenant & {
   situation: string;
   financial: { total_invoiced: number; total_paid: number; remaining: number; invoices: number; paid_invoices: number; unpaid_invoices: number; overdue_invoices: number };
@@ -32,7 +35,6 @@ type TenantReport = {
 export function Tenants() {
   const { can } = useAuth();
   const { data, reload } = useApiList<Tenant>('/tenants');
-  const units = useApiList<Unit>('/units');
   const [editing, setEditing] = useState<Partial<Tenant> | null>(null);
   const [viewing, setViewing] = useState<TenantDetail | null>(null);
   const [situation, setSituation] = useState<Tenant | null>(null);
@@ -47,18 +49,25 @@ export function Tenants() {
     .filter((tenant) => includesText(tenant, query))
     .filter((tenant) => !filters.status || tenant.status === filters.status)
     .filter((tenant) => !filters.building || tenant.building_name === filters.building)
-    .filter((tenant) => !filters.unit || tenant.unit_number.toLowerCase().includes(filters.unit.toLowerCase()));
+    .filter((tenant) => !filters.unit || (tenant.unit_number ?? '').toLowerCase().includes(filters.unit.toLowerCase()));
   const sorted = [...filtered].sort((a, b) => `${a.last_name} ${a.first_name}`.localeCompare(`${b.last_name} ${b.first_name}`));
 
   async function save(form: FormData) {
     const payload = {
       first_name: form.get('first_name'),
       last_name: form.get('last_name'),
+      post_name: form.get('post_name') || null,
       phone: form.get('phone'),
-      email: form.get('email'),
-      unit_id: Number(form.get('unit_id')),
-      move_in_date: form.get('move_in_date'),
-      status: 'ACTIVE',
+      secondary_phone: form.get('secondary_phone') || null,
+      email: form.get('email') || null,
+      profession: form.get('profession') || null,
+      address: form.get('address') || null,
+      id_number: form.get('id_number') || null,
+      nationality: form.get('nationality') || null,
+      emergency_contact_name: form.get('emergency_contact_name') || null,
+      emergency_contact_phone: form.get('emergency_contact_phone') || null,
+      notes: form.get('notes') || null,
+      status: form.get('status') || 'ACTIVE',
     };
     if (editing?.id) await api.put(`/tenants/${editing.id}`, payload);
     else await api.post('/tenants', payload);
@@ -75,7 +84,7 @@ export function Tenants() {
       year: now.getFullYear(),
       issue_date: now.toISOString().slice(0, 10),
       due_date: new Date(now.getFullYear(), now.getMonth(), 10).toISOString().slice(0, 10),
-      items: [{ description: 'Loyer mensuel', amount: Number(tenant.monthly_rent) }],
+      items: [{ description: 'Loyer mensuel', amount: Number(tenant.monthly_rent ?? 0) }],
     });
     navigate(`/invoices/${response.data.id}`);
   }
@@ -98,8 +107,11 @@ export function Tenants() {
         onQueryChange={(value) => { setQuery(value); }}
         onExport={() => exportCsv('locataires.csv', filtered.map((tenant) => ({
           nom: `${tenant.first_name} ${tenant.last_name}`,
+          postnom: tenant.post_name ?? '',
           telephone: tenant.phone,
+          telephone_secondaire: tenant.secondary_phone ?? '',
           email: tenant.email ?? '',
+          profession: tenant.profession ?? '',
           immeuble: tenant.building_name,
           appartement: tenant.unit_number,
           loyer: tenant.monthly_rent,
@@ -117,7 +129,7 @@ export function Tenants() {
           <tbody>
             {sorted.map((tenant) => (
               <tr key={tenant.id} className="clickable-row" onClick={() => openSituation(tenant)}>
-                <td>{tenant.first_name} {tenant.last_name}</td><td>{tenant.phone}</td><td>{tenant.unit_number}</td><td>{tenant.building_name}</td><td className="right">{amount(tenant.monthly_rent)}</td><td>USD</td><td><StatusBadge value={tenant.status} /></td>
+                <td>{tenant.first_name} {tenant.last_name}{tenant.post_name ? ` ${tenant.post_name}` : ''}</td><td>{tenant.phone}</td><td>{tenant.unit_number ?? '-'}</td><td>{tenant.building_name ?? '-'}</td><td className="right">{amount(tenant.monthly_rent)}</td><td>USD</td><td><StatusBadge value={tenant.status} /></td>
                 <td className="actions" onClick={(event) => event.stopPropagation()}>
                   <button className="icon-btn" title="Voir" onClick={() => openSituation(tenant)}><Eye size={16} /></button>
                   <button className="icon-btn" title="Situation" onClick={() => openSituation(tenant)}><BarChart3 size={16} /></button>
@@ -135,12 +147,22 @@ export function Tenants() {
       {editing && (
         <Modal title={editing.id ? 'Modifier le locataire' : 'Nouveau locataire'} onClose={() => setEditing(null)}>
           <form className="form-grid" onSubmit={(event) => { event.preventDefault(); save(new FormData(event.currentTarget)); }}>
-            <input name="first_name" placeholder="Prenom" defaultValue={editing.first_name} required />
-            <input name="last_name" placeholder="Nom" defaultValue={editing.last_name} required />
-            <input name="phone" placeholder="Telephone" defaultValue={editing.phone} required />
-            <input name="email" placeholder="Email" type="email" defaultValue={editing.email} />
-            <select name="unit_id" required defaultValue={editing.unit_id}>{units.data.map((u) => <option key={u.id} value={u.id}>{u.building_name} / {u.number}</option>)}</select>
-            <input name="move_in_date" type="date" required defaultValue={editing.move_in_date?.slice(0, 10)} />
+            <div className="lease-section-grid">
+              <label>Prenom<input name="first_name" defaultValue={editing.first_name} required /></label>
+              <label>Nom<input name="last_name" defaultValue={editing.last_name} required /></label>
+              <label>Post-nom<input name="post_name" defaultValue={editing.post_name} /></label>
+              <label>Statut<select name="status" defaultValue={editing.status ?? 'ACTIVE'} required><option value="ACTIVE">Actif</option><option value="INACTIVE">Inactif</option></select></label>
+              <label>Telephone<input name="phone" defaultValue={editing.phone} required /></label>
+              <label>Telephone secondaire<input name="secondary_phone" defaultValue={editing.secondary_phone} /></label>
+              <label>Email<input name="email" placeholder="Optionnel" type="email" defaultValue={editing.email} /></label>
+              <label>Profession<input name="profession" defaultValue={editing.profession} /></label>
+              <label className="lease-field-wide">Adresse<input name="address" defaultValue={editing.address} /></label>
+              <label>Piece d'identite / numero ID<input name="id_number" defaultValue={editing.id_number} /></label>
+              <label>Nationalite<input name="nationality" defaultValue={editing.nationality} /></label>
+              <label>Contact d'urgence<input name="emergency_contact_name" defaultValue={editing.emergency_contact_name} /></label>
+              <label>Telephone contact d'urgence<input name="emergency_contact_phone" defaultValue={editing.emergency_contact_phone} /></label>
+              <label className="lease-field-full">Observations<textarea name="notes" defaultValue={editing.notes} /></label>
+            </div>
             <button>Enregistrer</button>
           </form>
         </Modal>
@@ -149,13 +171,15 @@ export function Tenants() {
       {viewing && (
         <Modal title="Detail locataire" onClose={() => setViewing(null)}>
           <div className="detail-list">
-            <span>Nom</span><strong>{viewing.first_name} {viewing.last_name}</strong>
+            <span>Nom</span><strong>{viewing.first_name} {viewing.last_name}{viewing.post_name ? ` ${viewing.post_name}` : ''}</strong>
             <span>Telephone</span><strong>{viewing.phone}</strong>
+            <span>Telephone secondaire</span><strong>{viewing.secondary_phone || '-'}</strong>
             <span>Email</span><strong>{viewing.email || '-'}</strong>
-            <span>Appartement</span><strong>{viewing.unit_number}</strong>
-            <span>Immeuble</span><strong>{viewing.building_name}</strong>
+            <span>Profession</span><strong>{viewing.profession || '-'}</strong>
+            <span>Appartement</span><strong>{viewing.unit_number ?? '-'}</strong>
+            <span>Immeuble</span><strong>{viewing.building_name ?? '-'}</strong>
             <span>Loyer mensuel</span><strong>{money(viewing.monthly_rent)}</strong>
-            <span>Date entree</span><strong>{viewing.move_in_date ? shortDate(viewing.move_in_date) : '-'}</strong>
+            <span>Date d'entree dans le systeme</span><strong>{viewing.move_in_date ? shortDate(viewing.move_in_date) : shortDate(String(viewing.created_at ?? new Date().toISOString()))}</strong>
             <span>Situation actuelle</span><strong>{viewing.situation}</strong>
           </div>
           <div className="detail-section">

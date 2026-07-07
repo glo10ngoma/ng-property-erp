@@ -3,6 +3,8 @@ export { Modal } from './core/components/Modal';
 export { StatusBadge } from './core/components/StatusBadge';
 export { EmptyState } from './core/components/EmptyState';
 export { LoadingState } from './core/components/LoadingState';
+export { SearchableSelect } from './core/components/SearchableSelect';
+export type { SearchableSelectOption } from './core/components/SearchableSelect';
 export { TenantSearchSelect } from './core/components/TenantSearchSelect';
 export type { TenantSearchOption } from './core/components/TenantSearchSelect';
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { SearchableSelect } from './SearchableSelect';
 
 export type TenantSearchOption = {
   id: number;
@@ -22,41 +22,24 @@ export function TenantSearchSelect({
   name?: string;
   required?: boolean;
 }) {
-  const [query, setQuery] = useState('');
-  const selected = tenants.find((tenant) => tenant.id === value) ?? null;
-  const filtered = useMemo(() => {
-    const term = query.trim().toLowerCase();
-    if (!term) return tenants.slice(0, 8);
-    return tenants.filter((tenant) => tenantLabel(tenant).toLowerCase().includes(term)).slice(0, 8);
-  }, [query, tenants]);
+  const options = tenants.map((tenant) => ({
+    value: tenant.id,
+    label: tenantName(tenant),
+    meta: tenantMeta(tenant),
+  }));
 
   return (
-    <div className="search-select">
-      <input
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder={selected ? tenantLabel(selected) : 'Rechercher un locataire'}
+    <>
+      <SearchableSelect
+        emptyMessage="Aucun locataire trouve"
+        onChange={onChange}
+        options={options}
+        placeholder="Rechercher un locataire"
+        value={value}
       />
       <input name={name} value={value ?? ''} readOnly type="hidden" />
       {required && !value && <span className="search-select-required">Selectionnez un locataire.</span>}
-      <div className="search-select-list">
-        {filtered.map((tenant) => (
-          <button
-            className={tenant.id === value ? 'search-select-option active' : 'search-select-option'}
-            key={tenant.id}
-            type="button"
-            onClick={() => {
-              onChange(tenant.id);
-              setQuery('');
-            }}
-          >
-            <span>{tenantName(tenant)}</span>
-            <small>{tenantMeta(tenant)}</small>
-          </button>
-        ))}
-        {!filtered.length && <div className="search-select-empty">Aucun locataire trouve</div>}
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -66,8 +49,4 @@ function tenantName(tenant: TenantSearchOption) {
 
 function tenantMeta(tenant: TenantSearchOption) {
   return [tenant.phone, tenant.building_name, tenant.unit_number].filter(Boolean).join(' - ') || '-';
-}
-
-function tenantLabel(tenant: TenantSearchOption) {
-  return `${tenantName(tenant)} - ${tenantMeta(tenant)}`;
 }

@@ -1,5 +1,6 @@
-import { CreditCard, Pencil, Printer } from 'lucide-react';
+import { ArrowLeft, CreditCard, Pencil, Printer } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useParams } from 'react-router-dom';
 import { api, invoiceDisplayStatus, itemLabel, money, paymentMethodLabel, shortDate } from '../api';
 import { useAuth } from '../auth';
@@ -15,6 +16,7 @@ type Invoice = {
 export function InvoiceDetail() {
   const { can } = useAuth();
   const { id } = useParams();
+  const navigate = useNavigate();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -62,6 +64,7 @@ export function InvoiceDetail() {
       <div className="page-header no-print">
         <h2>{invoice.invoice_number}</h2>
         <div className="actions">
+          <button className="secondary" onClick={() => navigate('/invoices')}><ArrowLeft size={16} />Retour</button>
           {can('invoices.update') && <button onClick={() => setEditOpen(true)}><Pencil size={16} />Modifier</button>}
           <button onClick={() => window.print()}><Printer size={16} />Imprimer</button>
           {can('payments.create') && <button onClick={() => setPaymentOpen(true)}><CreditCard size={16} />Enregistrer un paiement</button>}

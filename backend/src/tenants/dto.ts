@@ -9,18 +9,56 @@ export class CreateTenantDto {
   @IsString()
   last_name: string;
 
+  @IsOptional()
+  @IsString()
+  post_name?: string;
+
   @IsString()
   phone: string;
+
+  @IsOptional()
+  @IsString()
+  secondary_phone?: string;
 
   @IsOptional()
   @IsEmail()
   email?: string;
 
-  @IsInt()
-  unit_id: number;
+  @IsOptional()
+  @IsString()
+  profession?: string;
 
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  id_number?: string;
+
+  @IsOptional()
+  @IsString()
+  nationality?: string;
+
+  @IsOptional()
+  @IsString()
+  emergency_contact_name?: string;
+
+  @IsOptional()
+  @IsString()
+  emergency_contact_phone?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsInt()
+  unit_id?: number;
+
+  @IsOptional()
   @IsDateString()
-  move_in_date: string;
+  move_in_date?: string;
 
   @IsIn(TENANT_STATUSES)
   status: string;

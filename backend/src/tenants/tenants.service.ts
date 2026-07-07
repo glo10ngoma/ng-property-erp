@@ -14,8 +14,8 @@ export class TenantsService {
       SELECT t.*, u.number AS unit_number, u.monthly_rent,
              b.id AS building_id, b.name AS building_name
       FROM tenants t
-      JOIN units u ON u.id = t.unit_id
-      JOIN buildings b ON b.id = u.building_id
+      LEFT JOIN units u ON u.id = t.unit_id
+      LEFT JOIN buildings b ON b.id = u.building_id
       WHERE t.organization_id = $1 AND t.deleted_at IS NULL
       ORDER BY t.last_name, t.first_name
     `, [organizationId]);
@@ -28,8 +28,8 @@ export class TenantsService {
       `SELECT t.*, u.number AS unit_number, u.monthly_rent,
               b.id AS building_id, b.name AS building_name, b.address AS building_address
        FROM tenants t
-       JOIN units u ON u.id = t.unit_id
-       JOIN buildings b ON b.id = u.building_id
+       LEFT JOIN units u ON u.id = t.unit_id
+       LEFT JOIN buildings b ON b.id = u.building_id
        WHERE t.id = $1 AND t.organization_id = $2 AND t.deleted_at IS NULL`,
       [id, organizationId],
     );
@@ -80,56 +80,110 @@ export class TenantsService {
   async create(dto: CreateTenantDto) {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(
-      `INSERT INTO tenants (first_name, last_name, phone, email, unit_id, move_in_date, status, organization_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-      [dto.first_name, dto.last_name, dto.phone, dto.email ?? null, dto.unit_id, dto.move_in_date, dto.status, organizationId],
+      `INSERT INTO tenants (
+         first_name, last_name, post_name, phone, secondary_phone, email, profession, address,
+         id_number, nationality, emergency_contact_name, emergency_contact_phone, notes,
+         unit_id, move_in_date, status, organization_id
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
+      [
+        dto.first_name,
+        dto.last_name,
+        dto.post_name ?? null,
+        dto.phone,
+        dto.secondary_phone ?? null,
+        dto.email || null,
+        dto.profession ?? null,
+        dto.address ?? null,
+        dto.id_number ?? null,
+        dto.nationality ?? null,
+        dto.emergency_contact_name ?? null,
+        dto.emergency_contact_phone ?? null,
+        dto.notes ?? null,
+        dto.unit_id ?? null,
+        dto.move_in_date ?? null,
+        dto.status,
+        organizationId,
+      ],
     );
-    await this.db.query(`UPDATE units SET status = 'OCCUPIED' WHERE id = $1 AND organization_id = $2`, [dto.unit_id, organizationId]);
+    if (dto.unit_id) await this.db.query(`UPDATE units SET status = 'OCCUPIED' WHERE id = $1 AND organization_id = $2`, [dto.unit_id, organizationId]);
     return rows[0];
   }
 
   async update(id: number, dto: UpdateTenantDto) {
-    const previous = (await this.findOne(id)) as unknown as { unit_id: number };
+    const previous = (await this.findOne(id)) as unknown as { unit_id?: number };
     const { rows } = await this.db.query(
       `UPDATE tenants
        SET first_name = COALESCE($2, first_name),
            last_name = COALESCE($3, last_name),
-           phone = COALESCE($4, phone),
-           email = COALESCE($5, email),
-           unit_id = COALESCE($6, unit_id),
-           move_in_date = COALESCE($7, move_in_date),
-           status = COALESCE($8, status)
-       WHERE id = $1 AND organization_id = $9 AND deleted_at IS NULL RETURNING *`,
-      [id, dto.first_name, dto.last_name, dto.phone, dto.email, dto.unit_id, dto.move_in_date, dto.status, this.context.organizationId()],
+           post_name = COALESCE($4, post_name),
+           phone = COALESCE($5, phone),
+           secondary_phone = COALESCE($6, secondary_phone),
+           email = COALESCE($7, email),
+           profession = COALESCE($8, profession),
+           address = COALESCE($9, address),
+           id_number = COALESCE($10, id_number),
+           nationality = COALESCE($11, nationality),
+           emergency_contact_name = COALESCE($12, emergency_contact_name),
+           emergency_contact_phone = COALESCE($13, emergency_contact_phone),
+           notes = COALESCE($14, notes),
+           unit_id = COALESCE($15, unit_id),
+           move_in_date = COALESCE($16, move_in_date),
+           status = COALESCE($17, status)
+       WHERE id = $1 AND organization_id = $18 AND deleted_at IS NULL RETURNING *`,
+      [
+        id,
+        dto.first_name,
+        dto.last_name,
+        dto.post_name,
+        dto.phone,
+        dto.secondary_phone,
+        dto.email,
+        dto.profession,
+        dto.address,
+        dto.id_number,
+        dto.nationality,
+        dto.emergency_contact_name,
+        dto.emergency_contact_phone,
+        dto.notes,
+        dto.unit_id,
+        dto.move_in_date,
+        dto.status,
+        this.context.organizationId(),
+      ],
     );
     if (dto.unit_id && dto.unit_id !== previous.unit_id) {
       await this.db.query(`UPDATE units SET status = 'OCCUPIED' WHERE id = $1 AND organization_id = $2`, [dto.unit_id, this.context.organizationId()]);
-      await this.db.query(
-        `UPDATE units SET status = 'VACANT'
-         WHERE id = $1 AND NOT EXISTS (
-           SELECT 1 FROM tenants WHERE unit_id = $1 AND status = 'ACTIVE' AND deleted_at IS NULL
-         )`,
-        [previous.unit_id],
-      );
+      if (previous.unit_id) {
+        await this.db.query(
+          `UPDATE units SET status = 'VACANT'
+           WHERE id = $1 AND NOT EXISTS (
+             SELECT 1 FROM tenants WHERE unit_id = $1 AND status = 'ACTIVE' AND deleted_at IS NULL
+           )`,
+          [previous.unit_id],
+        );
+      }
     }
     return rows[0];
   }
 
   async remove(id: number) {
-    const tenant = (await this.findOne(id)) as unknown as { unit_id: number };
+    const tenant = (await this.findOne(id)) as unknown as { unit_id?: number };
     await this.db.query('UPDATE tenants SET deleted_at = NOW(), deleted_by = $2, status = $3 WHERE id = $1 AND organization_id = $4', [
       id,
       this.context.userId(),
       'INACTIVE',
       this.context.organizationId(),
     ]);
-    await this.db.query(
-      `UPDATE units SET status = 'VACANT'
-       WHERE id = $1 AND NOT EXISTS (
-         SELECT 1 FROM tenants WHERE unit_id = $1 AND status = 'ACTIVE' AND deleted_at IS NULL
-       )`,
-      [tenant.unit_id],
-    );
+    if (tenant.unit_id) {
+      await this.db.query(
+        `UPDATE units SET status = 'VACANT'
+         WHERE id = $1 AND NOT EXISTS (
+           SELECT 1 FROM tenants WHERE unit_id = $1 AND status = 'ACTIVE' AND deleted_at IS NULL
+         )`,
+        [tenant.unit_id],
+      );
+    }
     return { deleted: true };
   }
 }
