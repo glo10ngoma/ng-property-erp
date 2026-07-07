@@ -3,6 +3,8 @@ export { Modal } from './core/components/Modal';
 export { StatusBadge } from './core/components/StatusBadge';
 export { EmptyState } from './core/components/EmptyState';
 export { LoadingState } from './core/components/LoadingState';
+export { TenantSearchSelect } from './core/components/TenantSearchSelect';
+export type { TenantSearchOption } from './core/components/TenantSearchSelect';
 
 export function TableToolbar({
   query,

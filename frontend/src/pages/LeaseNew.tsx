@@ -2,12 +2,12 @@ import { ArrowLeft, Save } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, money, statusLabel } from '../api';
-import { PageHeader, SuccessMessage } from '../components';
+import { PageHeader, SuccessMessage, TenantSearchSelect } from '../components';
 import { useApiList } from '../hooks';
 
 type Building = { id: number; name: string };
 type Unit = { id: number; building_id: number; building_name: string; number: string; monthly_rent: number; status: string };
-type Tenant = { id: number; first_name: string; last_name: string };
+type Tenant = { id: number; first_name: string; last_name: string; phone?: string; building_name?: string; unit_number?: string };
 
 export function LeaseNew() {
   const navigate = useNavigate();
@@ -16,6 +16,7 @@ export function LeaseNew() {
   const tenants = useApiList<Tenant>('/tenants');
   const [buildingId, setBuildingId] = useState('');
   const [unitId, setUnitId] = useState('');
+  const [tenantId, setTenantId] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   const [contractName, setContractName] = useState('');
 
@@ -26,6 +27,10 @@ export function LeaseNew() {
   const selectedUnit = availableUnits.find((unit) => Number(unit.id) === Number(unitId)) ?? availableUnits[0];
 
   async function save(form: FormData) {
+    if (!Number(form.get('tenant_id'))) {
+      setMessage('Selectionnez un locataire avant de creer le bail.');
+      return;
+    }
     const payload = {
       tenant_id: Number(form.get('tenant_id')),
       unit_id: Number(form.get('unit_id')),
@@ -56,7 +61,7 @@ export function LeaseNew() {
           <div className="lease-section-grid">
             <label className="lease-field-wide">Immeuble<select value={buildingId} onChange={(event) => { setBuildingId(event.target.value); setUnitId(''); }} required><option value="">Selectionner un immeuble</option>{buildings.data.map((building) => <option key={building.id} value={building.id}>{building.name}</option>)}</select></label>
             <label className="lease-field-wide">Unite / Appartement<select name="unit_id" value={unitId || selectedUnit?.id || ''} onChange={(event) => setUnitId(event.target.value)} required>{availableUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.building_name} / {unit.number} - {statusLabel(unit.status)} - {money(unit.monthly_rent)}</option>)}</select></label>
-            <label className="lease-field-wide">Locataire<select name="tenant_id" required><option value="">Selectionner un locataire</option>{tenants.data.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.first_name} {tenant.last_name}</option>)}</select></label>
+            <label className="lease-field-wide">Locataire<TenantSearchSelect tenants={tenants.data} value={tenantId} onChange={setTenantId} required /></label>
           </div>
         </div>
 

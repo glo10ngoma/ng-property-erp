@@ -140,17 +140,17 @@ export function BuildingReport() {
       {!report && <EmptyState message={loading ? 'Chargement...' : 'Aucune donnee.'} />}
       {report && (
         <>
-          <div className="detail-list">
-            <span>Nom</span><strong>{text(report.building.name)}</strong>
-            <span>Type d'immeuble</span><strong>{text(report.building.building_type, 'Residence')}</strong>
-            <span>Adresse</span><strong>{text(report.building.address)}</strong>
-            <span>Ville</span><strong>{text(report.building.city)}</strong>
-            <span>Statut</span><strong>{text(report.building.status, 'Actif')}</strong>
-            <span>Periode</span><strong>{shortDate(report.period.start)} - {shortDate(report.period.end)}</strong>
-            <span>Total unites</span><strong>{report.units_total}</strong>
-            <span>Unites occupees</span><strong>{report.occupied_units}</strong>
-            <span>Unites libres</span><strong>{report.vacant_units}</strong>
-            <span>Taux occupation</span><strong>{report.occupancy_rate}%</strong>
+          <div className="summary-grid">
+            <SummaryCard label="Nom immeuble" value={text(report.building.name)} />
+            <SummaryCard label="Type" value={text(report.building.building_type, 'Residence')} />
+            <SummaryCard label="Ville" value={text(report.building.city)} />
+            <SummaryCard label="Statut" value={text(report.building.status, 'Actif')} />
+            <SummaryCard label="Unites" value={report.units_total} />
+            <SummaryCard label="Occupees" value={report.occupied_units} />
+            <SummaryCard label="Libres" value={report.vacant_units} />
+            <SummaryCard label="Taux occupation" value={`${report.occupancy_rate}%`} />
+            <SummaryCard label="Periode" value={`${shortDate(report.period.start)} - ${shortDate(report.period.end)}`} wide />
+            <SummaryCard label="Adresse" value={text(report.building.address)} wide />
           </div>
 
           <div className="mini-stats">
@@ -174,6 +174,10 @@ export function BuildingReport() {
       )}
     </section>
   );
+}
+
+function SummaryCard({ label, value, wide }: { label: string; value: unknown; wide?: boolean }) {
+  return <div className={wide ? 'summary-card summary-card-wide' : 'summary-card'}><span>{label}</span><strong>{String(value ?? '-')}</strong></div>;
 }
 
 function TenantTable({ rows }: { rows: ReportRow[] }) {
@@ -226,13 +230,14 @@ function InvoiceTable({ title, rows }: { title: string; rows: ReportRow[] }) {
       <h4>{title}</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Facture</th><th>Locataire</th><th>Unite</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Montant</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th className="right">Reste</th><th>Devise</th></tr></thead>
+          <thead><tr><th>Facture</th><th>Locataire</th><th>Unite</th><th>Periode</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Montant</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th className="right">Reste</th><th>Devise</th></tr></thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
                 <td>{text(row.invoice_number)}</td>
                 <td>{text(row.tenant_name)}</td>
                 <td>{text(row.unit_number)}</td>
+                <td>{periodText(row.month, row.year)}</td>
                 <td>{date(row.issue_date)}</td>
                 <td>{date(row.due_date)}</td>
                 <td><StatusBadge value={invoiceDisplayStatus(String(row.status ?? ''), String(row.due_date ?? ''))} /></td>
@@ -275,6 +280,15 @@ function amount(value: unknown) {
 
 function date(value: unknown) {
   return value ? shortDate(String(value)) : '-';
+}
+
+function periodText(month: unknown, year: unknown) {
+  if (!month || !year) return '-';
+  return `${monthName(Number(month))} ${year}`;
+}
+
+function monthName(month: number) {
+  return ['Janvier', 'Fevrier', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre'][month - 1] ?? String(month);
 }
 
 function text(value: unknown, fallback = '-') {

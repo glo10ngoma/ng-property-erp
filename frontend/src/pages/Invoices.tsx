@@ -3,11 +3,11 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useState } from 'react';
 import { api, exportCsv, includesText, invoiceDisplayStatus, itemLabel, money, shortDate, statusLabel } from '../api';
 import { useAuth } from '../auth';
-import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage, TableToolbar } from '../components';
+import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage, TableToolbar, TenantSearchSelect } from '../components';
 import { useApiList } from '../hooks';
 
 type Invoice = { id: number; invoice_number: string; first_name: string; last_name: string; building_name: string; unit_number: string; issue_date: string; due_date: string; month: number; year: number; total: number; paid_amount: number; remaining_amount: number; status: string };
-type Tenant = { id: number; first_name: string; last_name: string; monthly_rent: number; building_name: string; unit_number: string };
+type Tenant = { id: number; first_name: string; last_name: string; phone?: string; monthly_rent: number; building_name: string; unit_number: string };
 
 const lineTypes = ['Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Other'];
 
@@ -17,6 +17,13 @@ export function Invoices() {
   const tenants = useApiList<Tenant>('/tenants');
   const [open, setOpen] = useState(false);
   const [tenantId, setTenantId] = useState<number | null>(null);
+  const now = new Date();
+  const [invoiceForm, setInvoiceForm] = useState({
+    issue_date: now.toISOString().slice(0, 10),
+    due_date: new Date(now.getFullYear(), now.getMonth(), 10).toISOString().slice(0, 10),
+    month: String(now.getMonth() + 1),
+    year: String(now.getFullYear()),
+  });
   const [extraLines, setExtraLines] = useState([{ description: 'Water', amount: 0 }]);
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState({ month: '', year: '', start: '', end: '', status: '', building: '', tenant: '', unit: '', min: '', max: '' });
@@ -24,6 +31,7 @@ export function Invoices() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const tenant = tenants.data.find((item) => item.id === tenantId) ?? tenants.data[0];
+  const selectedTenantId = tenantId ?? tenant?.id ?? null;
   const total = Number(tenant?.monthly_rent ?? 0) + extraLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
   const buildingOptions = Array.from(new Set(data.map((invoice) => invoice.building_name).filter(Boolean)));
   const tenantOptions = Array.from(new Set(data.map((invoice) => `${invoice.first_name} ${invoice.last_name}`).filter(Boolean)));
@@ -46,13 +54,12 @@ export function Invoices() {
 
   async function save() {
     if (!tenant) return;
-    const now = new Date();
     const response = await api.post('/invoices', {
       tenant_id: tenant.id,
-      month: now.getMonth() + 1,
-      year: now.getFullYear(),
-      issue_date: now.toISOString().slice(0, 10),
-      due_date: new Date(now.getFullYear(), now.getMonth(), 10).toISOString().slice(0, 10),
+      month: Number(invoiceForm.month),
+      year: Number(invoiceForm.year),
+      issue_date: invoiceForm.issue_date,
+      due_date: invoiceForm.due_date,
       items: [
         { description: 'Monthly rent', amount: Number(tenant.monthly_rent) },
         ...extraLines.filter((line) => Number(line.amount) > 0),
@@ -117,9 +124,15 @@ export function Invoices() {
       {open && (
         <Modal title="Nouvelle facture" onClose={() => setOpen(false)}>
           <div className="form-grid">
-            <select value={tenant?.id ?? ''} onChange={(event) => setTenantId(Number(event.target.value))}>
-              {tenants.data.map((t) => <option key={t.id} value={t.id}>{t.first_name} {t.last_name} - {t.building_name} / {t.unit_number}</option>)}
-            </select>
+            <label>Locataire<TenantSearchSelect tenants={tenants.data} value={selectedTenantId} onChange={setTenantId} required /></label>
+            <div className="lease-section-grid">
+              <label>Date de facture<input type="date" value={invoiceForm.issue_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, issue_date: event.target.value })} required /></label>
+              <label>Date d'echeance<input type="date" value={invoiceForm.due_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, due_date: event.target.value })} required /></label>
+              <label>Mois du loyer<input type="number" min="1" max="12" value={invoiceForm.month} onChange={(event) => setInvoiceForm({ ...invoiceForm, month: event.target.value })} required /></label>
+              <label>Annee du loyer<input type="number" min="2000" max="2100" value={invoiceForm.year} onChange={(event) => setInvoiceForm({ ...invoiceForm, year: event.target.value })} required /></label>
+              <label>Periode debut<input type="date" value={periodStart(invoiceForm.month, invoiceForm.year)} readOnly /></label>
+              <label>Periode fin<input type="date" value={periodEnd(invoiceForm.month, invoiceForm.year)} readOnly /></label>
+            </div>
             <div className="invoice-line fixed"><span>Loyer mensuel</span><strong>{money(tenant?.monthly_rent)}</strong></div>
             {extraLines.map((line, index) => (
               <div className="invoice-line" key={index}>
@@ -139,4 +152,15 @@ export function Invoices() {
 
 function amount(value: unknown) {
   return Number(value ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+}
+
+function periodStart(month: string, year: string) {
+  if (!month || !year) return '';
+  return `${year}-${String(month).padStart(2, '0')}-01`;
+}
+
+function periodEnd(month: string, year: string) {
+  if (!month || !year) return '';
+  const date = new Date(Number(year), Number(month), 0);
+  return date.toISOString().slice(0, 10);
 }

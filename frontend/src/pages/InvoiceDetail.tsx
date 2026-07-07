@@ -6,7 +6,7 @@ import { useAuth } from '../auth';
 import { Modal, StatusBadge, SuccessMessage } from '../components';
 
 type Invoice = {
-  id: number; invoice_number: string; issue_date: string; due_date: string; total: number; status: string;
+  id: number; invoice_number: string; issue_date: string; due_date: string; month: number; year: number; total: number; status: string;
   first_name: string; last_name: string; phone: string; email: string; building_name: string; building_address: string; building_city: string; unit_number: string; paid_amount: number; remaining_amount: number;
   items: { id: number; description: string; amount: number }[];
   payments: { id: number; payment_date: string; amount: number; payment_method: string; receipt_number?: string; reference?: string }[];
@@ -80,9 +80,17 @@ export function InvoiceDetail() {
             <strong>Facture {invoice.invoice_number}</strong>
             <span>Date: {shortDate(invoice.issue_date)}</span>
             <span>Échéance: {shortDate(invoice.due_date)}</span>
+            <span>Periode: {periodLabel(invoice.month, invoice.year)}</span>
             <StatusBadge value={invoiceDisplayStatus(invoice.status, invoice.due_date)} />
           </div>
         </header>
+        <div className="summary-grid no-print">
+          <div className="summary-card"><span>Date de facture</span><strong>{shortDate(invoice.issue_date)}</strong></div>
+          <div className="summary-card"><span>Date d'echeance</span><strong>{shortDate(invoice.due_date)}</strong></div>
+          <div className="summary-card"><span>Mois du loyer</span><strong>{monthLabel(invoice.month)}</strong></div>
+          <div className="summary-card"><span>Annee du loyer</span><strong>{invoice.year}</strong></div>
+          <div className="summary-card summary-card-wide"><span>Periode facturee</span><strong>{periodLabel(invoice.month, invoice.year)}</strong></div>
+        </div>
         <div className="invoice-parties">
           <div><span>Locataire</span><strong>{invoice.first_name} {invoice.last_name}</strong><p>{invoice.phone}</p><p>{invoice.email}</p></div>
           <div><span>Appartement</span><strong>{invoice.unit_number}</strong><p>{invoice.building_name}</p><p>{invoice.building_address}, {invoice.building_city}</p></div>
@@ -152,4 +160,15 @@ export function InvoiceDetail() {
       )}
     </section>
   );
+}
+
+function monthLabel(month: number) {
+  return ['Janvier', 'Fevrier', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre'][Number(month) - 1] ?? String(month ?? '-');
+}
+
+function periodLabel(month: number, year: number) {
+  if (!month || !year) return '-';
+  const start = new Date(Number(year), Number(month) - 1, 1);
+  const end = new Date(Number(year), Number(month), 0);
+  return `${monthLabel(month)} ${year} (${shortDate(start.toISOString())} - ${shortDate(end.toISOString())})`;
 }

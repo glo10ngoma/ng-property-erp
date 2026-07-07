@@ -136,12 +136,12 @@ export function TenantSituation() {
       {!report && <EmptyState message={loading ? 'Chargement...' : 'Aucune donnee.'} />}
       {report && (
         <>
-          <div className="detail-list">
-            <span>Nom</span><strong>{text(`${text(report.tenant.first_name, '')} ${text(report.tenant.last_name, '')}`.trim())}</strong>
-            <span>Telephone</span><strong>{text(report.tenant.phone)}</strong>
-            <span>Email</span><strong>{text(report.tenant.email)}</strong>
-            <span>Statut</span><strong>{text(report.tenant.status)}</strong>
-            <span>Periode</span><strong>{shortDate(report.period.start)} - {shortDate(report.period.end)}</strong>
+          <div className="summary-grid">
+            <SummaryCard label="Locataire" value={text(`${text(report.tenant.first_name, '')} ${text(report.tenant.last_name, '')}`.trim())} />
+            <SummaryCard label="Telephone" value={text(report.tenant.phone)} />
+            <SummaryCard label="Email" value={text(report.tenant.email)} />
+            <SummaryCard label="Statut" value={text(report.tenant.status)} />
+            <SummaryCard label="Periode" value={`${shortDate(report.period.start)} - ${shortDate(report.period.end)}`} wide />
           </div>
 
           <div className="mini-stats">
@@ -167,6 +167,10 @@ export function TenantSituation() {
       )}
     </section>
   );
+}
+
+function SummaryCard({ label, value, wide }: { label: string; value: unknown; wide?: boolean }) {
+  return <div className={wide ? 'summary-card summary-card-wide' : 'summary-card'}><span>{label}</span><strong>{String(value ?? '-')}</strong></div>;
 }
 
 function LeaseTable({ rows }: { rows: ReportRow[] }) {
@@ -218,13 +222,14 @@ function InvoiceTable({ title, rows, navigate }: { title: string; rows: ReportRo
       <h4>{title}</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Facture</th><th>Immeuble</th><th>Unite</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Montant</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th className="right">Reste</th><th>Devise</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Facture</th><th>Immeuble</th><th>Unite</th><th>Periode</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Montant</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th className="right">Reste</th><th>Devise</th><th>Actions</th></tr></thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
                 <td>{text(row.invoice_number)}</td>
                 <td>{text(row.building_name)}</td>
                 <td>{text(row.unit_number)}</td>
+                <td>{periodText(row.month, row.year)}</td>
                 <td>{date(row.issue_date)}</td>
                 <td>{date(row.due_date)}</td>
                 <td><StatusBadge value={invoiceDisplayStatus(String(row.status ?? ''), String(row.due_date ?? ''))} /></td>
@@ -295,6 +300,15 @@ function amount(value: unknown) {
 
 function date(value: unknown) {
   return value ? shortDate(String(value)) : '-';
+}
+
+function periodText(month: unknown, year: unknown) {
+  if (!month || !year) return '-';
+  return `${monthName(Number(month))} ${year}`;
+}
+
+function monthName(month: number) {
+  return ['Janvier', 'Fevrier', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre'][month - 1] ?? String(month);
 }
 
 function text(value: unknown, fallback = '-') {
