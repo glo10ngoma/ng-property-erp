@@ -84,12 +84,12 @@ export function InvoiceDetail() {
             <StatusBadge value={invoiceDisplayStatus(invoice.status, invoice.due_date)} />
           </div>
         </header>
-        <div className="summary-grid no-print">
-          <div className="summary-card"><span>Date de facture</span><strong>{shortDate(invoice.issue_date)}</strong></div>
-          <div className="summary-card"><span>Date d'echeance</span><strong>{shortDate(invoice.due_date)}</strong></div>
-          <div className="summary-card"><span>Mois du loyer</span><strong>{monthLabel(invoice.month)}</strong></div>
-          <div className="summary-card"><span>Annee du loyer</span><strong>{invoice.year}</strong></div>
-          <div className="summary-card summary-card-wide"><span>Periode facturee</span><strong>{periodLabel(invoice.month, invoice.year)}</strong></div>
+        <div className="summary-band no-print">
+          <div className="summary-item"><span>Date de facture</span><strong>{shortDate(invoice.issue_date)}</strong></div>
+          <div className="summary-item"><span>Date d'echeance</span><strong>{shortDate(invoice.due_date)}</strong></div>
+          <div className="summary-item"><span>Mois du loyer</span><strong>{monthLabel(invoice.month)}</strong></div>
+          <div className="summary-item"><span>Annee du loyer</span><strong>{invoice.year}</strong></div>
+          <div className="summary-item summary-item-wide"><span>Periode facturee</span><strong>{periodLabel(invoice.month, invoice.year)}</strong></div>
         </div>
         <div className="invoice-parties">
           <div><span>Locataire</span><strong>{invoice.first_name} {invoice.last_name}</strong><p>{invoice.phone}</p><p>{invoice.email}</p></div>

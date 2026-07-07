@@ -17,8 +17,13 @@ export function TableToolbar({
 }) {
   return (
     <div className="table-toolbar">
-      <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Rechercher" />
-      <button className="secondary" onClick={onExport}>Exporter</button>
+      <div className="toolbar-main">
+        <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Rechercher" />
+      </div>
+      <div className="toolbar-actions">
+        <button className="secondary" onClick={() => onQueryChange('')}>Reinitialiser</button>
+        <button className="secondary" onClick={onExport}>Exporter</button>
+      </div>
     </div>
   );
 }

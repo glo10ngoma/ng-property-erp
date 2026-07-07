@@ -100,6 +100,16 @@ export function TenantSituation() {
         action={<button className="secondary" onClick={() => navigate('/tenants')}><ArrowLeft size={16} />Retour</button>}
       />
 
+      {report && (
+        <div className="summary-band">
+          <SummaryCard label="Locataire" value={text(`${text(report.tenant.first_name, '')} ${text(report.tenant.last_name, '')}`.trim())} />
+          <SummaryCard label="Telephone" value={text(report.tenant.phone)} />
+          <SummaryCard label="Email" value={text(report.tenant.email)} />
+          <SummaryCard label="Statut" value={text(report.tenant.status)} />
+          <SummaryCard label="Periode" value={`${shortDate(report.period.start)} - ${shortDate(report.period.end)}`} wide />
+        </div>
+      )}
+
       <div className="quick-form">
         <select value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })}>
           <option value="">Mois</option>
@@ -136,14 +146,6 @@ export function TenantSituation() {
       {!report && <EmptyState message={loading ? 'Chargement...' : 'Aucune donnee.'} />}
       {report && (
         <>
-          <div className="summary-grid">
-            <SummaryCard label="Locataire" value={text(`${text(report.tenant.first_name, '')} ${text(report.tenant.last_name, '')}`.trim())} />
-            <SummaryCard label="Telephone" value={text(report.tenant.phone)} />
-            <SummaryCard label="Email" value={text(report.tenant.email)} />
-            <SummaryCard label="Statut" value={text(report.tenant.status)} />
-            <SummaryCard label="Periode" value={`${shortDate(report.period.start)} - ${shortDate(report.period.end)}`} wide />
-          </div>
-
           <div className="mini-stats">
             <div className="mini-stat"><span>Baux actifs</span><strong>{report.active_leases.length}</strong></div>
             <div className="mini-stat"><span>Anciens baux</span><strong>{report.old_leases.length}</strong></div>
@@ -170,7 +172,7 @@ export function TenantSituation() {
 }
 
 function SummaryCard({ label, value, wide }: { label: string; value: unknown; wide?: boolean }) {
-  return <div className={wide ? 'summary-card summary-card-wide' : 'summary-card'}><span>{label}</span><strong>{String(value ?? '-')}</strong></div>;
+  return <div className={wide ? 'summary-item summary-item-wide' : 'summary-item'}><span>{label}</span><strong>{String(value ?? '-')}</strong></div>;
 }
 
 function LeaseTable({ rows }: { rows: ReportRow[] }) {

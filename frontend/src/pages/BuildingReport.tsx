@@ -108,6 +108,21 @@ export function BuildingReport() {
         action={<button className="secondary" onClick={() => navigate('/buildings')}><ArrowLeft size={16} />Retour</button>}
       />
 
+      {report && (
+        <div className="summary-band">
+          <SummaryCard label="Nom immeuble" value={text(report.building.name)} />
+          <SummaryCard label="Type" value={text(report.building.building_type, 'Residence')} />
+          <SummaryCard label="Ville" value={text(report.building.city)} />
+          <SummaryCard label="Statut" value={text(report.building.status, 'Actif')} />
+          <SummaryCard label="Unites" value={report.units_total} />
+          <SummaryCard label="Occupees" value={report.occupied_units} />
+          <SummaryCard label="Libres" value={report.vacant_units} />
+          <SummaryCard label="Occupation" value={`${report.occupancy_rate}%`} />
+          <SummaryCard label="Periode" value={`${shortDate(report.period.start)} - ${shortDate(report.period.end)}`} wide />
+          <SummaryCard label="Adresse" value={text(report.building.address)} wide />
+        </div>
+      )}
+
       <div className="quick-form">
         <select value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })}>
           <option value="">Mois</option>
@@ -140,19 +155,6 @@ export function BuildingReport() {
       {!report && <EmptyState message={loading ? 'Chargement...' : 'Aucune donnee.'} />}
       {report && (
         <>
-          <div className="summary-grid">
-            <SummaryCard label="Nom immeuble" value={text(report.building.name)} />
-            <SummaryCard label="Type" value={text(report.building.building_type, 'Residence')} />
-            <SummaryCard label="Ville" value={text(report.building.city)} />
-            <SummaryCard label="Statut" value={text(report.building.status, 'Actif')} />
-            <SummaryCard label="Unites" value={report.units_total} />
-            <SummaryCard label="Occupees" value={report.occupied_units} />
-            <SummaryCard label="Libres" value={report.vacant_units} />
-            <SummaryCard label="Taux occupation" value={`${report.occupancy_rate}%`} />
-            <SummaryCard label="Periode" value={`${shortDate(report.period.start)} - ${shortDate(report.period.end)}`} wide />
-            <SummaryCard label="Adresse" value={text(report.building.address)} wide />
-          </div>
-
           <div className="mini-stats">
             <div className="mini-stat"><span>Locataires ayant paye</span><strong>{report.tenants_paid.length}</strong></div>
             <div className="mini-stat"><span>Locataires non payeurs</span><strong>{report.tenants_unpaid.length}</strong></div>
@@ -177,7 +179,7 @@ export function BuildingReport() {
 }
 
 function SummaryCard({ label, value, wide }: { label: string; value: unknown; wide?: boolean }) {
-  return <div className={wide ? 'summary-card summary-card-wide' : 'summary-card'}><span>{label}</span><strong>{String(value ?? '-')}</strong></div>;
+  return <div className={wide ? 'summary-item summary-item-wide' : 'summary-item'}><span>{label}</span><strong>{String(value ?? '-')}</strong></div>;
 }
 
 function TenantTable({ rows }: { rows: ReportRow[] }) {
