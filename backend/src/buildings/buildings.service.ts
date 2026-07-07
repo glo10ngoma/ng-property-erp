@@ -37,9 +37,9 @@ export class BuildingsService {
   async create(dto: CreateBuildingDto) {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(
-      `INSERT INTO buildings (name, address, city, description, organization_id)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [dto.name, dto.address, dto.city, dto.description ?? null, organizationId],
+      `INSERT INTO buildings (name, address, city, building_type, description, organization_id)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [dto.name, dto.address, dto.city, dto.building_type ?? 'Residence', dto.description ?? null, organizationId],
     );
     return rows[0];
   }
@@ -51,9 +51,10 @@ export class BuildingsService {
        SET name = COALESCE($2, name),
            address = COALESCE($3, address),
            city = COALESCE($4, city),
-           description = COALESCE($5, description)
-       WHERE id = $1 AND organization_id = $6 AND deleted_at IS NULL RETURNING *`,
-      [id, dto.name, dto.address, dto.city, dto.description, this.context.organizationId()],
+           building_type = COALESCE($5, building_type),
+           description = COALESCE($6, description)
+       WHERE id = $1 AND organization_id = $7 AND deleted_at IS NULL RETURNING *`,
+      [id, dto.name, dto.address, dto.city, dto.building_type, dto.description, this.context.organizationId()],
     );
     return rows[0];
   }

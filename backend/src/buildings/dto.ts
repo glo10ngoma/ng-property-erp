@@ -13,6 +13,10 @@ export class CreateBuildingDto {
 
   @IsOptional()
   @IsString()
+  building_type?: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
 }
 

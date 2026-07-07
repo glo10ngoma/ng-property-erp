@@ -19,15 +19,29 @@ export function Invoices() {
   const [tenantId, setTenantId] = useState<number | null>(null);
   const [extraLines, setExtraLines] = useState([{ description: 'Water', amount: 0 }]);
   const [query, setQuery] = useState('');
+  const [filters, setFilters] = useState({ month: '', year: '', start: '', end: '', status: '', building: '', tenant: '', unit: '', min: '', max: '' });
   const [success, setSuccess] = useState('');
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const tenant = tenants.data.find((item) => item.id === tenantId) ?? tenants.data[0];
   const total = Number(tenant?.monthly_rent ?? 0) + extraLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+  const buildingOptions = Array.from(new Set(data.map((invoice) => invoice.building_name).filter(Boolean)));
+  const tenantOptions = Array.from(new Set(data.map((invoice) => `${invoice.first_name} ${invoice.last_name}`).filter(Boolean)));
   const filtered = data.filter((invoice) => {
     const displayStatus = invoiceDisplayStatus(invoice.status, invoice.due_date);
     if (params.get('filter') === 'impayes' && displayStatus === 'PAID') return false;
-    return includesText({ ...invoice, displayStatus: statusLabel(displayStatus), tenant: `${invoice.first_name} ${invoice.last_name}` }, query);
+    const tenantName = `${invoice.first_name} ${invoice.last_name}`;
+    return includesText({ ...invoice, displayStatus: statusLabel(displayStatus), tenant: tenantName }, query)
+      && (!filters.month || Number(invoice.month) === Number(filters.month))
+      && (!filters.year || Number(invoice.year) === Number(filters.year))
+      && (!filters.start || invoice.issue_date.slice(0, 10) >= filters.start)
+      && (!filters.end || invoice.issue_date.slice(0, 10) <= filters.end)
+      && (!filters.status || displayStatus === filters.status)
+      && (!filters.building || invoice.building_name === filters.building)
+      && (!filters.tenant || tenantName === filters.tenant)
+      && (!filters.unit || invoice.unit_number?.toLowerCase().includes(filters.unit.toLowerCase()))
+      && (!filters.min || Number(invoice.total) >= Number(filters.min))
+      && (!filters.max || Number(invoice.total) <= Number(filters.max));
   });
 
   async function save() {
@@ -73,13 +87,26 @@ export function Invoices() {
           statut: statusLabel(invoiceDisplayStatus(invoice.status, invoice.due_date)),
         })))}
       />
+      <div className="quick-form">
+        <input type="number" min="1" max="12" placeholder="Mois" value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })} />
+        <input type="number" placeholder="Annee" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} />
+        <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, start: event.target.value })} />
+        <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, end: event.target.value })} />
+        <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Tous les statuts</option><option value="PAID">Payee</option><option value="PARTIAL">Paiement partiel</option><option value="UNPAID">Non payee</option><option value="OVERDUE">En retard</option></select>
+        <select value={filters.building} onChange={(event) => setFilters({ ...filters, building: event.target.value })}><option value="">Tous les immeubles</option>{buildingOptions.map((building) => <option key={building} value={building}>{building}</option>)}</select>
+        <select value={filters.tenant} onChange={(event) => setFilters({ ...filters, tenant: event.target.value })}><option value="">Tous les locataires</option>{tenantOptions.map((tenantName) => <option key={tenantName} value={tenantName}>{tenantName}</option>)}</select>
+        <input placeholder="Unite" value={filters.unit} onChange={(event) => setFilters({ ...filters, unit: event.target.value })} />
+        <input type="number" placeholder="Montant min." value={filters.min} onChange={(event) => setFilters({ ...filters, min: event.target.value })} />
+        <input type="number" placeholder="Montant max." value={filters.max} onChange={(event) => setFilters({ ...filters, max: event.target.value })} />
+        <button type="button" className="secondary" onClick={() => setFilters({ month: '', year: '', start: '', end: '', status: '', building: '', tenant: '', unit: '', min: '', max: '' })}>Reinitialiser filtres</button>
+      </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Numéro</th><th>Locataire</th><th>Immeuble</th><th>Date</th><th>Total</th><th>Payé</th><th>Restant</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Numéro</th><th>Locataire</th><th>Immeuble</th><th>Date</th><th className="right">Total</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th className="right">Restant</th><th>Devise</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
             {filtered.map((invoice) => (
               <tr key={invoice.id}>
-                <td>{invoice.invoice_number}</td><td>{invoice.first_name} {invoice.last_name}</td><td>{invoice.building_name} / {invoice.unit_number}</td><td>{shortDate(invoice.issue_date)}</td><td className="right">{money(invoice.total)}</td><td className="right">{money(invoice.paid_amount)}</td><td className="right">{money(invoice.remaining_amount)}</td><td><StatusBadge value={invoiceDisplayStatus(invoice.status, invoice.due_date)} /></td>
+                <td>{invoice.invoice_number}</td><td>{invoice.first_name} {invoice.last_name}</td><td>{invoice.building_name} / {invoice.unit_number}</td><td>{shortDate(invoice.issue_date)}</td><td className="right">{amount(invoice.total)}</td><td>USD</td><td className="right">{amount(invoice.paid_amount)}</td><td>USD</td><td className="right">{amount(invoice.remaining_amount)}</td><td>USD</td><td><StatusBadge value={invoiceDisplayStatus(invoice.status, invoice.due_date)} /></td>
                 <td className="actions"><Link className="icon-btn" title="Voir" to={`/invoices/${invoice.id}`}><Eye size={16} /></Link>{can('invoices.delete') && <button className="icon-btn danger" title="Supprimer" onClick={() => remove(invoice.id)}><Trash2 size={16} /></button>}</td>
               </tr>
             ))}
@@ -108,4 +135,8 @@ export function Invoices() {
       )}
     </section>
   );
+}
+
+function amount(value: unknown) {
+  return Number(value ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
 }

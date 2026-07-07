@@ -3,6 +3,9 @@ import { AppLayout } from '../core/layout/AppLayout';
 import { PermissionGuard } from '../core/auth/PermissionGuard';
 import { ProtectedRoute } from '../core/auth/ProtectedRoute';
 import { Login } from '../pages/Login';
+import { BuildingReport } from '../pages/BuildingReport';
+import { TenantSituation } from '../pages/TenantSituation';
+import { LeaseNew } from '../pages/LeaseNew';
 import { DashboardPage } from '../modules/dashboard/pages/DashboardPage';
 import { ActivityPage } from '../modules/activity/pages/ActivityPage';
 import { BuildingsPage } from '../modules/buildings/pages/BuildingsPage';
@@ -39,14 +42,17 @@ export function AppRouter() {
           <Route path="/dashboard" element={guarded('dashboard.read', <DashboardPage />)} />
           <Route path="/activity" element={guarded('activity.read', <ActivityPage />)} />
           <Route path="/buildings" element={guarded('buildings.read', <BuildingsPage />)} />
+          <Route path="/buildings/:id/report" element={guarded('buildings.read', <BuildingReport />)} />
           <Route path="/buildings/:id" element={guarded('buildings.read', <ModulePlaceholder title="Détail immeuble" />)} />
           <Route path="/rental-units" element={guarded('units.read', <RentalUnitsPage />)} />
           <Route path="/rental-units/:id" element={guarded('units.read', <ModulePlaceholder title="Détail appartement" />)} />
           <Route path="/units" element={<Navigate to="/rental-units" replace />} />
           <Route path="/units/:id" element={<Navigate to="/rental-units" replace />} />
           <Route path="/tenants" element={guarded('tenants.read', <TenantsPage />)} />
+          <Route path="/tenants/:id/situation" element={guarded('tenants.read', <TenantSituation />)} />
           <Route path="/tenants/:id" element={guarded('tenants.read', <ModulePlaceholder title="Détail locataire" />)} />
           <Route path="/leases" element={guarded('documents.read', <LeasesPage />)} />
+          <Route path="/leases/new" element={guarded('documents.upload', <LeaseNew />)} />
           <Route path="/leases/:id" element={guarded('documents.read', <ModulePlaceholder title="Détail bail" />)} />
           <Route path="/invoices" element={guarded('invoices.read', <InvoicesPage />)} />
           <Route path="/invoices/:id" element={guarded('invoices.read', <InvoiceDetailPage />)} />

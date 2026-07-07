@@ -11,6 +11,15 @@ Modules conserves du prototype valide:
 - Factures
 - Paiements
 
+Corrections UX appliquees:
+
+- les listes n'affichent plus de pagination 10/25/50/100;
+- les tableaux utilisent des entetes sticky dans une zone defilante;
+- les filtres compactes restent en haut des listes avec action de reinitialisation sur les pages prioritaires;
+- les montants des tableaux sont separes en colonnes `Montant` et `Devise`;
+- le rapport immeuble plein ecran est disponible via `/buildings/:id/report`;
+- la situation locataire plein ecran est disponible via `/tenants/:id/situation`.
+
 ## Utilisateurs
 
 Le module `Users` prepare les roles `ADMIN`, `ACCOUNTANT`, `STAFF`, `DIRECTOR` et expose les permissions metier.
@@ -82,6 +91,21 @@ Le bail relie `tenant_id` + `unit_id` et porte:
 - historique d'occupation
 
 Le stockage fichier cible est Supabase Storage bucket `lease-contracts`.
+
+Depuis la correction UX, la creation se fait sur une page dediee `/leases/new`.
+Le formulaire est organise en sections: informations generales, informations du bail, garantie locative, contrat scanne et observations.
+Le stockage cible du contrat est le bucket Supabase Storage `contracts`; en local, le nom du fichier est conserve si l'upload reel n'est pas encore branche.
+
+## Immeubles
+
+Le champ `building_type` est persiste en base et expose dans:
+
+- creation/modification immeuble;
+- liste et filtres immeubles;
+- rapport immeuble;
+- exports.
+
+Migration pour bases existantes: `database/20260707_building_type.sql`.
 
 ## Maintenance
 

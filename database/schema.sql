@@ -10,6 +10,7 @@ CREATE TABLE buildings (
   name VARCHAR(160) NOT NULL,
   address VARCHAR(220) NOT NULL,
   city VARCHAR(120) NOT NULL,
+  building_type VARCHAR(120) NOT NULL DEFAULT 'Residence',
   description TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );

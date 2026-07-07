@@ -1609,11 +1609,48 @@ export class SaasService {
     };
   }
 
-  async buildingReport(id: number, start?: string, end?: string) {
+  private reportPeriod(filters: { month?: string; year?: string; start?: string; end?: string }) {
+    if (filters.month && filters.year) {
+      const month = Number(filters.month);
+      const year = Number(filters.year);
+      if (month >= 1 && month <= 12 && year > 1900) {
+        const paddedMonth = String(month).padStart(2, '0');
+        const lastDay = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+        return { start: `${year}-${paddedMonth}-01`, end: lastDay };
+      }
+    }
+    return { start: filters.start ?? '2000-01-01', end: filters.end ?? '2999-12-31' };
+  }
+
+  private invoiceStatusClause(alias: string, parameterIndex: number) {
+    return `($${parameterIndex}::TEXT IS NULL
+      OR ($${parameterIndex} = 'OVERDUE' AND ${alias}.status <> 'PAID' AND ${alias}.due_date < CURRENT_DATE)
+      OR ($${parameterIndex} <> 'OVERDUE' AND ${alias}.status = $${parameterIndex}))`;
+  }
+
+  async buildingReport(
+    id: number,
+    filters: { month?: string; year?: string; start?: string; end?: string; paymentStatus?: string; tenantId?: number; unitId?: number } = {},
+  ) {
     const organizationId = this.context.organizationId();
-    const params: unknown[] = [id, start ?? '2000-01-01', end ?? '2999-12-31', organizationId];
+    const period = this.reportPeriod(filters);
+    const params: unknown[] = [
+      id,
+      period.start,
+      period.end,
+      organizationId,
+      filters.tenantId ?? null,
+      filters.unitId ?? null,
+      filters.paymentStatus || null,
+    ];
     const building = await this.db.query('SELECT * FROM buildings WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL', [id, organizationId]);
-    const units = await this.db.query('SELECT * FROM units WHERE building_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY number', [id, organizationId]);
+    const units = await this.db.query(
+      `SELECT * FROM units
+       WHERE building_id = $1 AND organization_id = $2 AND deleted_at IS NULL
+         AND ($3::INT IS NULL OR id = $3)
+       ORDER BY number`,
+      [id, organizationId, filters.unitId ?? null],
+    );
     const tenants = await this.db.query(
       `SELECT DISTINCT ON (t.id)
               t.id, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone, t.email,
@@ -1622,13 +1659,16 @@ export class SaasService {
        JOIN leases l ON l.tenant_id = t.id AND l.deleted_at IS NULL
        JOIN units u ON u.id = l.unit_id
        WHERE u.building_id = $1 AND t.organization_id = $2 AND t.deleted_at IS NULL
+         AND ($3::INT IS NULL OR t.id = $3)
+         AND ($4::INT IS NULL OR u.id = $4)
        ORDER BY t.id, l.status = 'ACTIVE' DESC, l.start_date DESC`,
-      [id, organizationId],
+      [id, organizationId, filters.tenantId ?? null, filters.unitId ?? null],
     );
     const finances = await this.db.query(
       `SELECT
          COUNT(i.id)::INT AS invoices,
          COUNT(*) FILTER (WHERE i.status = 'PAID')::INT AS paid_invoices,
+         COUNT(*) FILTER (WHERE i.status = 'PARTIAL')::INT AS partial_invoices,
          COUNT(*) FILTER (WHERE i.status NOT IN ('PAID', 'CANCELLED'))::INT AS unpaid_invoices,
          COUNT(*) FILTER (WHERE i.status <> 'PAID' AND i.due_date < CURRENT_DATE)::INT AS overdue_invoices,
          COALESCE(SUM(i.total), 0)::FLOAT AS total_invoiced,
@@ -1636,7 +1676,10 @@ export class SaasService {
          COALESCE(SUM(s.remaining_amount), 0)::FLOAT AS remaining
        FROM invoices i
        LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
-       WHERE i.building_id = $1 AND i.issue_date BETWEEN $2 AND $3 AND i.organization_id = $4 AND i.deleted_at IS NULL`,
+       WHERE i.building_id = $1 AND i.issue_date BETWEEN $2 AND $3 AND i.organization_id = $4 AND i.deleted_at IS NULL
+         AND ($5::INT IS NULL OR i.tenant_id = $5)
+         AND ($6::INT IS NULL OR i.unit_id = $6)
+         AND ${this.invoiceStatusClause('i', 7)}`,
       params,
     );
     const invoices = await this.db.query(
@@ -1653,6 +1696,9 @@ export class SaasService {
          AND i.issue_date BETWEEN $2 AND $3
          AND i.organization_id = $4
          AND i.deleted_at IS NULL
+         AND ($5::INT IS NULL OR i.tenant_id = $5)
+         AND ($6::INT IS NULL OR i.unit_id = $6)
+         AND ${this.invoiceStatusClause('i', 7)}
        ORDER BY i.issue_date DESC, i.invoice_number`,
       params,
     );
@@ -1669,6 +1715,9 @@ export class SaasService {
          AND p.payment_date BETWEEN $2 AND $3
          AND p.organization_id = $4
          AND p.deleted_at IS NULL
+         AND ($5::INT IS NULL OR i.tenant_id = $5)
+         AND ($6::INT IS NULL OR i.unit_id = $6)
+         AND ${this.invoiceStatusClause('i', 7)}
        ORDER BY p.payment_date DESC, p.id DESC`,
       params,
     );
@@ -1707,6 +1756,8 @@ export class SaasService {
     const occupied = units.rows.filter((unit) => unit.status === 'OCCUPIED').length;
     return {
       building: requireRow(building.rows[0], 'Building'),
+      period,
+      filters,
       units_total: units.rows.length,
       occupied_units: occupied,
       vacant_units: units.rows.length - occupied,
@@ -1719,7 +1770,8 @@ export class SaasService {
       tenants_paid: tenantsPaid,
       tenants_unpaid: tenantsUnpaid,
       paid_invoices: invoices.rows.filter((row) => row.status === 'PAID'),
-      unpaid_invoices: invoices.rows.filter((row) => row.status !== 'PAID' && row.status !== 'CANCELLED'),
+      partial_invoices: invoices.rows.filter((row) => row.status === 'PARTIAL'),
+      unpaid_invoices: invoices.rows.filter((row) => row.status === 'UNPAID'),
       overdue_invoices: invoices.rows.filter((row) => row.status !== 'PAID' && new Date(row.due_date) < new Date()),
     };
   }
@@ -1780,32 +1832,61 @@ export class SaasService {
     };
   }
 
-  async tenantReport(id: number, start?: string, end?: string) {
+  async tenantReport(
+    id: number,
+    filters: { month?: string; year?: string; start?: string; end?: string; invoiceStatus?: string; buildingId?: number; unitId?: number; leaseId?: number } = {},
+  ) {
     const organizationId = this.context.organizationId();
-    const reportStart = start ?? '2000-01-01';
-    const reportEnd = end ?? '2999-12-31';
+    const period = this.reportPeriod(filters);
     const tenant = await this.db.query('SELECT * FROM tenants WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL', [id, organizationId]);
     const leases = await this.db.query(
-      `SELECT l.*, u.number AS unit_number, b.name AS building_name, g.amount AS guarantee_amount, g.paid_amount AS guarantee_paid, g.status AS guarantee_status
+      `SELECT l.*, u.number AS unit_number, b.id AS building_id, b.name AS building_name, g.amount AS guarantee_amount, g.paid_amount AS guarantee_paid, g.status AS guarantee_status
        FROM leases l
        JOIN units u ON u.id = l.unit_id
        JOIN buildings b ON b.id = u.building_id
        LEFT JOIN lease_guarantees g ON g.lease_id = l.id AND g.deleted_at IS NULL
        WHERE l.tenant_id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL
+         AND ($3::INT IS NULL OR b.id = $3)
+         AND ($4::INT IS NULL OR u.id = $4)
+         AND ($5::INT IS NULL OR l.id = $5)
        ORDER BY l.start_date DESC`,
-      [id, organizationId],
+      [id, organizationId, filters.buildingId ?? null, filters.unitId ?? null, filters.leaseId ?? null],
+    );
+    const invoices = await this.db.query(
+      `SELECT i.*, b.name AS building_name, u.number AS unit_number,
+              COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
+              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
+       FROM invoices i
+       LEFT JOIN units u ON u.id = i.unit_id
+       LEFT JOIN buildings b ON b.id = i.building_id
+       LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
+       WHERE i.tenant_id = $1
+         AND i.organization_id = $2
+         AND i.issue_date BETWEEN $3 AND $4
+         AND i.deleted_at IS NULL
+         AND ($5::INT IS NULL OR i.building_id = $5)
+         AND ($6::INT IS NULL OR i.unit_id = $6)
+         AND ($7::INT IS NULL OR i.lease_id = $7)
+         AND ${this.invoiceStatusClause('i', 8)}
+       ORDER BY i.issue_date DESC, i.invoice_number`,
+      [id, organizationId, period.start, period.end, filters.buildingId ?? null, filters.unitId ?? null, filters.leaseId ?? null, filters.invoiceStatus || null],
     );
     const payments = await this.db.query(
-      `SELECT p.*, i.tenant_id, i.invoice_number, b.name AS building_name
+      `SELECT p.*, i.tenant_id, i.invoice_number, i.status AS invoice_status, b.name AS building_name, u.number AS unit_number
        FROM payments p
        LEFT JOIN invoices i ON i.id = p.invoice_id
        LEFT JOIN buildings b ON b.id = i.building_id
+       LEFT JOIN units u ON u.id = i.unit_id
        WHERE i.tenant_id = $1
          AND p.organization_id = $2
          AND p.payment_date BETWEEN $3 AND $4
          AND p.deleted_at IS NULL
+         AND ($5::INT IS NULL OR i.building_id = $5)
+         AND ($6::INT IS NULL OR i.unit_id = $6)
+         AND ($7::INT IS NULL OR i.lease_id = $7)
+         AND ${this.invoiceStatusClause('i', 8)}
        ORDER BY p.payment_date DESC`,
-      [id, organizationId, reportStart, reportEnd],
+      [id, organizationId, period.start, period.end, filters.buildingId ?? null, filters.unitId ?? null, filters.leaseId ?? null, filters.invoiceStatus || null],
     );
     const documents = await this.db.query(
       `SELECT ld.*, l.status AS lease_status, u.number AS unit_number, b.name AS building_name
@@ -1814,13 +1895,20 @@ export class SaasService {
        JOIN units u ON u.id = l.unit_id
        JOIN buildings b ON b.id = u.building_id
        WHERE l.tenant_id = $1 AND ld.organization_id = $2 AND ld.deleted_at IS NULL
+         AND ($3::INT IS NULL OR b.id = $3)
+         AND ($4::INT IS NULL OR u.id = $4)
+         AND ($5::INT IS NULL OR l.id = $5)
        ORDER BY ld.uploaded_at DESC, ld.id DESC`,
-      [id, organizationId],
+      [id, organizationId, filters.buildingId ?? null, filters.unitId ?? null, filters.leaseId ?? null],
     );
-    const report = await this.paymentsReport({ tenantId: id, start: reportStart, end: reportEnd });
+    const rows = invoices.rows;
+    const totalInvoiced = rows.reduce((sum, row) => sum + Number(row.total), 0);
+    const totalPaid = rows.reduce((sum, row) => sum + Number(row.paid_amount), 0);
+    const remaining = rows.reduce((sum, row) => sum + Number(row.remaining_amount), 0);
     return {
       tenant: requireRow(tenant.rows[0], 'Tenant'),
-      period: { start: reportStart, end: reportEnd },
+      period,
+      filters,
       leases: leases.rows,
       active_leases: leases.rows.filter((lease) => lease.status === 'ACTIVE'),
       old_leases: leases.rows.filter((lease) => lease.status !== 'ACTIVE'),
@@ -1834,7 +1922,17 @@ export class SaasService {
       })),
       payments: payments.rows,
       documents: documents.rows,
-      ...report,
+      payments_received: payments.rows,
+      invoices: rows,
+      total_invoiced: totalInvoiced,
+      total_paid: totalPaid,
+      remaining,
+      tenants_paid: totalPaid > 0 ? [{ tenant_id: id, tenant_name: `${tenant.rows[0]?.first_name ?? ''} ${tenant.rows[0]?.last_name ?? ''}`.trim() }] : [],
+      tenants_unpaid: remaining > 0 ? [{ tenant_id: id, tenant_name: `${tenant.rows[0]?.first_name ?? ''} ${tenant.rows[0]?.last_name ?? ''}`.trim(), remaining_amount: remaining }] : [],
+      paid: rows.filter((row) => row.status === 'PAID'),
+      partial: rows.filter((row) => row.status === 'PARTIAL'),
+      unpaid: rows.filter((row) => row.status === 'UNPAID'),
+      overdue: rows.filter((row) => row.status !== 'PAID' && new Date(row.due_date) < new Date()),
     };
   }
 
@@ -1898,11 +1996,11 @@ export class SaasService {
 
   async exportReport(type: string, id?: number, start?: string, end?: string) {
     if (type === 'building' && id) {
-      const report = await this.buildingReport(id, start, end);
+      const report = await this.buildingReport(id, { start, end });
       return { filename: 'rapport-immeuble.csv', rows: [...report.units, ...report.tenants] };
     }
     if (type === 'tenant' && id) {
-      const report = await this.tenantReport(id);
+      const report = await this.tenantReport(id, { start, end });
       return { filename: 'rapport-locataire.csv', rows: [...report.leases, ...report.invoices, ...report.payments] };
     }
     if (type === 'payments') {

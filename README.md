@@ -44,6 +44,21 @@ $env:PGPASSWORD='postgres'
 & 'C:\Program Files\PostgreSQL\18\bin\psql.exe' -U postgres -h 127.0.0.1 -p 5433 -d property_erp -f database\seed.sql
 ```
 
+Pour une base deja existante, appliquer aussi les migrations incrementales utiles:
+
+```powershell
+& 'C:\Program Files\PostgreSQL\18\bin\psql.exe' -U postgres -h 127.0.0.1 -p 5433 -d property_erp -f database\20260707_building_type.sql
+```
+
+## Corrections UX V1
+
+- Les listes affichent tous les resultats dans une zone defilante, sans pagination 10/25/50/100 visible.
+- Les entetes de tableaux restent figes via les conteneurs `table-wrap`.
+- Les rapports immeuble et situation locataire sont des pages dediees: `/buildings/:id/report` et `/tenants/:id/situation`.
+- Les tableaux separent les colonnes `Montant` et `Devise`; les cartes KPI peuvent rester compactes.
+- La creation d'un bail se fait sur `/leases/new`, avec sections metier et champ contrat pret pour Supabase Storage bucket `contracts`.
+- Les immeubles portent maintenant un `building_type`; appliquer `database/20260707_building_type.sql` sur les bases existantes.
+
 ## Variables d'environnement
 
 Copier `backend/.env.example` vers `backend/.env`, puis ajuster:

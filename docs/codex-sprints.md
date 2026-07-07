@@ -11,6 +11,19 @@ Ce document sert de feuille de route technique pour faire evoluer le prototype l
 - Tester les 4 comptes demo apres toute evolution de permissions.
 - Eviter les migrations destructives: preserver les donnees locales existantes.
 
+## Correction UX transverse - listes, filtres, baux
+
+Decision client appliquee apres les sprints metier:
+
+- suppression de la pagination visible 10/25/50/100 au profit de listes scrollables;
+- entetes de tableaux sticky conserves;
+- filtres avances prioritaires sur les listes metier;
+- rapports immeuble et locataire en pages dediees;
+- `building_type` ajoute aux immeubles avec migration incrementale;
+- creation de bail deplacee vers `/leases/new`;
+- formulaires rapides avec labels visibles;
+- separation `Montant` / `Devise` dans les tableaux.
+
 ## Comptes de reference
 
 - `admin@property-erp.local` / `demo`

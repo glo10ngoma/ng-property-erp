@@ -16,6 +16,24 @@ type UnitDetail = Unit & {
   payments: Array<{ id: number; invoice_number: string; tenant_name: string; payment_date: string; amount: number; payment_method: string }>;
 };
 
+const DEFAULT_UNIT_TYPES = [
+  'Studio',
+  'Chambre',
+  'Appartement 1 chambre',
+  'Appartement 2 chambres',
+  'Appartement 3 chambres',
+  'Appartement 4 chambres',
+  'Appartement 5 chambres',
+  'Duplex',
+  'Penthouse',
+  'Bureau',
+  'Local commercial',
+  'Magasin',
+  'Entrepot',
+  'Parking',
+  'Autre',
+];
+
 export function Units() {
   const { can } = useAuth();
   const { data, reload } = useApiList<Unit>('/units');
@@ -23,8 +41,17 @@ export function Units() {
   const [editing, setEditing] = useState<Partial<Unit> | null>(null);
   const [viewing, setViewing] = useState<UnitDetail | null>(null);
   const [query, setQuery] = useState('');
+  const [filters, setFilters] = useState({ building_id: '', type: '', status: '', rent_min: '', rent_max: '', floor: '', availability: '' });
   const [success, setSuccess] = useState('');
-  const filtered = data.filter((unit) => includesText(unit, query));
+  const filtered = data
+    .filter((unit) => includesText(unit, query))
+    .filter((unit) => !filters.building_id || Number(unit.building_id) === Number(filters.building_id))
+    .filter((unit) => !filters.type || unit.type === filters.type)
+    .filter((unit) => !filters.status || unit.status === filters.status)
+    .filter((unit) => !filters.rent_min || Number(unit.monthly_rent) >= Number(filters.rent_min))
+    .filter((unit) => !filters.rent_max || Number(unit.monthly_rent) <= Number(filters.rent_max))
+    .filter((unit) => !filters.floor || Number(unit.floor) === Number(filters.floor))
+    .filter((unit) => !filters.availability || unit.status === filters.availability);
   const occupied = data.filter((unit) => unit.status === 'OCCUPIED').length;
   const vacant = data.filter((unit) => unit.status === 'VACANT').length;
   const occupancyRate = data.length ? Math.round((occupied / data.length) * 100) : 0;
@@ -74,13 +101,23 @@ export function Units() {
           telephone: unit.tenant_phone ?? '',
         })))}
       />
+      <div className="quick-form">
+        <select value={filters.building_id} onChange={(event) => setFilters({ ...filters, building_id: event.target.value })}><option value="">Tous les immeubles</option>{buildings.data.map((building) => <option key={building.id} value={building.id}>{building.name}</option>)}</select>
+        <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}><option value="">Tous les types</option>{DEFAULT_UNIT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select>
+        <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Tous les statuts</option><option value="VACANT">Libre</option><option value="OCCUPIED">Occupe</option><option value="MAINTENANCE">Maintenance</option><option value="BLOCKED">Bloque</option></select>
+        <input type="number" placeholder="Loyer min." value={filters.rent_min} onChange={(event) => setFilters({ ...filters, rent_min: event.target.value })} />
+        <input type="number" placeholder="Loyer max." value={filters.rent_max} onChange={(event) => setFilters({ ...filters, rent_max: event.target.value })} />
+        <input type="number" placeholder="Etage" value={filters.floor} onChange={(event) => setFilters({ ...filters, floor: event.target.value })} />
+        <select value={filters.availability} onChange={(event) => setFilters({ ...filters, availability: event.target.value })}><option value="">Occupation</option><option value="OCCUPIED">Occupe</option><option value="VACANT">Libre</option></select>
+        <button type="button" className="secondary" onClick={() => setFilters({ building_id: '', type: '', status: '', rent_min: '', rent_max: '', floor: '', availability: '' })}>Reinitialiser filtres</button>
+      </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Immeuble</th><th>Numéro</th><th>Étage</th><th>Type</th><th className="right">Loyer mensuel</th><th>Statut</th><th>Locataire actuel</th><th>Téléphone</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Immeuble</th><th>Numéro</th><th>Étage</th><th>Type</th><th className="right">Montant</th><th>Devise</th><th>Statut</th><th>Locataire actuel</th><th>Téléphone</th><th>Actions</th></tr></thead>
           <tbody>
             {filtered.map((unit) => (
               <tr key={unit.id}>
-                <td>{unit.building_name}</td><td>{unit.number}</td><td>{unit.floor}</td><td>{unit.type}</td><td className="right">{money(unit.monthly_rent)}</td><td><StatusBadge value={unit.status} /></td><td>{unit.tenant_name || '-'}</td><td>{unit.tenant_phone || '-'}</td>
+                <td>{unit.building_name}</td><td>{unit.number}</td><td>{unit.floor}</td><td>{unit.type}</td><td className="right">{amount(unit.monthly_rent)}</td><td>USD</td><td><StatusBadge value={unit.status} /></td><td>{unit.tenant_name || '-'}</td><td>{unit.tenant_phone || '-'}</td>
                 <td className="actions">
                   <button className="icon-btn" title="Voir" onClick={() => openDetail(unit)}><Eye size={16} /></button>
                   {can('units.update') && <button className="icon-btn" title="Modifier" onClick={() => setEditing(unit)}><Pencil size={16} /></button>}
@@ -100,16 +137,17 @@ export function Units() {
               save(new FormData(event.currentTarget));
             }}
           >
-            <select name="building_id" required defaultValue={editing.building_id}>{buildings.data.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
-            <input name="number" placeholder="Numéro" defaultValue={editing.number} required />
-            <input name="floor" placeholder="Étage" type="number" defaultValue={editing.floor} required />
-            <input name="type" placeholder="Type" defaultValue={editing.type} required />
-            <input name="monthly_rent" placeholder="Loyer mensuel" type="number" defaultValue={editing.monthly_rent} required />
-            <select name="status" defaultValue={editing.status ?? 'VACANT'}>
+            <label>Immeuble<select name="building_id" required defaultValue={editing.building_id}>{buildings.data.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
+            <label>Numero<input name="number" placeholder="A-01" defaultValue={editing.number} required /></label>
+            <label>Etage<input name="floor" placeholder="0" type="number" defaultValue={editing.floor} required /></label>
+            <label>Type<select name="type" defaultValue={editing.type ?? 'Studio'}>{DEFAULT_UNIT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+            <label>Loyer mensuel<input name="monthly_rent" placeholder="1000" type="number" defaultValue={editing.monthly_rent} required /></label>
+            <label>Statut<select name="status" defaultValue={editing.status ?? 'VACANT'}>
               <option value="VACANT">Libre</option>
-              <option value="OCCUPIED">Occupé</option>
+              <option value="OCCUPIED">Occupe</option>
               <option value="MAINTENANCE">Maintenance</option>
-            </select>
+              <option value="BLOCKED">Bloque</option>
+            </select></label>
             <button>Enregistrer</button>
           </form>
         </Modal>
@@ -140,4 +178,8 @@ export function Units() {
       )}
     </section>
   );
+}
+
+function amount(value: unknown) {
+  return Number(value ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
 }

@@ -39,8 +39,6 @@ export function Tenants() {
   const [tenantReport, setTenantReport] = useState<TenantReport | null>(null);
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState({ status: '', building: '', unit: '', start: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10), end: new Date().toISOString().slice(0, 10) });
-  const [pageSize, setPageSize] = useState(10);
-  const [page, setPage] = useState(1);
   const [success, setSuccess] = useState('');
   const navigate = useNavigate();
 
@@ -51,8 +49,6 @@ export function Tenants() {
     .filter((tenant) => !filters.building || tenant.building_name === filters.building)
     .filter((tenant) => !filters.unit || tenant.unit_number.toLowerCase().includes(filters.unit.toLowerCase()));
   const sorted = [...filtered].sort((a, b) => `${a.last_name} ${a.first_name}`.localeCompare(`${b.last_name} ${b.first_name}`));
-  const paged = sorted.slice((page - 1) * pageSize, page * pageSize);
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
 
   async function save(form: FormData) {
     const payload = {
@@ -90,9 +86,7 @@ export function Tenants() {
   }
 
   async function openSituation(tenant: Tenant) {
-    setSituation(tenant);
-    const response = await api.get<TenantReport>(`/reports/tenants/${tenant.id}`, { params: { start: filters.start, end: filters.end } });
-    setTenantReport(response.data);
+    navigate(`/tenants/${tenant.id}/situation`);
   }
 
   return (
@@ -101,7 +95,7 @@ export function Tenants() {
       <SuccessMessage message={success} />
       <TableToolbar
         query={query}
-        onQueryChange={(value) => { setQuery(value); setPage(1); }}
+        onQueryChange={(value) => { setQuery(value); }}
         onExport={() => exportCsv('locataires.csv', filtered.map((tenant) => ({
           nom: `${tenant.first_name} ${tenant.last_name}`,
           telephone: tenant.phone,
@@ -113,17 +107,17 @@ export function Tenants() {
         })))}
       />
       <div className="quick-form">
-        <select value={filters.status} onChange={(event) => { setFilters({ ...filters, status: event.target.value }); setPage(1); }}><option value="">Tous les statuts</option><option value="ACTIVE">Actif</option><option value="INACTIVE">Inactif</option></select>
-        <select value={filters.building} onChange={(event) => { setFilters({ ...filters, building: event.target.value }); setPage(1); }}><option value="">Tous les immeubles</option>{buildings.map((building) => <option key={building} value={building}>{building}</option>)}</select>
-        <input value={filters.unit} onChange={(event) => { setFilters({ ...filters, unit: event.target.value }); setPage(1); }} placeholder="Appartement" />
+        <select value={filters.status} onChange={(event) => { setFilters({ ...filters, status: event.target.value }); }}><option value="">Tous les statuts</option><option value="ACTIVE">Actif</option><option value="INACTIVE">Inactif</option></select>
+        <select value={filters.building} onChange={(event) => { setFilters({ ...filters, building: event.target.value }); }}><option value="">Tous les immeubles</option>{buildings.map((building) => <option key={building} value={building}>{building}</option>)}</select>
+        <input value={filters.unit} onChange={(event) => { setFilters({ ...filters, unit: event.target.value }); }} placeholder="Appartement" />
       </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Nom</th><th>Telephone</th><th>Appartement</th><th>Immeuble</th><th className="right">Loyer</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Nom</th><th>Telephone</th><th>Appartement</th><th>Immeuble</th><th className="right">Montant</th><th>Devise</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
-            {paged.map((tenant) => (
+            {sorted.map((tenant) => (
               <tr key={tenant.id} className="clickable-row" onClick={() => openSituation(tenant)}>
-                <td>{tenant.first_name} {tenant.last_name}</td><td>{tenant.phone}</td><td>{tenant.unit_number}</td><td>{tenant.building_name}</td><td className="right">{money(tenant.monthly_rent)}</td><td><StatusBadge value={tenant.status} /></td>
+                <td>{tenant.first_name} {tenant.last_name}</td><td>{tenant.phone}</td><td>{tenant.unit_number}</td><td>{tenant.building_name}</td><td className="right">{amount(tenant.monthly_rent)}</td><td>USD</td><td><StatusBadge value={tenant.status} /></td>
                 <td className="actions" onClick={(event) => event.stopPropagation()}>
                   <button className="icon-btn" title="Voir" onClick={() => openSituation(tenant)}><Eye size={16} /></button>
                   <button className="icon-btn" title="Situation" onClick={() => openSituation(tenant)}><BarChart3 size={16} /></button>
@@ -136,7 +130,7 @@ export function Tenants() {
         </table>
         {!sorted.length && <EmptyState />}
       </div>
-      <Pagination page={page} totalPages={totalPages} pageSize={pageSize} total={sorted.length} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />
+      <div className="pagination-bar"><span className="table-meta">{sorted.length} ligne(s) affichee(s)</span></div>
 
       {editing && (
         <Modal title={editing.id ? 'Modifier le locataire' : 'Nouveau locataire'} onClose={() => setEditing(null)}>
@@ -243,4 +237,8 @@ function formatReportValue(row: Record<string, unknown>) {
   const amount = row.remaining_amount ?? row.amount ?? row.total ?? row.paid_amount;
   if (typeof amount === 'number' || typeof amount === 'string') return money(Number(amount));
   return String(row.unit_number ?? row.status ?? row.document_type ?? '');
+}
+
+function amount(value: unknown) {
+  return Number(value ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
 }

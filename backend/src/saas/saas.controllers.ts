@@ -637,8 +637,25 @@ export class ReportsController {
   }
 
   @Get('buildings/:id')
-  building(@Param('id', ParseIntPipe) id: number, @Query('start') start?: string, @Query('end') end?: string) {
-    return this.service.buildingReport(id, start, end);
+  building(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+    @Query('start') start?: string,
+    @Query('end') end?: string,
+    @Query('paymentStatus') paymentStatus?: string,
+    @Query('tenantId') tenantId?: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    return this.service.buildingReport(id, {
+      month,
+      year,
+      start,
+      end,
+      paymentStatus,
+      tenantId: tenantId ? Number(tenantId) : undefined,
+      unitId: unitId ? Number(unitId) : undefined,
+    });
   }
 
   @Get('payments')
@@ -661,8 +678,27 @@ export class ReportsController {
   }
 
   @Get('tenants/:id')
-  tenant(@Param('id', ParseIntPipe) id: number, @Query('start') start?: string, @Query('end') end?: string) {
-    return this.service.tenantReport(id, start, end);
+  tenant(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+    @Query('start') start?: string,
+    @Query('end') end?: string,
+    @Query('invoiceStatus') invoiceStatus?: string,
+    @Query('buildingId') buildingId?: string,
+    @Query('unitId') unitId?: string,
+    @Query('leaseId') leaseId?: string,
+  ) {
+    return this.service.tenantReport(id, {
+      month,
+      year,
+      start,
+      end,
+      invoiceStatus,
+      buildingId: buildingId ? Number(buildingId) : undefined,
+      unitId: unitId ? Number(unitId) : undefined,
+      leaseId: leaseId ? Number(leaseId) : undefined,
+    });
   }
 
   @Get('availability')

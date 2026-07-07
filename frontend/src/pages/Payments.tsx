@@ -14,9 +14,20 @@ export function Payments() {
   const invoices = useApiList<Invoice>('/invoices');
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [filters, setFilters] = useState({ start: '', end: '', month: '', year: '', payment_method: '', tenant: '', invoice: '', min: '', max: '' });
   const [success, setSuccess] = useState('');
+  const tenantOptions = Array.from(new Set(data.map((payment) => payment.tenant_name).filter(Boolean)));
   const filtered = data.filter((payment) =>
-    includesText({ ...payment, payment_method_label: paymentMethodLabel(payment.payment_method) }, query),
+    includesText({ ...payment, payment_method_label: paymentMethodLabel(payment.payment_method) }, query)
+      && (!filters.start || payment.payment_date.slice(0, 10) >= filters.start)
+      && (!filters.end || payment.payment_date.slice(0, 10) <= filters.end)
+      && (!filters.month || new Date(payment.payment_date).getMonth() + 1 === Number(filters.month))
+      && (!filters.year || new Date(payment.payment_date).getFullYear() === Number(filters.year))
+      && (!filters.payment_method || payment.payment_method === filters.payment_method)
+      && (!filters.tenant || payment.tenant_name === filters.tenant)
+      && (!filters.invoice || payment.invoice_number?.toLowerCase().includes(filters.invoice.toLowerCase()))
+      && (!filters.min || Number(payment.amount) >= Number(filters.min))
+      && (!filters.max || Number(payment.amount) <= Number(filters.max)),
   );
 
   async function save(form: FormData) {
@@ -51,10 +62,22 @@ export function Payments() {
           recu: payment.receipt_number ?? '',
         })))}
       />
+      <div className="quick-form">
+        <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, start: event.target.value })} />
+        <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, end: event.target.value })} />
+        <input type="number" min="1" max="12" placeholder="Mois" value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })} />
+        <input type="number" placeholder="Annee" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} />
+        <select value={filters.payment_method} onChange={(event) => setFilters({ ...filters, payment_method: event.target.value })}><option value="">Tous modes</option><option value="CASH">Especes</option><option value="BANK">Banque</option><option value="MOBILE_MONEY">Mobile Money</option></select>
+        <select value={filters.tenant} onChange={(event) => setFilters({ ...filters, tenant: event.target.value })}><option value="">Tous les locataires</option>{tenantOptions.map((tenant) => <option key={tenant} value={tenant}>{tenant}</option>)}</select>
+        <input placeholder="Facture" value={filters.invoice} onChange={(event) => setFilters({ ...filters, invoice: event.target.value })} />
+        <input type="number" placeholder="Montant min." value={filters.min} onChange={(event) => setFilters({ ...filters, min: event.target.value })} />
+        <input type="number" placeholder="Montant max." value={filters.max} onChange={(event) => setFilters({ ...filters, max: event.target.value })} />
+        <button type="button" className="secondary" onClick={() => setFilters({ start: '', end: '', month: '', year: '', payment_method: '', tenant: '', invoice: '', min: '', max: '' })}>Reinitialiser filtres</button>
+      </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Facture</th><th>Locataire</th><th>Date</th><th>Montant</th><th>Mode</th><th>Reçu</th><th>Référence</th></tr></thead>
-          <tbody>{filtered.map((payment) => <tr key={payment.id}><td>{payment.invoice_number}</td><td>{payment.tenant_name}</td><td>{shortDate(payment.payment_date)}</td><td className="right">{money(payment.amount)}</td><td>{paymentMethodLabel(payment.payment_method)}</td><td>{payment.receipt_number ?? '-'}</td><td>{payment.reference}</td></tr>)}</tbody>
+          <thead><tr><th>Facture</th><th>Locataire</th><th>Date</th><th className="right">Montant</th><th>Devise</th><th>Mode</th><th>Reçu</th><th>Référence</th></tr></thead>
+          <tbody>{filtered.map((payment) => <tr key={payment.id}><td>{payment.invoice_number}</td><td>{payment.tenant_name}</td><td>{shortDate(payment.payment_date)}</td><td className="right">{amount(payment.amount)}</td><td>USD</td><td>{paymentMethodLabel(payment.payment_method)}</td><td>{payment.receipt_number ?? '-'}</td><td>{payment.reference}</td></tr>)}</tbody>
         </table>
         {!data.length && <EmptyState />}
       </div>
@@ -79,4 +102,8 @@ export function Payments() {
       )}
     </section>
   );
+}
+
+function amount(value: unknown) {
+  return Number(value ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
 }

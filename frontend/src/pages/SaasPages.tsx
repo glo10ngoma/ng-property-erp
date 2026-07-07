@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api, exportCsv, exportExcel, includesText, money, shortDate, statusLabel } from '../api';
 import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, SuccessMessage, TableToolbar } from '../components';
@@ -155,14 +155,14 @@ export function StaffPage() {
       </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Nom</th><th>Fonction</th><th>Téléphone</th><th>Email</th><th>Salaire</th><th>Embauche</th><th>Statut</th><th>Actions</th></tr></thead>
-          <tbody>{filtered.map((e) => <tr key={e.id}><td>{e.first_name} {e.last_name}</td><td>{e.job_title}</td><td>{e.phone}</td><td>{e.email}</td><td className="right">{money(e.monthly_salary)}</td><td>{shortDate(e.hire_date)}</td><td>{statusLabel(e.status)}</td><td className="actions"><button className="secondary" onClick={() => openDetail(e.id)}>Voir</button>{can('staff.update') && <button className="secondary" onClick={() => setEditing(e)}>Modifier</button>}{can('staff.update') && e.status !== 'INACTIVE' && <button className="secondary" onClick={() => deactivate(e.id)}>Désactiver</button>}</td></tr>)}</tbody>
+          <thead><tr><th>Nom</th><th>Fonction</th><th>Téléphone</th><th>Email</th><th className="right">Montant</th><th>Devise</th><th>Embauche</th><th>Statut</th><th>Actions</th></tr></thead>
+          <tbody>{filtered.map((e) => <tr key={e.id}><td>{e.first_name} {e.last_name}</td><td>{e.job_title}</td><td>{e.phone}</td><td>{e.email}</td><td className="right">{amount(e.monthly_salary)}</td><td>USD</td><td>{shortDate(e.hire_date)}</td><td>{statusLabel(e.status)}</td><td className="actions"><button className="secondary" onClick={() => openDetail(e.id)}>Voir</button>{can('staff.update') && <button className="secondary" onClick={() => setEditing(e)}>Modifier</button>}{can('staff.update') && e.status !== 'INACTIVE' && <button className="secondary" onClick={() => deactivate(e.id)}>Désactiver</button>}</td></tr>)}</tbody>
         </table>
         {!filtered.length && <EmptyState />}
       </div>
       <div className="detail-section">
         <h4>Avances sur salaire</h4>
-        <Table headers={['Employé', 'Date', 'Montant', 'Statut', 'Raison', 'Actions']} rows={advances.data.map((a) => [a.employee_name, shortDate(a.advance_date), money(a.amount), statusLabel(a.status), a.reason ?? '-', <span className="actions">{can('payroll.update') && a.status !== 'APPROVED' && a.status !== 'PAID' && <button className="secondary" onClick={() => approveAdvance(a.id)}>Approuver</button>}{can('payroll.update') && a.status !== 'PAID' && <button className="secondary" onClick={() => payAdvance(a.id)}>Payer</button>}</span>])} />
+        <Table headers={['Employé', 'Date', 'Montant', 'Devise', 'Statut', 'Raison', 'Actions']} rows={advances.data.map((a) => [a.employee_name, shortDate(a.advance_date), amount(a.amount), 'USD', statusLabel(a.status), a.reason ?? '-', <span className="actions">{can('payroll.update') && a.status !== 'APPROVED' && a.status !== 'PAID' && <button className="secondary" onClick={() => approveAdvance(a.id)}>Approuver</button>}{can('payroll.update') && a.status !== 'PAID' && <button className="secondary" onClick={() => payAdvance(a.id)}>Payer</button>}</span>])} />
       </div>
       <div className="detail-section">
         <h4>Congés</h4>
@@ -170,7 +170,7 @@ export function StaffPage() {
       </div>
       <div className="detail-section">
         <h4>Paie mensuelle</h4>
-        <Table headers={['Employé', 'Mois', 'Brut', 'Avances', 'Retenues', 'Net', 'Statut', 'Actions']} rows={payrolls.data.map((p) => [p.employee_name, `${p.month}/${p.year}`, money(p.gross_salary), money(p.advances_total), money(p.deductions_total), money(p.net_salary), statusLabel(p.status), <span className="actions">{can('payroll.update') && p.status === 'DRAFT' && <button className="secondary" onClick={() => validatePayroll(p.id)}>Valider</button>}{can('payroll.update') && p.status !== 'PAID' && <button className="secondary" onClick={() => payPayroll(p.id)}>Payer</button>}</span>])} />
+        <Table headers={['Employé', 'Mois', 'Brut', 'Devise', 'Avances', 'Devise', 'Retenues', 'Devise', 'Net', 'Devise', 'Statut', 'Actions']} rows={payrolls.data.map((p) => [p.employee_name, `${p.month}/${p.year}`, amount(p.gross_salary), 'USD', amount(p.advances_total), 'USD', amount(p.deductions_total), 'USD', amount(p.net_salary), 'USD', statusLabel(p.status), <span className="actions">{can('payroll.update') && p.status === 'DRAFT' && <button className="secondary" onClick={() => validatePayroll(p.id)}>Valider</button>}{can('payroll.update') && p.status !== 'PAID' && <button className="secondary" onClick={() => payPayroll(p.id)}>Payer</button>}</span>])} />
       </div>
       {editing && (
         <Modal title="Modifier employé" onClose={() => setEditing(null)}>
@@ -197,7 +197,7 @@ export function StaffPage() {
             <span>Salaire</span><strong>{money(viewing.monthly_salary)}</strong>
             <span>Statut</span><strong>{statusLabel(viewing.status)}</strong>
           </div>
-          <div className="detail-section"><h4>Historique avances</h4><Table headers={['Date', 'Montant', 'Statut']} rows={viewing.advances.map((a) => [shortDate(a.advance_date), money(a.amount), statusLabel(a.status)])} /></div>
+          <div className="detail-section"><h4>Historique avances</h4><Table headers={['Date', 'Montant', 'Statut']} rows={viewing.advances.map((a) => [shortDate(a.advance_date), amount(a.amount), 'USD', statusLabel(a.status)])} /></div>
           <div className="detail-section"><h4>Historique congés</h4><Table headers={['Début', 'Fin', 'Type', 'Statut']} rows={viewing.leaves.map((l) => [shortDate(l.start_date), shortDate(l.end_date), l.leave_type, statusLabel(l.status)])} /></div>
           <div className="detail-section"><h4>Historique paie</h4><Table headers={['Mois', 'Net', 'Statut']} rows={viewing.payrolls.map((p) => [`${p.month}/${p.year}`, money(p.net_salary), statusLabel(p.status)])} /></div>
         </Modal>
@@ -225,7 +225,7 @@ export function CashPage() {
       <SuccessMessage message={success} />
       {can('cash.create') && <QuickForm onSubmit={expense} fields={['category:Catégorie', 'amount:Montant', 'movement_date:Date', 'description:Description', 'reference:Référence']} button="Enregistrer dépense" />}
       <TableToolbar query={query} onQueryChange={setQuery} onExport={() => exportCsv('caisse.csv', filtered)} />
-      <Table headers={['Date', 'Type', 'Catégorie', 'Montant', 'Facture', 'Locataire', 'Référence']} rows={filtered.map((m) => [shortDate(m.movement_date), movementTypeLabel(m.type), cashCategoryLabel(m.category), money(m.amount), m.invoice_number ?? '-', m.tenant_name ?? '-', m.reference ?? '-'])} />
+      <Table headers={['Date', 'Type', 'Catégorie', 'Montant', 'Devise', 'Facture', 'Locataire', 'Référence']} rows={filtered.map((m) => [shortDate(m.movement_date), movementTypeLabel(m.type), cashCategoryLabel(m.category), amount(m.amount), 'USD', m.invoice_number ?? '-', m.tenant_name ?? '-', m.reference ?? '-'])} />
     </section>
   );
 }
@@ -323,8 +323,8 @@ export function StockPage() {
       </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Code</th><th>Article</th><th>Catégorie</th><th>Quantité</th><th>Seuil</th><th>PMP</th><th>Alerte</th><th>Statut</th><th>Actions</th></tr></thead>
-          <tbody>{filtered.map((i) => <tr key={i.id}><td>{i.code ?? '-'}</td><td>{i.name}</td><td>{i.category}</td><td className="right">{i.current_quantity} {i.unit}</td><td className="right">{i.minimum_quantity}</td><td className="right">{money(i.average_purchase_price ?? i.purchase_price)}</td><td>{stockAlertLabel(i.stock_alert)}</td><td>{statusLabel(i.status)}</td><td className="actions"><button className="secondary" onClick={() => openDetail(i.id)}>Voir</button>{can('stock.update') && <button className="secondary" onClick={() => setEditing(i)}>Modifier</button>}{can('stock.delete') && i.status !== 'INACTIVE' && <button className="secondary" onClick={() => deactivate(i.id)}>Désactiver</button>}</td></tr>)}</tbody>
+          <thead><tr><th>Code</th><th>Article</th><th>Catégorie</th><th>Quantité</th><th>Seuil</th><th className="right">PMP</th><th>Devise</th><th>Alerte</th><th>Statut</th><th>Actions</th></tr></thead>
+          <tbody>{filtered.map((i) => <tr key={i.id}><td>{i.code ?? '-'}</td><td>{i.name}</td><td>{i.category}</td><td className="right">{i.current_quantity} {i.unit}</td><td className="right">{i.minimum_quantity}</td><td className="right">{amount(i.average_purchase_price ?? i.purchase_price)}</td><td>USD</td><td>{stockAlertLabel(i.stock_alert)}</td><td>{statusLabel(i.status)}</td><td className="actions"><button className="secondary" onClick={() => openDetail(i.id)}>Voir</button>{can('stock.update') && <button className="secondary" onClick={() => setEditing(i)}>Modifier</button>}{can('stock.delete') && i.status !== 'INACTIVE' && <button className="secondary" onClick={() => deactivate(i.id)}>Désactiver</button>}</td></tr>)}</tbody>
         </table>
         {!filtered.length && <EmptyState />}
       </div>
@@ -376,6 +376,7 @@ export function StockPage() {
 
 export function LeasesPage() {
   const { can } = useAuth();
+  const navigate = useNavigate();
   const { data, reload } = useApiList<Lease>('/leases');
   const tenants = useApiList<{ id: number; first_name: string; last_name: string }>('/tenants');
   const units = useApiList<{ id: number; building_name: string; number: string; monthly_rent: number; status: string }>('/units');
@@ -383,8 +384,18 @@ export function LeasesPage() {
   const [editing, setEditing] = useState<Lease | null>(null);
   const [viewing, setViewing] = useState<LeaseDetail | null>(null);
   const [query, setQuery] = useState('');
+  const [filters, setFilters] = useState({ building: '', unit: '', tenant: '', status: '', start: '', end: '', guarantee: '' });
   const [success, setSuccess] = useState('');
-  const filtered = data.filter((item) => includesText(item, query));
+  const buildingOptions = Array.from(new Set(data.map((lease) => lease.building_name).filter(Boolean)));
+  const filtered = data
+    .filter((item) => includesText(item, query))
+    .filter((item) => !filters.building || item.building_name === filters.building)
+    .filter((item) => !filters.unit || String(item.unit_number ?? '').toLowerCase().includes(filters.unit.toLowerCase()))
+    .filter((item) => !filters.tenant || String(item.tenant_name ?? '').toLowerCase().includes(filters.tenant.toLowerCase()))
+    .filter((item) => !filters.status || item.status === filters.status)
+    .filter((item) => !filters.start || String(item.start_date).slice(0, 10) >= filters.start)
+    .filter((item) => !filters.end || String(item.end_date ?? item.start_date).slice(0, 10) <= filters.end)
+    .filter((item) => !filters.guarantee || String(item.guarantee_status ?? item.rental_guarantee_status ?? '') === filters.guarantee);
 
   async function save(form: FormData) {
     const payload = {
@@ -435,13 +446,23 @@ export function LeasesPage() {
 
   return (
     <section>
-      <PageHeader title="Baux & contrats" action={can('documents.upload') ? <button onClick={() => setCreating(true)}>Créer bail</button> : undefined} />
+      <PageHeader title="Baux & contrats" action={can('documents.upload') ? <button onClick={() => navigate('/leases/new')}>Creer bail</button> : undefined} />
       <SuccessMessage message={success} />
       <TableToolbar query={query} onQueryChange={setQuery} onExport={() => exportCsv('baux.csv', filtered)} />
+      <div className="quick-form">
+        <select value={filters.building} onChange={(event) => setFilters({ ...filters, building: event.target.value })}><option value="">Tous les immeubles</option>{buildingOptions.map((building) => <option key={building} value={building}>{building}</option>)}</select>
+        <input placeholder="Unite" value={filters.unit} onChange={(event) => setFilters({ ...filters, unit: event.target.value })} />
+        <input placeholder="Locataire" value={filters.tenant} onChange={(event) => setFilters({ ...filters, tenant: event.target.value })} />
+        <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Tous les statuts</option><option value="DRAFT">Brouillon</option><option value="ACTIVE">Actif</option><option value="TERMINATED">Resilie</option><option value="EXPIRED">Expire</option></select>
+        <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, start: event.target.value })} />
+        <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, end: event.target.value })} />
+        <select value={filters.guarantee} onChange={(event) => setFilters({ ...filters, guarantee: event.target.value })}><option value="">Garantie</option><option value="PAID">Payee</option><option value="PARTIAL">Paiement partiel</option><option value="NOT_PAID">Non payee</option></select>
+        <button type="button" className="secondary" onClick={() => setFilters({ building: '', unit: '', tenant: '', status: '', start: '', end: '', guarantee: '' })}>Reinitialiser filtres</button>
+      </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Locataire</th><th>Immeuble</th><th>Appartement</th><th>Début</th><th>Loyer</th><th>Garantie</th><th>Payé</th><th>Contrat</th><th>Statut</th><th>Actions</th></tr></thead>
-          <tbody>{filtered.map((l) => <tr key={l.id}><td>{l.tenant_name}</td><td>{l.building_name}</td><td>{l.unit_number}</td><td>{shortDate(l.start_date)}</td><td>{money(l.monthly_rent)}</td><td>{money(l.guarantee_amount ?? l.rental_guarantee_amount)}</td><td>{money(l.guarantee_paid ?? l.rental_guarantee_paid)}</td><td>{l.contract_file_name ?? 'Absent'}</td><td>{statusLabel(l.status)}</td><td className="actions"><button className="secondary" onClick={() => openDetail(l.id)}>Voir</button>{can('documents.upload') && <button className="secondary" onClick={() => setEditing(l)}>Modifier</button>}{can('documents.upload') && l.status !== 'ACTIVE' && <button className="secondary" onClick={() => activate(l.id)}>Activer</button>}{can('documents.upload') && l.status === 'ACTIVE' && <button className="secondary" onClick={() => terminate(l.id)}>Résilier</button>}{can('invoices.create') && <button className="secondary" onClick={() => invoice(l.id)}>Facturer</button>}</td></tr>)}</tbody>
+          <thead><tr><th>Locataire</th><th>Immeuble</th><th>Appartement</th><th>Début</th><th className="right">Loyer</th><th>Devise</th><th className="right">Garantie</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th>Contrat</th><th>Statut</th><th>Actions</th></tr></thead>
+          <tbody>{filtered.map((l) => <tr key={l.id}><td>{l.tenant_name}</td><td>{l.building_name}</td><td>{l.unit_number}</td><td>{shortDate(l.start_date)}</td><td className="right">{amount(l.monthly_rent)}</td><td>USD</td><td className="right">{amount(l.guarantee_amount ?? l.rental_guarantee_amount)}</td><td>USD</td><td className="right">{amount(l.guarantee_paid ?? l.rental_guarantee_paid)}</td><td>USD</td><td>{l.contract_file_name ?? 'Absent'}</td><td>{statusLabel(l.status)}</td><td className="actions"><button className="secondary" onClick={() => openDetail(l.id)}>Voir</button>{can('documents.upload') && <button className="secondary" onClick={() => setEditing(l)}>Modifier</button>}{can('documents.upload') && l.status !== 'ACTIVE' && <button className="secondary" onClick={() => activate(l.id)}>Activer</button>}{can('documents.upload') && l.status === 'ACTIVE' && <button className="secondary" onClick={() => terminate(l.id)}>Résilier</button>}{can('invoices.create') && <button className="secondary" onClick={() => invoice(l.id)}>Facturer</button>}</td></tr>)}</tbody>
         </table>
         {!filtered.length && <EmptyState />}
       </div>
@@ -671,6 +692,10 @@ function stockAlertLabel(value?: string) {
   })[value ?? 'OK'] ?? value ?? 'OK';
 }
 
+function amount(value: unknown) {
+  return Number(value ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+}
+
 function cashCategoryLabel(value: string) {
   return ({
     INVOICE_PAYMENT: 'Paiement facture',
@@ -697,7 +722,7 @@ function QuickForm({ fields, button, onSubmit }: { fields: string[]; button: str
             {fields.map((field) => {
               const [name, label] = field.split(':');
               const type = name.includes('date') ? 'date' : name.includes('amount') || name.includes('salary') || name.includes('quantity') || name.includes('price') ? 'number' : 'text';
-              return <input key={name} name={name} placeholder={label} type={type} required={['first_name', 'last_name', 'name', 'amount'].includes(name)} />;
+              return <label key={name}>{label}<input name={name} placeholder={label} type={type} required={['first_name', 'last_name', 'name', 'amount'].includes(name)} /></label>;
             })}
             <button>Enregistrer</button>
           </form>
@@ -708,28 +733,17 @@ function QuickForm({ fields, button, onSubmit }: { fields: string[]; button: str
 }
 
 function Table({ headers, rows }: { headers: string[]; rows: Array<Array<ReactNode>> }) {
-  const [pageSize, setPageSize] = useState(10);
-  const [page, setPage] = useState(1);
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const pagedRows = rows.slice((safePage - 1) * pageSize, safePage * pageSize);
   return (
     <>
       <div className="table-wrap">
         <table>
           <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
-          <tbody>{pagedRows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
+          <tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
         </table>
         {!rows.length && <EmptyState />}
       </div>
       <div className="pagination-bar">
-        <span className="table-meta">{rows.length} ligne(s)</span>
-        <div className="actions">
-          <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>{[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}</select>
-          <button className="secondary" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>Precedent</button>
-          <span className="table-meta">{safePage} / {totalPages}</span>
-          <button className="secondary" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>Suivant</button>
-        </div>
+        <span className="table-meta">{rows.length} ligne(s) affichee(s)</span>
       </div>
     </>
   );

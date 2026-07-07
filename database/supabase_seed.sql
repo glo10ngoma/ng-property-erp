@@ -29,12 +29,12 @@ TRUNCATE
   buildings
 RESTART IDENTITY CASCADE;
 
-INSERT INTO buildings (name, address, city, description, organization_id)
+INSERT INTO buildings (name, address, city, building_type, description, organization_id)
 VALUES
-  ('Residence Lumumba', '12 Avenue Lumumba, Gombe', 'Kinshasa', 'Immeuble premium proche du centre administratif.', 1),
-  ('Palm Court', '45 Boulevard du 30 Juin', 'Kinshasa', 'Residence urbaine avec parking securise.', 1),
-  ('Riverside Plaza', '8 Avenue Wagenia', 'Kinshasa', 'Appartements lumineux avec vue sur le fleuve.', 1),
-  ('Cite Magnolia', '22 Avenue des Ecuries', 'Kinshasa', 'Complexe familial avec services de proximite.', 1);
+  ('Residence Lumumba', '12 Avenue Lumumba, Gombe', 'Kinshasa', 'Residence', 'Immeuble premium proche du centre administratif.', 1),
+  ('Palm Court', '45 Boulevard du 30 Juin', 'Kinshasa', 'Immeuble R+5', 'Residence urbaine avec parking securise.', 1),
+  ('Riverside Plaza', '8 Avenue Wagenia', 'Kinshasa', 'Immeuble R+10', 'Appartements lumineux avec vue sur le fleuve.', 1),
+  ('Cite Magnolia', '22 Avenue des Ecuries', 'Kinshasa', 'Mixte', 'Complexe familial avec services de proximite.', 1);
 
 INSERT INTO units (building_id, number, floor, type, monthly_rent, status, organization_id)
 SELECT
