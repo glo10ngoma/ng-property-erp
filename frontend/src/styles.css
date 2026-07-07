@@ -56,6 +56,9 @@ tbody tr.clickable-row { cursor: pointer; }
 tbody tr.clickable-row:hover { background: #f8fafb; }
 .right { text-align: right; }
 .actions { display: flex; gap: 8px; align-items: center; }
+.actions-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.actions-row .table-toolbar { margin-bottom: 0; padding: 0; }
+.actions-row button { white-space: nowrap; }
 .badge { display: inline-flex; align-items: center; min-height: 24px; border-radius: 999px; padding: 0 9px; font-size: 12px; font-weight: 700; background: #e8eef2; color: #425466; }
 .badge.paid, .badge.active, .badge.occupied { background: #e0f2e9; color: #1f7a4d; }
 .badge.partial, .badge.maintenance { background: #fff0cf; color: #946200; }
@@ -72,6 +75,12 @@ tbody tr.clickable-row:hover { background: #f8fafb; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .modal-head h3 { margin: 0; }
 .form-grid { display: grid; gap: 12px; }
+.lease-form { display: grid; gap: 12px; }
+.lease-form .detail-section { margin-top: 0; }
+.lease-section-grid { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 10px; align-items: end; }
+.lease-section-grid label { display: grid; gap: 6px; color: #637783; font-size: 13px; font-weight: 700; }
+.lease-field-wide { grid-column: span 2; }
+.lease-field-full { grid-column: 1 / -1; }
 .quick-form { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 10px; margin-bottom: 12px; }
 .quick-form button { min-width: 150px; }
 .detail-list { display: grid; grid-template-columns: 150px 1fr; gap: 10px 16px; align-items: baseline; }
@@ -111,8 +120,17 @@ tfoot td { font-weight: 800; font-size: 18px; }
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { position: static; }
   .sidebar nav { grid-template-columns: repeat(2, 1fr); }
-  .metrics-grid, .finance-band, .mini-stats, .chart-grid, .quick-form { grid-template-columns: repeat(2, 1fr); }
+  .metrics-grid, .finance-band, .mini-stats, .chart-grid, .quick-form, .lease-section-grid { grid-template-columns: repeat(2, 1fr); }
   .main { padding: 18px; }
+}
+
+@media (min-width: 981px) and (max-width: 1240px) {
+  .lease-section-grid { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .lease-section-grid, .quick-form { grid-template-columns: 1fr; }
+  .lease-field-wide, .lease-field-full { grid-column: auto; }
 }
 
 @media print {

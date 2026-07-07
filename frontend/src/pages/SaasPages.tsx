@@ -142,10 +142,12 @@ export function StaffPage() {
         <div className="mini-stat"><span>Congés</span><strong>{leaves.data.length}</strong></div>
         <div className="mini-stat"><span>Paies</span><strong>{payrolls.data.length}</strong></div>
       </div>
+      <div className="actions-row">
       {can('staff.create') && <QuickForm onSubmit={create} fields={['first_name:Prénom', 'last_name:Nom', 'phone:Téléphone', 'email:Email', 'job_title:Fonction', 'monthly_salary:Salaire mensuel', 'hire_date:Date embauche']} button="Créer employé" />}
       {can('payroll.create') && <QuickForm onSubmit={createAdvance} fields={['employee_id:ID employé', 'amount:Montant avance', 'advance_date:Date avance', 'reason:Raison']} button="Créer avance" />}
       {can('payroll.create') && <QuickForm onSubmit={createLeave} fields={['employee_id:ID employé', 'start_date:Date début', 'end_date:Date fin', 'leave_type:Type congé', 'reason:Motif']} button="Créer congé" />}
       {can('payroll.create') && <QuickForm onSubmit={generatePayroll} fields={['employee_id:ID employé', 'month:Mois', 'year:Année', 'deductions_total:Retenues']} button="Générer paie" />}
+      </div>
       <TableToolbar query={query} onQueryChange={setQuery} onExport={() => exportCsv('personnel.csv', filtered)} />
       <div className="actions detail-section">
         <button className="secondary" onClick={() => exportExcel('personnel.xls', filtered)}>Excel employés</button>
@@ -311,10 +313,12 @@ export function StockPage() {
         <div className="mini-stat"><span>Rupture</span><strong>{outOfStock.length}</strong></div>
         <div className="mini-stat"><span>Valorisation</span><strong>{money(data.reduce((sum, item) => sum + Number(item.current_quantity) * Number(item.average_purchase_price ?? item.purchase_price ?? 0), 0))}</strong></div>
       </div>
+      <div className="actions-row">
       {can('stock.create') && <QuickForm onSubmit={create} fields={['name:Article', 'description:Description', 'category:Catégorie', 'unit:Unité', 'current_quantity:Quantité initiale', 'minimum_quantity:Stock minimum', 'purchase_price:Prix achat', 'observations:Observations']} button="Créer article" />}
       {can('stock.create') && <QuickForm onSubmit={entry} fields={['stock_item_id:ID article', 'quantity:Quantité', 'unit_price:Prix unitaire', 'movement_date:Date', 'supplier:Fournisseur', 'comment:Commentaire']} button="Entrée stock" />}
       {can('stock.update') && <QuickForm onSubmit={exit} fields={['stock_item_id:ID article', 'quantity:Quantité', 'movement_date:Date', 'destination:Destination', 'comment:Commentaire']} button="Sortie stock" />}
       {can('stock.update') && <QuickForm onSubmit={inventory} fields={['count_date:Date inventaire', 'stock_item_id:ID article', 'physical_quantity:Quantité physique', 'notes:Notes']} button="Créer inventaire" />}
+      </div>
       <TableToolbar query={query} onQueryChange={setQuery} onExport={() => exportCsv('stock.csv', filtered)} />
       <div className="actions detail-section">
         <button className="secondary" onClick={() => exportExcel('stock.xls', filtered)}>Excel articles</button>
