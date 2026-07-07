@@ -78,6 +78,7 @@ tbody tr.clickable-row:hover { background: #f8fafb; }
 .loading-state { padding: 18px; color: #637783; display: inline-flex; align-items: center; gap: 8px; }
 .spinner { width: 18px; height: 18px; border: 2px solid #d8e1e8; border-top-color: #255e7e; border-radius: 999px; animation: spin .8s linear infinite; }
 .error-message { background: #fbe3e3; border: 1px solid #efb8bd; color: #a4343a; border-radius: 6px; padding: 10px 12px; font-weight: 700; }
+.info-message { background: #edf7fb; border: 1px solid #c7e0ec; color: #255e7e; border-radius: 6px; padding: 9px 11px; font-size: 13px; }
 .table-toolbar { display: flex; gap: 8px; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 .table-toolbar input, .table-toolbar select { max-width: 340px; }
 .toolbar-main { display: flex; gap: 8px; align-items: center; flex: 1 1 320px; }
@@ -159,10 +160,8 @@ tfoot td { font-weight: 800; font-size: 18px; }
 .field-with-icon { position: relative; display: grid; align-items: center; }
 .field-with-icon svg { position: absolute; left: 10px; color: #8aa0ad; pointer-events: none; }
 .field-with-icon input { padding-left: 34px; }
-.login-demo { margin-top: 16px; padding-top: 12px; border-top: 1px solid #edf1f4; display: grid; gap: 8px; }
-.login-demo > span { color: #7a8d99; font-size: 12px; }
-.login-demo-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.login-demo-actions button { min-height: 28px; padding: 0 9px; font-size: 12px; }
+.login-link { background: transparent; color: #255e7e; min-height: 26px; padding: 0; justify-self: center; font-size: 13px; }
+.login-link:hover { text-decoration: underline; }
 .login-footer { margin-top: 18px; display: grid; gap: 3px; color: #7a8d99; font-size: 12px; text-align: center; }
 .login-footer small { font-size: 11px; color: #98a8b1; }
 .activity-focus { grid-template-columns: repeat(4, minmax(150px, 1fr)); }

@@ -3,13 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, LockKeyhole, Mail } from 'lucide-react';
 import { useAuth } from '../auth';
 
-const demoAccounts = [
-  ['admin@property-erp.local', 'Administrateur'],
-  ['comptable@property-erp.local', 'Comptable'],
-  ['agent@property-erp.local', 'Agent'],
-  ['directeur@property-erp.local', 'Directeur'],
-];
-
 export function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -17,6 +10,7 @@ export function Login() {
   const [password, setPassword] = useState('demo');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -64,18 +58,16 @@ export function Login() {
             </div>
           </label>
           {error && <div className="error-message">{error}</div>}
+          {resetMessage && <div className="info-message">{resetMessage}</div>}
           <button>Connexion</button>
+          <button
+            className="login-link"
+            type="button"
+            onClick={() => setResetMessage('Veuillez contacter l administrateur pour reinitialiser votre mot de passe.')}
+          >
+            Mot de passe oublie ?
+          </button>
         </form>
-        <div className="login-demo">
-          <span>Comptes demo</span>
-          <div className="login-demo-actions">
-            {demoAccounts.map(([account, label]) => (
-              <button className="secondary" key={account} onClick={() => { setEmail(account); setPassword('demo'); }}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
         <footer className="login-footer">
           <span>NG Property ERP SaaS V1</span>
           <small>© 2026 NG ERP Platform</small>
