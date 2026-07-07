@@ -3,6 +3,7 @@ import { IsString } from 'class-validator';
 import { createHmac } from 'crypto';
 import { DatabaseService } from '../database/database.service';
 import { ROLE_PERMISSIONS } from '../saas/permissions';
+import { verifyPassword } from './password';
 import { AuthPayload } from './request-context';
 
 class LoginDto {
@@ -25,7 +26,7 @@ export class AuthController {
       [dto.email],
     );
     const user = rows[0];
-    if (!user || user.status !== 'ACTIVE' || user.password_hash !== dto.password) {
+    if (!user || user.status !== 'ACTIVE' || !(await verifyPassword(dto.password, user.password_hash))) {
       throw new UnauthorizedException('Invalid credentials');
     }
     const payload = {

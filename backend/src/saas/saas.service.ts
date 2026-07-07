@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { RequestContext } from '../auth/request-context';
+import { hashPassword } from '../auth/password';
 import { requireRow } from '../common/not-found';
 import { DatabaseService } from '../database/database.service';
 
@@ -39,8 +40,9 @@ export class SaasService {
     return requireRow(rows[0], table);
   }
 
-  createUser(body: Record<string, unknown>) {
-    return this.insert('app_users', { password_hash: 'demo', status: 'ACTIVE', ...body }, [
+  async createUser(body: Record<string, unknown>) {
+    const password = String(body.password ?? body.password_hash ?? 'demo');
+    return this.insert('app_users', { status: 'ACTIVE', ...body, password_hash: await hashPassword(password) }, [
       'first_name',
       'last_name',
       'email',

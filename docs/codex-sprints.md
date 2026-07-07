@@ -24,6 +24,19 @@ Decision client appliquee apres les sprints metier:
 - formulaires rapides avec labels visibles;
 - separation `Montant` / `Devise` dans les tableaux.
 
+## Sprint 11.5 - Enterprise hardening & demo data
+
+Objectif: stabiliser la V1 SaaS pour demonstration client.
+
+Livrables:
+
+- authentification durcie avec hash `scrypt` natif Node.js;
+- compatibilite temporaire documentee pour anciens mots de passe en clair;
+- seeds standard mis a jour avec password hashes;
+- seed enterprise `database/demo_enterprise_seed.sql`;
+- checklist production `docs/production-validation-checklist.md`;
+- suivi securite `docs/security-todo.md`.
+
 ## Comptes de reference
 
 - `admin@property-erp.local` / `demo`

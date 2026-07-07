@@ -9,10 +9,10 @@ ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, slug = EXCLUDED.slug, statu
 
 INSERT INTO app_users (first_name, last_name, email, password_hash, role, status, organization_id)
 VALUES
-  ('Admin', 'Demo', 'admin@property-erp.local', 'demo', 'ADMIN', 'ACTIVE', 1),
-  ('Comptable', 'Demo', 'comptable@property-erp.local', 'demo', 'ACCOUNTANT', 'ACTIVE', 1),
-  ('Agent', 'Demo', 'agent@property-erp.local', 'demo', 'STAFF', 'ACTIVE', 1),
-  ('Directeur', 'Demo', 'directeur@property-erp.local', 'demo', 'DIRECTOR', 'ACTIVE', 1)
+  ('Admin', 'Demo', 'admin@property-erp.local', 'scrypt|16384|8|1|property-erp-demo-v1|zAYcJ3nmtuQlcwQxiAzyQVNhlAvGSF1c-taJwKkEs-1HNKkwaPDWULImFCjGAaFGMjehxkPqe3YH-9-JZYqg8Q', 'ADMIN', 'ACTIVE', 1),
+  ('Comptable', 'Demo', 'comptable@property-erp.local', 'scrypt|16384|8|1|property-erp-demo-v1|zAYcJ3nmtuQlcwQxiAzyQVNhlAvGSF1c-taJwKkEs-1HNKkwaPDWULImFCjGAaFGMjehxkPqe3YH-9-JZYqg8Q', 'ACCOUNTANT', 'ACTIVE', 1),
+  ('Agent', 'Demo', 'agent@property-erp.local', 'scrypt|16384|8|1|property-erp-demo-v1|zAYcJ3nmtuQlcwQxiAzyQVNhlAvGSF1c-taJwKkEs-1HNKkwaPDWULImFCjGAaFGMjehxkPqe3YH-9-JZYqg8Q', 'STAFF', 'ACTIVE', 1),
+  ('Directeur', 'Demo', 'directeur@property-erp.local', 'scrypt|16384|8|1|property-erp-demo-v1|zAYcJ3nmtuQlcwQxiAzyQVNhlAvGSF1c-taJwKkEs-1HNKkwaPDWULImFCjGAaFGMjehxkPqe3YH-9-JZYqg8Q', 'DIRECTOR', 'ACTIVE', 1)
 ON CONFLICT (email) DO UPDATE SET role = EXCLUDED.role, status = EXCLUDED.status, organization_id = EXCLUDED.organization_id;
 
 TRUNCATE

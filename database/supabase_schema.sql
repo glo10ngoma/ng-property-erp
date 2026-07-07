@@ -1,4 +1,4 @@
-﻿-- Property ERP SaaS V1 - Supabase schema
+-- Property ERP SaaS V1 - Supabase schema
 -- Execute in Supabase SQL editor on a fresh project.
 -- Auth remains managed by NestJS JWT; Supabase Auth is not used.
 
@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS app_users (
   first_name VARCHAR(100) NOT NULL,
   last_name VARCHAR(100) NOT NULL,
   email VARCHAR(160) NOT NULL UNIQUE,
-  password_hash VARCHAR(220) NOT NULL DEFAULT 'demo',
+  password_hash VARCHAR(220) NOT NULL,
   role VARCHAR(40) NOT NULL DEFAULT 'STAFF',
   status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -264,10 +264,10 @@ CREATE TABLE IF NOT EXISTS inventory_count_lines (
 
 INSERT INTO app_users (first_name, last_name, email, password_hash, role)
 VALUES
-  ('Admin', 'Demo', 'admin@property-erp.local', 'demo', 'ADMIN'),
-  ('Comptable', 'Demo', 'comptable@property-erp.local', 'demo', 'ACCOUNTANT'),
-  ('Agent', 'Demo', 'agent@property-erp.local', 'demo', 'STAFF'),
-  ('Directeur', 'Demo', 'directeur@property-erp.local', 'demo', 'DIRECTOR')
+  ('Admin', 'Demo', 'admin@property-erp.local', 'scrypt|16384|8|1|property-erp-demo-v1|zAYcJ3nmtuQlcwQxiAzyQVNhlAvGSF1c-taJwKkEs-1HNKkwaPDWULImFCjGAaFGMjehxkPqe3YH-9-JZYqg8Q', 'ADMIN'),
+  ('Comptable', 'Demo', 'comptable@property-erp.local', 'scrypt|16384|8|1|property-erp-demo-v1|zAYcJ3nmtuQlcwQxiAzyQVNhlAvGSF1c-taJwKkEs-1HNKkwaPDWULImFCjGAaFGMjehxkPqe3YH-9-JZYqg8Q', 'ACCOUNTANT'),
+  ('Agent', 'Demo', 'agent@property-erp.local', 'scrypt|16384|8|1|property-erp-demo-v1|zAYcJ3nmtuQlcwQxiAzyQVNhlAvGSF1c-taJwKkEs-1HNKkwaPDWULImFCjGAaFGMjehxkPqe3YH-9-JZYqg8Q', 'STAFF'),
+  ('Directeur', 'Demo', 'directeur@property-erp.local', 'scrypt|16384|8|1|property-erp-demo-v1|zAYcJ3nmtuQlcwQxiAzyQVNhlAvGSF1c-taJwKkEs-1HNKkwaPDWULImFCjGAaFGMjehxkPqe3YH-9-JZYqg8Q', 'DIRECTOR')
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO employees (first_name, last_name, phone, email, job_title, monthly_salary, hire_date)
@@ -282,7 +282,7 @@ WHERE NOT EXISTS (SELECT 1 FROM cash_sessions WHERE status = 'OPEN');
 
 INSERT INTO stock_items (name, category, unit, current_quantity, minimum_quantity, purchase_price, description)
 VALUES
-  ('Ampoules LED', 'Maintenance', 'piece', 45, 10, 3.5, 'Consommables Ã©lectriques'),
+  ('Ampoules LED', 'Maintenance', 'piece', 45, 10, 3.5, 'Consommables électriques'),
   ('Peinture blanche', 'Travaux', 'seau', 8, 3, 28, 'Finition appartements')
 ON CONFLICT DO NOTHING;
 
@@ -357,45 +357,45 @@ INSERT INTO permissions (code, name)
 VALUES
   ('dashboard.read', 'Lire tableau de bord'),
   ('users.read', 'Lire utilisateurs'),
-  ('users.create', 'CrÃ©er utilisateurs'),
+  ('users.create', 'Créer utilisateurs'),
   ('users.update', 'Modifier utilisateurs'),
   ('users.delete', 'Supprimer utilisateurs'),
   ('buildings.read', 'Lire immeubles'),
-  ('buildings.create', 'CrÃ©er immeubles'),
+  ('buildings.create', 'Créer immeubles'),
   ('buildings.update', 'Modifier immeubles'),
   ('buildings.delete', 'Supprimer immeubles'),
   ('units.read', 'Lire appartements'),
-  ('units.create', 'CrÃ©er appartements'),
+  ('units.create', 'Créer appartements'),
   ('units.update', 'Modifier appartements'),
   ('units.delete', 'Supprimer appartements'),
   ('tenants.read', 'Lire locataires'),
-  ('tenants.create', 'CrÃ©er locataires'),
+  ('tenants.create', 'Créer locataires'),
   ('tenants.update', 'Modifier locataires'),
   ('tenants.delete', 'Supprimer locataires'),
   ('documents.read', 'Lire documents et baux'),
   ('documents.upload', 'Uploader documents'),
   ('documents.delete', 'Supprimer documents'),
   ('invoices.read', 'Lire factures'),
-  ('invoices.create', 'CrÃ©er factures'),
+  ('invoices.create', 'Créer factures'),
   ('invoices.update', 'Modifier factures'),
   ('invoices.delete', 'Supprimer factures'),
   ('payments.read', 'Lire paiements'),
-  ('payments.create', 'CrÃ©er paiements'),
+  ('payments.create', 'Créer paiements'),
   ('payments.update', 'Modifier paiements'),
   ('payments.delete', 'Supprimer paiements'),
   ('cash.read', 'Lire caisse'),
-  ('cash.create', 'CrÃ©er mouvements caisse'),
+  ('cash.create', 'Créer mouvements caisse'),
   ('cash.update', 'Modifier caisse'),
   ('cash.close', 'Fermer caisse'),
   ('reports.read', 'Lire rapports'),
   ('reports.export', 'Exporter rapports'),
   ('staff.read', 'Lire personnel'),
-  ('staff.create', 'CrÃ©er personnel'),
+  ('staff.create', 'Créer personnel'),
   ('staff.update', 'Modifier personnel'),
   ('payroll.read', 'Lire paie'),
-  ('payroll.create', 'CrÃ©er paie'),
+  ('payroll.create', 'Créer paie'),
   ('stock.read', 'Lire stock'),
-  ('stock.create', 'CrÃ©er stock'),
+  ('stock.create', 'Créer stock'),
   ('stock.update', 'Modifier stock'),
   ('stock.delete', 'Supprimer stock')
 ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name;
@@ -678,7 +678,7 @@ SELECT category_name, org.id
 FROM organizations org
 CROSS JOIN (VALUES
   ('Plomberie'),
-  ('Ã‰lectricitÃ©'),
+  ('Électricité'),
   ('Peinture'),
   ('Entretien'),
   ('Bureau'),
@@ -829,10 +829,10 @@ INSERT INTO maintenance_categories (name, organization_id)
 SELECT category_name, org.id
 FROM organizations org
 CROSS JOIN (VALUES
-  ('ElectricitÃ©'),
+  ('Electricité'),
   ('Plomberie'),
   ('Peinture'),
-  ('MaÃ§onnerie'),
+  ('Maçonnerie'),
   ('Menuiserie'),
   ('Climatisation'),
   ('Serrurerie'),
@@ -844,11 +844,11 @@ ON CONFLICT DO NOTHING;
 INSERT INTO permissions (code, name)
 VALUES
   ('maintenance.read', 'Lire maintenance'),
-  ('maintenance.create', 'CrÃ©er maintenance'),
+  ('maintenance.create', 'Créer maintenance'),
   ('maintenance.update', 'Modifier maintenance'),
   ('maintenance.assign', 'Affecter maintenance'),
   ('maintenance.validate', 'Valider maintenance'),
-  ('maintenance.close', 'ClÃ´turer maintenance'),
+  ('maintenance.close', 'Clôturer maintenance'),
   ('maintenance.report', 'Rapports maintenance')
 ON CONFLICT (code) DO NOTHING;
 
@@ -957,12 +957,12 @@ INSERT INTO workflow_definitions (code, name, type, organization_id)
 SELECT defaults.code, defaults.name, defaults.type, org.id
 FROM organizations org
 CROSS JOIN (VALUES
-  ('EXPENSE_APPROVAL', 'Approbation dÃ©pense', 'EXPENSE_APPROVAL'),
+  ('EXPENSE_APPROVAL', 'Approbation dépense', 'EXPENSE_APPROVAL'),
   ('SALARY_ADVANCE_APPROVAL', 'Approbation avance salaire', 'SALARY_ADVANCE_APPROVAL'),
-  ('LEAVE_APPROVAL', 'Approbation congÃ©', 'LEAVE_APPROVAL'),
+  ('LEAVE_APPROVAL', 'Approbation congé', 'LEAVE_APPROVAL'),
   ('MAINTENANCE_APPROVAL', 'Approbation maintenance', 'MAINTENANCE_APPROVAL'),
   ('PAYMENT_APPROVAL', 'Approbation paiement', 'PAYMENT_APPROVAL'),
-  ('CUSTOM', 'Workflow personnalisÃ©', 'CUSTOM')
+  ('CUSTOM', 'Workflow personnalisé', 'CUSTOM')
 ) AS defaults(code, name, type)
 ON CONFLICT DO NOTHING;
 
@@ -977,7 +977,7 @@ WHERE NOT EXISTS (
 INSERT INTO permissions (code, name)
 VALUES
   ('workflow.read', 'Lire workflows'),
-  ('workflow.create', 'CrÃ©er workflows'),
+  ('workflow.create', 'Créer workflows'),
   ('workflow.approve', 'Approuver workflows'),
   ('workflow.reject', 'Rejeter workflows'),
   ('workflow.cancel', 'Annuler workflows'),

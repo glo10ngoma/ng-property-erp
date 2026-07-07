@@ -59,6 +59,25 @@ Pour une base deja existante, appliquer aussi les migrations incrementales utile
 - La creation d'un bail se fait sur `/leases/new`, avec sections metier et champ contrat pret pour Supabase Storage bucket `contracts`.
 - Les immeubles portent maintenant un `building_type`; appliquer `database/20260707_building_type.sql` sur les bases existantes.
 
+## Demo enterprise
+
+Un seed de demonstration plus credible est disponible:
+
+```sql
+database/demo_enterprise_seed.sql
+```
+
+Il prepare l'organisation `NG ERP Demo Property` avec immeubles, unites, locataires, baux, garanties, factures, paiements, caisse, personnel, stock, maintenance, workflows, notifications et communications simulees.
+
+Les comptes enterprise utilisent le mot de passe `demo` avec hash `scrypt`:
+
+- `admin@ng-erp-demo.local`
+- `comptable@ng-erp-demo.local`
+- `agent@ng-erp-demo.local`
+- `directeur@ng-erp-demo.local`
+
+Les comptes historiques `@property-erp.local` restent supportes par les seeds standards.
+
 ## Variables d'environnement
 
 Copier `backend/.env.example` vers `backend/.env`, puis ajuster:

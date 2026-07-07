@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS app_users (
   first_name VARCHAR(100) NOT NULL,
   last_name VARCHAR(100) NOT NULL,
   email VARCHAR(160) NOT NULL UNIQUE,
-  password_hash VARCHAR(220) NOT NULL DEFAULT 'demo',
+  password_hash VARCHAR(220) NOT NULL,
   role VARCHAR(40) NOT NULL DEFAULT 'STAFF',
   status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -164,10 +164,10 @@ CREATE TABLE IF NOT EXISTS inventory_count_lines (
 
 INSERT INTO app_users (first_name, last_name, email, password_hash, role)
 VALUES
-  ('Admin', 'Demo', 'admin@property-erp.local', 'demo', 'ADMIN'),
-  ('Comptable', 'Demo', 'comptable@property-erp.local', 'demo', 'ACCOUNTANT'),
-  ('Agent', 'Demo', 'agent@property-erp.local', 'demo', 'STAFF'),
-  ('Directeur', 'Demo', 'directeur@property-erp.local', 'demo', 'DIRECTOR')
+  ('Admin', 'Demo', 'admin@property-erp.local', 'scrypt|16384|8|1|property-erp-demo-v1|zAYcJ3nmtuQlcwQxiAzyQVNhlAvGSF1c-taJwKkEs-1HNKkwaPDWULImFCjGAaFGMjehxkPqe3YH-9-JZYqg8Q', 'ADMIN'),
+  ('Comptable', 'Demo', 'comptable@property-erp.local', 'scrypt|16384|8|1|property-erp-demo-v1|zAYcJ3nmtuQlcwQxiAzyQVNhlAvGSF1c-taJwKkEs-1HNKkwaPDWULImFCjGAaFGMjehxkPqe3YH-9-JZYqg8Q', 'ACCOUNTANT'),
+  ('Agent', 'Demo', 'agent@property-erp.local', 'scrypt|16384|8|1|property-erp-demo-v1|zAYcJ3nmtuQlcwQxiAzyQVNhlAvGSF1c-taJwKkEs-1HNKkwaPDWULImFCjGAaFGMjehxkPqe3YH-9-JZYqg8Q', 'STAFF'),
+  ('Directeur', 'Demo', 'directeur@property-erp.local', 'scrypt|16384|8|1|property-erp-demo-v1|zAYcJ3nmtuQlcwQxiAzyQVNhlAvGSF1c-taJwKkEs-1HNKkwaPDWULImFCjGAaFGMjehxkPqe3YH-9-JZYqg8Q', 'DIRECTOR')
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO employees (first_name, last_name, phone, email, job_title, monthly_salary, hire_date)

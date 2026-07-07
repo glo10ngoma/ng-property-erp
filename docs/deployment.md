@@ -10,13 +10,14 @@ L'authentification reste geree par NestJS avec JWT. Supabase Auth n'est pas util
 
 1. Creer le projet Supabase.
 2. Executer `database/supabase_schema.sql`.
-3. Executer `database/supabase_seed.sql` pour les donnees demo.
-4. Creer le service backend Railway depuis le repository.
-5. Configurer les variables Railway.
-6. Verifier `GET /api/health`.
-7. Creer le projet frontend Vercel depuis le repository.
-8. Configurer les variables Vercel.
-9. Tester l'URL publique Vercel avec les 4 comptes demo.
+3. Executer `database/supabase_seed.sql` pour les donnees demo standard.
+4. Optionnel demo client: executer `database/demo_enterprise_seed.sql` pour une base plus dense `NG ERP Demo Property`.
+5. Creer le service backend Railway depuis le repository.
+6. Configurer les variables Railway.
+7. Verifier `GET /api/health`.
+8. Creer le projet frontend Vercel depuis le repository.
+9. Configurer les variables Vercel.
+10. Tester l'URL publique Vercel avec les 4 comptes demo.
 
 ## Variables Railway
 
@@ -43,6 +44,7 @@ VITE_SUPABASE_ANON_KEY=
 ## Tests de validation
 
 - Connexion: admin, comptable, agent, directeur.
+- Verification que les mots de passe sont stockes en hash `scrypt|...`.
 - Modules: Activity Center, Dashboard, immeubles, unites, locataires, baux, garanties, factures, paiements, caisse, personnel, stock, maintenance, rapports, workflows, communications, documents, settings.
 - Exports CSV/Excel.
 - Uploads et telechargements via URLs Supabase Storage.

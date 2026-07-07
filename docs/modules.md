@@ -19,6 +19,7 @@ Corrections UX appliquees:
 - les montants des tableaux sont separes en colonnes `Montant` et `Devise`;
 - le rapport immeuble plein ecran est disponible via `/buildings/:id/report`;
 - la situation locataire plein ecran est disponible via `/tenants/:id/situation`.
+- le seed `database/demo_enterprise_seed.sql` fournit une base de demonstration orientee gestionnaire avec 10 immeubles, 150 unites, 130 locataires, baux, garanties, factures, paiements, caisse, stock, maintenance et workflows.
 
 ## Utilisateurs
 
