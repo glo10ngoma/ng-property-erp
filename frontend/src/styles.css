@@ -145,17 +145,26 @@ tfoot td { font-weight: 800; font-size: 18px; }
 .search-select-option small { color: #637783; font-size: 12px; }
 .search-select-option.active, .search-select-option:hover { background: #e7eef3; color: #255e7e; }
 .search-select-empty, .search-select-required { color: #637783; font-size: 13px; padding: 4px 2px; }
-.login-screen { min-height: 100vh; display: grid; place-items: center; padding: 28px; background: #f4f6f8; }
+.login-screen { min-height: 100vh; display: grid; place-items: center; padding: 28px; background: linear-gradient(180deg, #ffffff 0%, #f4f6f8 100%); }
 .login-panel { width: min(500px, 100%); background: white; border: 1px solid #dce5eb; border-radius: 8px; padding: 28px; box-shadow: 0 18px 50px rgba(31,41,51,.08); }
 .login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
 .login-brand strong { display: block; color: #203845; font-size: 18px; }
-.login-brand span { color: #637783; font-size: 12px; text-transform: uppercase; }
+.login-brand span { color: #637783; font-size: 12px; }
 .login-logo { width: 44px; height: 44px; border-radius: 8px; display: grid; place-items: center; background: #203845; color: white; }
 .login-heading { margin-bottom: 18px; }
 .login-heading h1 { margin: 0 0 6px; font-size: 24px; }
 .login-heading p { margin: 0; color: #637783; }
 .login-form label { display: grid; gap: 6px; color: #637783; font-size: 13px; font-weight: 700; }
 .password-field { display: grid; grid-template-columns: 1fr 40px; gap: 8px; }
+.field-with-icon { position: relative; display: grid; align-items: center; }
+.field-with-icon svg { position: absolute; left: 10px; color: #8aa0ad; pointer-events: none; }
+.field-with-icon input { padding-left: 34px; }
+.login-demo { margin-top: 16px; padding-top: 12px; border-top: 1px solid #edf1f4; display: grid; gap: 8px; }
+.login-demo > span { color: #7a8d99; font-size: 12px; }
+.login-demo-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.login-demo-actions button { min-height: 28px; padding: 0 9px; font-size: 12px; }
+.login-footer { margin-top: 18px; display: grid; gap: 3px; color: #7a8d99; font-size: 12px; text-align: center; }
+.login-footer small { font-size: 11px; color: #98a8b1; }
 .activity-focus { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
 
 @keyframes spin {
