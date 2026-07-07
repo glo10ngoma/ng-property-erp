@@ -58,6 +58,7 @@ Pour une base deja existante, appliquer aussi les migrations incrementales utile
 - Les tableaux separent les colonnes `Montant` et `Devise`; les cartes KPI peuvent rester compactes.
 - La creation d'un bail se fait sur `/leases/new`, avec sections metier et champ contrat pret pour Supabase Storage bucket `contracts`.
 - Les immeubles portent maintenant un `building_type`; appliquer `database/20260707_building_type.sql` sur les bases existantes.
+- Sprint 12.5 polit l'experience sans changer l'identite visuelle: login centre, affichage/masquage du mot de passe, menu utilisateur avec deconnexion, Activity Center plus lisible, etats vides/loading harmonises.
 
 ## Demo enterprise
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Eye, EyeOff, LockKeyhole } from 'lucide-react';
 import { useAuth } from '../auth';
 
 const demoAccounts = [
@@ -14,6 +15,7 @@ export function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('admin@property-erp.local');
   const [password, setPassword] = useState('demo');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
 
   async function submit(event: React.FormEvent) {
@@ -30,14 +32,32 @@ export function Login() {
   return (
     <div className="login-screen">
       <section className="login-panel">
-        <div className="brand">
-          <strong>Property ERP</strong>
-          <span>V1 SaaS locale</span>
+        <div className="login-brand">
+          <div className="login-logo"><LockKeyhole size={24} /></div>
+          <div>
+            <strong>Property ERP</strong>
+            <span>NG ERP Platform</span>
+          </div>
         </div>
-        <form className="form-grid" onSubmit={submit}>
-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email" type="email" />
-          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Mot de passe" type="password" />
-          {error && <div className="empty">{error}</div>}
+        <div className="login-heading">
+          <h1>Connexion</h1>
+          <p>Accedez a votre espace de pilotage immobilier.</p>
+        </div>
+        <form className="form-grid login-form" onSubmit={submit}>
+          <label>
+            Email
+            <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@property-erp.local" type="email" autoComplete="email" />
+          </label>
+          <label>
+            Mot de passe
+            <div className="password-field">
+              <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Mot de passe" type={showPassword ? 'text' : 'password'} autoComplete="current-password" />
+              <button className="icon-btn" type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}>
+                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
+            </div>
+          </label>
+          {error && <div className="error-message">{error}</div>}
           <button>Se connecter</button>
         </form>
         <div className="detail-section">

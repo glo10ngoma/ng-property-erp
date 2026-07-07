@@ -56,6 +56,16 @@ export function ActivityPage() {
   }
 
   const kpis = overview?.kpis ?? {};
+  const todayStats = [
+    { label: "Recettes aujourd'hui", value: money(kpis.payments_today ?? 0) },
+    { label: "Depenses aujourd'hui", value: money(kpis.expenses_today ?? 0) },
+    { label: 'Impayes', value: money(kpis.unpaid_amount ?? 0) },
+    { label: 'Maintenance ouverte', value: kpis.maintenance_open ?? 0 },
+    { label: 'Taches restantes', value: overview?.progress.remaining ?? 0 },
+    { label: 'Validations', value: overview?.validations.length ?? 0 },
+    { label: 'Alertes', value: overview?.alerts.length ?? 0 },
+    { label: 'Stock critique', value: kpis.stock_critical ?? 0 },
+  ];
 
   return (
     <section>
@@ -70,8 +80,8 @@ export function ActivityPage() {
         </div>
       )}
 
-      <div className="mini-stats">
-        {Object.entries(kpis).map(([key, value]) => <div className="mini-stat" key={key}><span>{kpiLabel(key)}</span><strong>{key.includes('amount') || key.includes('balance') || key.includes('today') || key.includes('expenses') ? money(value) : value}</strong></div>)}
+      <div className="mini-stats activity-focus">
+        {todayStats.map((item) => <div className="mini-stat" key={item.label}><span>{item.label}</span><strong>{item.value}</strong></div>)}
       </div>
 
       <div className="chart-grid">

@@ -124,3 +124,15 @@ Statuts facture supportes:
 - `CANCELLED`
 
 La regle "un appartement possede au maximum un locataire actif" est garantie par un index unique partiel sur `tenants(unit_id)` lorsque `status = 'ACTIVE'`.
+
+## Polish UX Sprint 12.5
+
+Le Sprint 12.5 reste volontairement hors fonctionnalites metier. Il renforce les composants d'experience transverses:
+
+- login professionnel centre avec bascule d'affichage du mot de passe;
+- topbar avec identite utilisateur, role, organisation et deconnexion explicite;
+- Centre d'Activite comme accueil quotidien apres connexion;
+- etats vides et chargements reutilisables;
+- documentation et changelog de preparation demo.
+
+Ces ajustements ne changent pas la sidebar, la palette, les routes cloud ni le comportement des API.

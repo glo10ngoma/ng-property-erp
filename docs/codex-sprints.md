@@ -330,6 +330,26 @@ Objectif: preparer et documenter le deploiement Supabase/Railway/Vercel sans cha
 
 Realise cote code/config: `database/supabase_schema.sql`, `database/supabase_seed.sql`, buckets Storage et policies prepares, `railway.json`, `vercel.json`, CORS via `CORS_ORIGIN`, endpoint `/api/health`, `.env.example`, docs Supabase/Railway/Vercel/deployment, builds OK. Le deploiement public effectif reste a lancer avec les comptes et secrets cloud du client.
 
+## Sprint 12.5 - Enterprise Polish
+
+Objectif: rendre la V1 plus professionnelle pour la demo sans ajouter de fonctionnalite metier et sans modifier le design valide.
+
+### Perimetre
+
+- Login centre, lisible et responsive.
+- Affichage/masquage du mot de passe.
+- Menu utilisateur topbar avec profil et deconnexion.
+- Centre d'Activite renforce comme cockpit quotidien.
+- Etats vides, messages et chargements harmonises.
+- Documentation et changelog.
+
+### Critere OK
+
+- L'utilisateur peut se deconnecter proprement.
+- L'Activity Center affiche les indicateurs immediats utiles.
+- Les listes ne montrent pas de tableau vide brut.
+- Builds backend, frontend et racine OK.
+
 ## Sprint 13 - Deploiement SaaS
 
 Objectif: livrer une premiere V1 cloud.
