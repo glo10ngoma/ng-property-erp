@@ -175,6 +175,14 @@ tfoot td { font-weight: 800; font-size: 18px; }
 .summary-item span { color: #637783; font-size: 11px; text-transform: uppercase; }
 .summary-item strong { color: #1f2933; font-size: 13px; font-weight: 800; overflow-wrap: anywhere; }
 .summary-item-wide { flex: 1 1 260px; }
+.page-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; align-items: center; }
+.page-actions button { min-height: 34px; padding: 0 10px; white-space: nowrap; }
+.tenant-situation-filters { grid-template-columns: repeat(8, minmax(105px, 1fr)) auto; align-items: end; }
+.tenant-filter-actions { grid-column: auto; flex-wrap: nowrap; }
+.tenant-filter-actions button { min-width: 0; padding: 0 9px; white-space: nowrap; }
+.tenant-synthesis { margin-bottom: 10px; }
+.tenant-synthesis .summary-band { margin-bottom: 0; }
+.compact-empty { color: #637783; background: #f8fafb; border: 1px dashed #d6e0e6; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
 .search-select { display: grid; gap: 8px; }
 .search-select-list { display: grid; gap: 6px; max-height: 220px; overflow: auto; }
 .search-select-option { min-height: 42px; width: 100%; justify-content: space-between; background: white; color: #1f2933; border: 1px solid #dce5eb; padding: 7px 10px; }

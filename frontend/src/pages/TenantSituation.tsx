@@ -1,8 +1,9 @@
-import { ArrowLeft, Download, Eye, FileSpreadsheet, Printer, RefreshCw } from 'lucide-react';
+import { ArrowLeft, CreditCard, Download, Eye, FilePlus, FileSpreadsheet, Printer, RefreshCw, Send } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, invoiceDisplayStatus, money, paymentMethodLabel, shortDate } from '../api';
 import { EmptyState, PageHeader, StatusBadge } from '../components';
+import { useAuth } from '../core/auth/AuthContext';
 
 type ReportRow = Record<string, unknown>;
 
@@ -43,6 +44,7 @@ const months = [
 export function TenantSituation() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { can } = useAuth();
   const now = new Date();
   const [filters, setFilters] = useState({
     month: String(now.getMonth() + 1),
@@ -56,6 +58,7 @@ export function TenantSituation() {
   });
   const [report, setReport] = useState<TenantReportData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState('');
 
   const queryParams = useMemo(() => {
     const params: Record<string, string> = {};
@@ -92,19 +95,52 @@ export function TenantSituation() {
   const buildings = uniqueOptions(leases, 'building_name', 'building_id');
   const units = uniqueOptions(leases, 'unit_number', 'unit_id');
   const exportRows = report ? [...report.leases, ...report.guarantees, ...report.invoices, ...report.payments, ...report.documents] : [];
+  const tenantLabel = report ? tenantDisplayName(report.tenant) : '';
+  const rentedUnitsCount = report ? new Set(report.leases.map((lease) => String(lease.unit_id ?? lease.unit_number ?? '')).filter(Boolean)).size : 0;
+  const synthesis = report ? tenantSynthesis(report) : null;
+
+  async function sendReminder(row: ReportRow, channel: 'EMAIL' | 'SMS' | 'WHATSAPP') {
+    const invoiceId = Number(row.id ?? row.invoice_id);
+    if (!invoiceId) return;
+    const label = channel === 'EMAIL' ? 'Email' : channel === 'SMS' ? 'SMS' : 'WhatsApp';
+    if (!window.confirm(`Envoyer une relance ${label} pour la facture ${text(row.invoice_number)} ?`)) return;
+    await api.post(`/reports/invoices/${invoiceId}/remind`, { channel });
+    setSuccess(`Relance ${label} envoyee.`);
+    await loadReport();
+  }
+
+  function remindFirstOverdue() {
+    if (!report?.overdue.length) {
+      setSuccess('Aucune facture en retard a relancer.');
+      return;
+    }
+    sendReminder(report.overdue[0], 'EMAIL');
+  }
 
   return (
     <section>
       <PageHeader
         title="Situation locataire"
-        action={<button className="secondary" onClick={() => navigate('/tenants')}><ArrowLeft size={16} />Retour</button>}
+        action={(
+          <div className="page-actions">
+            <button className="secondary" onClick={() => navigate('/tenants')}><ArrowLeft size={16} />Retour</button>
+            {can('documents.upload') && <button className="secondary" onClick={() => navigate(`/leases/new?tenantId=${id}`)}><FilePlus size={16} />Nouveau bail</button>}
+            {can('invoices.create') && <button className="secondary" onClick={() => navigate(`/invoices?tenantId=${id}`)}><FilePlus size={16} />Nouvelle facture</button>}
+            {can('payments.create') && <button className="secondary" onClick={() => navigate(`/payments?tenantId=${id}`)}><CreditCard size={16} />Enregistrer paiement</button>}
+            {can('communication.send') && <button className="secondary" onClick={remindFirstOverdue}><Send size={16} />Relancer</button>}
+            <button className="secondary" onClick={() => report && exportTenantSituationWorkbook(report)}><FileSpreadsheet size={16} />Export Excel</button>
+            <button className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
+          </div>
+        )}
       />
+      {success && <div className="success-message">{success}</div>}
 
       {report && (
         <div className="summary-band">
           {report.tenant.tenant_type === 'COMPANY' ? (
             <>
-              <SummaryCard label="Société" value={text(report.tenant.company_name)} />
+              <SummaryCard label="Type locataire" value="Societe" />
+              <SummaryCard label="Société" value={tenantLabel} />
               <SummaryCard label="RCCM" value={text(report.tenant.rccm)} />
               <SummaryCard label="Représentant" value={text(report.tenant.legal_representative_name)} />
               <SummaryCard label="Téléphone" value={text(report.tenant.phone)} />
@@ -113,7 +149,8 @@ export function TenantSituation() {
             </>
           ) : (
             <>
-              <SummaryCard label="Locataire" value={text(`${text(report.tenant.first_name, '')} ${text(report.tenant.last_name, '')} ${text(report.tenant.post_name, '')}`.trim())} />
+              <SummaryCard label="Type locataire" value="Physique" />
+              <SummaryCard label="Locataire" value={tenantLabel} />
               <SummaryCard label="Téléphone" value={text(report.tenant.phone)} />
               <SummaryCard label="Email" value={text(report.tenant.email)} />
               <SummaryCard label="Statut" value={text(report.tenant.status)} />
@@ -123,7 +160,7 @@ export function TenantSituation() {
         </div>
       )}
 
-      <div className="quick-form">
+      <div className="quick-form tenant-situation-filters">
         <select value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })}>
           <option value="">Mois</option>
           {months.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -150,10 +187,12 @@ export function TenantSituation() {
           <option value="">Tous les baux</option>
           {leases.map((lease) => <option key={String(lease.id)} value={String(lease.id)}>Bail #{String(lease.id)} - {text(lease.status)}</option>)}
         </select>
-        <button type="button" onClick={loadReport}><RefreshCw size={16} />Actualiser</button>
-        <button type="button" className="secondary" onClick={() => exportCsv('situation-locataire.csv', exportRows)}><Download size={16} />CSV</button>
-        <button type="button" className="secondary" onClick={() => report && exportTenantSituationWorkbook(report)}><FileSpreadsheet size={16} />Excel</button>
-        <button type="button" className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
+        <div className="filter-actions tenant-filter-actions">
+          <button type="button" onClick={loadReport}><RefreshCw size={16} />Actualiser</button>
+          <button type="button" className="secondary" onClick={() => exportCsv('situation-locataire.csv', exportRows)}><Download size={16} />CSV</button>
+          <button type="button" className="secondary" onClick={() => report && exportTenantSituationWorkbook(report)}><FileSpreadsheet size={16} />Excel</button>
+          <button type="button" className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
+        </div>
       </div>
 
       {!report && <EmptyState message={loading ? 'Chargement...' : 'Aucune donnee.'} />}
@@ -161,7 +200,7 @@ export function TenantSituation() {
         <>
           <div className="mini-stats">
             <div className="mini-stat"><span>Baux actifs</span><strong>{report.active_leases.length}</strong></div>
-            <div className="mini-stat"><span>Anciens baux</span><strong>{report.old_leases.length}</strong></div>
+            <div className="mini-stat"><span>Unites louees</span><strong>{rentedUnitsCount}</strong></div>
             <div className="mini-stat"><span>Factures payees</span><strong>{report.paid.length}</strong></div>
             <div className="mini-stat"><span>Factures partielles</span><strong>{report.partial.length}</strong></div>
             <div className="mini-stat"><span>Factures en retard</span><strong>{report.overdue.length}</strong></div>
@@ -170,12 +209,26 @@ export function TenantSituation() {
             <div className="mini-stat"><span>Solde restant</span><strong>{money(report.remaining)}</strong></div>
           </div>
 
+          {synthesis && (
+            <div className="detail-section report-section tenant-synthesis">
+              <h4>Synthese locataire</h4>
+              <div className="summary-band">
+                <SummaryCard label="Dernier paiement" value={synthesis.lastPayment} />
+                <SummaryCard label="Derniere relance" value={synthesis.lastReminder} />
+                <SummaryCard label="Prochaine echeance" value={synthesis.nextDueDate} />
+                <SummaryCard label="Factures en retard" value={synthesis.overdueCount} />
+                <SummaryCard label="Solde total" value={money(report.remaining)} />
+                <SummaryCard label="Niveau de risque" value={synthesis.risk} />
+              </div>
+            </div>
+          )}
+
           <LeaseTable rows={report.leases} />
           <GuaranteeTable rows={report.guarantees} />
           <InvoiceTable title="Factures payees" rows={report.paid} navigate={navigate} />
           <InvoiceTable title="Factures partiellement payees" rows={report.partial} navigate={navigate} />
           <InvoiceTable title="Factures non payees" rows={report.unpaid} navigate={navigate} />
-          <InvoiceTable title="Factures en retard" rows={report.overdue} navigate={navigate} />
+          <InvoiceTable title="Factures en retard" rows={report.overdue} navigate={navigate} onRemind={can('communication.send') ? sendReminder : undefined} />
           <PaymentTable rows={report.payments} />
           <DocumentTable rows={report.documents} />
           <TimelineTable report={report} />
@@ -190,9 +243,23 @@ function SummaryCard({ label, value, wide }: { label: string; value: unknown; wi
   return <div className={wide ? 'summary-item summary-item-wide' : 'summary-item'}><span>{label}</span><strong>{String(value ?? '-')}</strong></div>;
 }
 
+function CompactEmpty({ message }: { message: string }) {
+  return <div className="compact-empty">{message}</div>;
+}
+
+function ReminderActions({ row, onRemind }: { row: ReportRow; onRemind: (row: ReportRow, channel: 'EMAIL' | 'SMS' | 'WHATSAPP') => void }) {
+  return (
+    <div className="reminder-actions">
+      <button type="button" className="secondary" onClick={() => onRemind(row, 'EMAIL')}>Email</button>
+      <button type="button" className="secondary" onClick={() => onRemind(row, 'SMS')}>SMS</button>
+      <button type="button" className="secondary" onClick={() => onRemind(row, 'WHATSAPP')}>WhatsApp</button>
+    </div>
+  );
+}
+
 function LeaseTable({ rows }: { rows: ReportRow[] }) {
   return (
-    <div className="detail-section">
+    <div className="detail-section report-section">
       <h4>Appartements / unites loues</h4>
       <div className="table-wrap">
         <table>
@@ -212,7 +279,7 @@ function LeaseTable({ rows }: { rows: ReportRow[] }) {
             ))}
           </tbody>
         </table>
-        {!rows.length && <EmptyState title="Aucun bail trouve." />}
+        {!rows.length && <CompactEmpty message="Aucun bail trouve." />}
       </div>
     </div>
   );
@@ -220,26 +287,27 @@ function LeaseTable({ rows }: { rows: ReportRow[] }) {
 
 function GuaranteeTable({ rows }: { rows: ReportRow[] }) {
   return (
-    <div className="detail-section">
+    <div className="detail-section report-section">
       <h4>Garanties locatives</h4>
       <div className="table-wrap">
         <table>
           <thead><tr><th>Bail</th><th>Immeuble</th><th>Unite</th><th className="right">Montant</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th>Statut</th></tr></thead>
           <tbody>{rows.map((row, index) => <tr key={index}><td>#{text(row.lease_id)}</td><td>{text(row.building_name)}</td><td>{text(row.unit_number)}</td><AmountCell value={row.amount} /><AmountCell value={row.paid_amount} /><td><StatusBadge value={text(row.status)} /></td></tr>)}</tbody>
         </table>
-        {!rows.length && <EmptyState title="Aucune garantie enregistrée." />}
+        {!rows.length && <CompactEmpty message="Aucune garantie enregistree." />}
       </div>
     </div>
   );
 }
 
-function InvoiceTable({ title, rows, navigate }: { title: string; rows: ReportRow[]; navigate: (path: string) => void }) {
+function InvoiceTable({ title, rows, navigate, onRemind }: { title: string; rows: ReportRow[]; navigate: (path: string) => void; onRemind?: (row: ReportRow, channel: 'EMAIL' | 'SMS' | 'WHATSAPP') => void }) {
+  const showReminders = Boolean(onRemind);
   return (
-    <div className="detail-section">
+    <div className="detail-section report-section">
       <h4>{title}</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Facture</th><th>Immeuble</th><th>Unite</th><th>Periode</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Montant</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th className="right">Reste</th><th>Devise</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Facture</th><th>Immeuble</th><th>Unite</th><th>Periode</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Montant</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th className="right">Reste</th><th>Devise</th>{showReminders && <th>Derniere relance</th>}{showReminders && <th className="right">Relances</th>}<th>Actions</th></tr></thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
@@ -253,15 +321,18 @@ function InvoiceTable({ title, rows, navigate }: { title: string; rows: ReportRo
                 <AmountCell value={row.total} />
                 <AmountCell value={row.paid_amount} />
                 <AmountCell value={row.remaining_amount} />
+                {showReminders && <td>{reminderDate(row.last_reminder_at)}</td>}
+                {showReminders && <td className="right">{Number(row.reminder_count ?? 0)}</td>}
                 <td className="actions">
                   <button className="icon-btn" title="Voir facture" onClick={() => navigate(`/invoices/${String(row.id)}`)}><Eye size={16} /></button>
                   <button className="icon-btn" title="Imprimer facture" onClick={() => navigate(`/invoices/${String(row.id)}/print`)}><Printer size={16} /></button>
+                  {onRemind && <ReminderActions row={row} onRemind={onRemind} />}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-        {!rows.length && <EmptyState title={emptyInvoiceMessage(title)} />}
+        {!rows.length && <CompactEmpty message={emptyInvoiceMessage(title)} />}
       </div>
     </div>
   );
@@ -269,14 +340,14 @@ function InvoiceTable({ title, rows, navigate }: { title: string; rows: ReportRo
 
 function PaymentTable({ rows }: { rows: ReportRow[] }) {
   return (
-    <div className="detail-section">
+    <div className="detail-section report-section">
       <h4>Paiements</h4>
       <div className="table-wrap">
         <table>
           <thead><tr><th>Date</th><th>Facture</th><th>Immeuble</th><th>Unite</th><th className="right">Montant</th><th>Devise</th><th>Mode paiement</th><th>Reference</th></tr></thead>
           <tbody>{rows.map((row, index) => <tr key={index}><td>{date(row.payment_date)}</td><td>{text(row.invoice_number)}</td><td>{text(row.building_name)}</td><td>{text(row.unit_number)}</td><AmountCell value={row.amount} /><td>{paymentMethodLabel(text(row.payment_method))}</td><td>{text(row.reference)}</td></tr>)}</tbody>
         </table>
-        {!rows.length && <EmptyState title="Aucun paiement trouvé." />}
+        {!rows.length && <CompactEmpty message="Aucun paiement trouve." />}
       </div>
     </div>
   );
@@ -284,14 +355,14 @@ function PaymentTable({ rows }: { rows: ReportRow[] }) {
 
 function DocumentTable({ rows }: { rows: ReportRow[] }) {
   return (
-    <div className="detail-section">
+    <div className="detail-section report-section">
       <h4>Documents / contrats</h4>
       <div className="table-wrap">
         <table>
           <thead><tr><th>Document</th><th>Type</th><th>Immeuble</th><th>Unite</th><th>Bail</th><th>Date</th></tr></thead>
           <tbody>{rows.map((row, index) => <tr key={index}><td>{text(row.file_name ?? row.name)}</td><td>{text(row.document_type)}</td><td>{text(row.building_name)}</td><td>{text(row.unit_number)}</td><td>#{text(row.lease_id)}</td><td>{date(row.uploaded_at)}</td></tr>)}</tbody>
         </table>
-        {!rows.length && <EmptyState title="Aucun document trouvé." />}
+        {!rows.length && <CompactEmpty message="Aucun document trouve." />}
       </div>
     </div>
   );
@@ -307,7 +378,7 @@ function TimelineTable({ report }: { report: TenantReportData }) {
           <thead><tr><th>Date</th><th>Evènement</th><th>Description</th><th>Utilisateur</th></tr></thead>
           <tbody>{rows.map((row, index) => <tr key={index}><td>{row.Date}</td><td>{row.Evenement}</td><td>{row.Description}</td><td>{row.Utilisateur}</td></tr>)}</tbody>
         </table>
-        {!rows.length && <EmptyState title="Aucun événement trouvé." />}
+        {!rows.length && <CompactEmpty message="Aucun evenement trouve." />}
       </div>
     </div>
   );
@@ -386,6 +457,30 @@ function monthName(month: number) {
 
 function text(value: unknown, fallback = '-') {
   return value == null || value === '' ? fallback : String(value);
+}
+
+function tenantDisplayName(tenant: ReportRow) {
+  if (tenant.tenant_type === 'COMPANY') return text(tenant.company_name);
+  return text(`${text(tenant.first_name, '')} ${text(tenant.last_name, '')} ${text(tenant.post_name, '')}`.trim());
+}
+
+function tenantSynthesis(report: TenantReportData) {
+  const lastPayment = latestDate(report.payments.map((payment) => String(payment.payment_date ?? '')));
+  const lastReminder = latestDate(report.invoices.map((invoice) => String(invoice.last_reminder_at ?? '')));
+  const nextDueDate = nextDate(report.invoices.filter((invoice) => Number(invoice.remaining_amount ?? 0) > 0).map((invoice) => String(invoice.due_date ?? '')));
+  const overdueCount = report.overdue.length;
+  const remaining = Number(report.remaining ?? 0);
+  const risk = overdueCount >= 3 || remaining >= 2000 ? 'Eleve' : overdueCount > 0 || remaining > 0 ? 'Moyen' : 'Faible';
+  return { lastPayment, lastReminder, nextDueDate, overdueCount, risk };
+}
+
+function nextDate(values: string[]) {
+  const valid = values.filter(Boolean).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  return valid.length ? date(valid[0]) : 'Non disponible';
+}
+
+function reminderDate(value: unknown) {
+  return value ? shortDate(String(value)) : 'Jamais relance';
 }
 
 function exportTenantSituationWorkbook(report: TenantReportData) {
