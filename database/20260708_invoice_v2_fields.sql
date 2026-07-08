@@ -1,0 +1,5 @@
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS public_notes TEXT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS internal_notes TEXT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS attachment_file_name VARCHAR(220);
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS attachment_file_url TEXT;

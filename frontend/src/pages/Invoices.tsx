@@ -1,16 +1,17 @@
-import { Eye, Plus, Trash2, X } from 'lucide-react';
+import { Download, Eye, FileSpreadsheet, Pencil, Plus, Printer, Trash2, X } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useState } from 'react';
-import { api, exportCsv, includesText, invoiceDisplayStatus, itemLabel, money, shortDate, statusLabel } from '../api';
+import { api, exportCsv, exportXlsxWorkbook, includesText, invoiceDisplayStatus, itemLabel, money, shortDate, statusLabel } from '../api';
 import { useAuth } from '../auth';
-import { EmptyState, Modal, PageHeader, SearchableSelect, StatusBadge, SuccessMessage, TableToolbar, TenantSearchSelect } from '../components';
+import { EmptyState, Modal, PageHeader, SearchableSelect, StatusBadge, SuccessMessage, TenantSearchSelect } from '../components';
 import { useApiList } from '../hooks';
 
-type Invoice = { id: number; invoice_number: string; first_name: string; last_name: string; building_name: string; unit_number: string; issue_date: string; due_date: string; month: number; year: number; total: number; paid_amount: number; remaining_amount: number; status: string };
-type Tenant = { id: number; first_name: string; last_name: string; phone?: string; monthly_rent: number; building_name: string; unit_number: string };
+type Invoice = { id: number; invoice_number: string; tenant_name?: string; first_name: string; last_name: string; building_name: string; unit_number: string; lease_number?: number; issue_date: string; due_date: string; month: number; year: number; total: number; paid_amount: number; remaining_amount: number; discount_amount?: number; attachment_file_name?: string; public_notes?: string; internal_notes?: string; status: string };
+type Tenant = { id: number; tenant_type?: string; company_name?: string; first_name: string; last_name: string; post_name?: string; phone?: string; monthly_rent: number; building_name: string; unit_number: string };
 type Lease = { id: number; tenant_id: number; tenant_name: string; building_name: string; unit_number: string; monthly_rent: number; status: string };
 
-const lineTypes = ['Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Other'];
+const lineTypes = ['Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Penalty', 'Other'];
+const emptyFilters = { month: '', year: '', start: '', end: '', status: '', building: '', tenant: '', unit: '', lease: '', attachment: '', min: '', max: '' };
 
 export function Invoices() {
   const { can } = useAuth();
@@ -29,24 +30,31 @@ export function Invoices() {
     year: String(now.getFullYear()),
   });
   const [extraLines, setExtraLines] = useState([{ description: 'Water', amount: 0 }]);
+  const [discount, setDiscount] = useState(0);
+  const [publicNotes, setPublicNotes] = useState('');
+  const [internalNotes, setInternalNotes] = useState('');
+  const [attachmentName, setAttachmentName] = useState('');
   const [query, setQuery] = useState('');
-  const [filters, setFilters] = useState({ month: '', year: '', start: '', end: '', status: '', building: '', tenant: '', unit: '', min: '', max: '' });
+  const [filters, setFilters] = useState(emptyFilters);
   const [success, setSuccess] = useState('');
   const [params] = useSearchParams();
   const navigate = useNavigate();
+
   const tenant = tenants.data.find((item) => item.id === tenantId) ?? tenants.data[0];
   const selectedTenantId = tenantId ?? tenant?.id ?? null;
   const tenantLeases = leases.data.filter((lease) => Number(lease.tenant_id) === Number(selectedTenantId) && lease.status === 'ACTIVE');
   const selectedLease = tenantLeases.find((lease) => lease.id === leaseId) ?? tenantLeases[0];
   const invoiceRent = rent || Number(selectedLease?.monthly_rent ?? tenant?.monthly_rent ?? 0);
-  const total = Number(invoiceRent ?? 0) + extraLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+  const subtotal = Number(invoiceRent ?? 0) + extraLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+  const total = Math.max(0, subtotal - Number(discount || 0));
   const leaseOptions = tenantLeases.map((lease) => ({ value: lease.id, label: `Bail #${lease.id}`, meta: `${lease.building_name} - ${lease.unit_number} - ${money(lease.monthly_rent)}` }));
   const buildingOptions = Array.from(new Set(data.map((invoice) => invoice.building_name).filter(Boolean)));
-  const tenantOptions = Array.from(new Set(data.map((invoice) => `${invoice.first_name} ${invoice.last_name}`).filter(Boolean)));
+  const tenantOptions = Array.from(new Set(data.map(invoiceTenantName).filter(Boolean)));
+
   const filtered = data.filter((invoice) => {
     const displayStatus = invoiceDisplayStatus(invoice.status, invoice.due_date);
     if (params.get('filter') === 'impayes' && displayStatus === 'PAID') return false;
-    const tenantName = `${invoice.first_name} ${invoice.last_name}`;
+    const tenantName = invoiceTenantName(invoice);
     return includesText({ ...invoice, displayStatus: statusLabel(displayStatus), tenant: tenantName }, query)
       && (!filters.month || Number(invoice.month) === Number(filters.month))
       && (!filters.year || Number(invoice.year) === Number(filters.year))
@@ -56,9 +64,23 @@ export function Invoices() {
       && (!filters.building || invoice.building_name === filters.building)
       && (!filters.tenant || tenantName === filters.tenant)
       && (!filters.unit || invoice.unit_number?.toLowerCase().includes(filters.unit.toLowerCase()))
+      && (!filters.lease || String(invoice.lease_number ?? '').includes(filters.lease))
+      && (!filters.attachment || (filters.attachment === 'PRESENT' ? Boolean(invoice.attachment_file_name) : !invoice.attachment_file_name))
       && (!filters.min || Number(invoice.total) >= Number(filters.min))
       && (!filters.max || Number(invoice.total) <= Number(filters.max));
   });
+
+  const kpis = {
+    total: data.length,
+    draft: data.filter((invoice) => invoice.status === 'DRAFT').length,
+    paid: data.filter((invoice) => invoiceDisplayStatus(invoice.status, invoice.due_date) === 'PAID').length,
+    partial: data.filter((invoice) => invoiceDisplayStatus(invoice.status, invoice.due_date) === 'PARTIAL').length,
+    unpaid: data.filter((invoice) => invoiceDisplayStatus(invoice.status, invoice.due_date) === 'UNPAID').length,
+    overdue: data.filter((invoice) => invoiceDisplayStatus(invoice.status, invoice.due_date) === 'OVERDUE').length,
+    totalAmount: data.reduce((sum, invoice) => sum + Number(invoice.total ?? 0), 0),
+    remaining: data.reduce((sum, invoice) => sum + Number(invoice.remaining_amount ?? 0), 0),
+  };
+  const exportRows = filtered.map(invoiceExportRow);
 
   async function save() {
     if (!tenant) return;
@@ -73,6 +95,11 @@ export function Invoices() {
       year: Number(invoiceForm.year),
       issue_date: invoiceForm.issue_date,
       due_date: invoiceForm.due_date,
+      discount_amount: Number(discount || 0),
+      public_notes: publicNotes || null,
+      internal_notes: internalNotes || null,
+      attachment_file_name: attachmentName || null,
+      attachment_file_url: null,
       items: [
         { description: 'Monthly rent', amount: Number(invoiceRent) },
         ...extraLines.filter((line) => Number(line.amount) > 0),
@@ -82,8 +109,9 @@ export function Invoices() {
   }
 
   async function remove(id: number) {
+    if (!window.confirm('Supprimer cette facture ?')) return;
     await api.delete(`/invoices/${id}`);
-    setSuccess('Facture supprimée avec succès.');
+    setSuccess('Facture supprimee avec succes.');
     reload();
   }
 
@@ -91,74 +119,104 @@ export function Invoices() {
     <section>
       <PageHeader title="Factures" action={can('invoices.create') ? <button onClick={() => setOpen(true)}><Plus size={16} />Nouvelle facture</button> : undefined} />
       <SuccessMessage message={success} />
-      <TableToolbar
-        query={query}
-        onQueryChange={setQuery}
-        onExport={() => exportCsv('factures.csv', filtered.map((invoice) => ({
-          numero: invoice.invoice_number,
-          locataire: `${invoice.first_name} ${invoice.last_name}`,
-          immeuble: invoice.building_name,
-          appartement: invoice.unit_number,
-          mois: invoice.month,
-          annee: invoice.year,
-          total: invoice.total,
-          paye: invoice.paid_amount,
-          restant: invoice.remaining_amount,
-          statut: statusLabel(invoiceDisplayStatus(invoice.status, invoice.due_date)),
-        })))}
-      />
-      <div className="quick-form">
+
+      <div className="mini-stats">
+        <div className="mini-stat"><span>Total factures</span><strong>{kpis.total}</strong></div>
+        <div className="mini-stat"><span>Brouillons</span><strong>{kpis.draft}</strong></div>
+        <div className="mini-stat"><span>Payees</span><strong>{kpis.paid}</strong></div>
+        <div className="mini-stat"><span>Partielles</span><strong>{kpis.partial}</strong></div>
+        <div className="mini-stat"><span>Non payees</span><strong>{kpis.unpaid}</strong></div>
+        <div className="mini-stat"><span>En retard</span><strong>{kpis.overdue}</strong></div>
+        <div className="mini-stat"><span>Total facture</span><strong>{money(kpis.totalAmount)}</strong></div>
+        <div className="mini-stat"><span>Restant du</span><strong>{money(kpis.remaining)}</strong></div>
+      </div>
+
+      <div className="quick-form invoices-filter-bar">
+        <input placeholder="Recherche" value={query} onChange={(event) => setQuery(event.target.value)} />
         <input type="number" min="1" max="12" placeholder="Mois" value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })} />
         <input type="number" placeholder="Annee" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} />
         <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, start: event.target.value })} />
         <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, end: event.target.value })} />
-        <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Tous les statuts</option><option value="PAID">Payee</option><option value="PARTIAL">Paiement partiel</option><option value="UNPAID">Non payee</option><option value="OVERDUE">En retard</option></select>
-        <select value={filters.building} onChange={(event) => setFilters({ ...filters, building: event.target.value })}><option value="">Tous les immeubles</option>{buildingOptions.map((building) => <option key={building} value={building}>{building}</option>)}</select>
-        <select value={filters.tenant} onChange={(event) => setFilters({ ...filters, tenant: event.target.value })}><option value="">Tous les locataires</option>{tenantOptions.map((tenantName) => <option key={tenantName} value={tenantName}>{tenantName}</option>)}</select>
+        <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Statut</option><option value="PAID">Payee</option><option value="PARTIAL">Paiement partiel</option><option value="UNPAID">Non payee</option><option value="OVERDUE">En retard</option></select>
+        <select value={filters.building} onChange={(event) => setFilters({ ...filters, building: event.target.value })}><option value="">Immeuble</option>{buildingOptions.map((building) => <option key={building} value={building}>{building}</option>)}</select>
+        <select value={filters.tenant} onChange={(event) => setFilters({ ...filters, tenant: event.target.value })}><option value="">Locataire</option>{tenantOptions.map((tenantName) => <option key={tenantName} value={tenantName}>{tenantName}</option>)}</select>
         <input placeholder="Unite" value={filters.unit} onChange={(event) => setFilters({ ...filters, unit: event.target.value })} />
-        <input type="number" placeholder="Montant min." value={filters.min} onChange={(event) => setFilters({ ...filters, min: event.target.value })} />
-        <input type="number" placeholder="Montant max." value={filters.max} onChange={(event) => setFilters({ ...filters, max: event.target.value })} />
-        <button type="button" className="secondary" onClick={() => setFilters({ month: '', year: '', start: '', end: '', status: '', building: '', tenant: '', unit: '', min: '', max: '' })}>Reinitialiser filtres</button>
+        <input placeholder="Bail" value={filters.lease} onChange={(event) => setFilters({ ...filters, lease: event.target.value })} />
+        <select value={filters.attachment} onChange={(event) => setFilters({ ...filters, attachment: event.target.value })}><option value="">Piece jointe</option><option value="PRESENT">Presente</option><option value="ABSENT">Absente</option></select>
+        <input type="number" placeholder="Min" value={filters.min} onChange={(event) => setFilters({ ...filters, min: event.target.value })} />
+        <input type="number" placeholder="Max" value={filters.max} onChange={(event) => setFilters({ ...filters, max: event.target.value })} />
+        <div className="filter-actions">
+          <button type="button" className="secondary" onClick={() => { setQuery(''); setFilters(emptyFilters); }}>Reinitialiser</button>
+          <button type="button" className="secondary" onClick={() => exportCsv('factures.csv', exportRows)}><Download size={16} />CSV</button>
+          <button type="button" className="secondary" onClick={() => exportInvoicesExcel(filtered)}><FileSpreadsheet size={16} />Excel</button>
+        </div>
       </div>
+
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Numéro</th><th>Locataire</th><th>Immeuble</th><th>Date</th><th className="right">Total</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th className="right">Restant</th><th>Devise</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Numero</th><th>Locataire</th><th>Bail</th><th>Immeuble</th><th>Unite</th><th>Emission</th><th>Echeance</th><th>Periode</th><th className="right">Total</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th className="right">Restant</th><th>Devise</th><th>Piece</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
             {filtered.map((invoice) => (
-              <tr key={invoice.id}>
-                <td>{invoice.invoice_number}</td><td>{invoice.first_name} {invoice.last_name}</td><td>{invoice.building_name} / {invoice.unit_number}</td><td>{shortDate(invoice.issue_date)}</td><td className="right">{amount(invoice.total)}</td><td>USD</td><td className="right">{amount(invoice.paid_amount)}</td><td>USD</td><td className="right">{amount(invoice.remaining_amount)}</td><td>USD</td><td><StatusBadge value={invoiceDisplayStatus(invoice.status, invoice.due_date)} /></td>
-                <td className="actions"><Link className="icon-btn" title="Voir" to={`/invoices/${invoice.id}`}><Eye size={16} /></Link>{can('invoices.delete') && <button className="icon-btn danger" title="Supprimer" onClick={() => remove(invoice.id)}><Trash2 size={16} /></button>}</td>
+              <tr key={invoice.id} className="clickable-row" onClick={() => navigate(`/invoices/${invoice.id}`)}>
+                <td>{invoice.invoice_number}</td>
+                <td>{invoiceTenantName(invoice)}</td>
+                <td>{invoice.lease_number ? `B-${invoice.lease_number}` : '-'}</td>
+                <td>{invoice.building_name}</td>
+                <td>{invoice.unit_number}</td>
+                <td>{shortDate(invoice.issue_date)}</td>
+                <td>{shortDate(invoice.due_date)}</td>
+                <td>{periodLabel(invoice.month, invoice.year)}</td>
+                <td className="right">{amount(invoice.total)}</td>
+                <td>USD</td>
+                <td className="right">{amount(invoice.paid_amount)}</td>
+                <td>USD</td>
+                <td className="right">{amount(invoice.remaining_amount)}</td>
+                <td>USD</td>
+                <td><span className={invoice.attachment_file_name ? 'badge active' : 'badge'}>{invoice.attachment_file_name ? 'Presente' : 'Absente'}</span></td>
+                <td><StatusBadge value={invoiceDisplayStatus(invoice.status, invoice.due_date)} /></td>
+                <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}>
+                  <Link className="icon-btn" title="Voir" to={`/invoices/${invoice.id}`}><Eye size={16} /></Link>
+                  {can('invoices.update') && <Link className="icon-btn" title="Modifier" to={`/invoices/${invoice.id}?edit=1`}><Pencil size={16} /></Link>}
+                  <Link className="icon-btn" title="Imprimer" to={`/invoices/${invoice.id}/print`}><Printer size={16} /></Link>
+                  {can('invoices.delete') && <button className="icon-btn danger" title="Supprimer" onClick={() => remove(invoice.id)}><Trash2 size={16} /></button>}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
-        {!data.length && <EmptyState />}
+        {!filtered.length && <EmptyState />}
       </div>
+
       {open && (
         <Modal title="Nouvelle facture" onClose={() => setOpen(false)}>
           <div className="form-grid">
             <label>Locataire<TenantSearchSelect tenants={tenants.data} value={selectedTenantId} onChange={(value) => { setTenantId(value); setLeaseId(null); setRent(0); }} required /></label>
             <label>Bail actif<SearchableSelect options={leaseOptions} value={selectedLease?.id ?? null} onChange={(value) => { setLeaseId(value ? Number(value) : null); const lease = leases.data.find((item) => item.id === value); if (lease) setRent(Number(lease.monthly_rent)); }} placeholder="Rechercher un bail" emptyMessage="Aucun bail actif trouve" /></label>
-            {selectedLease && <div className="summary-band"><div className="summary-item"><span>Immeuble</span><strong>{selectedLease.building_name}</strong></div><div className="summary-item"><span>Unite</span><strong>{selectedLease.unit_number}</strong></div></div>}
+            {selectedLease && <div className="summary-band"><div className="summary-item"><span>Immeuble</span><strong>{selectedLease.building_name}</strong></div><div className="summary-item"><span>Unite</span><strong>{selectedLease.unit_number}</strong></div><div className="summary-item"><span>Loyer bail</span><strong>{money(selectedLease.monthly_rent)}</strong></div></div>}
             <div className="lease-section-grid">
               <label>Date de facture<input type="date" value={invoiceForm.issue_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, issue_date: event.target.value })} required /></label>
               <label>Date d'echeance<input type="date" value={invoiceForm.due_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, due_date: event.target.value })} required /></label>
               <label>Mois du loyer<input type="number" min="1" max="12" value={invoiceForm.month} onChange={(event) => setInvoiceForm({ ...invoiceForm, month: event.target.value })} required /></label>
               <label>Annee du loyer<input type="number" min="2000" max="2100" value={invoiceForm.year} onChange={(event) => setInvoiceForm({ ...invoiceForm, year: event.target.value })} required /></label>
-              <label>Periode debut<input type="date" value={periodStart(invoiceForm.month, invoiceForm.year)} readOnly /></label>
-              <label>Periode fin<input type="date" value={periodEnd(invoiceForm.month, invoiceForm.year)} readOnly /></label>
+              <label>Periode debut<input className="locked-field" type="date" value={periodStart(invoiceForm.month, invoiceForm.year)} readOnly /></label>
+              <label>Periode fin<input className="locked-field" type="date" value={periodEnd(invoiceForm.month, invoiceForm.year)} readOnly /></label>
             </div>
             <label>Loyer contractuel<input type="number" value={invoiceRent} onChange={(event) => setRent(Number(event.target.value))} /></label>
             {extraLines.map((line, index) => (
               <div className="invoice-line" key={index}>
-                <select value={line.description} onChange={(e) => setExtraLines((lines) => lines.map((l, i) => i === index ? { ...l, description: e.target.value } : l))}>{lineTypes.map((type) => <option key={type} value={type}>{itemLabel(type)}</option>)}</select>
-                <input type="number" value={line.amount} onChange={(e) => setExtraLines((lines) => lines.map((l, i) => i === index ? { ...l, amount: Number(e.target.value) } : l))} />
+                <select value={line.description} onChange={(event) => setExtraLines((lines) => lines.map((item, i) => i === index ? { ...item, description: event.target.value } : item))}>{lineTypes.map((type) => <option key={type} value={type}>{itemLabel(type)}</option>)}</select>
+                <input type="number" value={line.amount} onChange={(event) => setExtraLines((lines) => lines.map((item, i) => i === index ? { ...item, amount: Number(event.target.value) } : item))} />
                 <button type="button" className="icon-btn danger" onClick={() => setExtraLines((lines) => lines.filter((_, i) => i !== index))}><X size={16} /></button>
               </div>
             ))}
-            <button type="button" className="secondary" onClick={() => setExtraLines([...extraLines, { description: 'Other', amount: 0 }])}>Ajouter une ligne</button>
-            <div className="total-row">Total <strong>{money(total)}</strong></div>
-            <button onClick={save}>Créer la facture</button>
+            <button type="button" className="secondary" onClick={() => setExtraLines([...extraLines, { description: 'Other', amount: 0 }])}>Ajouter une charge</button>
+            <label>Remise<input type="number" min="0" value={discount} onChange={(event) => setDiscount(Number(event.target.value))} /></label>
+            <label>Notes visibles<textarea rows={2} value={publicNotes} onChange={(event) => setPublicNotes(event.target.value)} placeholder="Texte affiche sur la facture" /></label>
+            <label>Notes internes<textarea rows={2} value={internalNotes} onChange={(event) => setInternalNotes(event.target.value)} placeholder="Note non imprimee" /></label>
+            <label>Piece jointe prevue<input type="file" accept="application/pdf,image/*" onChange={(event) => setAttachmentName(event.target.files?.[0]?.name ?? '')} /></label>
+            <label>Nom fichier<input className="locked-field" value={attachmentName} readOnly placeholder="Aucun fichier selectionne" /></label>
+            <div className="total-row"><span>Sous-total {money(subtotal)}</span><span>Remise {money(discount)}</span><strong>Total {money(total)}</strong></div>
+            <button onClick={save}>Creer la facture</button>
           </div>
         </Modal>
       )}
@@ -166,8 +224,50 @@ export function Invoices() {
   );
 }
 
+function invoiceTenantName(invoice: Pick<Invoice, 'tenant_name' | 'first_name' | 'last_name'>) {
+  return invoice.tenant_name || `${invoice.first_name ?? ''} ${invoice.last_name ?? ''}`.trim();
+}
+
+function invoiceExportRow(invoice: Invoice) {
+  return {
+    numero: invoice.invoice_number,
+    locataire: invoiceTenantName(invoice),
+    bail: invoice.lease_number ? `B-${invoice.lease_number}` : '',
+    immeuble: invoice.building_name,
+    unite: invoice.unit_number,
+    emission: shortDate(invoice.issue_date),
+    echeance: shortDate(invoice.due_date),
+    periode: periodLabel(invoice.month, invoice.year),
+    total: amount(invoice.total),
+    paye: amount(invoice.paid_amount),
+    restant: amount(invoice.remaining_amount),
+    devise: 'USD',
+    piece_jointe: invoice.attachment_file_name ? 'Presente' : 'Absente',
+    statut: statusLabel(invoiceDisplayStatus(invoice.status, invoice.due_date)),
+  };
+}
+
+function exportInvoicesExcel(rows: Invoice[]) {
+  exportXlsxWorkbook('Factures.xlsx', [
+    { name: 'Liste factures', rows: rows.map(invoiceExportRow) },
+    { name: 'Factures payees', rows: rows.filter((invoice) => invoiceDisplayStatus(invoice.status, invoice.due_date) === 'PAID').map(invoiceExportRow) },
+    { name: 'Factures partielles', rows: rows.filter((invoice) => invoiceDisplayStatus(invoice.status, invoice.due_date) === 'PARTIAL').map(invoiceExportRow) },
+    { name: 'Factures non payees', rows: rows.filter((invoice) => invoiceDisplayStatus(invoice.status, invoice.due_date) === 'UNPAID').map(invoiceExportRow) },
+    { name: 'Factures en retard', rows: rows.filter((invoice) => invoiceDisplayStatus(invoice.status, invoice.due_date) === 'OVERDUE').map(invoiceExportRow) },
+  ]);
+}
+
 function amount(value: unknown) {
   return Number(value ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+}
+
+function periodLabel(month: number, year: number) {
+  if (!month || !year) return '-';
+  return `${monthName(Number(month))} ${year}`;
+}
+
+function monthName(month: number) {
+  return ['Janvier', 'Fevrier', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre'][month - 1] ?? String(month);
 }
 
 function periodStart(month: string, year: string) {

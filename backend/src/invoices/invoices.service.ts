@@ -12,7 +12,11 @@ export class InvoicesService {
   async findAll() {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(`
-      SELECT i.*, t.first_name, t.last_name, u.number AS unit_number, b.name AS building_name,
+      SELECT i.*, t.first_name, t.last_name,
+             CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                  ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+             END AS tenant_name,
+             u.number AS unit_number, b.name AS building_name,
              l.id AS lease_number,
              COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
@@ -31,7 +35,11 @@ export class InvoicesService {
   async findOne(id: number) {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(
-      `SELECT i.*, t.first_name, t.last_name, t.phone, t.email,
+      `SELECT i.*, t.first_name, t.last_name,
+              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name,
+              t.phone, t.email,
               u.number AS unit_number, u.monthly_rent,
               b.name AS building_name, b.address AS building_address, b.city AS building_city,
               l.start_date AS lease_start_date, l.end_date AS lease_end_date,
@@ -49,7 +57,8 @@ export class InvoicesService {
     const invoice = requireRow(rows[0], 'Invoice');
     const items = await this.db.query('SELECT * FROM invoice_items WHERE invoice_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY id', [id, organizationId]);
     const payments = await this.db.query('SELECT * FROM payments WHERE invoice_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY payment_date DESC', [id, organizationId]);
-    return { ...invoice, items: items.rows, payments: payments.rows };
+    const reminders = await this.db.query('SELECT * FROM invoice_reminders WHERE invoice_id = $1 AND organization_id = $2 ORDER BY reminded_at DESC', [id, organizationId]);
+    return { ...invoice, items: items.rows, payments: payments.rows, reminders: reminders.rows };
   }
 
   async create(dto: CreateInvoiceDto) {
@@ -59,11 +68,11 @@ export class InvoicesService {
       if (!tenantId) throw new Error('tenant_id or lease_id is required');
       const nextId = await this.nextInvoiceId(client);
       const invoiceNumber = await this.nextInvoiceNumber(client);
-      const total = this.calculateTotal(dto.items);
+      const total = this.calculateTotal(dto.items, dto.discount_amount);
       const organizationId = this.context.organizationId();
       const { rows } = await client.query(
-        `INSERT INTO invoices (id, tenant_id, lease_id, unit_id, building_id, invoice_number, month, year, issue_date, due_date, status, total, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+        `INSERT INTO invoices (id, tenant_id, lease_id, unit_id, building_id, invoice_number, month, year, issue_date, due_date, status, total, discount_amount, public_notes, internal_notes, attachment_file_name, attachment_file_url, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
         [
           nextId,
           tenantId,
@@ -77,6 +86,11 @@ export class InvoicesService {
           dto.due_date,
           dto.status ?? 'UNPAID',
           total,
+          Number(dto.discount_amount ?? 0),
+          dto.public_notes ?? null,
+          dto.internal_notes ?? null,
+          dto.attachment_file_name ?? null,
+          dto.attachment_file_url ?? null,
           organizationId,
         ],
       );
@@ -96,16 +110,24 @@ export class InvoicesService {
         ]);
         await this.insertItems(client, id, dto.items, this.context.organizationId());
       }
-      const total = dto.items ? this.calculateTotal(dto.items) : undefined;
+      const current = await this.findOne(id) as unknown as { items: InvoiceItemDto[]; discount_amount?: number };
+      const total = dto.items || dto.discount_amount !== undefined
+        ? this.calculateTotal(dto.items ?? current.items, dto.discount_amount ?? current.discount_amount ?? 0)
+        : undefined;
       const { rows } = await client.query(
         `UPDATE invoices
          SET issue_date = COALESCE($2, issue_date),
              due_date = COALESCE($3, due_date),
              total = COALESCE($4, total),
              month = COALESCE($5, month),
-             year = COALESCE($6, year)
-         WHERE id = $1 AND organization_id = $7 AND deleted_at IS NULL RETURNING *`,
-        [id, dto.issue_date, dto.due_date, total, dto.month, dto.year, this.context.organizationId()],
+             year = COALESCE($6, year),
+             discount_amount = COALESCE($7, discount_amount),
+             public_notes = COALESCE($8, public_notes),
+             internal_notes = COALESCE($9, internal_notes),
+             attachment_file_name = COALESCE($10, attachment_file_name),
+             attachment_file_url = COALESCE($11, attachment_file_url)
+         WHERE id = $1 AND organization_id = $12 AND deleted_at IS NULL RETURNING *`,
+        [id, dto.issue_date, dto.due_date, total, dto.month, dto.year, dto.discount_amount, dto.public_notes, dto.internal_notes, dto.attachment_file_name, dto.attachment_file_url, this.context.organizationId()],
       );
       await this.refreshStatus(client, id);
       return rows[0];
@@ -159,8 +181,9 @@ export class InvoicesService {
     return { deleted: true };
   }
 
-  private calculateTotal(items: InvoiceItemDto[]) {
-    return items.reduce((sum, item) => sum + Number(item.amount), 0);
+  private calculateTotal(items: InvoiceItemDto[], discountAmount = 0) {
+    const subtotal = items.reduce((sum, item) => sum + Number(item.amount), 0);
+    return Math.max(0, subtotal - Number(discountAmount ?? 0));
   }
 
   private async insertItems(client: PoolClient, invoiceId: number, items: InvoiceItemDto[], organizationId: number) {

@@ -108,6 +108,11 @@ CREATE TABLE invoices (
   due_date DATE NOT NULL,
   status VARCHAR(30) NOT NULL DEFAULT 'UNPAID',
   total NUMERIC(12,2) NOT NULL DEFAULT 0,
+  discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  public_notes TEXT,
+  internal_notes TEXT,
+  attachment_file_name VARCHAR(220),
+  attachment_file_url TEXT,
   last_reminder_at TIMESTAMP,
   reminder_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()

@@ -41,6 +41,27 @@ export class CreateInvoiceDto {
   @IsDateString()
   due_date: string;
 
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discount_amount?: number;
+
+  @IsOptional()
+  @IsString()
+  public_notes?: string;
+
+  @IsOptional()
+  @IsString()
+  internal_notes?: string;
+
+  @IsOptional()
+  @IsString()
+  attachment_file_name?: string;
+
+  @IsOptional()
+  @IsString()
+  attachment_file_url?: string;
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
@@ -66,6 +87,27 @@ export class UpdateInvoiceDto {
   @IsOptional()
   @IsDateString()
   due_date?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discount_amount?: number;
+
+  @IsOptional()
+  @IsString()
+  public_notes?: string;
+
+  @IsOptional()
+  @IsString()
+  internal_notes?: string;
+
+  @IsOptional()
+  @IsString()
+  attachment_file_name?: string;
+
+  @IsOptional()
+  @IsString()
+  attachment_file_url?: string;
 
   @IsOptional()
   @IsArray()
