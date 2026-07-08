@@ -72,6 +72,8 @@ CREATE TABLE invoices (
   due_date DATE NOT NULL,
   status VARCHAR(30) NOT NULL DEFAULT 'UNPAID',
   total NUMERIC(12,2) NOT NULL DEFAULT 0,
+  last_reminder_at TIMESTAMP,
+  reminder_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
@@ -81,6 +83,18 @@ CREATE TABLE invoice_items (
   description VARCHAR(220) NOT NULL,
   amount NUMERIC(12,2) NOT NULL CHECK (amount >= 0),
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE invoice_reminders (
+  id SERIAL PRIMARY KEY,
+  organization_id INTEGER NOT NULL,
+  invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  tenant_id INTEGER REFERENCES tenants(id),
+  channel VARCHAR(20) NOT NULL CHECK (channel IN ('EMAIL', 'SMS', 'WHATSAPP')),
+  message TEXT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'SIMULATED' CHECK (status IN ('SENT', 'FAILED', 'SIMULATED')),
+  reminded_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  reminded_by INTEGER
 );
 
 CREATE TABLE payments (

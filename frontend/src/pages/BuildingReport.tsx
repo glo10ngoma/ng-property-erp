@@ -64,6 +64,7 @@ export function BuildingReport() {
   });
   const [report, setReport] = useState<BuildingReportData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState('');
 
   const queryParams = useMemo(() => {
     const params: Record<string, string> = {};
@@ -91,6 +92,16 @@ export function BuildingReport() {
     }
   }
 
+  async function sendReminder(row: ReportRow, channel: 'EMAIL' | 'SMS' | 'WHATSAPP') {
+    const invoiceId = Number(row.invoice_id ?? row.id);
+    if (!invoiceId) return;
+    const label = channel === 'EMAIL' ? 'Email' : channel === 'SMS' ? 'SMS' : 'WhatsApp';
+    if (!window.confirm(`Envoyer une relance ${label} pour la facture ${text(row.invoice_number)} ?`)) return;
+    await api.post(`/reports/invoices/${invoiceId}/remind`, { channel });
+    setSuccess(`Relance ${label} envoyée.`);
+    await loadReport();
+  }
+
   useEffect(() => {
     loadReport();
   }, [id, queryParams]);
@@ -114,6 +125,7 @@ export function BuildingReport() {
           </div>
         )}
       />
+      {success && <div className="success-message">{success}</div>}
 
       {report && (
         <section className="detail-section report-section">
@@ -182,9 +194,9 @@ export function BuildingReport() {
           <TenantTable rows={tenants} />
           <UnitTable title="Unites / appartements occupes" rows={occupiedUnits} />
           <InvoiceTable title="Factures de la periode" rows={invoices} />
-          <SummaryList title="Locataires ayant paye" rows={report.tenants_paid} />
-          <SummaryList title="Locataires n'ayant pas paye" rows={report.tenants_unpaid} />
-          <InvoiceTable title="Factures en retard" rows={report.overdue_invoices} />
+          <TenantContactTable title="Locataires ayant payé" rows={report.tenants_paid} />
+          <TenantContactTable title="Locataires n'ayant pas payé" rows={report.tenants_unpaid} onRemind={sendReminder} />
+          <InvoiceTable title="Factures en retard" rows={report.overdue_invoices} onRemind={sendReminder} />
         </>
       )}
     </section>
@@ -240,18 +252,20 @@ function UnitTable({ title, rows }: { title: string; rows: ReportRow[] }) {
   );
 }
 
-function InvoiceTable({ title, rows }: { title: string; rows: ReportRow[] }) {
+function InvoiceTable({ title, rows, onRemind }: { title: string; rows: ReportRow[]; onRemind?: (row: ReportRow, channel: 'EMAIL' | 'SMS' | 'WHATSAPP') => void }) {
   return (
     <div className="detail-section report-section">
       <h4>{title}</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Facture</th><th>Locataire</th><th>Unite</th><th>Periode</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Montant</th><th className="right">Paye</th><th className="right">Reste</th><th>Devise</th></tr></thead>
+          <thead><tr><th>Facture</th><th>Locataire</th><th>Téléphone</th><th>Email</th><th>Unite</th><th>Periode</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Montant</th><th className="right">Paye</th><th className="right">Reste</th><th>Devise</th><th>Dernière relance</th><th className="right">Relances</th>{onRemind && <th>Action</th>}</tr></thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
                 <td>{text(row.invoice_number)}</td>
                 <td>{text(row.tenant_name)}</td>
+                <td>{text(row.phone)}</td>
+                <td>{text(row.email)}</td>
                 <td>{text(row.unit_number)}</td>
                 <td>{periodText(row.month, row.year)}</td>
                 <td>{date(row.issue_date)}</td>
@@ -261,6 +275,9 @@ function InvoiceTable({ title, rows }: { title: string; rows: ReportRow[] }) {
                 <td className="right">{amount(row.paid_amount)}</td>
                 <td className="right">{amount(row.remaining_amount)}</td>
                 <td>USD</td>
+                <td>{reminderDate(row.last_reminder_at)}</td>
+                <td className="right">{Number(row.reminder_count ?? 0)}</td>
+                {onRemind && <td><ReminderActions row={row} onRemind={onRemind} /></td>}
               </tr>
             ))}
           </tbody>
@@ -271,18 +288,42 @@ function InvoiceTable({ title, rows }: { title: string; rows: ReportRow[] }) {
   );
 }
 
-function SummaryList({ title, rows }: { title: string; rows: ReportRow[] }) {
+function TenantContactTable({ title, rows, onRemind }: { title: string; rows: ReportRow[]; onRemind?: (row: ReportRow, channel: 'EMAIL' | 'SMS' | 'WHATSAPP') => void }) {
   return (
     <div className="detail-section report-section">
       <h4>{title}</h4>
-      <div className="compact-list">
-        {rows.length ? rows.map((row, index) => (
-          <div className="compact-item" key={index}>
-            <span>{text(row.tenant_name ?? row.invoice_number)}</span>
-            <strong>{text(row.unit_number ?? row.status)}</strong>
-          </div>
-        )) : <span className="empty">Aucune donnee.</span>}
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Locataire</th><th>Téléphone</th><th>Email</th><th>Unité</th><th>Facture</th><th className="right">Reste</th><th>Devise</th><th>Dernière relance</th><th className="right">Relances</th>{onRemind && <th>Action</th>}</tr></thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={index}>
+                <td>{text(row.tenant_name)}</td>
+                <td>{text(row.phone)}</td>
+                <td>{text(row.email)}</td>
+                <td>{text(row.unit_number)}</td>
+                <td>{text(row.invoice_number)}</td>
+                <td className="right">{row.remaining_amount == null ? '-' : amount(row.remaining_amount)}</td>
+                <td>{row.remaining_amount == null ? '-' : 'USD'}</td>
+                <td>{reminderDate(row.last_reminder_at)}</td>
+                <td className="right">{Number(row.reminder_count ?? 0)}</td>
+                {onRemind && <td><ReminderActions row={row} onRemind={onRemind} /></td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!rows.length && <EmptyState />}
       </div>
+    </div>
+  );
+}
+
+function ReminderActions({ row, onRemind }: { row: ReportRow; onRemind: (row: ReportRow, channel: 'EMAIL' | 'SMS' | 'WHATSAPP') => void }) {
+  return (
+    <div className="reminder-actions">
+      <button type="button" className="secondary" onClick={() => onRemind(row, 'EMAIL')}>Email</button>
+      <button type="button" className="secondary" onClick={() => onRemind(row, 'SMS')}>SMS</button>
+      <button type="button" className="secondary" onClick={() => onRemind(row, 'WHATSAPP')}>WhatsApp</button>
     </div>
   );
 }
@@ -352,6 +393,8 @@ function invoiceExportRow(row: ReportRow) {
   return {
     facture: text(row.invoice_number),
     locataire: text(row.tenant_name),
+    telephone: text(row.phone),
+    email: text(row.email),
     unite: text(row.unit_number),
     periode: periodText(row.month, row.year),
     date_facture: date(row.issue_date),
@@ -361,15 +404,22 @@ function invoiceExportRow(row: ReportRow) {
     paye: amount(row.paid_amount),
     reste: amount(row.remaining_amount),
     devise: 'USD',
+    derniere_relance: reminderDate(row.last_reminder_at),
+    nombre_relances: Number(row.reminder_count ?? 0),
   };
 }
 
 function simpleTenantExportRow(row: ReportRow) {
   return {
     locataire: text(row.tenant_name),
+    telephone: text(row.phone),
+    email: text(row.email),
     unite: text(row.unit_number),
+    facture: text(row.invoice_number),
     reste: row.remaining_amount == null ? '' : amount(row.remaining_amount),
     devise: row.remaining_amount == null ? '' : 'USD',
+    derniere_relance: reminderDate(row.last_reminder_at),
+    nombre_relances: Number(row.reminder_count ?? 0),
   };
 }
 
@@ -434,6 +484,10 @@ function amount(value: unknown) {
 
 function date(value: unknown) {
   return value ? shortDate(String(value)) : '-';
+}
+
+function reminderDate(value: unknown) {
+  return value ? shortDate(String(value)) : 'Jamais relancé';
 }
 
 function periodText(month: unknown, year: unknown) {

@@ -20,6 +20,7 @@ export const statusLabel = (value: string) =>
     CLOSED: 'Clôturée',
     REFUNDED: 'Remboursée',
     NOT_PAID: 'Non payée',
+    NOT_INVOICED: 'Non facturé',
     ACTIVE: 'Actif',
     INACTIVE: 'Inactif',
     OCCUPIED: 'Occupé',

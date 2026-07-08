@@ -69,6 +69,7 @@ tbody tr.clickable-row:hover { background: #f8fafb; }
 .actions-row .table-toolbar { margin-bottom: 0; padding: 0; }
 .actions-row button { white-space: nowrap; }
 .badge { display: inline-flex; align-items: center; min-height: 21px; border-radius: 999px; padding: 0 8px; font-size: 11px; font-weight: 700; background: #e8eef2; color: #425466; }
+.badge.not_invoiced { background: #e8eef2; color: #425466; }
 .badge.paid, .badge.active, .badge.occupied { background: #e0f2e9; color: #1f7a4d; }
 .badge.partial, .badge.maintenance, .badge.construction { background: #fff0cf; color: #946200; }
 .badge.unpaid, .badge.vacant, .badge.overdue, .badge.closed { background: #fbe3e3; color: #a4343a; }
@@ -254,6 +255,8 @@ tfoot td { font-weight: 800; font-size: 18px; }
 .priority-dot.partial { background: #946200; }
 .priority-dot.unpaid, .priority-dot.overdue { background: #a4343a; }
 .compact-action { margin-top: 6px; min-height: 30px; }
+.reminder-actions { display: inline-flex; gap: 4px; flex-wrap: nowrap; }
+.reminder-actions button { min-height: 28px; padding: 0 7px; font-size: 12px; }
 
 @keyframes spin {
   to { transform: rotate(360deg); }

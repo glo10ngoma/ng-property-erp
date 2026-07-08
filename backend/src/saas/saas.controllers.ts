@@ -658,6 +658,11 @@ export class ReportsController {
     });
   }
 
+  @Post('invoices/:id/remind')
+  remindInvoice(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.remindInvoice(id, body);
+  }
+
   @Get('payments')
   payments(
     @Query('start') start?: string,

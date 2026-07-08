@@ -1242,6 +1242,64 @@ export class SaasService {
     return { success: true, simulated: true, log: rows[0] };
   }
 
+  async remindInvoice(id: number, body: Record<string, unknown>) {
+    const organizationId = this.context.organizationId();
+    const channel = String(body.channel ?? '').toUpperCase();
+    if (!['EMAIL', 'SMS', 'WHATSAPP'].includes(channel)) throw new BadRequestException('Canal de relance invalide');
+
+    const { rows } = await this.db.query(
+      `SELECT i.id, i.invoice_number, i.total, i.tenant_id, i.organization_id,
+              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.email, t.phone
+       FROM invoices i
+       JOIN tenants t ON t.id = i.tenant_id
+       WHERE i.id = $1 AND i.organization_id = $2 AND i.deleted_at IS NULL`,
+      [id, organizationId],
+    );
+    const invoice = requireRow(rows[0], 'Invoice');
+    const recipient = channel === 'EMAIL' ? invoice.email : invoice.phone;
+    if (!recipient) throw new BadRequestException(channel === 'EMAIL' ? 'Adresse email locataire absente' : 'Téléphone locataire absent');
+
+    const message = body.message
+      ? String(body.message)
+      : this.defaultReminderMessage(channel, {
+          tenant_name: invoice.tenant_name,
+          invoice_number: invoice.invoice_number,
+          amount: Number(invoice.total).toLocaleString('fr-FR', { maximumFractionDigits: 2 }),
+          currency: 'USD',
+        });
+
+    const communication = await this.sendCommunication(channel, {
+      recipient,
+      subject: channel === 'EMAIL' ? `Relance facture ${invoice.invoice_number}` : undefined,
+      message,
+      related_entity_type: 'invoice',
+      related_entity_id: id,
+    });
+    const status = communication?.log?.status === 'FAILED' ? 'FAILED' : communication?.log?.status === 'SENT' ? 'SENT' : 'SIMULATED';
+    const remindedAt = new Date();
+    const reminder = await this.db.query(
+      `INSERT INTO invoice_reminders (organization_id, invoice_id, tenant_id, channel, message, status, reminded_at, reminded_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [organizationId, id, invoice.tenant_id, channel, message, status, remindedAt, this.context.userId() ?? 1],
+    );
+    await this.db.query(
+      `UPDATE invoices
+       SET last_reminder_at = $1,
+           reminder_count = COALESCE(reminder_count, 0) + 1
+       WHERE id = $2 AND organization_id = $3`,
+      [remindedAt, id, organizationId],
+    );
+    return { success: true, status, reminder: reminder.rows[0], communication };
+  }
+
+  private defaultReminderMessage(channel: string, variables: Record<string, unknown>) {
+    if (channel === 'EMAIL') {
+      return `Bonjour ${variables.tenant_name},\nSauf erreur de notre part, votre facture ${variables.invoice_number} d'un montant de ${variables.amount} ${variables.currency} reste impayée.\nMerci de régulariser votre situation.`;
+    }
+    return `Bonjour ${variables.tenant_name}, votre facture ${variables.invoice_number} de ${variables.amount} ${variables.currency} reste impayée. Merci de régulariser.`;
+  }
+
   async notifications() {
     const { rows } = await this.db.query(
       `SELECT n.*, CONCAT(u.first_name, ' ', u.last_name) AS user_name
@@ -1690,8 +1748,9 @@ export class SaasService {
       params,
     );
     const invoices = await this.db.query(
-      `SELECT i.id, i.tenant_id, i.invoice_number, i.issue_date, i.due_date, i.status, i.total,
-              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
+      `SELECT i.id, i.tenant_id, i.invoice_number, i.month, i.year, i.issue_date, i.due_date, i.status, i.total,
+              i.last_reminder_at, COALESCE(i.reminder_count, 0)::INT AS reminder_count,
+              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone, t.email,
               u.number AS unit_number,
               COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
               COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
@@ -1732,13 +1791,34 @@ export class SaasService {
     );
     const paidTenantIds = new Set(payments.rows.map((row) => row.tenant_id).filter(Boolean));
     const tenantsPaid = Array.from(
-      new Map(payments.rows.filter((row) => row.tenant_id).map((row) => [row.tenant_id, { tenant_id: row.tenant_id, tenant_name: row.tenant_name, unit_number: row.unit_number }])).values(),
+      new Map(
+        payments.rows
+          .filter((row) => row.tenant_id)
+          .map((row) => {
+            const tenant = tenants.rows.find((item) => Number(item.id) === Number(row.tenant_id));
+            return [row.tenant_id, { tenant_id: row.tenant_id, tenant_name: row.tenant_name, unit_number: row.unit_number, phone: tenant?.phone, email: tenant?.email }];
+          }),
+      ).values(),
     );
     const tenantsUnpaid = Array.from(
       new Map(
         invoices.rows
           .filter((row) => row.tenant_id && !paidTenantIds.has(row.tenant_id) && row.status !== 'PAID')
-          .map((row) => [row.tenant_id, { tenant_id: row.tenant_id, tenant_name: row.tenant_name, unit_number: row.unit_number, remaining_amount: row.remaining_amount }]),
+          .map((row) => [
+            row.tenant_id,
+            {
+              tenant_id: row.tenant_id,
+              tenant_name: row.tenant_name,
+              phone: row.phone,
+              email: row.email,
+              unit_number: row.unit_number,
+              invoice_id: row.id,
+              invoice_number: row.invoice_number,
+              remaining_amount: row.remaining_amount,
+              last_reminder_at: row.last_reminder_at,
+              reminder_count: row.reminder_count,
+            },
+          ]),
       ).values(),
     );
     const tenantSituations = tenants.rows.map((tenant) => {
@@ -1752,7 +1832,7 @@ export class SaasService {
       const overdueCount = tenantInvoices.filter((invoice) => invoice.status !== 'PAID' && new Date(invoice.due_date) < new Date()).length;
       return {
         ...tenant,
-        payment_status: remaining <= 0 && totalInvoiced > 0 ? 'PAID' : totalPaid > 0 ? 'PARTIAL' : 'UNPAID',
+        payment_status: tenantInvoices.length === 0 ? 'NOT_INVOICED' : overdueCount > 0 && remaining > 0 ? 'OVERDUE' : remaining <= 0 ? 'PAID' : totalPaid > 0 ? 'PARTIAL' : 'UNPAID',
         total_invoiced: totalInvoiced,
         total_paid: totalPaid,
         remaining_amount: remaining,
