@@ -1,9 +1,9 @@
-import { ArrowLeft, CreditCard, FileSpreadsheet, Pencil, Plus, Printer, X } from 'lucide-react';
+import { ArrowLeft, CreditCard, FileSpreadsheet, Mail, MessageCircle, Pencil, Plus, Printer, Smartphone, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, invoiceDisplayStatus, itemLabel, money, paymentMethodLabel, shortDate } from '../api';
 import { useAuth } from '../auth';
-import { Modal, StatusBadge, SuccessMessage } from '../components';
+import { Modal, SuccessMessage } from '../components';
 
 type Invoice = {
   id: number;
@@ -99,6 +99,15 @@ export function InvoiceDetail() {
     reload();
   }
 
+  async function sendReminder(channel: 'EMAIL' | 'SMS' | 'WHATSAPP') {
+    const label = channelLabel(channel);
+    if (!window.confirm(`Envoyer une relance ${label} pour la facture ${invoice?.invoice_number} ?`)) return;
+
+    await api.post(`/reports/invoices/${id}/remind`, { channel });
+    setSuccess(`Relance ${label} envoyee avec succes.`);
+    await reload();
+  }
+
   function openEdit() {
     if (!invoice) return;
     setEditLines(invoice.items.map((item) => ({ description: item.description, amount: Number(item.amount) })));
@@ -126,7 +135,10 @@ export function InvoiceDetail() {
           <button className="secondary" onClick={() => navigate('/invoices')}><ArrowLeft size={16} />Retour</button>
           {can('invoices.update') && <button onClick={openEdit}><Pencil size={16} />Modifier</button>}
           <button onClick={() => window.print()}><Printer size={16} />Imprimer</button>
-          {can('payments.create') && <button onClick={() => setPaymentOpen(true)}><CreditCard size={16} />Enregistrer un paiement</button>}
+          {can('payments.create') && <button title="Enregistrer un paiement" onClick={() => setPaymentOpen(true)}><CreditCard size={16} />Paiement</button>}
+          {can('communication.send') && <button className="secondary" title="Envoyer par WhatsApp" onClick={() => sendReminder('WHATSAPP')}><MessageCircle size={16} />WhatsApp</button>}
+          {can('communication.send') && <button className="secondary" title="Envoyer par e-mail" onClick={() => sendReminder('EMAIL')}><Mail size={16} />Email</button>}
+          {can('communication.send') && <button className="secondary" title="Envoyer par SMS" onClick={() => sendReminder('SMS')}><Smartphone size={16} />SMS</button>}
           <button className="secondary" onClick={() => exportInvoiceExcel(invoice, stats, risk, timeline, schedule, documents)}><FileSpreadsheet size={16} />Excel</button>
         </div>
       </div>
@@ -146,7 +158,7 @@ export function InvoiceDetail() {
             <span>Date: {shortDate(invoice.issue_date)}</span>
             <span>Echeance: {shortDate(invoice.due_date)}</span>
             <span>Periode: {periodLabel(invoice.month, invoice.year)}</span>
-            <StatusBadge value={displayStatus} />
+            <span className={`badge ${displayStatus.toLowerCase()}`}>{clientInvoiceStatusLabel(displayStatus)}</span>
           </div>
         </header>
 
@@ -329,6 +341,17 @@ function amount(value: unknown) {
 
 function displayStatusLabel(status: string) {
   return ({ PAID: 'Payee', PARTIAL: 'Paiement partiel', UNPAID: 'Non payee', OVERDUE: 'En retard', DRAFT: 'Brouillon', CANCELLED: 'Annulee' } as Record<string, string>)[status] ?? status;
+}
+
+function clientInvoiceStatusLabel(status: string) {
+  return ({
+    PAID: 'Facture acquittée',
+    PARTIAL: 'Paiement partiel',
+    UNPAID: 'À payer',
+    OVERDUE: 'En retard',
+    DRAFT: 'Brouillon',
+    CANCELLED: 'Annulée',
+  } as Record<string, string>)[status] ?? status;
 }
 
 function invoiceStats(invoice: Invoice) {
