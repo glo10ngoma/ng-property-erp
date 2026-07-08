@@ -181,7 +181,7 @@ tfoot td { font-weight: 800; font-size: 18px; }
 .search-select-option.active, .search-select-option:hover { background: #e7eef3; color: #255e7e; }
 .search-select-empty, .search-select-required { color: #637783; font-size: 13px; padding: 4px 2px; }
 .buildings-summary { padding: 8px 10px; gap: 6px 18px; }
-.buildings-filter-bar { display: grid; grid-template-columns: minmax(150px, 1.25fr) repeat(6, minmax(96px, .8fr)) 86px 86px 126px 126px minmax(300px, auto); gap: 6px; align-items: start; margin-bottom: 8px; }
+.buildings-filter-bar { display: grid; grid-template-columns: minmax(180px, 1.35fr) repeat(6, minmax(108px, .8fr)) minmax(300px, auto); gap: 6px; align-items: start; margin-bottom: 8px; }
 .buildings-filter-bar input, .buildings-filter-bar select, .buildings-filter-bar button { min-height: 32px; padding-top: 5px; padding-bottom: 5px; }
 .buildings-filter-bar .search-select { gap: 0; position: relative; }
 .buildings-filter-bar .search-select input { min-height: 34px; padding: 6px 8px; }

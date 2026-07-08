@@ -20,12 +20,8 @@ type Building = {
   vacant_count?: number;
   floors_count?: number;
   total_units?: number;
-  manager_name?: string;
-  manager_phone?: string;
-  manager_email?: string;
   observations?: string;
   description?: string;
-  created_at?: string;
 };
 
 type SortKey = 'name' | 'city' | 'commune' | 'building_type' | 'unit_count' | 'state' | 'address' | 'status';
@@ -72,10 +68,6 @@ const initialFilters = {
   status: '',
   state: '',
   occupation: '',
-  units_min: '',
-  units_max: '',
-  start: '',
-  end: '',
 };
 
 export function Buildings() {
@@ -87,6 +79,7 @@ export function Buildings() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortState>({ key: 'name', direction: 'asc' });
   const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
 
   const cities = useMemo(() => uniqueValues(data.map((building) => building.city)), [data]);
   const communes = useMemo(() => uniqueValues(data.map((building) => building.commune)), [data]);
@@ -99,22 +92,24 @@ export function Buildings() {
     .filter((building) => !filters.building_type || building.building_type === filters.building_type)
     .filter((building) => !filters.status || (building.status ?? 'ACTIVE') === filters.status)
     .filter((building) => !filters.state || (building.state ?? 'EXPLOITED') === filters.state)
-    .filter((building) => !filters.occupation || matchesOccupation(building, filters.occupation))
-    .filter((building) => !filters.units_min || Number(building.unit_count) >= Number(filters.units_min))
-    .filter((building) => !filters.units_max || Number(building.unit_count) <= Number(filters.units_max))
-    .filter((building) => !filters.start || !building.created_at || building.created_at.slice(0, 10) >= filters.start)
-    .filter((building) => !filters.end || !building.created_at || building.created_at.slice(0, 10) <= filters.end);
+    .filter((building) => !filters.occupation || matchesOccupation(building, filters.occupation));
 
   const sorted = [...filtered].sort((a, b) => compareBuildings(a, b, sort));
   const summary = summarizeBuildings(filtered);
 
   async function save(form: FormData) {
-    const payload = Object.fromEntries(form) as Record<string, string>;
-    if (editing?.id) await api.put(`/buildings/${editing.id}`, payload);
-    else await api.post('/buildings', payload);
-    setSuccess(editing?.id ? 'Immeuble modifié avec succès.' : 'Immeuble créé avec succès.');
-    setEditing(null);
-    reload();
+    const payload = cleanPayload(Object.fromEntries(form) as Record<string, string>);
+    setError('');
+    try {
+      if (editing?.id) await api.put(`/buildings/${editing.id}`, payload);
+      else await api.post('/buildings', payload);
+      setSuccess(editing?.id ? 'Immeuble modifié avec succès.' : 'Immeuble créé avec succès.');
+      setEditing(null);
+      await reload();
+    } catch (err) {
+      console.error(err);
+      setError("Impossible d'enregistrer l'immeuble. Vérifiez les champs obligatoires.");
+    }
   }
 
   async function remove(id: number) {
@@ -144,15 +139,12 @@ export function Buildings() {
       unites: building.unit_count,
       occupees: building.occupied_count ?? 0,
       libres: building.vacant_count ?? 0,
-      gestionnaire: building.manager_name ?? '',
-      telephone: building.manager_phone ?? '',
-      email: building.manager_email ?? '',
     }));
   }
 
   return (
     <section>
-      <PageHeader title="Immeubles" action={can('buildings.create') ? <button onClick={() => setEditing({})}><Plus size={16} />Nouvel immeuble</button> : undefined} />
+      <PageHeader title="Immeubles" action={can('buildings.create') ? <button onClick={() => { setError(''); setEditing({}); }}><Plus size={16} />Nouvel immeuble</button> : undefined} />
       <SuccessMessage message={success} />
 
       <div className="summary-band buildings-summary">
@@ -189,10 +181,6 @@ export function Buildings() {
           <option value="">Occupation</option>
           {OCCUPATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
-        <input type="number" placeholder="Unités min" value={filters.units_min} onChange={(event) => setFilters({ ...filters, units_min: event.target.value })} />
-        <input type="number" placeholder="Unités max" value={filters.units_max} onChange={(event) => setFilters({ ...filters, units_max: event.target.value })} />
-        <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, start: event.target.value })} />
-        <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, end: event.target.value })} />
         <div className="filter-actions">
           <button type="button" className="secondary" title="Réinitialiser" onClick={() => { setFilters(initialFilters); setQuery(''); }}><RotateCcw size={15} />Réinitialiser</button>
           <div className="export-group">
@@ -230,7 +218,7 @@ export function Buildings() {
                 <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}>
                   <button className="icon-btn" title="Voir" onClick={() => openReport(building)}><Eye size={16} /></button>
                   <button className="icon-btn" title="Rapport" onClick={() => openReport(building)}><BarChart3 size={16} /></button>
-                  {can('buildings.update') && <button className="icon-btn" title="Modifier" onClick={() => setEditing(building)}><Pencil size={16} /></button>}
+                  {can('buildings.update') && <button className="icon-btn" title="Modifier" onClick={() => { setError(''); setEditing(building); }}><Pencil size={16} /></button>}
                   {can('buildings.delete') && <button className="icon-btn danger" title="Supprimer" onClick={() => remove(building.id)}><Trash2 size={16} /></button>}
                 </td>
               </tr>
@@ -243,6 +231,7 @@ export function Buildings() {
 
       {editing && (
         <Modal title={editing.id ? 'Modifier immeuble' : 'Nouvel immeuble'} onClose={() => setEditing(null)}>
+          {error && <div className="error-message">{error}</div>}
           <BuildingForm editing={editing} onSubmit={save} />
         </Modal>
       )}
@@ -253,19 +242,16 @@ export function Buildings() {
 function BuildingForm({ editing, onSubmit }: { editing: Partial<Building>; onSubmit: (form: FormData) => void }) {
   return (
     <form className="form-grid building-form" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}>
-      <label>Nom<input name="name" placeholder="Résidence Lumumba" defaultValue={editing.name} required /></label>
+      <label>Nom<input name="name" placeholder="Résidence Lumumba" defaultValue={editing.name ?? ''} required /></label>
       <label>Type<select name="building_type" defaultValue={editing.building_type ?? 'Résidence'}>{DEFAULT_BUILDING_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
       <label>État<select name="state" defaultValue={editing.state ?? 'EXPLOITED'}>{BUILDING_STATES.map((state) => <option key={state.value} value={state.value}>{state.label}</option>)}</select></label>
-      <label>Ville<input name="city" placeholder="Kinshasa" defaultValue={editing.city} required /></label>
-      <label>Commune <span>optionnel</span><input name="commune" placeholder="Gombe" defaultValue={editing.commune} /></label>
-      <label>Adresse<input name="address" placeholder="Adresse complète" defaultValue={editing.address} required /></label>
-      <label>Nombre d'étages <span>optionnel</span><input type="number" min="0" name="floors_count" defaultValue={editing.floors_count} /></label>
-      <label>Nombre total d'unités <span>optionnel</span><input type="number" min="0" name="total_units" defaultValue={editing.total_units} /></label>
-      <label>Gestionnaire <span>optionnel</span><input name="manager_name" defaultValue={editing.manager_name} /></label>
-      <label>Téléphone <span>optionnel</span><input name="manager_phone" defaultValue={editing.manager_phone} /></label>
-      <label>Email <span>optionnel</span><input type="email" name="manager_email" defaultValue={editing.manager_email} /></label>
-      <label className="form-field-full">Observations <span>optionnel</span><textarea name="observations" placeholder="Notes internes" defaultValue={editing.observations ?? editing.description} /></label>
-      <button className="form-submit">Enregistrer</button>
+      <label>Ville<input name="city" placeholder="Kinshasa" defaultValue={editing.city ?? ''} required /></label>
+      <label>Commune <span>optionnel</span><input name="commune" placeholder="Gombe" defaultValue={editing.commune ?? ''} /></label>
+      <label>Adresse<input name="address" placeholder="Adresse complète" defaultValue={editing.address ?? ''} required /></label>
+      <label>Nombre d'étages <span>optionnel</span><input type="number" min="0" name="floors_count" defaultValue={editing.floors_count ?? ''} /></label>
+      <label>Nombre total d'unités <span>optionnel</span><input type="number" min="0" name="total_units" defaultValue={editing.total_units ?? ''} /></label>
+      <label className="form-field-full">Observations <span>optionnel</span><textarea name="observations" placeholder="Notes internes" defaultValue={editing.observations ?? editing.description ?? ''} /></label>
+      <button type="submit" className="form-submit">Enregistrer</button>
     </form>
   );
 }
@@ -323,4 +309,8 @@ function stateLabel(value?: string) {
 
 function stateClass(value?: string) {
   return String(value ?? 'EXPLOITED').toLowerCase();
+}
+
+function cleanPayload(payload: Record<string, string>) {
+  return Object.fromEntries(Object.entries(payload).map(([key, value]) => [key, value === '' ? undefined : value]));
 }
