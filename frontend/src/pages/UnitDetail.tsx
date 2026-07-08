@@ -2,7 +2,7 @@ import { ArrowLeft, FileSpreadsheet, FileText, Printer } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api, exportCsv, exportExcel, invoiceDisplayStatus, paymentMethodLabel, shortDate } from '../api';
+import { api, exportCsv, exportXlsxWorkbook, invoiceDisplayStatus, paymentMethodLabel, shortDate, statusLabel } from '../api';
 import { EmptyState, PageHeader, StatusBadge } from '../components';
 import { LeaseEndBadge } from './Units';
 
@@ -20,6 +20,8 @@ type UnitDetailData = {
   tenant_phone?: string;
   tenant_email?: string;
   active_lease_end_date?: string;
+  created_at?: string;
+  updated_at?: string;
   surface_area?: number;
   bedrooms_count?: number;
   bathrooms_count?: number;
@@ -36,13 +38,13 @@ type UnitDetailData = {
   description?: string;
   observations?: string;
   situation?: string;
-  tenants: Array<{ id: number; first_name: string; last_name: string; phone?: string; email?: string; move_in_date?: string; status: string }>;
-  leases: Array<{ id: number; tenant_name: string; phone?: string; email?: string; start_date: string; end_date?: string; monthly_rent: number; status: string }>;
-  invoices: Array<{ id: number; invoice_number: string; tenant_name: string; issue_date: string; due_date: string; total: number; paid_amount: number; remaining_amount: number; status: string }>;
-  payments: Array<{ id: number; invoice_number: string; tenant_name: string; payment_date: string; amount: number; payment_method: string; receipt_number?: string }>;
+  tenants: Array<{ id: number; first_name: string; last_name: string; post_name?: string; phone?: string; secondary_phone?: string; email?: string; profession?: string; nationality?: string; address?: string; id_number?: string; id_document_file_name?: string; move_in_date?: string; status: string }>;
+  leases: Array<{ id: number; tenant_name: string; phone?: string; email?: string; start_date: string; end_date?: string; monthly_rent: number; guarantee_amount?: number; status: string }>;
+  invoices: Array<{ id: number; invoice_number: string; tenant_name: string; month?: number; year?: number; issue_date: string; due_date: string; total: number; paid_amount: number; remaining_amount: number; status: string }>;
+  payments: Array<{ id: number; invoice_number: string; tenant_name: string; payment_date: string; amount: number; payment_method: string; receipt_number?: string; reference?: string; payer_name?: string }>;
   rent_history: Array<{ id: number; start_date: string; end_date?: string; monthly_rent: number; tenant_name: string }>;
-  maintenance: Array<{ id: number; request_number?: string; title?: string; status: string; priority?: string; reported_at: string; resolved_at?: string }>;
-  documents: Array<{ id: number; name: string; type?: string; created_at?: string }>;
+  maintenance: Array<{ id: number; request_number?: string; title?: string; description?: string; status: string; priority?: string; reported_at: string; resolved_at?: string; external_provider?: string; cost?: number; resolution_comments?: string }>;
+  documents: Array<{ id: number; name: string; type?: string; created_at?: string; author?: string }>;
   photos: Array<{ id: number; name: string; created_at?: string }>;
   timeline: Array<{ date: string; title: string }>;
 };
@@ -80,7 +82,7 @@ export function UnitDetail() {
           <div className="toolbar-actions">
             <button className="secondary" onClick={() => navigate('/rental-units')}><ArrowLeft size={15} />Retour</button>
             <button className="secondary" onClick={() => exportCsv(`appartement-${unit.number}.csv`, exportRows)}><FileText size={15} />CSV</button>
-            <button className="secondary" onClick={() => exportExcel(`appartement-${unit.number}.xls`, exportRows)}><FileSpreadsheet size={15} />Excel</button>
+            <button className="secondary" onClick={() => exportUnitWorkbook(unit)}><FileSpreadsheet size={15} />Excel</button>
             <button className="secondary" onClick={() => window.print()}><Printer size={15} />PDF</button>
           </div>
         }
@@ -259,4 +261,208 @@ function yesNo(value?: boolean) {
 function meterLabel(enabled?: boolean, number?: string) {
   if (!enabled) return 'Non';
   return number ? `Oui - ${number}` : 'Oui';
+}
+
+function exportUnitWorkbook(unit: UnitDetailData) {
+  const currentTenant = unit.tenants.find((tenant) => tenant.id === unit.tenant_id);
+  const profitability = unitProfitability(unit);
+  const filename = `Appartement_${safeFilePart(unit.number)}_${safeFilePart(unit.building_name)}.xlsx`;
+  exportXlsxWorkbook(filename, [
+    {
+      name: 'Informations appartement',
+      rows: [{
+        Immeuble: unit.building_name,
+        Appartement: unit.number,
+        'Reference interne': unit.id,
+        Type: unit.type,
+        Surface: unit.surface_area ?? '',
+        'Nombre chambres': unit.bedrooms_count ?? '',
+        'Nombre salles de bain': unit.bathrooms_count ?? '',
+        Etage: unit.floor,
+        Loyer: amount(unit.monthly_rent),
+        Devise: 'USD',
+        Statut: statusLabel(unit.status),
+        Meuble: yesNo(unit.is_furnished),
+        Balcon: yesNo(unit.has_balcony),
+        Parking: yesNo(unit.has_parking),
+        Climatisation: yesNo(unit.has_air_conditioning),
+        'Cuisine equipee': yesNo(unit.has_equipped_kitchen),
+        Internet: yesNo(unit.has_internet),
+        'Compteur eau': yesNo(unit.has_water_meter),
+        'Compteur electricite': yesNo(unit.has_electricity_meter),
+        'Numero compteur eau': unit.water_meter_number ?? '',
+        'Numero compteur electricite': unit.electricity_meter_number ?? '',
+        'Date creation': dateText(unit.created_at),
+        'Derniere modification': dateText(unit.updated_at),
+        Observations: unit.observations ?? '',
+      }],
+    },
+    {
+      name: 'Locataire actuel',
+      rows: currentTenant ? [{
+        Nom: currentTenant.last_name,
+        'Post-nom': currentTenant.post_name ?? '',
+        Prenom: currentTenant.first_name,
+        Telephone: currentTenant.phone ?? '',
+        'Telephone secondaire': currentTenant.secondary_phone ?? '',
+        Email: currentTenant.email ?? '',
+        Profession: currentTenant.profession ?? '',
+        Nationalite: currentTenant.nationality ?? '',
+        Adresse: currentTenant.address ?? '',
+        "Piece d'identite": currentTenant.id_document_file_name ?? currentTenant.id_number ?? '',
+        'Date entree': dateText(currentTenant.move_in_date),
+        'Date sortie prevue': dateText(unit.active_lease_end_date),
+      }] : [],
+    },
+    {
+      name: 'Historique des baux',
+      rows: unit.leases.map((lease) => ({
+        'Numero bail': `B-${String(lease.id).padStart(6, '0')}`,
+        Debut: dateText(lease.start_date),
+        Fin: dateText(lease.end_date),
+        Duree: leaseDuration(lease.start_date, lease.end_date),
+        Loyer: amount(lease.monthly_rent),
+        Garantie: amount(lease.guarantee_amount),
+        Statut: statusLabel(lease.status),
+      })),
+    },
+    {
+      name: 'Historique des loyers',
+      rows: unit.rent_history.map((row, index) => ({
+        Date: dateText(row.start_date),
+        'Ancien loyer': index < unit.rent_history.length - 1 ? amount(unit.rent_history[index + 1].monthly_rent) : '',
+        'Nouveau loyer': amount(row.monthly_rent),
+        Motif: index < unit.rent_history.length - 1 ? 'Revision du loyer' : 'Loyer initial',
+      })),
+    },
+    {
+      name: 'Factures',
+      rows: unit.invoices.map((invoice) => ({
+        Numero: invoice.invoice_number,
+        Periode: invoice.month && invoice.year ? `${String(invoice.month).padStart(2, '0')}/${invoice.year}` : '',
+        Emission: dateText(invoice.issue_date),
+        Echeance: dateText(invoice.due_date),
+        Montant: amount(invoice.total),
+        Devise: 'USD',
+        Paye: amount(invoice.paid_amount),
+        Reste: amount(invoice.remaining_amount),
+        Statut: statusLabel(invoiceDisplayStatus(invoice.status, invoice.due_date)),
+      })),
+    },
+    {
+      name: 'Paiements',
+      rows: unit.payments.map((payment) => ({
+        Date: dateText(payment.payment_date),
+        Reference: payment.reference ?? payment.receipt_number ?? payment.invoice_number,
+        'Mode paiement': paymentMethodLabel(payment.payment_method),
+        Montant: amount(payment.amount),
+        Devise: 'USD',
+        Utilisateur: payment.payer_name ?? '',
+      })),
+    },
+    {
+      name: 'Maintenance',
+      rows: unit.maintenance.map((item) => ({
+        Date: dateText(item.reported_at),
+        Intervention: item.title ?? item.request_number ?? `#${item.id}`,
+        Prestataire: item.external_provider ?? '',
+        Cout: amount(item.cost),
+        Statut: statusLabel(item.status),
+        Observations: item.resolution_comments ?? item.description ?? '',
+      })),
+    },
+    {
+      name: 'Documents',
+      rows: unit.documents.map((document) => ({
+        Nom: document.name,
+        Type: document.type ?? '',
+        Date: dateText(document.created_at),
+        Auteur: document.author ?? '',
+      })),
+    },
+    {
+      name: 'Timeline',
+      rows: unit.timeline.map((event) => ({
+        Date: dateText(event.date),
+        Evenement: event.title,
+        Description: event.title,
+        Utilisateur: '',
+      })),
+    },
+    {
+      name: 'Rentabilite',
+      rows: [{
+        'Total loyers factures': amount(profitability.totalInvoiced),
+        'Total encaisse': amount(profitability.totalCollected),
+        'Total impayes': amount(profitability.totalUnpaid),
+        'Total depenses maintenance': amount(profitability.totalMaintenanceExpenses),
+        'Revenu net': amount(profitability.netRevenue),
+        "Taux d'occupation": profitability.occupancyRate,
+        'Nombre de changements de locataires': profitability.tenantChanges,
+        'Nombre interventions maintenance': profitability.maintenanceCount,
+        'Nombre de factures en retard': profitability.overdueInvoices,
+        "Duree moyenne d'occupation": profitability.averageOccupancyDuration,
+        'Dernier loyer applique': profitability.lastRent,
+        'Date dernier paiement': profitability.lastPaymentDate,
+      }],
+    },
+  ]);
+}
+
+function unitProfitability(unit: UnitDetailData) {
+  const totalInvoiced = unit.invoices.reduce((sum, invoice) => sum + Number(invoice.total ?? 0), 0);
+  const totalCollected = unit.payments.reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
+  const totalUnpaid = unit.invoices.reduce((sum, invoice) => sum + Number(invoice.remaining_amount ?? 0), 0);
+  const totalMaintenanceExpenses = unit.maintenance.reduce((sum, item) => sum + Number(item.cost ?? 0), 0);
+  const sortedLeases = [...unit.leases].sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
+  const latestRent = [...unit.rent_history].sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime())[0]?.monthly_rent ?? unit.monthly_rent;
+  const lastPayment = [...unit.payments].sort((a, b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())[0];
+  const occupancyDurations = sortedLeases
+    .map((lease) => occupancyMonths(lease.start_date, lease.end_date))
+    .filter((duration) => duration > 0);
+  return {
+    totalInvoiced,
+    totalCollected,
+    totalUnpaid,
+    totalMaintenanceExpenses,
+    netRevenue: totalCollected - totalMaintenanceExpenses,
+    occupancyRate: occupancyRateLabel(sortedLeases),
+    tenantChanges: Math.max(0, new Set(sortedLeases.map((lease) => lease.tenant_name)).size - 1),
+    maintenanceCount: unit.maintenance.length,
+    overdueInvoices: unit.invoices.filter((invoice) => invoiceDisplayStatus(invoice.status, invoice.due_date) === 'OVERDUE').length,
+    averageOccupancyDuration: occupancyDurations.length ? `${Math.round(occupancyDurations.reduce((sum, value) => sum + value, 0) / occupancyDurations.length)} mois` : 'Non disponible',
+    lastRent: latestRent !== undefined && latestRent !== null ? `${amount(latestRent)} USD` : 'Non disponible',
+    lastPaymentDate: lastPayment ? dateText(lastPayment.payment_date) : 'Non disponible',
+  };
+}
+
+function occupancyRateLabel(leases: Array<{ start_date: string; end_date?: string }>) {
+  if (!leases.length) return '0%';
+  const starts = leases.map((lease) => new Date(lease.start_date).getTime()).filter(Number.isFinite);
+  if (!starts.length) return 'Non disponible';
+  const periodStart = new Date(Math.min(...starts));
+  const today = new Date();
+  const totalMonths = Math.max(1, occupancyMonths(periodStart.toISOString(), today.toISOString()));
+  const occupiedMonths = leases.reduce((sum, lease) => sum + occupancyMonths(lease.start_date, lease.end_date ?? today.toISOString()), 0);
+  return `${Math.min(100, Math.round((occupiedMonths / totalMonths) * 100))}%`;
+}
+
+function occupancyMonths(startDate?: string, endDate?: string) {
+  if (!startDate) return 0;
+  const start = new Date(startDate);
+  const end = endDate ? new Date(endDate) : new Date();
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+  return Math.max(1, (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth() + 1);
+}
+
+function leaseDuration(startDate?: string, endDate?: string) {
+  if (!startDate || !endDate) return endDate ? '-' : 'En cours';
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const months = Math.max(0, (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth());
+  return `${months} mois`;
+}
+
+function safeFilePart(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'Appartement';
 }

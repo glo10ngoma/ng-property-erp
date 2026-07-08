@@ -41,7 +41,9 @@ export class UnitsService {
     );
     const unit = requireRow(rows[0], 'Unit');
     const tenants = await this.db.query(
-      `SELECT id, first_name, last_name, phone, email, move_in_date, status
+      `SELECT id, first_name, last_name, post_name, phone, secondary_phone, email, profession,
+              nationality, address, id_number, id_document_file_name, id_document_file_url,
+              move_in_date, status, notes
        FROM tenants WHERE unit_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY move_in_date DESC`,
       [id, organizationId],
     );
@@ -66,18 +68,36 @@ export class UnitsService {
       [id, organizationId],
     );
     const leases = await this.db.query(
-      `SELECT l.*, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone, t.email
+      `SELECT l.*, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone, t.email,
+              COALESCE(g.amount, l.rental_guarantee_amount, 0)::FLOAT AS guarantee_amount,
+              COALESCE(g.paid_amount, l.rental_guarantee_paid, 0)::FLOAT AS guarantee_paid,
+              COALESCE(g.status, l.rental_guarantee_status) AS guarantee_status
        FROM leases l
        JOIN tenants t ON t.id = l.tenant_id
+       LEFT JOIN lease_guarantees g ON g.lease_id = l.id AND g.deleted_at IS NULL
        WHERE l.unit_id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL
        ORDER BY l.start_date DESC, l.id DESC`,
       [id, organizationId],
     );
     const maintenance = await this.db.query(
-      `SELECT id, request_number, title, status, priority, reported_at, resolved_at
-       FROM maintenance_requests
-       WHERE unit_id = $1 AND organization_id = $2 AND deleted_at IS NULL
-       ORDER BY reported_at DESC, id DESC`,
+      `SELECT mr.id, mr.request_number, mr.title, mr.description, mr.status, mr.priority, mr.reported_at,
+              mr.resolved_at, mr.external_provider, mr.resolution_comments,
+              COALESCE(SUM(me.amount) FILTER (WHERE me.deleted_at IS NULL AND me.status <> 'REJECTED'), 0)::FLOAT AS cost
+       FROM maintenance_requests mr
+       LEFT JOIN maintenance_expenses me ON me.maintenance_request_id = mr.id AND me.organization_id = mr.organization_id
+       WHERE mr.unit_id = $1 AND mr.organization_id = $2 AND mr.deleted_at IS NULL
+       GROUP BY mr.id
+       ORDER BY mr.reported_at DESC, mr.id DESC`,
+      [id, organizationId],
+    );
+    const documents = await this.db.query(
+      `SELECT ld.id, ld.file_name AS name, ld.document_type AS type, ld.uploaded_at AS created_at,
+              CONCAT(u.first_name, ' ', u.last_name) AS author
+       FROM lease_documents ld
+       JOIN leases l ON l.id = ld.lease_id
+       LEFT JOIN app_users u ON u.id = ld.uploaded_by
+       WHERE l.unit_id = $1 AND ld.organization_id = $2 AND ld.deleted_at IS NULL
+       ORDER BY ld.uploaded_at DESC, ld.id DESC`,
       [id, organizationId],
     );
     const hasDebt = invoices.rows.some((invoice) => Number(invoice.remaining_amount) > 0);
@@ -96,7 +116,7 @@ export class UnitsService {
         tenant_name: lease.tenant_name,
       })),
       maintenance: maintenance.rows,
-      documents: [],
+      documents: documents.rows,
       photos: [],
       timeline: this.unitTimeline(unit, leases.rows, payments.rows, maintenance.rows),
       situation: hasOverdue ? 'En retard' : hasDebt ? 'Dette' : 'À jour',

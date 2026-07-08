@@ -2,6 +2,8 @@ export { api, setAuthToken } from './core/api/axios';
 export type { Option } from './core/api/api.types';
 export { exportCsv } from './core/utils/exportCsv';
 export { exportExcel } from './core/utils/exportExcel';
+export { exportXlsxWorkbook } from './core/utils/exportXlsx';
+export type { XlsxSheet } from './core/utils/exportXlsx';
 export { formatCurrency as money } from './core/utils/formatCurrency';
 export { formatDate as shortDate } from './core/utils/formatDate';
 export { itemLabel, paymentMethodLabel, statusLabel } from './core/utils/statusLabels';
