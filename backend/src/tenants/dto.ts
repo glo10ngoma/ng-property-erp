@@ -3,15 +3,57 @@ import { IsDateString, IsEmail, IsIn, IsInt, IsOptional, IsString } from 'class-
 import { TENANT_STATUSES } from '../common/status';
 
 export class CreateTenantDto {
-  @IsString()
-  first_name: string;
+  @IsOptional()
+  @IsIn(['PHYSICAL', 'COMPANY'])
+  tenant_type?: string;
 
+  @IsOptional()
   @IsString()
-  last_name: string;
+  first_name?: string;
+
+  @IsOptional()
+  @IsString()
+  last_name?: string;
 
   @IsOptional()
   @IsString()
   post_name?: string;
+
+  @IsOptional()
+  @IsString()
+  company_name?: string;
+
+  @IsOptional()
+  @IsString()
+  rccm?: string;
+
+  @IsOptional()
+  @IsString()
+  tax_number?: string;
+
+  @IsOptional()
+  @IsString()
+  business_sector?: string;
+
+  @IsOptional()
+  @IsString()
+  legal_representative_name?: string;
+
+  @IsOptional()
+  @IsString()
+  legal_representative_role?: string;
+
+  @IsOptional()
+  @IsString()
+  legal_representative_phone?: string;
+
+  @IsOptional()
+  @IsEmail()
+  legal_representative_email?: string;
+
+  @IsOptional()
+  @IsString()
+  company_document_name?: string;
 
   @IsString()
   phone: string;

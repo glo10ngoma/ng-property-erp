@@ -44,7 +44,7 @@ export class TenantsService {
         GROUP BY i.tenant_id
       ) fin ON fin.tenant_id = t.id
       WHERE t.organization_id = $1 AND t.deleted_at IS NULL
-      ORDER BY t.last_name, t.first_name
+      ORDER BY COALESCE(t.company_name, t.last_name, ''), COALESCE(t.first_name, '')
     `, [organizationId]);
     return rows;
   }
@@ -108,15 +108,27 @@ export class TenantsService {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(
       `INSERT INTO tenants (
-         first_name, last_name, post_name, phone, secondary_phone, email, profession, address,
+         tenant_type, first_name, last_name, post_name, company_name, rccm, tax_number, business_sector,
+         legal_representative_name, legal_representative_role, legal_representative_phone, legal_representative_email,
+         company_document_name, phone, secondary_phone, email, profession, address,
          id_document_type, id_number, id_document_file_name, id_document_file_url, nationality, emergency_contact_name, emergency_contact_phone, notes,
          unit_id, move_in_date, status, organization_id
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30) RETURNING *`,
       [
+        dto.tenant_type ?? 'PHYSICAL',
         dto.first_name,
         dto.last_name,
         dto.post_name ?? null,
+        dto.company_name ?? null,
+        dto.rccm ?? null,
+        dto.tax_number ?? null,
+        dto.business_sector ?? null,
+        dto.legal_representative_name ?? null,
+        dto.legal_representative_role ?? null,
+        dto.legal_representative_phone ?? null,
+        dto.legal_representative_email || null,
+        dto.company_document_name ?? null,
         dto.phone,
         dto.secondary_phone ?? null,
         dto.email || null,
@@ -144,31 +156,51 @@ export class TenantsService {
     const previous = (await this.findOne(id)) as unknown as { unit_id?: number };
     const { rows } = await this.db.query(
       `UPDATE tenants
-       SET first_name = COALESCE($2, first_name),
-           last_name = COALESCE($3, last_name),
-           post_name = COALESCE($4, post_name),
-           phone = COALESCE($5, phone),
-           secondary_phone = COALESCE($6, secondary_phone),
-           email = COALESCE($7, email),
-           profession = COALESCE($8, profession),
-           address = COALESCE($9, address),
-           id_document_type = COALESCE($10, id_document_type),
-           id_number = COALESCE($11, id_number),
-           id_document_file_name = COALESCE($12, id_document_file_name),
-           id_document_file_url = COALESCE($13, id_document_file_url),
-           nationality = COALESCE($14, nationality),
-           emergency_contact_name = COALESCE($15, emergency_contact_name),
-           emergency_contact_phone = COALESCE($16, emergency_contact_phone),
-           notes = COALESCE($17, notes),
-           unit_id = COALESCE($18, unit_id),
-           move_in_date = COALESCE($19, move_in_date),
-           status = COALESCE($20, status)
-       WHERE id = $1 AND organization_id = $21 AND deleted_at IS NULL RETURNING *`,
+       SET tenant_type = COALESCE($2, tenant_type),
+           first_name = COALESCE($3, first_name),
+           last_name = COALESCE($4, last_name),
+           post_name = COALESCE($5, post_name),
+           company_name = COALESCE($6, company_name),
+           rccm = COALESCE($7, rccm),
+           tax_number = COALESCE($8, tax_number),
+           business_sector = COALESCE($9, business_sector),
+           legal_representative_name = COALESCE($10, legal_representative_name),
+           legal_representative_role = COALESCE($11, legal_representative_role),
+           legal_representative_phone = COALESCE($12, legal_representative_phone),
+           legal_representative_email = COALESCE($13, legal_representative_email),
+           company_document_name = COALESCE($14, company_document_name),
+           phone = COALESCE($15, phone),
+           secondary_phone = COALESCE($16, secondary_phone),
+           email = COALESCE($17, email),
+           profession = COALESCE($18, profession),
+           address = COALESCE($19, address),
+           id_document_type = COALESCE($20, id_document_type),
+           id_number = COALESCE($21, id_number),
+           id_document_file_name = COALESCE($22, id_document_file_name),
+           id_document_file_url = COALESCE($23, id_document_file_url),
+           nationality = COALESCE($24, nationality),
+           emergency_contact_name = COALESCE($25, emergency_contact_name),
+           emergency_contact_phone = COALESCE($26, emergency_contact_phone),
+           notes = COALESCE($27, notes),
+           unit_id = COALESCE($28, unit_id),
+           move_in_date = COALESCE($29, move_in_date),
+           status = COALESCE($30, status)
+       WHERE id = $1 AND organization_id = $31 AND deleted_at IS NULL RETURNING *`,
       [
         id,
+        dto.tenant_type,
         dto.first_name,
         dto.last_name,
         dto.post_name,
+        dto.company_name,
+        dto.rccm,
+        dto.tax_number,
+        dto.business_sector,
+        dto.legal_representative_name,
+        dto.legal_representative_role,
+        dto.legal_representative_phone,
+        dto.legal_representative_email,
+        dto.company_document_name,
         dto.phone,
         dto.secondary_phone,
         dto.email,

@@ -10,9 +10,19 @@ import { useApiList } from '../hooks';
 type Tenant = {
   id: number;
   client_reference?: string;
-  first_name: string;
-  last_name: string;
+  tenant_type?: string;
+  first_name?: string;
+  last_name?: string;
   post_name?: string;
+  company_name?: string;
+  rccm?: string;
+  tax_number?: string;
+  business_sector?: string;
+  legal_representative_name?: string;
+  legal_representative_role?: string;
+  legal_representative_phone?: string;
+  legal_representative_email?: string;
+  company_document_name?: string;
   phone: string;
   secondary_phone?: string;
   email?: string;
@@ -25,9 +35,7 @@ type Tenant = {
   emergency_contact_name?: string;
   emergency_contact_phone?: string;
   notes?: string;
-  unit_id?: number;
   unit_number?: string;
-  building_id?: number;
   building_name?: string;
   monthly_rent?: number;
   active_lease_id?: number;
@@ -38,20 +46,19 @@ type Tenant = {
   last_reminder_at?: string;
   reminder_count?: number;
   overdue_invoices?: number;
-  move_in_date?: string;
   created_at?: string;
   status: string;
 };
 
 const tenantStatuses = [
   { value: 'ACTIVE', label: 'Actif' },
-  { value: 'NOTICE', label: 'Préavis' },
+  { value: 'NOTICE', label: 'Preavis' },
   { value: 'LEFT', label: 'Parti' },
   { value: 'SUSPENDED', label: 'Suspendu' },
-  { value: 'ARCHIVED', label: 'Archivé' },
+  { value: 'ARCHIVED', label: 'Archive' },
 ];
 
-const idDocumentTypes = ['Carte d identité', 'Passeport', 'Permis de conduire', 'Carte d électeur', 'Autre'];
+const idDocumentTypes = ['Carte d identite', 'Passeport', 'Permis de conduire', 'Carte d electeur', 'Autre'];
 
 export function Tenants() {
   const { can } = useAuth();
@@ -60,22 +67,12 @@ export function Tenants() {
   const [editing, setEditing] = useState<Partial<Tenant> | null>(null);
   const [identityFileName, setIdentityFileName] = useState('');
   const [query, setQuery] = useState('');
-  const [filters, setFilters] = useState({
-    status: '',
-    building: '',
-    unit: '',
-    leaseType: '',
-    paymentStatus: '',
-    leaseExpiry: '',
-    profession: '',
-    nationality: '',
-    reminder: '',
-  });
+  const [filters, setFilters] = useState({ status: '', building: '', unit: '', leaseType: '', paymentStatus: '', leaseExpiry: '', profession: '', nationality: '', reminder: '' });
   const [success, setSuccess] = useState('');
 
   const buildings = uniqueValues(data.map((tenant) => tenant.building_name));
   const units = uniqueValues(data.map((tenant) => tenant.unit_number));
-  const professions = uniqueValues(data.map((tenant) => tenant.profession));
+  const professions = uniqueValues(data.map((tenant) => tenant.profession ?? tenant.business_sector));
   const nationalities = uniqueValues(data.map((tenant) => tenant.nationality));
 
   const filtered = data
@@ -86,11 +83,11 @@ export function Tenants() {
     .filter((tenant) => !filters.leaseType || leaseType(tenant) === filters.leaseType)
     .filter((tenant) => !filters.paymentStatus || paymentStatus(tenant) === filters.paymentStatus)
     .filter((tenant) => !filters.leaseExpiry || matchesLeaseExpiry(tenant, filters.leaseExpiry))
-    .filter((tenant) => !filters.profession || tenant.profession === filters.profession)
+    .filter((tenant) => !filters.profession || tenant.profession === filters.profession || tenant.business_sector === filters.profession)
     .filter((tenant) => !filters.nationality || tenant.nationality === filters.nationality)
     .filter((tenant) => !filters.reminder || matchesReminder(tenant, filters.reminder));
 
-  const sorted = [...filtered].sort((a, b) => `${a.last_name} ${a.first_name}`.localeCompare(`${b.last_name} ${b.first_name}`));
+  const sorted = [...filtered].sort((a, b) => tenantName(a).localeCompare(tenantName(b)));
   const kpis = useMemo(() => ({
     total: data.length,
     active: data.filter((tenant) => tenant.status === 'ACTIVE').length,
@@ -102,10 +99,21 @@ export function Tenants() {
   }), [data]);
 
   async function save(form: FormData) {
+    const tenantType = textValue(form.get('tenant_type')) || 'PHYSICAL';
     const payload = {
-      first_name: textValue(form.get('first_name')),
-      last_name: textValue(form.get('last_name')),
+      tenant_type: tenantType,
+      first_name: optionalText(form.get('first_name')),
+      last_name: optionalText(form.get('last_name')),
       post_name: optionalText(form.get('post_name')),
+      company_name: optionalText(form.get('company_name')),
+      rccm: optionalText(form.get('rccm')),
+      tax_number: optionalText(form.get('tax_number')),
+      business_sector: optionalText(form.get('business_sector')),
+      legal_representative_name: optionalText(form.get('legal_representative_name')),
+      legal_representative_role: optionalText(form.get('legal_representative_role')),
+      legal_representative_phone: optionalText(form.get('legal_representative_phone')),
+      legal_representative_email: optionalText(form.get('legal_representative_email')),
+      company_document_name: tenantType === 'COMPANY' ? identityFileName || null : null,
       phone: textValue(form.get('phone')),
       secondary_phone: optionalText(form.get('secondary_phone')),
       email: optionalText(form.get('email')),
@@ -113,7 +121,7 @@ export function Tenants() {
       address: optionalText(form.get('address')),
       id_document_type: optionalText(form.get('id_document_type')),
       id_number: optionalText(form.get('id_number')),
-      id_document_file_name: identityFileName || null,
+      id_document_file_name: tenantType === 'PHYSICAL' ? identityFileName || null : null,
       id_document_file_url: null,
       nationality: optionalText(form.get('nationality')),
       emergency_contact_name: optionalText(form.get('emergency_contact_name')),
@@ -123,7 +131,7 @@ export function Tenants() {
     };
     if (editing?.id) await api.put(`/tenants/${editing.id}`, payload);
     else await api.post('/tenants', payload);
-    setSuccess(editing?.id ? 'Locataire modifié avec succès.' : 'Locataire créé avec succès.');
+    setSuccess(editing?.id ? 'Locataire modifie avec succes.' : 'Locataire cree avec succes.');
     setEditing(null);
     reload();
   }
@@ -143,8 +151,8 @@ export function Tenants() {
   }
 
   function openForm(tenant?: Tenant) {
-    setIdentityFileName(tenant?.id_document_file_name ?? '');
-    setEditing(tenant ?? {});
+    setIdentityFileName(tenant?.tenant_type === 'COMPANY' ? tenant.company_document_name ?? '' : tenant?.id_document_file_name ?? '');
+    setEditing(tenant ?? { tenant_type: 'PHYSICAL' });
   }
 
   return (
@@ -155,17 +163,15 @@ export function Tenants() {
       <div className="mini-stats">
         <div className="mini-stat"><span>Total locataires</span><strong>{kpis.total}</strong></div>
         <div className="mini-stat"><span>Actifs</span><strong>{kpis.active}</strong></div>
-        <div className="mini-stat"><span>Préavis</span><strong>{kpis.notice}</strong></div>
+        <div className="mini-stat"><span>Preavis</span><strong>{kpis.notice}</strong></div>
         <div className="mini-stat"><span>Partis</span><strong>{kpis.left}</strong></div>
         <div className="mini-stat"><span>Sans bail</span><strong>{kpis.withoutLease}</strong></div>
-        <div className="mini-stat"><span>Avec impayés</span><strong>{kpis.withDebt}</strong></div>
+        <div className="mini-stat"><span>Avec impayes</span><strong>{kpis.withDebt}</strong></div>
         <div className="mini-stat"><span>Total loyers</span><strong>{amount(kpis.totalRents)} USD</strong></div>
       </div>
 
       <div className="table-toolbar">
-        <div className="toolbar-main">
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" />
-        </div>
+        <div className="toolbar-main"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" /></div>
         <div className="toolbar-actions">
           <button className="secondary" onClick={() => exportCsv('locataires.csv', exportTenantRows(sorted))}><FileText size={15} />CSV</button>
           <button className="secondary" onClick={() => exportTenantListWorkbook(sorted)}><FileSpreadsheet size={15} />Excel</button>
@@ -177,21 +183,22 @@ export function Tenants() {
         <select value={filters.building} onChange={(event) => setFilters({ ...filters, building: event.target.value })}><option value="">Immeuble</option>{buildings.map((building) => <option key={building} value={building}>{building}</option>)}</select>
         <select value={filters.unit} onChange={(event) => setFilters({ ...filters, unit: event.target.value })}><option value="">Appartement</option>{units.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select>
         <select value={filters.leaseType} onChange={(event) => setFilters({ ...filters, leaseType: event.target.value })}><option value="">Type bail</option><option value="ACTIVE">Actif</option><option value="NONE">Sans bail</option></select>
-        <select value={filters.paymentStatus} onChange={(event) => setFilters({ ...filters, paymentStatus: event.target.value })}><option value="">Statut paiement</option><option value="PAID">Payé</option><option value="UNPAID">Impayé</option><option value="OVERDUE">En retard</option><option value="NONE">Non facturé</option></select>
-        <select value={filters.leaseExpiry} onChange={(event) => setFilters({ ...filters, leaseExpiry: event.target.value })}><option value="">Bail échéance</option><option value="30">Moins de 30 jours</option><option value="60">Moins de 60 jours</option><option value="90">Moins de 90 jours</option></select>
+        <select value={filters.paymentStatus} onChange={(event) => setFilters({ ...filters, paymentStatus: event.target.value })}><option value="">Statut paiement</option><option value="PAID">Paye</option><option value="UNPAID">Impaye</option><option value="OVERDUE">En retard</option><option value="NONE">Non facture</option></select>
+        <select value={filters.leaseExpiry} onChange={(event) => setFilters({ ...filters, leaseExpiry: event.target.value })}><option value="">Bail echeance</option><option value="30">Moins de 30 jours</option><option value="60">Moins de 60 jours</option><option value="90">Moins de 90 jours</option></select>
         <select value={filters.profession} onChange={(event) => setFilters({ ...filters, profession: event.target.value })}><option value="">Profession</option>{professions.map((profession) => <option key={profession} value={profession}>{profession}</option>)}</select>
-        <select value={filters.nationality} onChange={(event) => setFilters({ ...filters, nationality: event.target.value })}><option value="">Nationalité</option>{nationalities.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-        <select value={filters.reminder} onChange={(event) => setFilters({ ...filters, reminder: event.target.value })}><option value="">Dernière relance</option><option value="NEVER">Jamais</option><option value="YES">Déjà relancé</option><option value="30">Moins de 30 jours</option></select>
-        <button type="button" className="secondary" onClick={() => setFilters({ status: '', building: '', unit: '', leaseType: '', paymentStatus: '', leaseExpiry: '', profession: '', nationality: '', reminder: '' })}>Réinitialiser</button>
+        <select value={filters.nationality} onChange={(event) => setFilters({ ...filters, nationality: event.target.value })}><option value="">Nationalite</option>{nationalities.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+        <select value={filters.reminder} onChange={(event) => setFilters({ ...filters, reminder: event.target.value })}><option value="">Derniere relance</option><option value="NEVER">Jamais</option><option value="YES">Deja relance</option><option value="30">Moins de 30 jours</option></select>
+        <button type="button" className="secondary" onClick={() => setFilters({ status: '', building: '', unit: '', leaseType: '', paymentStatus: '', leaseExpiry: '', profession: '', nationality: '', reminder: '' })}>Reinitialiser</button>
       </div>
 
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Référence client</th><th>Nom</th><th>Téléphone</th><th>Appartement</th><th>Immeuble</th><th className="right">Loyer</th><th>Devise</th><th>Fin du bail</th><th>Dernier paiement</th><th className="right">Solde restant</th><th>Devise</th><th>Dernière relance</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Reference client</th><th>Type</th><th>Nom</th><th>Telephone</th><th>Appartement</th><th>Immeuble</th><th className="right">Loyer</th><th>Devise</th><th>Fin du bail</th><th>Dernier paiement</th><th className="right">Solde restant</th><th>Devise</th><th>Derniere relance</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
             {sorted.map((tenant) => (
               <tr key={tenant.id} className="clickable-row" onClick={() => navigate(`/tenants/${tenant.id}/situation`)}>
                 <td>{tenant.client_reference ?? clientReference(tenant.id)}</td>
+                <td>{tenantTypeLabel(tenant.tenant_type)}</td>
                 <td>{tenantName(tenant)}</td>
                 <td>{tenant.phone}</td>
                 <td>{tenant.unit_number ?? '-'}</td>
@@ -215,9 +222,9 @@ export function Tenants() {
             ))}
           </tbody>
         </table>
-        {!sorted.length && <EmptyState title="Aucun locataire trouvé." />}
+        {!sorted.length && <EmptyState title="Aucun locataire trouve." />}
       </div>
-      <div className="pagination-bar"><span className="table-meta">{sorted.length} locataires affichés</span></div>
+      <div className="pagination-bar"><span className="table-meta">{sorted.length} locataires affiches</span></div>
 
       {editing && (
         <Modal title={editing.id ? 'Modifier le locataire' : 'Nouveau locataire'} onClose={() => setEditing(null)}>
@@ -228,40 +235,49 @@ export function Tenants() {
   );
 }
 
-function TenantForm({ editing, identityFileName, onIdentityFile, onSubmit }: {
-  editing: Partial<Tenant>;
-  identityFileName: string;
-  onIdentityFile: (value: string) => void;
-  onSubmit: (form: FormData) => void;
-}) {
+function TenantForm({ editing, identityFileName, onIdentityFile, onSubmit }: { editing: Partial<Tenant>; identityFileName: string; onIdentityFile: (value: string) => void; onSubmit: (form: FormData) => void }) {
+  const [tenantType, setTenantType] = useState(editing.tenant_type ?? 'PHYSICAL');
+  const isCompany = tenantType === 'COMPANY';
   return (
     <form className="tenant-form" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}>
-      <FormSection title="Identité">
-        <label><span>Prénom <em>*</em></span><input name="first_name" defaultValue={editing.first_name ?? ''} required /></label>
-        <label><span>Nom <em>*</em></span><input name="last_name" defaultValue={editing.last_name ?? ''} required /></label>
-        <label><span>Post-nom <small>(optionnel)</small></span><input name="post_name" defaultValue={editing.post_name ?? ''} /></label>
+      <FormSection title="Identite">
+        <label><span>Type de locataire <em>*</em></span><select name="tenant_type" value={tenantType} onChange={(event) => setTenantType(event.target.value)}><option value="PHYSICAL">Personne physique</option><option value="COMPANY">Personne morale / Societe</option></select></label>
+        {!isCompany && <label><span>Prenom <em>*</em></span><input name="first_name" defaultValue={editing.first_name ?? ''} required /></label>}
+        {!isCompany && <label><span>Nom <em>*</em></span><input name="last_name" defaultValue={editing.last_name ?? ''} required /></label>}
+        {!isCompany && <label><span>Post-nom <small>(optionnel)</small></span><input name="post_name" defaultValue={editing.post_name ?? ''} /></label>}
+        {isCompany && <label><span>Raison sociale <em>*</em></span><input name="company_name" defaultValue={editing.company_name ?? ''} required /></label>}
+        {isCompany && <label><span>RCCM <small>(optionnel)</small></span><input name="rccm" defaultValue={editing.rccm ?? ''} /></label>}
+        {isCompany && <label><span>ID Nat / Numero fiscal <small>(optionnel)</small></span><input name="tax_number" defaultValue={editing.tax_number ?? ''} /></label>}
         <label><span>Statut <em>*</em></span><select name="status" defaultValue={editing.status ?? 'ACTIVE'} required>{tenantStatuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label>
       </FormSection>
-      <FormSection title="Contact">
-        <label><span>Téléphone <em>*</em></span><input name="phone" defaultValue={editing.phone ?? ''} required /></label>
-        <label><span>Téléphone secondaire <small>(optionnel)</small></span><input name="secondary_phone" defaultValue={editing.secondary_phone ?? ''} /></label>
-        <label><span>Email <small>(optionnel)</small></span><input name="email" placeholder="exemple@email.com" type="email" defaultValue={editing.email ?? ''} /></label>
+      <FormSection title={isCompany ? 'Societe' : 'Contact'}>
+        {isCompany && <label><span>Secteur d'activite <small>(optionnel)</small></span><input name="business_sector" defaultValue={editing.business_sector ?? ''} /></label>}
+        <label><span>{isCompany ? 'Telephone societe' : 'Telephone'} <em>*</em></span><input name="phone" defaultValue={editing.phone ?? ''} required /></label>
+        {!isCompany && <label><span>Telephone secondaire <small>(optionnel)</small></span><input name="secondary_phone" defaultValue={editing.secondary_phone ?? ''} /></label>}
+        <label><span>{isCompany ? 'Email societe' : 'Email'} <small>(optionnel)</small></span><input name="email" placeholder="exemple@email.com" type="email" defaultValue={editing.email ?? ''} /></label>
+        {isCompany && <label><span>Adresse societe <small>(optionnel)</small></span><input name="address" defaultValue={editing.address ?? ''} /></label>}
       </FormSection>
-      <FormSection title="Profil">
+      {!isCompany && <FormSection title="Profil">
         <label><span>Profession <small>(optionnel)</small></span><input name="profession" defaultValue={editing.profession ?? ''} /></label>
-        <label><span>Nationalité <small>(optionnel)</small></span><input name="nationality" placeholder="Congolaise" defaultValue={editing.nationality ?? ''} /></label>
+        <label><span>Nationalite <small>(optionnel)</small></span><input name="nationality" placeholder="Congolaise" defaultValue={editing.nationality ?? ''} /></label>
         <label><span>Adresse <small>(optionnel)</small></span><input name="address" defaultValue={editing.address ?? ''} /></label>
+      </FormSection>}
+      {isCompany && <FormSection title="Representant">
+        <label><span>Representant legal <small>(optionnel)</small></span><input name="legal_representative_name" defaultValue={editing.legal_representative_name ?? ''} /></label>
+        <label><span>Fonction du representant <small>(optionnel)</small></span><input name="legal_representative_role" defaultValue={editing.legal_representative_role ?? ''} /></label>
+        <label><span>Telephone representant <small>(optionnel)</small></span><input name="legal_representative_phone" defaultValue={editing.legal_representative_phone ?? ''} /></label>
+        <label><span>Email representant <small>(optionnel)</small></span><input name="legal_representative_email" type="email" defaultValue={editing.legal_representative_email ?? ''} /></label>
+      </FormSection>}
+      <FormSection title={isCompany ? 'Document societe' : "Piece d'identite"}>
+        {!isCompany && <label><span>Type de piece <small>(optionnel)</small></span><select name="id_document_type" defaultValue={editing.id_document_type ?? ''}><option value="">Choisir</option>{idDocumentTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>}
+        {!isCompany && <label><span>Numero de piece <small>(optionnel)</small></span><input name="id_number" defaultValue={editing.id_number ?? ''} /></label>}
+        <label><span>{isCompany ? 'Document societe / RCCM scanne' : 'Piece jointe identite'} <small>(optionnel)</small></span><input type="file" accept="application/pdf,image/*" onChange={(event) => onIdentityFile(event.target.files?.[0]?.name ?? '')} /></label>
+        {identityFileName && <div className="locked-file-name"><span>Fichier selectionne</span><strong>{identityFileName}</strong></div>}
       </FormSection>
-      <FormSection title="Pièce d'identité">
-        <label><span>Type de pièce <small>(optionnel)</small></span><select name="id_document_type" defaultValue={editing.id_document_type ?? ''}><option value="">Choisir</option>{idDocumentTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-        <label><span>Numéro de pièce <small>(optionnel)</small></span><input name="id_number" defaultValue={editing.id_number ?? ''} /></label>
-        <label><span>Pièce jointe identité <small>(optionnel)</small></span><input type="file" accept="application/pdf,image/*" onChange={(event) => onIdentityFile(event.target.files?.[0]?.name ?? '')} /></label>
-        {identityFileName && <div className="locked-file-name"><span>Fichier sélectionné</span><strong>{identityFileName}</strong></div>}
-      </FormSection>
-      <FormSection title="Contact d'urgence">
+      {!isCompany && <FormSection title="Contact d'urgence">
         <label><span>Contact d'urgence <small>(optionnel)</small></span><input name="emergency_contact_name" defaultValue={editing.emergency_contact_name ?? ''} /></label>
-        <label><span>Téléphone contact d'urgence <small>(optionnel)</small></span><input name="emergency_contact_phone" defaultValue={editing.emergency_contact_phone ?? ''} /></label>
-      </FormSection>
+        <label><span>Telephone contact d'urgence <small>(optionnel)</small></span><input name="emergency_contact_phone" defaultValue={editing.emergency_contact_phone ?? ''} /></label>
+      </FormSection>}
       <FormSection title="Observations">
         <label className="form-field-full"><span>Observations <small>(optionnel)</small></span><textarea name="notes" defaultValue={editing.notes ?? ''} /></label>
       </FormSection>
@@ -271,18 +287,18 @@ function TenantForm({ editing, identityFileName, onIdentityFile, onSubmit }: {
 }
 
 function FormSection({ title, children }: { title: string; children: ReactNode }) {
-  const className = title === 'Identité' ? 'tenant-form-section cols-4' : title === 'Observations' ? 'tenant-form-section cols-1' : 'tenant-form-section cols-3';
+  const className = title === 'Identite' ? 'tenant-form-section cols-4' : title === 'Observations' ? 'tenant-form-section cols-1' : 'tenant-form-section cols-3';
   return <fieldset className={className}><legend>{title}</legend>{children}</fieldset>;
 }
 
 function exportTenantRows(rows: Tenant[]) {
   return rows.map((tenant) => ({
     reference_client: tenant.client_reference ?? clientReference(tenant.id),
+    type: tenantTypeLabel(tenant.tenant_type),
     nom: tenantName(tenant),
     telephone: tenant.phone,
-    telephone_secondaire: tenant.secondary_phone ?? '',
     email: tenant.email ?? '',
-    profession: tenant.profession ?? '',
+    profession: tenant.profession ?? tenant.business_sector ?? '',
     nationalite: tenant.nationality ?? '',
     immeuble: tenant.building_name ?? '',
     appartement: tenant.unit_number ?? '',
@@ -301,13 +317,13 @@ function exportTenantListWorkbook(rows: Tenant[]) {
   const totalUnpaid = rows.reduce((sum, tenant) => sum + Number(tenant.remaining_amount ?? 0), 0);
   exportXlsxWorkbook('Locataires.xlsx', [
     { name: 'Informations locataire', rows: exportTenantRows(rows) },
-    { name: 'Baux', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), bail: tenant.active_lease_id ? `B-${tenant.active_lease_id}` : 'Sans bail', fin_bail: dateText(tenant.active_lease_end_date), statut: tenant.active_lease_status ?? '' })) },
+    { name: 'Baux', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), type: tenantTypeLabel(tenant.tenant_type), nom: tenantName(tenant), bail: tenant.active_lease_id ? `B-${tenant.active_lease_id}` : 'Sans bail', fin_bail: dateText(tenant.active_lease_end_date), statut: tenant.active_lease_status ?? '' })) },
     { name: 'Factures', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), solde_restant: tenant.remaining_amount ?? 0, factures_retard: tenant.overdue_invoices ?? 0 })) },
     { name: 'Paiements', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), dernier_paiement: dateText(tenant.last_payment_date) })) },
     { name: 'Garanties', rows: [] },
     { name: 'Relances', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), derniere_relance: tenant.last_reminder_at ? dateText(tenant.last_reminder_at) : 'Jamais', nombre_relances: tenant.reminder_count ?? 0 })) },
-    { name: 'Documents', rows: rows.filter((tenant) => tenant.id_document_file_name).map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), document: tenant.id_document_file_name })) },
-    { name: 'Timeline', rows: rows.map((tenant) => ({ date: dateText(tenant.created_at), evenement: 'Locataire créé', description: tenantName(tenant), utilisateur: '' })) },
+    { name: 'Documents', rows: rows.filter((tenant) => tenant.id_document_file_name || tenant.company_document_name).map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), document: tenant.id_document_file_name ?? tenant.company_document_name })) },
+    { name: 'Timeline', rows: rows.map((tenant) => ({ date: dateText(tenant.created_at), evenement: 'Locataire cree', description: tenantName(tenant), utilisateur: '' })) },
     { name: 'Rentabilite', rows: [{ total_loyers_factures: totalInvoiced, total_encaisse: 'Non disponible', total_impayes: totalUnpaid, nombre_baux: rows.filter((tenant) => tenant.active_lease_id).length, nombre_relances: rows.reduce((sum, tenant) => sum + Number(tenant.reminder_count ?? 0), 0), date_dernier_paiement: latestDate(rows.map((tenant) => tenant.last_payment_date)), solde_restant: totalUnpaid }] },
   ]);
 }
@@ -317,7 +333,12 @@ function uniqueValues(values: Array<string | undefined>) {
 }
 
 function tenantName(tenant: Tenant) {
-  return `${tenant.first_name} ${tenant.last_name}${tenant.post_name ? ` ${tenant.post_name}` : ''}`;
+  if (tenant.tenant_type === 'COMPANY') return tenant.company_name || 'Societe sans nom';
+  return `${tenant.first_name ?? ''} ${tenant.last_name ?? ''}${tenant.post_name ? ` ${tenant.post_name}` : ''}`.trim() || 'Locataire sans nom';
+}
+
+function tenantTypeLabel(value?: string) {
+  return value === 'COMPANY' ? 'Societe' : 'Physique';
 }
 
 function clientReference(id: number) {

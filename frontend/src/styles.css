@@ -308,7 +308,7 @@ tfoot td { font-weight: 800; font-size: 18px; }
 @media (max-width: 640px) {
   .lease-section-grid, .quick-form { grid-template-columns: 1fr; }
   .buildings-filter-bar, .building-form, .unit-form { grid-template-columns: 1fr; }
-  .tenant-form-section { grid-template-columns: 1fr; }
+  .tenant-form-section, .tenant-form-section.cols-3, .tenant-form-section.cols-4, .tenant-form-section.cols-1 { grid-template-columns: 1fr; }
   .filter-actions { justify-content: flex-start; flex-wrap: wrap; }
   .export-group { flex-wrap: wrap; }
   .quick-cards, .progress-summary { grid-template-columns: 1fr; }

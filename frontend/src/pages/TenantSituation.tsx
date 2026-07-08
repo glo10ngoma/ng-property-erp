@@ -102,10 +102,23 @@ export function TenantSituation() {
 
       {report && (
         <div className="summary-band">
-          <SummaryCard label="Locataire" value={text(`${text(report.tenant.first_name, '')} ${text(report.tenant.last_name, '')}`.trim())} />
-          <SummaryCard label="Telephone" value={text(report.tenant.phone)} />
-          <SummaryCard label="Email" value={text(report.tenant.email)} />
-          <SummaryCard label="Statut" value={text(report.tenant.status)} />
+          {report.tenant.tenant_type === 'COMPANY' ? (
+            <>
+              <SummaryCard label="Société" value={text(report.tenant.company_name)} />
+              <SummaryCard label="RCCM" value={text(report.tenant.rccm)} />
+              <SummaryCard label="Représentant" value={text(report.tenant.legal_representative_name)} />
+              <SummaryCard label="Téléphone" value={text(report.tenant.phone)} />
+              <SummaryCard label="Email" value={text(report.tenant.email)} />
+              <SummaryCard label="Statut" value={text(report.tenant.status)} />
+            </>
+          ) : (
+            <>
+              <SummaryCard label="Locataire" value={text(`${text(report.tenant.first_name, '')} ${text(report.tenant.last_name, '')} ${text(report.tenant.post_name, '')}`.trim())} />
+              <SummaryCard label="Téléphone" value={text(report.tenant.phone)} />
+              <SummaryCard label="Email" value={text(report.tenant.email)} />
+              <SummaryCard label="Statut" value={text(report.tenant.status)} />
+            </>
+          )}
           <SummaryCard label="Periode" value={`${shortDate(report.period.start)} - ${shortDate(report.period.end)}`} wide />
         </div>
       )}
@@ -165,6 +178,8 @@ export function TenantSituation() {
           <InvoiceTable title="Factures en retard" rows={report.overdue} navigate={navigate} />
           <PaymentTable rows={report.payments} />
           <DocumentTable rows={report.documents} />
+          <TimelineTable report={report} />
+          <ProfitabilityTable report={report} />
         </>
       )}
     </section>
@@ -197,7 +212,7 @@ function LeaseTable({ rows }: { rows: ReportRow[] }) {
             ))}
           </tbody>
         </table>
-        {!rows.length && <EmptyState />}
+        {!rows.length && <EmptyState title="Aucun bail trouve." />}
       </div>
     </div>
   );
@@ -212,7 +227,7 @@ function GuaranteeTable({ rows }: { rows: ReportRow[] }) {
           <thead><tr><th>Bail</th><th>Immeuble</th><th>Unite</th><th className="right">Montant</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th>Statut</th></tr></thead>
           <tbody>{rows.map((row, index) => <tr key={index}><td>#{text(row.lease_id)}</td><td>{text(row.building_name)}</td><td>{text(row.unit_number)}</td><AmountCell value={row.amount} /><AmountCell value={row.paid_amount} /><td><StatusBadge value={text(row.status)} /></td></tr>)}</tbody>
         </table>
-        {!rows.length && <EmptyState />}
+        {!rows.length && <EmptyState title="Aucune garantie enregistrée." />}
       </div>
     </div>
   );
@@ -246,7 +261,7 @@ function InvoiceTable({ title, rows, navigate }: { title: string; rows: ReportRo
             ))}
           </tbody>
         </table>
-        {!rows.length && <EmptyState />}
+        {!rows.length && <EmptyState title={emptyInvoiceMessage(title)} />}
       </div>
     </div>
   );
@@ -261,7 +276,7 @@ function PaymentTable({ rows }: { rows: ReportRow[] }) {
           <thead><tr><th>Date</th><th>Facture</th><th>Immeuble</th><th>Unite</th><th className="right">Montant</th><th>Devise</th><th>Mode paiement</th><th>Reference</th></tr></thead>
           <tbody>{rows.map((row, index) => <tr key={index}><td>{date(row.payment_date)}</td><td>{text(row.invoice_number)}</td><td>{text(row.building_name)}</td><td>{text(row.unit_number)}</td><AmountCell value={row.amount} /><td>{paymentMethodLabel(text(row.payment_method))}</td><td>{text(row.reference)}</td></tr>)}</tbody>
         </table>
-        {!rows.length && <EmptyState />}
+        {!rows.length && <EmptyState title="Aucun paiement trouvé." />}
       </div>
     </div>
   );
@@ -276,10 +291,66 @@ function DocumentTable({ rows }: { rows: ReportRow[] }) {
           <thead><tr><th>Document</th><th>Type</th><th>Immeuble</th><th>Unite</th><th>Bail</th><th>Date</th></tr></thead>
           <tbody>{rows.map((row, index) => <tr key={index}><td>{text(row.file_name ?? row.name)}</td><td>{text(row.document_type)}</td><td>{text(row.building_name)}</td><td>{text(row.unit_number)}</td><td>#{text(row.lease_id)}</td><td>{date(row.uploaded_at)}</td></tr>)}</tbody>
         </table>
-        {!rows.length && <EmptyState />}
+        {!rows.length && <EmptyState title="Aucun document trouvé." />}
       </div>
     </div>
   );
+}
+
+function TimelineTable({ report }: { report: TenantReportData }) {
+  const rows = tenantTimeline(report);
+  return (
+    <div className="detail-section report-section">
+      <h4>Timeline</h4>
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Evènement</th><th>Description</th><th>Utilisateur</th></tr></thead>
+          <tbody>{rows.map((row, index) => <tr key={index}><td>{row.Date}</td><td>{row.Evenement}</td><td>{row.Description}</td><td>{row.Utilisateur}</td></tr>)}</tbody>
+        </table>
+        {!rows.length && <EmptyState title="Aucun événement trouvé." />}
+      </div>
+    </div>
+  );
+}
+
+function ProfitabilityTable({ report }: { report: TenantReportData }) {
+  const reminders = report.invoices.reduce((sum, invoice) => sum + Number(invoice.reminder_count ?? 0), 0);
+  return (
+    <div className="detail-section report-section">
+      <h4>Rentabilité</h4>
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Total loyers facturés</th><th>Total encaissé</th><th>Total impayés</th><th>Nombre de baux</th><th>Nombre de relances</th><th>Date dernier paiement</th><th>Solde restant</th></tr></thead>
+          <tbody><tr><td>{amount(report.total_invoiced)}</td><td>{amount(report.total_paid)}</td><td>{amount(report.remaining)}</td><td>{report.leases.length}</td><td>{reminders}</td><td>{latestDate(report.payments.map((payment) => String(payment.payment_date ?? '')))}</td><td>{amount(report.remaining)}</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function tenantTimeline(report: TenantReportData) {
+  return [
+    ...report.leases.map((lease) => ({ Date: date(lease.start_date), Evenement: 'Bail cree', Description: `Bail #${text(lease.id)}`, Utilisateur: '' })),
+    ...report.invoices.map((invoice) => ({ Date: date(invoice.issue_date), Evenement: 'Facture creee', Description: text(invoice.invoice_number), Utilisateur: '' })),
+    ...report.payments.map((payment) => ({ Date: date(payment.payment_date), Evenement: 'Paiement recu', Description: text(payment.reference ?? payment.invoice_number), Utilisateur: '' })),
+    ...report.invoices.filter((invoice) => invoice.last_reminder_at).map((invoice) => ({ Date: date(invoice.last_reminder_at), Evenement: 'Relance', Description: text(invoice.invoice_number), Utilisateur: '' })),
+  ].sort((a, b) => new Date(String(b.Date)).getTime() - new Date(String(a.Date)).getTime());
+}
+
+function emptyInvoiceMessage(title: string) {
+  if (title.includes('payees')) return 'Aucune facture payee sur cette periode.';
+  if (title.includes('partiellement')) return 'Aucune facture partiellement payee sur cette periode.';
+  if (title.includes('non payees')) return 'Aucune facture non payee sur cette periode.';
+  if (title.includes('retard')) return 'Aucune facture en retard sur cette periode.';
+  return 'Aucune facture sur cette periode.';
+}
+
+function physicalInfoRow(tenant: ReportRow) {
+  return { Type: 'Physique', Nom: text(tenant.last_name), 'Post-nom': text(tenant.post_name), Prenom: text(tenant.first_name), Telephone: text(tenant.phone), 'Telephone secondaire': text(tenant.secondary_phone), Email: text(tenant.email), Profession: text(tenant.profession), Nationalite: text(tenant.nationality), Adresse: text(tenant.address), Statut: text(tenant.status) };
+}
+
+function companyInfoRow(tenant: ReportRow) {
+  return { Type: 'Societe', Societe: text(tenant.company_name), RCCM: text(tenant.rccm), 'ID Nat / Numero fiscal': text(tenant.tax_number), 'Secteur activite': text(tenant.business_sector), Telephone: text(tenant.phone), Email: text(tenant.email), Adresse: text(tenant.address), Representant: text(tenant.legal_representative_name), Fonction: text(tenant.legal_representative_role), 'Telephone representant': text(tenant.legal_representative_phone), 'Email representant': text(tenant.legal_representative_email), Document: text(tenant.company_document_name), Statut: text(tenant.status) };
 }
 
 function AmountCell({ value }: { value: unknown }) {
@@ -318,7 +389,8 @@ function text(value: unknown, fallback = '-') {
 }
 
 function exportTenantSituationWorkbook(report: TenantReportData) {
-  const tenantName = `${text(report.tenant.first_name, '')} ${text(report.tenant.last_name, '')}`.trim();
+  const isCompany = report.tenant.tenant_type === 'COMPANY';
+  const tenantName = isCompany ? text(report.tenant.company_name, 'societe') : `${text(report.tenant.first_name, '')} ${text(report.tenant.last_name, '')}`.trim();
   const reminderRows = report.invoices
     .filter((invoice) => invoice.last_reminder_at || invoice.reminder_count)
     .map((invoice) => ({
@@ -327,14 +399,9 @@ function exportTenantSituationWorkbook(report: TenantReportData) {
       'Nombre relances': text(invoice.reminder_count, '0'),
       Statut: text(invoice.status),
     }));
-  const timeline = [
-    ...report.leases.map((lease) => ({ Date: date(lease.start_date), Evenement: 'Bail créé', Description: `Bail #${text(lease.id)}`, Utilisateur: '' })),
-    ...report.invoices.map((invoice) => ({ Date: date(invoice.issue_date), Evenement: 'Facture créée', Description: text(invoice.invoice_number), Utilisateur: '' })),
-    ...report.payments.map((payment) => ({ Date: date(payment.payment_date), Evenement: 'Paiement reçu', Description: text(payment.reference ?? payment.invoice_number), Utilisateur: '' })),
-    ...reminderRows.map((reminder) => ({ Date: String(reminder['Derniere relance']), Evenement: 'Relance', Description: String(reminder.Facture), Utilisateur: '' })),
-  ];
+  const timeline = tenantTimeline(report);
   exportXlsxWorkbook(`Situation_${safeFilePart(tenantName || 'locataire')}.xlsx`, [
-    { name: 'Informations locataire', rows: [{ Nom: text(report.tenant.last_name), 'Post-nom': text(report.tenant.post_name), Prenom: text(report.tenant.first_name), Telephone: text(report.tenant.phone), 'Telephone secondaire': text(report.tenant.secondary_phone), Email: text(report.tenant.email), Profession: text(report.tenant.profession), Nationalite: text(report.tenant.nationality), Adresse: text(report.tenant.address), Statut: text(report.tenant.status) }] },
+    { name: 'Informations', rows: [isCompany ? companyInfoRow(report.tenant) : physicalInfoRow(report.tenant)] },
     { name: 'Baux', rows: report.leases },
     { name: 'Factures', rows: report.invoices },
     { name: 'Paiements', rows: report.payments },
