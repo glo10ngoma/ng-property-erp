@@ -25,6 +25,8 @@ export const statusLabel = (value: string) =>
     INACTIVE: 'Inactif',
     OCCUPIED: 'Occupé',
     VACANT: 'Libre',
+    RESERVED: 'Réservé',
+    BLOCKED: 'Bloqué',
     AVAILABLE: 'Libre',
     MAINTENANCE: 'Maintenance',
     EXPLOITED: 'Exploité',
