@@ -18,11 +18,20 @@ export class PaymentsService {
   async findAll() {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(`
-      SELECT p.*, i.invoice_number, i.total, i.status,
-             CONCAT(t.first_name, ' ', t.last_name) AS tenant_name
+      SELECT p.*, i.invoice_number, i.total, i.status AS invoice_status,
+             CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                  ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+             END AS tenant_name,
+             t.phone AS tenant_phone,
+             t.email AS tenant_email,
+             u.number AS unit_number,
+             b.name AS building_name
       FROM payments p
       LEFT JOIN invoices i ON i.id = p.invoice_id
       JOIN tenants t ON t.id = i.tenant_id
+      LEFT JOIN leases l ON l.id = i.lease_id
+      LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+      LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
       WHERE p.organization_id = $1 AND p.deleted_at IS NULL
       ORDER BY p.payment_date DESC, p.id DESC
     `, [organizationId]);
@@ -30,10 +39,26 @@ export class PaymentsService {
   }
 
   async findOne(id: number) {
-    const { rows } = await this.db.query('SELECT * FROM payments WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL', [
-      id,
-      this.context.organizationId(),
-    ]);
+    const organizationId = this.context.organizationId();
+    const { rows } = await this.db.query(
+      `SELECT p.*, i.invoice_number, i.month, i.year, i.issue_date, i.due_date, i.total AS invoice_total, i.status AS invoice_status,
+              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name,
+              t.tenant_type, t.phone AS tenant_phone, t.secondary_phone AS tenant_secondary_phone, t.email AS tenant_email,
+              t.company_name, t.rccm, t.tax_number, t.business_sector,
+              u.number AS unit_number, u.monthly_rent, u.status AS unit_status,
+              b.name AS building_name, b.address AS building_address, b.city AS building_city, b.commune AS building_commune,
+              l.id AS lease_id, l.start_date AS lease_start_date, l.end_date AS lease_end_date, l.status AS lease_status
+       FROM payments p
+       LEFT JOIN invoices i ON i.id = p.invoice_id
+       LEFT JOIN tenants t ON t.id = i.tenant_id
+       LEFT JOIN leases l ON l.id = i.lease_id
+       LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+       LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
+       WHERE p.id = $1 AND p.organization_id = $2 AND p.deleted_at IS NULL`,
+      [id, organizationId],
+    );
     const payment = requireRow(rows[0], 'Payment');
     const allocations = await this.db.query(
       `SELECT pa.*, i.invoice_number
@@ -41,9 +66,24 @@ export class PaymentsService {
        JOIN invoices i ON i.id = pa.invoice_id
        WHERE pa.payment_id = $1 AND pa.organization_id = $2 AND pa.deleted_at IS NULL
        ORDER BY pa.id`,
-      [id, this.context.organizationId()],
+      [id, organizationId],
     );
-    return { ...payment, allocations: allocations.rows };
+    const reminders = payment.invoice_id
+      ? await this.db.query(
+        `SELECT * FROM invoice_reminders WHERE invoice_id = $1 AND organization_id = $2 ORDER BY reminded_at DESC`,
+        [payment.invoice_id, organizationId],
+      )
+      : { rows: [] };
+    const audit = await this.db.query(
+      `SELECT al.id, al.created_at AS date, al.action, al.resource, al.method, al.path, al.status_code, al.metadata,
+              CONCAT(u.first_name, ' ', u.last_name) AS user_name
+       FROM audit_logs al
+       LEFT JOIN app_users u ON u.id = al.user_id
+       WHERE al.organization_id = $1 AND al.resource = 'payments' AND al.resource_id = $2
+       ORDER BY al.created_at DESC`,
+      [organizationId, String(id)],
+    );
+    return { ...payment, allocations: allocations.rows, reminders: reminders.rows, audit: audit.rows };
   }
 
   async create(dto: CreatePaymentDto) {

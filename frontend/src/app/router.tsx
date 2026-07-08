@@ -29,6 +29,7 @@ import { CommunicationsPage } from '../modules/communications/pages/Communicatio
 import { WorkflowsPage } from '../modules/workflows/pages/WorkflowsPage';
 import { SettingsPage } from '../modules/settings/pages/SettingsPage';
 import { ModulePlaceholder } from '../modules/shared/ModulePlaceholder';
+import { PaymentDetail } from '../pages/PaymentDetail';
 
 const guarded = (permission: string, element: JSX.Element) => (
   <PermissionGuard permission={permission}>{element}</PermissionGuard>
@@ -60,6 +61,7 @@ export function AppRouter() {
           <Route path="/invoices/:id" element={guarded('invoices.read', <InvoiceDetailPage />)} />
           <Route path="/invoices/:id/print" element={guarded('invoices.read', <InvoicePrintPage />)} />
           <Route path="/payments" element={guarded('payments.read', <PaymentsPage />)} />
+          <Route path="/payments/:id" element={guarded('payments.read', <PaymentDetail />)} />
           <Route path="/cash" element={guarded('cash.read', <CashPage />)} />
           <Route path="/staff" element={guarded('staff.read', <StaffPage />)} />
           <Route path="/staff/:id" element={guarded('staff.read', <ModulePlaceholder title="Détail employé" />)} />
