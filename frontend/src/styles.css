@@ -216,9 +216,15 @@ tfoot td { font-weight: 800; font-size: 18px; }
 .check-line { width: auto; display: inline-flex; align-items: center; gap: 6px; color: #334e68; font-size: 13px; font-weight: 700; }
 .check-line input { width: auto; min-height: 0; }
 .tenant-form { display: grid; gap: 10px; }
-.tenant-form-section { border: 1px solid #e1e8ed; border-radius: 8px; padding: 10px; display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 9px; }
+.tenant-form-section { border: 1px solid #e1e8ed; border-radius: 8px; padding: 10px; display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 9px; align-items: start; }
+.tenant-form-section.cols-3 { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+.tenant-form-section.cols-1 { grid-template-columns: 1fr; }
 .tenant-form-section legend { padding: 0 5px; color: #255e7e; font-size: 13px; font-weight: 800; }
-.tenant-form-section small { color: #7a8d98; font-weight: 600; }
+.tenant-form-section label { display: grid; grid-template-rows: 18px auto; gap: 5px; min-width: 0; }
+.tenant-form-section label > span { display: flex; align-items: baseline; gap: 4px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tenant-form-section small { color: #7a8d98; font-weight: 600; font-size: 11px; white-space: nowrap; }
+.tenant-form-section em { color: #a4343a; font-style: normal; font-weight: 800; font-size: 11px; }
+.tenant-form-section input, .tenant-form-section select { min-height: 36px; }
 .locked-file-name { display: grid; gap: 2px; align-content: center; border: 1px solid #e1e8ed; border-radius: 6px; background: #f1f4f6; padding: 7px 9px; color: #6b7f8b; }
 .locked-file-name span { font-size: 11px; text-transform: uppercase; }
 .locked-file-name strong { font-size: 13px; color: #334e68; }

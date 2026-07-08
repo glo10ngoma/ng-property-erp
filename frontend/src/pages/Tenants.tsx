@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, includesText, shortDate, statusLabel } from '../api';
 import { useAuth } from '../auth';
-import { EmptyState, Modal, PageHeader, SearchableSelect, StatusBadge, SuccessMessage } from '../components';
+import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage } from '../components';
 import { useApiList } from '../hooks';
 
 type Tenant = {
@@ -53,18 +53,11 @@ const tenantStatuses = [
 
 const idDocumentTypes = ['Carte d identité', 'Passeport', 'Permis de conduire', 'Carte d électeur', 'Autre'];
 
-const countryOptions = [
-  'Republique democratique du Congo', 'Congo', 'Angola', 'Burundi', 'Rwanda', 'Ouganda', 'Tanzanie', 'Zambie',
-  'Afrique du Sud', 'Cameroun', 'Cote d Ivoire', 'Senegal', 'Mali', 'Maroc', 'Tunisie', 'France', 'Belgique',
-  'Canada', 'Etats-Unis', 'Chine', 'Inde', 'Liban', 'Nigeria', 'Kenya',
-].map((country) => ({ value: country, label: country }));
-
 export function Tenants() {
   const { can } = useAuth();
   const navigate = useNavigate();
   const { data, reload } = useApiList<Tenant>('/tenants');
   const [editing, setEditing] = useState<Partial<Tenant> | null>(null);
-  const [nationality, setNationality] = useState<string | null>(null);
   const [identityFileName, setIdentityFileName] = useState('');
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState({
@@ -122,7 +115,7 @@ export function Tenants() {
       id_number: optionalText(form.get('id_number')),
       id_document_file_name: identityFileName || null,
       id_document_file_url: null,
-      nationality,
+      nationality: optionalText(form.get('nationality')),
       emergency_contact_name: optionalText(form.get('emergency_contact_name')),
       emergency_contact_phone: optionalText(form.get('emergency_contact_phone')),
       notes: optionalText(form.get('notes')),
@@ -150,7 +143,6 @@ export function Tenants() {
   }
 
   function openForm(tenant?: Tenant) {
-    setNationality(tenant?.nationality ?? null);
     setIdentityFileName(tenant?.id_document_file_name ?? '');
     setEditing(tenant ?? {});
   }
@@ -229,51 +221,49 @@ export function Tenants() {
 
       {editing && (
         <Modal title={editing.id ? 'Modifier le locataire' : 'Nouveau locataire'} onClose={() => setEditing(null)}>
-          <TenantForm editing={editing} nationality={nationality} identityFileName={identityFileName} onNationality={setNationality} onIdentityFile={setIdentityFileName} onSubmit={save} />
+          <TenantForm editing={editing} identityFileName={identityFileName} onIdentityFile={setIdentityFileName} onSubmit={save} />
         </Modal>
       )}
     </section>
   );
 }
 
-function TenantForm({ editing, nationality, identityFileName, onNationality, onIdentityFile, onSubmit }: {
+function TenantForm({ editing, identityFileName, onIdentityFile, onSubmit }: {
   editing: Partial<Tenant>;
-  nationality: string | null;
   identityFileName: string;
-  onNationality: (value: string | null) => void;
   onIdentityFile: (value: string) => void;
   onSubmit: (form: FormData) => void;
 }) {
   return (
     <form className="tenant-form" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}>
       <FormSection title="Identité">
-        <label>Prénom<input name="first_name" defaultValue={editing.first_name ?? ''} required /></label>
-        <label>Nom<input name="last_name" defaultValue={editing.last_name ?? ''} required /></label>
-        <label>Post-nom <small>optionnel</small><input name="post_name" defaultValue={editing.post_name ?? ''} /></label>
-        <label>Statut<select name="status" defaultValue={editing.status ?? 'ACTIVE'} required>{tenantStatuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label>
+        <label><span>Prénom <em>*</em></span><input name="first_name" defaultValue={editing.first_name ?? ''} required /></label>
+        <label><span>Nom <em>*</em></span><input name="last_name" defaultValue={editing.last_name ?? ''} required /></label>
+        <label><span>Post-nom <small>(optionnel)</small></span><input name="post_name" defaultValue={editing.post_name ?? ''} /></label>
+        <label><span>Statut <em>*</em></span><select name="status" defaultValue={editing.status ?? 'ACTIVE'} required>{tenantStatuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label>
       </FormSection>
       <FormSection title="Contact">
-        <label>Téléphone<input name="phone" defaultValue={editing.phone ?? ''} required /></label>
-        <label>Téléphone secondaire <small>optionnel</small><input name="secondary_phone" defaultValue={editing.secondary_phone ?? ''} /></label>
-        <label>Email <small>optionnel</small><input name="email" placeholder="exemple@email.com" type="email" defaultValue={editing.email ?? ''} /></label>
+        <label><span>Téléphone <em>*</em></span><input name="phone" defaultValue={editing.phone ?? ''} required /></label>
+        <label><span>Téléphone secondaire <small>(optionnel)</small></span><input name="secondary_phone" defaultValue={editing.secondary_phone ?? ''} /></label>
+        <label><span>Email <small>(optionnel)</small></span><input name="email" placeholder="exemple@email.com" type="email" defaultValue={editing.email ?? ''} /></label>
       </FormSection>
       <FormSection title="Profil">
-        <label>Profession <small>optionnel</small><input name="profession" defaultValue={editing.profession ?? ''} /></label>
-        <label>Nationalité <small>optionnel</small><SearchableSelect options={countryOptions} value={nationality} onChange={(value) => onNationality(value ? String(value) : null)} placeholder="Rechercher un pays" emptyMessage="Aucun pays trouvé" /></label>
-        <label className="form-field-wide">Adresse <small>optionnel</small><input name="address" defaultValue={editing.address ?? ''} /></label>
+        <label><span>Profession <small>(optionnel)</small></span><input name="profession" defaultValue={editing.profession ?? ''} /></label>
+        <label><span>Nationalité <small>(optionnel)</small></span><input name="nationality" placeholder="Congolaise" defaultValue={editing.nationality ?? ''} /></label>
+        <label><span>Adresse <small>(optionnel)</small></span><input name="address" defaultValue={editing.address ?? ''} /></label>
       </FormSection>
       <FormSection title="Pièce d'identité">
-        <label>Type de pièce <small>optionnel</small><select name="id_document_type" defaultValue={editing.id_document_type ?? ''}><option value="">Choisir</option>{idDocumentTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-        <label>Numéro de pièce <small>optionnel</small><input name="id_number" defaultValue={editing.id_number ?? ''} /></label>
-        <label className="form-field-wide">Pièce jointe identité <small>optionnel</small><input type="file" accept="application/pdf,image/*" onChange={(event) => onIdentityFile(event.target.files?.[0]?.name ?? '')} /></label>
+        <label><span>Type de pièce <small>(optionnel)</small></span><select name="id_document_type" defaultValue={editing.id_document_type ?? ''}><option value="">Choisir</option>{idDocumentTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+        <label><span>Numéro de pièce <small>(optionnel)</small></span><input name="id_number" defaultValue={editing.id_number ?? ''} /></label>
+        <label><span>Pièce jointe identité <small>(optionnel)</small></span><input type="file" accept="application/pdf,image/*" onChange={(event) => onIdentityFile(event.target.files?.[0]?.name ?? '')} /></label>
         {identityFileName && <div className="locked-file-name"><span>Fichier sélectionné</span><strong>{identityFileName}</strong></div>}
       </FormSection>
       <FormSection title="Contact d'urgence">
-        <label>Contact d'urgence <small>optionnel</small><input name="emergency_contact_name" defaultValue={editing.emergency_contact_name ?? ''} /></label>
-        <label>Téléphone contact d'urgence <small>optionnel</small><input name="emergency_contact_phone" defaultValue={editing.emergency_contact_phone ?? ''} /></label>
+        <label><span>Contact d'urgence <small>(optionnel)</small></span><input name="emergency_contact_name" defaultValue={editing.emergency_contact_name ?? ''} /></label>
+        <label><span>Téléphone contact d'urgence <small>(optionnel)</small></span><input name="emergency_contact_phone" defaultValue={editing.emergency_contact_phone ?? ''} /></label>
       </FormSection>
       <FormSection title="Observations">
-        <label className="form-field-full">Observations <small>optionnel</small><textarea name="notes" defaultValue={editing.notes ?? ''} /></label>
+        <label className="form-field-full"><span>Observations <small>(optionnel)</small></span><textarea name="notes" defaultValue={editing.notes ?? ''} /></label>
       </FormSection>
       <button>Enregistrer</button>
     </form>
@@ -281,7 +271,8 @@ function TenantForm({ editing, nationality, identityFileName, onNationality, onI
 }
 
 function FormSection({ title, children }: { title: string; children: ReactNode }) {
-  return <fieldset className="tenant-form-section"><legend>{title}</legend>{children}</fieldset>;
+  const className = title === 'Identité' ? 'tenant-form-section cols-4' : title === 'Observations' ? 'tenant-form-section cols-1' : 'tenant-form-section cols-3';
+  return <fieldset className={className}><legend>{title}</legend>{children}</fieldset>;
 }
 
 function exportTenantRows(rows: Tenant[]) {
