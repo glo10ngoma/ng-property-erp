@@ -183,6 +183,12 @@ tfoot td { font-weight: 800; font-size: 18px; }
 .tenant-synthesis { margin-bottom: 10px; }
 .tenant-synthesis .summary-band { margin-bottom: 0; }
 .compact-empty { color: #637783; background: #f8fafb; border: 1px dashed #d6e0e6; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
+.leases-filter-bar { grid-template-columns: minmax(150px, 1.2fr) repeat(9, minmax(98px, .75fr)) minmax(280px, auto); gap: 6px; align-items: end; }
+.leases-filter-bar input, .leases-filter-bar select, .leases-filter-bar button { min-height: 32px; padding-top: 5px; padding-bottom: 5px; }
+.lease-form .search-select { position: relative; gap: 0; }
+.lease-form .search-select-list { position: absolute; z-index: 5; width: min(320px, 90vw); background: white; border: 1px solid #dce5eb; border-radius: 6px; box-shadow: 0 12px 32px rgba(31,41,51,.14); padding: 5px; margin-top: 36px; }
+.lease-form .search-select-option { min-height: 34px; padding: 5px 8px; }
+.storage-note { margin: 6px 0 0; color: #637783; font-size: 12px; }
 .search-select { display: grid; gap: 8px; }
 .search-select-list { display: grid; gap: 6px; max-height: 220px; overflow: auto; }
 .search-select-option { min-height: 42px; width: 100%; justify-content: space-between; background: white; color: #1f2933; border: 1px solid #dce5eb; padding: 7px 10px; }
@@ -298,7 +304,7 @@ tfoot td { font-weight: 800; font-size: 18px; }
   .sidebar { position: static; }
   .sidebar nav { grid-template-columns: repeat(2, 1fr); }
   .metrics-grid, .finance-band, .mini-stats, .chart-grid, .quick-form, .lease-section-grid { grid-template-columns: repeat(2, 1fr); }
-  .buildings-filter-bar { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+  .buildings-filter-bar, .leases-filter-bar { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .building-form, .unit-form { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .tenant-form-section { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
   .quick-cards, .progress-summary { grid-template-columns: repeat(2, 1fr); }
@@ -309,13 +315,13 @@ tfoot td { font-weight: 800; font-size: 18px; }
 
 @media (min-width: 981px) and (max-width: 1240px) {
   .lease-section-grid { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
-  .buildings-filter-bar { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
+  .buildings-filter-bar, .leases-filter-bar { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
   .filter-actions { grid-column: span 2; justify-content: flex-start; }
 }
 
 @media (max-width: 640px) {
   .lease-section-grid, .quick-form { grid-template-columns: 1fr; }
-  .buildings-filter-bar, .building-form, .unit-form { grid-template-columns: 1fr; }
+  .buildings-filter-bar, .leases-filter-bar, .building-form, .unit-form { grid-template-columns: 1fr; }
   .tenant-form-section, .tenant-form-section.cols-3, .tenant-form-section.cols-4, .tenant-form-section.cols-1 { grid-template-columns: 1fr; }
   .filter-actions { justify-content: flex-start; flex-wrap: wrap; }
   .export-group { flex-wrap: wrap; }

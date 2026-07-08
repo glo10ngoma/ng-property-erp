@@ -6,6 +6,7 @@ import { Login } from '../pages/Login';
 import { BuildingReport } from '../pages/BuildingReport';
 import { TenantSituation } from '../pages/TenantSituation';
 import { LeaseNew } from '../pages/LeaseNew';
+import { LeaseDetail } from '../pages/LeaseDetail';
 import { UnitDetail } from '../pages/UnitDetail';
 import { DashboardPage } from '../modules/dashboard/pages/DashboardPage';
 import { ActivityPage } from '../modules/activity/pages/ActivityPage';
@@ -54,7 +55,7 @@ export function AppRouter() {
           <Route path="/tenants/:id" element={guarded('tenants.read', <ModulePlaceholder title="Détail locataire" />)} />
           <Route path="/leases" element={guarded('documents.read', <LeasesPage />)} />
           <Route path="/leases/new" element={guarded('documents.upload', <LeaseNew />)} />
-          <Route path="/leases/:id" element={guarded('documents.read', <ModulePlaceholder title="Détail bail" />)} />
+          <Route path="/leases/:id" element={guarded('documents.read', <LeaseDetail />)} />
           <Route path="/invoices" element={guarded('invoices.read', <InvoicesPage />)} />
           <Route path="/invoices/:id" element={guarded('invoices.read', <InvoiceDetailPage />)} />
           <Route path="/invoices/:id/print" element={guarded('invoices.read', <InvoicePrintPage />)} />

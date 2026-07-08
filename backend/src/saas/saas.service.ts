@@ -1013,7 +1013,11 @@ export class SaasService {
 
   async leases() {
     const { rows } = await this.db.query(`
-      SELECT l.*, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, u.number AS unit_number, b.name AS building_name,
+      SELECT l.*,
+             CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                  ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+             END AS tenant_name,
+             u.number AS unit_number, b.name AS building_name,
              COALESCE(g.amount, l.rental_guarantee_amount, 0)::FLOAT AS guarantee_amount,
              COALESCE(g.paid_amount, l.rental_guarantee_paid, 0)::FLOAT AS guarantee_paid,
              COALESCE(g.status, l.rental_guarantee_status) AS guarantee_status
@@ -1030,7 +1034,11 @@ export class SaasService {
 
   async leaseDetail(id: number) {
     const lease = await this.db.query(
-      `SELECT l.*, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone AS tenant_phone,
+      `SELECT l.*,
+              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name,
+              t.phone AS tenant_phone,
               u.number AS unit_number, u.status AS unit_status, b.name AS building_name
        FROM leases l
        JOIN tenants t ON t.id = l.tenant_id

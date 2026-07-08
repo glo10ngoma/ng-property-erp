@@ -1,6 +1,6 @@
 import { ArrowLeft, Save } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api, money, statusLabel } from '../api';
 import { PageHeader, SearchableSelect, SuccessMessage, TenantSearchSelect } from '../components';
 import { useApiList } from '../hooks';
@@ -11,6 +11,7 @@ type Tenant = { id: number; first_name: string; last_name: string; phone?: strin
 
 export function LeaseNew() {
   const navigate = useNavigate();
+  const location = useLocation();
   const buildings = useApiList<Building>('/buildings');
   const units = useApiList<Unit>('/units');
   const tenants = useApiList<Tenant>('/tenants');
@@ -23,6 +24,9 @@ export function LeaseNew() {
   const [rent, setRent] = useState(0);
   const [message, setMessage] = useState('');
   const [contractName, setContractName] = useState('');
+  const [guaranteeAmount, setGuaranteeAmount] = useState('0');
+  const [guaranteePaid, setGuaranteePaid] = useState('0');
+  const [guaranteeStatus, setGuaranteeStatus] = useState('NOT_PAID');
 
   const availableUnits = useMemo(
     () => units.data.filter((unit) => !buildingId || Number(unit.building_id) === Number(buildingId)),
@@ -43,6 +47,20 @@ export function LeaseNew() {
   useEffect(() => {
     if (selectedUnit) setRent(Number(selectedUnit.monthly_rent ?? 0));
   }, [selectedUnit?.id]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tenantParam = params.get('tenantId');
+    if (tenantParam) setTenantId(Number(tenantParam));
+  }, [location.search]);
+
+  useEffect(() => {
+    const amount = Number(guaranteeAmount || 0);
+    const paid = Number(guaranteePaid || 0);
+    if (paid <= 0) setGuaranteeStatus('NOT_PAID');
+    else if (paid >= amount && amount > 0) setGuaranteeStatus('PAID');
+    else setGuaranteeStatus('PARTIAL');
+  }, [guaranteeAmount, guaranteePaid]);
 
   function updateStartDate(value: string) {
     setStartDate(value);
@@ -94,8 +112,8 @@ export function LeaseNew() {
       <PageHeader title="Nouveau bail" action={<button className="secondary" onClick={() => navigate('/leases')}><ArrowLeft size={16} />Retour</button>} />
       <SuccessMessage message={message} />
       <form className="lease-form" onSubmit={(event) => { event.preventDefault(); save(new FormData(event.currentTarget)); }}>
-        <div className="detail-section">
-          <h4>Informations generales</h4>
+        <div className="detail-section report-section">
+          <h4>Parties concernees</h4>
           <div className="lease-section-grid">
             <label className="lease-field-wide">Immeuble<SearchableSelect options={buildingOptions} value={buildingId ? Number(buildingId) : null} onChange={(value) => { setBuildingId(value ? String(value) : ''); setUnitId(''); }} placeholder="Rechercher un immeuble" emptyMessage="Aucun immeuble trouve" /></label>
             <label className="lease-field-wide">Unite / Appartement<SearchableSelect options={unitOptions} value={unitId ? Number(unitId) : selectedUnit?.id ?? null} onChange={(value) => setUnitId(value ? String(value) : '')} placeholder="Rechercher une unite" emptyMessage="Aucune unite trouve" /><input name="unit_id" value={unitId || selectedUnit?.id || ''} readOnly type="hidden" /></label>
@@ -103,43 +121,43 @@ export function LeaseNew() {
           </div>
         </div>
 
-        <div className="detail-section">
+        <div className="detail-section report-section">
           <h4>Informations du bail</h4>
           <div className="lease-section-grid">
             <label>Date debut<input name="start_date" type="date" value={startDate} onChange={(event) => updateStartDate(event.target.value)} required /></label>
             <label>Date fin<input name="end_date" type="date" value={endDate} onChange={(event) => updateEndDate(event.target.value)} /></label>
             <label>Duree du bail (mois)<input name="duration" type="number" min="1" value={durationMonths} onChange={(event) => updateDuration(event.target.value)} placeholder="12" /></label>
-            <label className="lease-field-wide">Jour limite de paiement du loyer<input name="due_day" type="number" min="1" max="31" defaultValue="5" /><small>Exemple : 5 signifie que le loyer doit etre paye au plus tard le 5 de chaque mois.</small></label>
+            <label>Jour limite paiement<input name="due_day" type="number" min="1" max="31" defaultValue="5" /></label>
             <label>Loyer<input name="monthly_rent" type="number" required value={rent} onChange={(event) => setRent(Number(event.target.value))} /></label>
-            <label>Devise<input name="currency" value="USD" readOnly /></label>
+            <label>Devise<input className="locked-field" name="currency" value="USD" readOnly /></label>
             <label>Statut<select name="status" defaultValue="DRAFT"><option value="DRAFT">Brouillon</option><option value="ACTIVE">Actif</option><option value="TERMINATED">Resilie</option></select></label>
           </div>
         </div>
 
-        <div className="detail-section">
+        <div className="detail-section report-section">
           <h4>Garantie locative</h4>
           <div className="lease-section-grid">
-            <label>Montant<input name="rental_guarantee_amount" type="number" defaultValue="0" /></label>
-            <label>Devise<input name="guarantee_currency" value="USD" readOnly /></label>
-            <label>Montant paye<input name="rental_guarantee_paid" type="number" defaultValue="0" /></label>
-            <label>Statut garantie<select name="rental_guarantee_status" defaultValue="NOT_PAID"><option value="NOT_PAID">Non payee</option><option value="PARTIAL">Paiement partiel</option><option value="PAID">Payee</option></select></label>
+            <label>Montant garantie<input name="rental_guarantee_amount" type="number" value={guaranteeAmount} onChange={(event) => setGuaranteeAmount(event.target.value)} /></label>
+            <label>Devise<input className="locked-field" name="guarantee_currency" value="USD" readOnly /></label>
+            <label>Montant paye<input name="rental_guarantee_paid" type="number" value={guaranteePaid} onChange={(event) => setGuaranteePaid(event.target.value)} /></label>
+            <label>Statut garantie<select name="rental_guarantee_status" value={guaranteeStatus} onChange={(event) => setGuaranteeStatus(event.target.value)}><option value="NOT_PAID">Non payee</option><option value="PARTIAL">Partielle</option><option value="PAID">Payee</option></select></label>
             <label>Date paiement<input name="rental_guarantee_payment_date" type="date" /></label>
           </div>
         </div>
 
-        <div className="detail-section">
+        <div className="detail-section report-section">
           <h4>Contrat scanne</h4>
           <div className="lease-section-grid">
             <label className="lease-field-wide">Piece jointe contrat<input type="file" accept="application/pdf,image/*" onChange={(event) => setContractName(event.target.files?.[0]?.name ?? '')} /></label>
-            <label className="lease-field-wide">Nom du fichier<input name="contract_file_name" value={contractName} onChange={(event) => setContractName(event.target.value)} placeholder="contrat-bail.pdf" /></label>
+            <label className="lease-field-wide">Nom du fichier<input className="locked-field" name="contract_file_name" value={contractName} readOnly placeholder="Selectionnez un fichier" /></label>
           </div>
-          <p className="empty">Stockage cible : Supabase Storage / bucket contracts. En local, le nom du fichier est enregistre pour conserver la trace du contrat.</p>
+          <p className="storage-note">Supabase Storage / bucket contracts prevu. En local, le nom du fichier est conserve.</p>
         </div>
 
-        <div className="detail-section">
+        <div className="detail-section report-section">
           <h4>Observations</h4>
           <div className="lease-section-grid">
-            <label className="lease-field-full">Notes<textarea name="notes" placeholder="Observations internes" /></label>
+            <label className="lease-field-full">Notes<textarea name="notes" rows={3} placeholder="Observations internes" /></label>
           </div>
         </div>
 

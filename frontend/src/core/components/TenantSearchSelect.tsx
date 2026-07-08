@@ -2,8 +2,11 @@ import { SearchableSelect } from './SearchableSelect';
 
 export type TenantSearchOption = {
   id: number;
+  tenant_type?: string;
+  company_name?: string;
   first_name: string;
   last_name: string;
+  post_name?: string;
   phone?: string;
   building_name?: string;
   unit_number?: string;
@@ -44,7 +47,8 @@ export function TenantSearchSelect({
 }
 
 function tenantName(tenant: TenantSearchOption) {
-  return `${tenant.first_name} ${tenant.last_name}`.trim();
+  if (tenant.tenant_type === 'COMPANY') return tenant.company_name || 'Societe';
+  return `${tenant.first_name ?? ''} ${tenant.last_name ?? ''} ${tenant.post_name ?? ''}`.trim();
 }
 
 function tenantMeta(tenant: TenantSearchOption) {
