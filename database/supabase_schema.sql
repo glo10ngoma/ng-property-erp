@@ -70,6 +70,7 @@ CREATE TABLE tenants (
   email VARCHAR(160),
   profession VARCHAR(140),
   address TEXT,
+  id_document_type VARCHAR(80),
   id_number VARCHAR(120),
   id_document_file_name VARCHAR(220),
   id_document_file_url TEXT,

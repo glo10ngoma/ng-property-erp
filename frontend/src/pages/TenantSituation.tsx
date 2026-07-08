@@ -1,7 +1,7 @@
 import { ArrowLeft, Download, Eye, FileSpreadsheet, Printer, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api, exportCsv, exportExcel, invoiceDisplayStatus, money, paymentMethodLabel, shortDate } from '../api';
+import { api, exportCsv, exportXlsxWorkbook, invoiceDisplayStatus, money, paymentMethodLabel, shortDate } from '../api';
 import { EmptyState, PageHeader, StatusBadge } from '../components';
 
 type ReportRow = Record<string, unknown>;
@@ -139,7 +139,7 @@ export function TenantSituation() {
         </select>
         <button type="button" onClick={loadReport}><RefreshCw size={16} />Actualiser</button>
         <button type="button" className="secondary" onClick={() => exportCsv('situation-locataire.csv', exportRows)}><Download size={16} />CSV</button>
-        <button type="button" className="secondary" onClick={() => exportExcel('situation-locataire.xls', exportRows)}><FileSpreadsheet size={16} />Excel</button>
+        <button type="button" className="secondary" onClick={() => report && exportTenantSituationWorkbook(report)}><FileSpreadsheet size={16} />Excel</button>
         <button type="button" className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
       </div>
 
@@ -315,4 +315,43 @@ function monthName(month: number) {
 
 function text(value: unknown, fallback = '-') {
   return value == null || value === '' ? fallback : String(value);
+}
+
+function exportTenantSituationWorkbook(report: TenantReportData) {
+  const tenantName = `${text(report.tenant.first_name, '')} ${text(report.tenant.last_name, '')}`.trim();
+  const reminderRows = report.invoices
+    .filter((invoice) => invoice.last_reminder_at || invoice.reminder_count)
+    .map((invoice) => ({
+      Facture: text(invoice.invoice_number),
+      'Derniere relance': date(invoice.last_reminder_at),
+      'Nombre relances': text(invoice.reminder_count, '0'),
+      Statut: text(invoice.status),
+    }));
+  const timeline = [
+    ...report.leases.map((lease) => ({ Date: date(lease.start_date), Evenement: 'Bail créé', Description: `Bail #${text(lease.id)}`, Utilisateur: '' })),
+    ...report.invoices.map((invoice) => ({ Date: date(invoice.issue_date), Evenement: 'Facture créée', Description: text(invoice.invoice_number), Utilisateur: '' })),
+    ...report.payments.map((payment) => ({ Date: date(payment.payment_date), Evenement: 'Paiement reçu', Description: text(payment.reference ?? payment.invoice_number), Utilisateur: '' })),
+    ...reminderRows.map((reminder) => ({ Date: String(reminder['Derniere relance']), Evenement: 'Relance', Description: String(reminder.Facture), Utilisateur: '' })),
+  ];
+  exportXlsxWorkbook(`Situation_${safeFilePart(tenantName || 'locataire')}.xlsx`, [
+    { name: 'Informations locataire', rows: [{ Nom: text(report.tenant.last_name), 'Post-nom': text(report.tenant.post_name), Prenom: text(report.tenant.first_name), Telephone: text(report.tenant.phone), 'Telephone secondaire': text(report.tenant.secondary_phone), Email: text(report.tenant.email), Profession: text(report.tenant.profession), Nationalite: text(report.tenant.nationality), Adresse: text(report.tenant.address), Statut: text(report.tenant.status) }] },
+    { name: 'Baux', rows: report.leases },
+    { name: 'Factures', rows: report.invoices },
+    { name: 'Paiements', rows: report.payments },
+    { name: 'Garanties', rows: report.guarantees },
+    { name: 'Relances', rows: reminderRows },
+    { name: 'Documents', rows: report.documents },
+    { name: 'Timeline', rows: timeline },
+    { name: 'Rentabilite', rows: [{ 'Total loyers factures': amount(report.total_invoiced), 'Total encaisse': amount(report.total_paid), 'Total impayes': amount(report.remaining), 'Nombre de baux': report.leases.length, 'Nombre de relances': reminderRows.reduce((sum, row) => sum + Number(row['Nombre relances'] ?? 0), 0), 'Date dernier paiement': latestDate(report.payments.map((payment) => String(payment.payment_date ?? ''))), 'Solde restant': amount(report.remaining) }] },
+  ]);
+}
+
+function latestDate(values: string[]) {
+  const valid = values.filter(Boolean);
+  if (!valid.length) return 'Non disponible';
+  return date(valid.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0]);
+}
+
+function safeFilePart(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'locataire';
 }

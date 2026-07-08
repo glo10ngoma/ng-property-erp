@@ -11,11 +11,38 @@ export class TenantsService {
   async findAll() {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(`
-      SELECT t.*, u.number AS unit_number, u.monthly_rent,
-             b.id AS building_id, b.name AS building_name
+      SELECT t.*,
+             ('CLI-' || LPAD(t.id::TEXT, 6, '0')) AS client_reference,
+             u.id AS unit_id,
+             u.number AS unit_number,
+             COALESCE(l.monthly_rent, u.monthly_rent, 0)::FLOAT AS monthly_rent,
+             l.id AS active_lease_id,
+             l.end_date AS active_lease_end_date,
+             l.status AS active_lease_status,
+             b.id AS building_id,
+             b.name AS building_name,
+             COALESCE(fin.remaining_amount, 0)::FLOAT AS remaining_amount,
+             fin.last_payment_date,
+             fin.last_reminder_at,
+             COALESCE(fin.reminder_count, 0)::INT AS reminder_count,
+             COALESCE(fin.overdue_invoices, 0)::INT AS overdue_invoices
       FROM tenants t
-      LEFT JOIN units u ON u.id = t.unit_id
+      LEFT JOIN leases l ON l.tenant_id = t.id AND l.organization_id = t.organization_id AND l.status = 'ACTIVE' AND l.deleted_at IS NULL
+      LEFT JOIN units u ON u.id = COALESCE(l.unit_id, t.unit_id)
       LEFT JOIN buildings b ON b.id = u.building_id
+      LEFT JOIN (
+        SELECT i.tenant_id,
+               SUM(COALESCE(s.remaining_amount, i.total)) AS remaining_amount,
+               MAX(p.payment_date) AS last_payment_date,
+               MAX(i.last_reminder_at) AS last_reminder_at,
+               SUM(COALESCE(i.reminder_count, 0)) AS reminder_count,
+               COUNT(*) FILTER (WHERE i.status <> 'PAID' AND i.due_date < CURRENT_DATE) AS overdue_invoices
+        FROM invoices i
+        LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
+        LEFT JOIN payments p ON p.invoice_id = i.id AND p.deleted_at IS NULL
+        WHERE i.organization_id = $1 AND i.deleted_at IS NULL
+        GROUP BY i.tenant_id
+      ) fin ON fin.tenant_id = t.id
       WHERE t.organization_id = $1 AND t.deleted_at IS NULL
       ORDER BY t.last_name, t.first_name
     `, [organizationId]);
@@ -82,10 +109,10 @@ export class TenantsService {
     const { rows } = await this.db.query(
       `INSERT INTO tenants (
          first_name, last_name, post_name, phone, secondary_phone, email, profession, address,
-         id_number, id_document_file_name, id_document_file_url, nationality, emergency_contact_name, emergency_contact_phone, notes,
+         id_document_type, id_number, id_document_file_name, id_document_file_url, nationality, emergency_contact_name, emergency_contact_phone, notes,
          unit_id, move_in_date, status, organization_id
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING *`,
       [
         dto.first_name,
         dto.last_name,
@@ -95,6 +122,7 @@ export class TenantsService {
         dto.email || null,
         dto.profession ?? null,
         dto.address ?? null,
+        dto.id_document_type ?? null,
         dto.id_number ?? null,
         dto.id_document_file_name ?? null,
         dto.id_document_file_url ?? null,
@@ -124,17 +152,18 @@ export class TenantsService {
            email = COALESCE($7, email),
            profession = COALESCE($8, profession),
            address = COALESCE($9, address),
-           id_number = COALESCE($10, id_number),
-           id_document_file_name = COALESCE($11, id_document_file_name),
-           id_document_file_url = COALESCE($12, id_document_file_url),
-           nationality = COALESCE($13, nationality),
-           emergency_contact_name = COALESCE($14, emergency_contact_name),
-           emergency_contact_phone = COALESCE($15, emergency_contact_phone),
-           notes = COALESCE($16, notes),
-           unit_id = COALESCE($17, unit_id),
-           move_in_date = COALESCE($18, move_in_date),
-           status = COALESCE($19, status)
-       WHERE id = $1 AND organization_id = $20 AND deleted_at IS NULL RETURNING *`,
+           id_document_type = COALESCE($10, id_document_type),
+           id_number = COALESCE($11, id_number),
+           id_document_file_name = COALESCE($12, id_document_file_name),
+           id_document_file_url = COALESCE($13, id_document_file_url),
+           nationality = COALESCE($14, nationality),
+           emergency_contact_name = COALESCE($15, emergency_contact_name),
+           emergency_contact_phone = COALESCE($16, emergency_contact_phone),
+           notes = COALESCE($17, notes),
+           unit_id = COALESCE($18, unit_id),
+           move_in_date = COALESCE($19, move_in_date),
+           status = COALESCE($20, status)
+       WHERE id = $1 AND organization_id = $21 AND deleted_at IS NULL RETURNING *`,
       [
         id,
         dto.first_name,
@@ -145,6 +174,7 @@ export class TenantsService {
         dto.email,
         dto.profession,
         dto.address,
+        dto.id_document_type,
         dto.id_number,
         dto.id_document_file_name,
         dto.id_document_file_url,

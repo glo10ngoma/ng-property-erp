@@ -34,6 +34,10 @@ export class CreateTenantDto {
 
   @IsOptional()
   @IsString()
+  id_document_type?: string;
+
+  @IsOptional()
+  @IsString()
   id_number?: string;
 
   @IsOptional()

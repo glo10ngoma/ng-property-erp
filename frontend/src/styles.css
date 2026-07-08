@@ -215,6 +215,14 @@ tfoot td { font-weight: 800; font-size: 18px; }
 .unit-options { display: flex; flex-wrap: wrap; gap: 8px 14px; border: 1px solid #e1e8ed; border-radius: 6px; padding: 8px 10px; background: #fbfcfd; }
 .check-line { width: auto; display: inline-flex; align-items: center; gap: 6px; color: #334e68; font-size: 13px; font-weight: 700; }
 .check-line input { width: auto; min-height: 0; }
+.tenant-form { display: grid; gap: 10px; }
+.tenant-form-section { border: 1px solid #e1e8ed; border-radius: 8px; padding: 10px; display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 9px; }
+.tenant-form-section legend { padding: 0 5px; color: #255e7e; font-size: 13px; font-weight: 800; }
+.tenant-form-section small { color: #7a8d98; font-weight: 600; }
+.locked-file-name { display: grid; gap: 2px; align-content: center; border: 1px solid #e1e8ed; border-radius: 6px; background: #f1f4f6; padding: 7px 9px; color: #6b7f8b; }
+.locked-file-name span { font-size: 11px; text-transform: uppercase; }
+.locked-file-name strong { font-size: 13px; color: #334e68; }
+.tenants-filter-bar { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 .timeline-list { display: grid; gap: 7px; }
 .timeline-item { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: center; border: 1px solid #e1e8ed; border-radius: 6px; padding: 7px 9px; background: white; }
 .timeline-item span { color: #637783; font-size: 12px; font-weight: 700; }
@@ -278,6 +286,7 @@ tfoot td { font-weight: 800; font-size: 18px; }
   .metrics-grid, .finance-band, .mini-stats, .chart-grid, .quick-form, .lease-section-grid { grid-template-columns: repeat(2, 1fr); }
   .buildings-filter-bar { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .building-form, .unit-form { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+  .tenant-form-section { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
   .quick-cards, .progress-summary { grid-template-columns: repeat(2, 1fr); }
   .detail-list { grid-template-columns: 140px minmax(0, 1fr); }
   .main { padding: 18px; }
@@ -293,6 +302,7 @@ tfoot td { font-weight: 800; font-size: 18px; }
 @media (max-width: 640px) {
   .lease-section-grid, .quick-form { grid-template-columns: 1fr; }
   .buildings-filter-bar, .building-form, .unit-form { grid-template-columns: 1fr; }
+  .tenant-form-section { grid-template-columns: 1fr; }
   .filter-actions { justify-content: flex-start; flex-wrap: wrap; }
   .export-group { flex-wrap: wrap; }
   .quick-cards, .progress-summary { grid-template-columns: 1fr; }
