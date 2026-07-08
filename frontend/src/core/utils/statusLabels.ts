@@ -26,6 +26,8 @@ export const statusLabel = (value: string) =>
     VACANT: 'Libre',
     AVAILABLE: 'Libre',
     MAINTENANCE: 'Maintenance',
+    EXPLOITED: 'Exploité',
+    CONSTRUCTION: 'Construction',
   })[value] ?? value;
 
 export const paymentMethodLabel = (value: string) =>

@@ -17,6 +17,38 @@ export class CreateBuildingDto {
 
   @IsOptional()
   @IsString()
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  commune?: string;
+
+  @IsOptional()
+  @IsString()
+  floors_count?: string;
+
+  @IsOptional()
+  @IsString()
+  total_units?: string;
+
+  @IsOptional()
+  @IsString()
+  manager_name?: string;
+
+  @IsOptional()
+  @IsString()
+  manager_phone?: string;
+
+  @IsOptional()
+  @IsString()
+  manager_email?: string;
+
+  @IsOptional()
+  @IsString()
+  observations?: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
 }
 

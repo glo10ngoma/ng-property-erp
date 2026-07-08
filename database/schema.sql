@@ -11,6 +11,14 @@ CREATE TABLE buildings (
   address VARCHAR(220) NOT NULL,
   city VARCHAR(120) NOT NULL,
   building_type VARCHAR(120) NOT NULL DEFAULT 'Residence',
+  state VARCHAR(40) NOT NULL DEFAULT 'EXPLOITED',
+  commune VARCHAR(120),
+  floors_count INTEGER,
+  total_units INTEGER,
+  manager_name VARCHAR(160),
+  manager_phone VARCHAR(60),
+  manager_email VARCHAR(160),
+  observations TEXT,
   description TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
