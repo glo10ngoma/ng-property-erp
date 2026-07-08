@@ -19,6 +19,7 @@ type CashMovement = {
   supplier?: string;
   reference?: string;
   attachment_file_name?: string;
+  attachment_file_url?: string;
 };
 
 type CashMovementDetail = CashMovement & {
@@ -264,6 +265,7 @@ export function CashDetailPage() {
       amount: money(movement.amount),
       reference: movement.reference ?? '-',
       tenant: movement.tenant_name ?? '-',
+      attachment: movement.attachment_file_name ?? '-',
     },
   ];
 
@@ -346,10 +348,10 @@ export function CashDetailPage() {
           </div>
         </div>
 
-        <div className="cash-summary-grid">
-          <div className="mini-stat">
-            <span>Type</span>
-            <strong>{movementTypeLabel(movement.type)}</strong>
+            <div className="cash-summary-grid">
+              <div className="mini-stat">
+                <span>Type</span>
+                <strong>{movementTypeLabel(movement.type)}</strong>
           </div>
           <div className="mini-stat">
             <span>Categorie</span>
@@ -359,12 +361,30 @@ export function CashDetailPage() {
             <span>Montant</span>
             <strong>{money(movement.amount)}</strong>
           </div>
-          <div className="mini-stat">
-            <span>Facture</span>
-            <strong>{movement.invoice_number ?? '-'}</strong>
-          </div>
-        </div>
-      </article>
+              <div className="mini-stat">
+                <span>Facture</span>
+                <strong>{movement.invoice_number ?? '-'}</strong>
+              </div>
+            </div>
+
+            <div className="detail-section no-print">
+              <h4>Pièce jointe</h4>
+              {movement.attachment_file_name ? (
+                <div className="actions-row">
+                  <span className="info-message">{movement.attachment_file_name}</span>
+                  {movement.attachment_file_url ? (
+                    <a className="secondary" href={movement.attachment_file_url} target="_blank" rel="noreferrer">
+                      Voir / Télécharger
+                    </a>
+                  ) : (
+                    <span className="compact-empty">Aucune URL de fichier disponible.</span>
+                  )}
+                </div>
+              ) : (
+                <div className="compact-empty">Aucune pièce jointe.</div>
+              )}
+            </div>
+          </article>
 
       <div className="invoice-accordion-grid no-print">
         <details>
@@ -386,6 +406,7 @@ export function CashDetailPage() {
 
 function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormData) => void; nextPieceNumber: string }) {
   const [open, setOpen] = useState(false);
+  const [attachmentName, setAttachmentName] = useState('');
   return (
     <>
       <div className="actions-row">
@@ -399,8 +420,15 @@ function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormD
             className="cash-modal-form"
             onSubmit={(event) => {
               event.preventDefault();
-              onSubmit(new FormData(event.currentTarget));
+              const formData = new FormData(event.currentTarget);
+              const file = formData.get('attachment_file');
+              if (file instanceof File && file.name) {
+                formData.set('attachment_file_name', file.name);
+              }
+              formData.delete('attachment_file');
+              onSubmit(formData);
               event.currentTarget.reset();
+              setAttachmentName('');
               setOpen(false);
             }}
           >
@@ -452,7 +480,16 @@ function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormD
                 </label>
                 <label>
                   Piece jointe
-                  <input name="attachment_file_name" placeholder="Nom du fichier" />
+                  <input
+                    name="attachment_file"
+                    type="file"
+                    accept=".pdf,image/jpeg,image/png"
+                    onChange={(event) => setAttachmentName(event.target.files?.[0]?.name ?? '')}
+                  />
+                </label>
+                <label>
+                  Nom du fichier
+                  <input value={attachmentName || '-'} readOnly className="locked-field" />
                 </label>
               </div>
             </div>
@@ -496,6 +533,7 @@ function cashExportRow(movement: CashMovement) {
     facture: movement.invoice_number ?? '-',
     locataire_ou_fournisseur: movement.tenant_name ?? movement.supplier ?? '-',
     reference: movement.reference ?? '-',
+    piece_jointe: movement.attachment_file_name ?? '-',
   };
 }
 
