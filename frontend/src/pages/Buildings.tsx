@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, exportCsv, exportExcel, includesText } from '../api';
 import { useAuth } from '../auth';
-import { EmptyState, Modal, PageHeader, SearchableSelect, SuccessMessage } from '../components';
+import { EmptyState, Modal, PageHeader, SuccessMessage } from '../components';
 import { useApiList } from '../hooks';
 
 type Building = {
@@ -32,8 +32,7 @@ type SortKey = 'name' | 'city' | 'commune' | 'building_type' | 'unit_count' | 's
 type SortState = { key: SortKey; direction: 'asc' | 'desc' };
 
 const DEFAULT_BUILDING_TYPES = [
-  'Maison individuelle',
-  'Villa',
+  'Résidence',
   'Immeuble R+1',
   'Immeuble R+2',
   'Immeuble R+3',
@@ -42,7 +41,8 @@ const DEFAULT_BUILDING_TYPES = [
   'Immeuble R+10',
   'Centre commercial',
   'Immeuble de bureaux',
-  'Résidence',
+  'Villa',
+  'Maison individuelle',
   'Mixte',
   'Autre',
 ];
@@ -88,9 +88,9 @@ export function Buildings() {
   const [sort, setSort] = useState<SortState>({ key: 'name', direction: 'asc' });
   const [success, setSuccess] = useState('');
 
-  const cities = useMemo(() => uniqueOptions(data.map((building) => building.city)), [data]);
-  const communes = useMemo(() => uniqueOptions(data.map((building) => building.commune)), [data]);
-  const typeOptions = useMemo(() => uniqueOptions([...DEFAULT_BUILDING_TYPES, ...data.map((building) => building.building_type)]), [data]);
+  const cities = useMemo(() => uniqueValues(data.map((building) => building.city)), [data]);
+  const communes = useMemo(() => uniqueValues(data.map((building) => building.commune)), [data]);
+  const typeValues = useMemo(() => uniqueValues([...DEFAULT_BUILDING_TYPES, ...data.map((building) => building.building_type)]), [data]);
 
   const filtered = data
     .filter((building) => includesText(building, query))
@@ -165,24 +165,45 @@ export function Buildings() {
 
       <div className="buildings-filter-bar">
         <input className="filter-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" />
-        <SearchableSelect options={cities} value={filters.city || null} onChange={(value) => setFilters({ ...filters, city: String(value ?? '') })} placeholder="Ville" emptyMessage="Aucune ville" />
-        <SearchableSelect options={communes} value={filters.commune || null} onChange={(value) => setFilters({ ...filters, commune: String(value ?? '') })} placeholder="Commune" emptyMessage="Aucune commune" />
-        <SearchableSelect options={typeOptions} value={filters.building_type || null} onChange={(value) => setFilters({ ...filters, building_type: String(value ?? '') })} placeholder="Type" emptyMessage="Aucun type" />
-        <SearchableSelect options={STATUS_OPTIONS} value={filters.status || null} onChange={(value) => setFilters({ ...filters, status: String(value ?? '') })} placeholder="Statut" emptyMessage="Aucun statut" />
-        <SearchableSelect options={OCCUPATION_OPTIONS} value={filters.occupation || null} onChange={(value) => setFilters({ ...filters, occupation: String(value ?? '') })} placeholder="Occupation" emptyMessage="Aucune option" />
+        <select value={filters.city} onChange={(event) => setFilters({ ...filters, city: event.target.value })}>
+          <option value="">Ville</option>
+          {cities.map((city) => <option key={city} value={city}>{city}</option>)}
+        </select>
+        <select value={filters.commune} onChange={(event) => setFilters({ ...filters, commune: event.target.value })}>
+          <option value="">Commune</option>
+          {communes.map((commune) => <option key={commune} value={commune}>{commune}</option>)}
+        </select>
+        <select value={filters.building_type} onChange={(event) => setFilters({ ...filters, building_type: event.target.value })}>
+          <option value="">Type</option>
+          {typeValues.map((type) => <option key={type} value={type}>{type}</option>)}
+        </select>
+        <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}>
+          <option value="">Statut</option>
+          {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        <select value={filters.state} onChange={(event) => setFilters({ ...filters, state: event.target.value })}>
+          <option value="">État</option>
+          {BUILDING_STATES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        <select value={filters.occupation} onChange={(event) => setFilters({ ...filters, occupation: event.target.value })}>
+          <option value="">Occupation</option>
+          {OCCUPATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
         <input type="number" placeholder="Unités min" value={filters.units_min} onChange={(event) => setFilters({ ...filters, units_min: event.target.value })} />
         <input type="number" placeholder="Unités max" value={filters.units_max} onChange={(event) => setFilters({ ...filters, units_max: event.target.value })} />
         <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, start: event.target.value })} />
         <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, end: event.target.value })} />
-        <button type="button" className="secondary" title="Réinitialiser" onClick={() => { setFilters(initialFilters); setQuery(''); }}><RotateCcw size={15} />Réinitialiser</button>
-        <div className="export-group">
-          <button type="button" className="secondary" title="Exporter CSV" onClick={() => exportCsv('immeubles.csv', exportRows())}><FileText size={15} />CSV</button>
-          <button type="button" className="secondary" title="Exporter Excel" onClick={() => exportExcel('immeubles.xls', exportRows())}><FileSpreadsheet size={15} />Excel</button>
-          <button type="button" className="secondary" title="Exporter PDF" onClick={() => window.print()}><Printer size={15} />PDF</button>
+        <div className="filter-actions">
+          <button type="button" className="secondary" title="Réinitialiser" onClick={() => { setFilters(initialFilters); setQuery(''); }}><RotateCcw size={15} />Réinitialiser</button>
+          <div className="export-group">
+            <button type="button" className="secondary" title="Exporter CSV" onClick={() => exportCsv('immeubles.csv', exportRows())}><FileText size={15} />CSV</button>
+            <button type="button" className="secondary" title="Exporter Excel" onClick={() => exportExcel('immeubles.xls', exportRows())}><FileSpreadsheet size={15} />Excel</button>
+            <button type="button" className="secondary" title="Exporter PDF" onClick={() => window.print()}><Printer size={15} />PDF</button>
+          </div>
         </div>
       </div>
 
-      <div className="table-wrap">
+      <div className="table-wrap buildings-table">
         <table>
           <thead>
             <tr>
@@ -193,7 +214,7 @@ export function Buildings() {
               <SortableTh label="Ville" column="city" sort={sort} onSort={toggleSort} />
               <SortableTh label="Commune" column="commune" sort={sort} onSort={toggleSort} />
               <SortableTh label="Unités" column="unit_count" sort={sort} onSort={toggleSort} alignRight />
-              <th>Actions</th>
+              <th className="actions-col">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -206,7 +227,7 @@ export function Buildings() {
                 <td>{building.city}</td>
                 <td>{building.commune ?? '-'}</td>
                 <td className="right">{building.unit_count}</td>
-                <td className="actions" onClick={(event) => event.stopPropagation()}>
+                <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}>
                   <button className="icon-btn" title="Voir" onClick={() => openReport(building)}><Eye size={16} /></button>
                   <button className="icon-btn" title="Rapport" onClick={() => openReport(building)}><BarChart3 size={16} /></button>
                   {can('buildings.update') && <button className="icon-btn" title="Modifier" onClick={() => setEditing(building)}><Pencil size={16} /></button>}
@@ -222,22 +243,19 @@ export function Buildings() {
 
       {editing && (
         <Modal title={editing.id ? 'Modifier immeuble' : 'Nouvel immeuble'} onClose={() => setEditing(null)}>
-          <BuildingForm editing={editing} typeOptions={typeOptions} onSubmit={save} />
+          <BuildingForm editing={editing} onSubmit={save} />
         </Modal>
       )}
     </section>
   );
 }
 
-function BuildingForm({ editing, typeOptions, onSubmit }: { editing: Partial<Building>; typeOptions: Array<{ value: string; label: string }>; onSubmit: (form: FormData) => void }) {
-  const [type, setType] = useState(editing.building_type ?? 'Résidence');
-  const [state, setState] = useState(editing.state ?? 'EXPLOITED');
-
+function BuildingForm({ editing, onSubmit }: { editing: Partial<Building>; onSubmit: (form: FormData) => void }) {
   return (
     <form className="form-grid building-form" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}>
       <label>Nom<input name="name" placeholder="Résidence Lumumba" defaultValue={editing.name} required /></label>
-      <label>Type<SearchableSelect options={typeOptions} value={type} onChange={(value) => setType(String(value ?? ''))} placeholder="Type" /><input type="hidden" name="building_type" value={type} /></label>
-      <label>État<SearchableSelect options={BUILDING_STATES} value={state} onChange={(value) => setState(String(value ?? ''))} placeholder="État" /><input type="hidden" name="state" value={state} /></label>
+      <label>Type<select name="building_type" defaultValue={editing.building_type ?? 'Résidence'}>{DEFAULT_BUILDING_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+      <label>État<select name="state" defaultValue={editing.state ?? 'EXPLOITED'}>{BUILDING_STATES.map((state) => <option key={state.value} value={state.value}>{state.label}</option>)}</select></label>
       <label>Ville<input name="city" placeholder="Kinshasa" defaultValue={editing.city} required /></label>
       <label>Commune <span>optionnel</span><input name="commune" placeholder="Gombe" defaultValue={editing.commune} /></label>
       <label>Adresse<input name="address" placeholder="Adresse complète" defaultValue={editing.address} required /></label>
@@ -247,7 +265,7 @@ function BuildingForm({ editing, typeOptions, onSubmit }: { editing: Partial<Bui
       <label>Téléphone <span>optionnel</span><input name="manager_phone" defaultValue={editing.manager_phone} /></label>
       <label>Email <span>optionnel</span><input type="email" name="manager_email" defaultValue={editing.manager_email} /></label>
       <label className="form-field-full">Observations <span>optionnel</span><textarea name="observations" placeholder="Notes internes" defaultValue={editing.observations ?? editing.description} /></label>
-      <button>Enregistrer</button>
+      <button className="form-submit">Enregistrer</button>
     </form>
   );
 }
@@ -261,8 +279,8 @@ function SummaryItem({ label, value }: { label: string; value: string | number }
   return <span className="summary-item"><span>{label}</span><strong>{value}</strong></span>;
 }
 
-function uniqueOptions(values: Array<string | undefined>) {
-  return Array.from(new Set(values.filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b)).map((value) => ({ value, label: value }));
+function uniqueValues(values: Array<string | undefined>) {
+  return Array.from(new Set(values.filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b));
 }
 
 function matchesOccupation(building: Building, occupation: string) {
