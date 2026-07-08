@@ -166,6 +166,7 @@ tfoot td { font-weight: 800; font-size: 18px; }
 .donut-legend-row em { color: #637783; font-style: normal; font-weight: 700; text-align: right; }
 .detail-section { margin-top: 10px; }
 .detail-section h4 { margin: 0 0 7px; font-size: 13px; color: #334e68; }
+.report-section > h4 { font-size: 15px; color: #255e7e; background: #f4f7f9; border-left: 4px solid #255e7e; border-radius: 6px; padding: 7px 10px; margin-bottom: 8px; }
 .compact-list { display: grid; gap: 6px; max-height: 260px; overflow: auto; }
 .compact-item { display: flex; justify-content: space-between; gap: 10px; border: 1px solid #e1e8ed; border-radius: 6px; padding: 7px 9px; }
 .summary-band { background: white; border: 1px solid #dde5ea; border-radius: 8px; padding: 7px 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px 14px; margin-bottom: 8px; }

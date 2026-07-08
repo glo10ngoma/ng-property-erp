@@ -12,9 +12,13 @@ export class BuildingsService {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(`
       SELECT b.*,
-             COUNT(u.id)::INT AS unit_count,
+             COUNT(u.id)::INT AS real_unit_count,
+             CASE WHEN COUNT(u.id) > 0 THEN COUNT(u.id)::INT ELSE COALESCE(b.total_units, 0)::INT END AS unit_count,
              COUNT(*) FILTER (WHERE u.status = 'OCCUPIED')::INT AS occupied_count,
-             COUNT(*) FILTER (WHERE u.status IN ('VACANT', 'AVAILABLE'))::INT AS vacant_count
+             CASE
+               WHEN COUNT(u.id) > 0 THEN COUNT(*) FILTER (WHERE u.status IN ('VACANT', 'AVAILABLE'))::INT
+               ELSE COALESCE(b.total_units, 0)::INT
+             END AS vacant_count
       FROM buildings b
       LEFT JOIN units u ON u.building_id = b.id AND u.deleted_at IS NULL
       WHERE b.organization_id = $1 AND b.deleted_at IS NULL
@@ -28,9 +32,13 @@ export class BuildingsService {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(
       `SELECT b.*,
-              COUNT(u.id)::INT AS unit_count,
+              COUNT(u.id)::INT AS real_unit_count,
+              CASE WHEN COUNT(u.id) > 0 THEN COUNT(u.id)::INT ELSE COALESCE(b.total_units, 0)::INT END AS unit_count,
               COUNT(*) FILTER (WHERE u.status = 'OCCUPIED')::INT AS occupied_count,
-              COUNT(*) FILTER (WHERE u.status IN ('VACANT', 'AVAILABLE'))::INT AS vacant_count
+              CASE
+                WHEN COUNT(u.id) > 0 THEN COUNT(*) FILTER (WHERE u.status IN ('VACANT', 'AVAILABLE'))::INT
+                ELSE COALESCE(b.total_units, 0)::INT
+              END AS vacant_count
        FROM buildings b
        LEFT JOIN units u ON u.building_id = b.id AND u.deleted_at IS NULL
        WHERE b.id = $1 AND b.organization_id = $2 AND b.deleted_at IS NULL

@@ -1762,15 +1762,20 @@ export class SaasService {
         overdue_invoices: overdueCount,
       };
     });
+    const buildingRow = requireRow(building.rows[0], 'Building');
+    const realUnitsTotal = units.rows.length;
+    const fallbackUnitsTotal = Number(buildingRow.total_units ?? 0);
+    const displayUnitsTotal = realUnitsTotal > 0 ? realUnitsTotal : fallbackUnitsTotal;
     const occupied = units.rows.filter((unit) => unit.status === 'OCCUPIED').length;
+    const vacant = realUnitsTotal > 0 ? realUnitsTotal - occupied : fallbackUnitsTotal;
     return {
-      building: requireRow(building.rows[0], 'Building'),
+      building: buildingRow,
       period,
       filters,
-      units_total: units.rows.length,
+      units_total: displayUnitsTotal,
       occupied_units: occupied,
-      vacant_units: units.rows.length - occupied,
-      occupancy_rate: units.rows.length ? Math.round((occupied / units.rows.length) * 100) : 0,
+      vacant_units: vacant,
+      occupancy_rate: displayUnitsTotal ? Math.round((occupied / displayUnitsTotal) * 100) : 0,
       tenants: tenants.rows,
       tenant_situations: tenantSituations,
       finances: finances.rows[0],

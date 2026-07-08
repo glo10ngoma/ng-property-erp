@@ -1,7 +1,7 @@
 import { ArrowLeft, Download, FileSpreadsheet, Printer, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api, exportCsv, exportExcel, invoiceDisplayStatus, money, shortDate } from '../api';
+import { api, invoiceDisplayStatus, money, shortDate } from '../api';
 import { EmptyState, PageHeader, StatusBadge } from '../components';
 
 type ReportRow = Record<string, unknown>;
@@ -99,7 +99,7 @@ export function BuildingReport() {
   const units = report?.units ?? [];
   const occupiedUnits = units.filter((unit) => String(unit.status ?? '') === 'OCCUPIED');
   const invoices = [...(report?.paid_invoices ?? []), ...(report?.partial_invoices ?? []), ...(report?.unpaid_invoices ?? [])];
-  const exportRows = [...tenants, ...invoices, ...(report?.payments ?? [])];
+  const exportData = report ? buildReportExport(report, tenants, occupiedUnits, invoices) : null;
 
   return (
     <section>
@@ -108,15 +108,15 @@ export function BuildingReport() {
         action={(
           <div className="actions">
             <button className="secondary" onClick={() => navigate('/buildings')}><ArrowLeft size={16} />Retour</button>
-            <button type="button" className="secondary" onClick={() => exportCsv('rapport-immeuble.csv', exportRows)}><Download size={16} />CSV</button>
-            <button type="button" className="secondary" onClick={() => exportExcel('rapport-immeuble.xls', exportRows)}><FileSpreadsheet size={16} />Excel</button>
+            <button type="button" className="secondary" onClick={() => exportData && exportReportCsv('rapport-immeuble.csv', exportData)}><Download size={16} />CSV</button>
+            <button type="button" className="secondary" onClick={() => exportData && exportReportExcel('rapport-immeuble.xls', exportData)}><FileSpreadsheet size={16} />Excel</button>
             <button type="button" className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
           </div>
         )}
       />
 
       {report && (
-        <section className="detail-section">
+        <section className="detail-section report-section">
           <h4>Informations immeuble</h4>
           <div className="summary-band">
             <SummaryCard label="Nom immeuble" value={text(report.building.name)} />
@@ -133,7 +133,7 @@ export function BuildingReport() {
         </section>
       )}
 
-      <section className="detail-section">
+      <section className="detail-section report-section">
         <h4>Filtres</h4>
       <div className="quick-form">
         <select value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })}>
@@ -165,7 +165,7 @@ export function BuildingReport() {
       {!report && <EmptyState message={loading ? 'Chargement...' : 'Aucune donnee.'} />}
       {report && (
         <>
-          <section className="detail-section">
+          <section className="detail-section report-section">
           <h4>Resume financier</h4>
           <div className="mini-stats">
             <div className="mini-stat"><span>Locataires ayant paye</span><strong>{report.tenants_paid.length}</strong></div>
@@ -197,7 +197,7 @@ function SummaryCard({ label, value, wide }: { label: string; value: unknown; wi
 
 function TenantTable({ rows }: { rows: ReportRow[] }) {
   return (
-    <div className="detail-section">
+    <div className="detail-section report-section">
       <h4>Locataires de cet immeuble</h4>
       <div className="table-wrap">
         <table>
@@ -227,7 +227,7 @@ function TenantTable({ rows }: { rows: ReportRow[] }) {
 
 function UnitTable({ title, rows }: { title: string; rows: ReportRow[] }) {
   return (
-    <div className="detail-section">
+    <div className="detail-section report-section">
       <h4>{title}</h4>
       <div className="table-wrap">
         <table>
@@ -242,7 +242,7 @@ function UnitTable({ title, rows }: { title: string; rows: ReportRow[] }) {
 
 function InvoiceTable({ title, rows }: { title: string; rows: ReportRow[] }) {
   return (
-    <div className="detail-section">
+    <div className="detail-section report-section">
       <h4>{title}</h4>
       <div className="table-wrap">
         <table>
@@ -273,7 +273,7 @@ function InvoiceTable({ title, rows }: { title: string; rows: ReportRow[] }) {
 
 function SummaryList({ title, rows }: { title: string; rows: ReportRow[] }) {
   return (
-    <div className="detail-section">
+    <div className="detail-section report-section">
       <h4>{title}</h4>
       <div className="compact-list">
         {rows.length ? rows.map((row, index) => (
@@ -289,6 +289,143 @@ function SummaryList({ title, rows }: { title: string; rows: ReportRow[] }) {
 
 function AmountCell({ value }: { value: unknown }) {
   return <><td className="right">{amount(value)}</td><td>USD</td></>;
+}
+
+type ExportSheet = { name: string; rows: ReportRow[] };
+
+function buildReportExport(report: BuildingReportData, tenants: ReportRow[], occupiedUnits: ReportRow[], invoices: ReportRow[]): ExportSheet[] {
+  return [
+    {
+      name: 'Résumé financier',
+      rows: [
+        { indicateur: 'Période', valeur: `${date(report.period.start)} - ${date(report.period.end)}` },
+        { indicateur: 'Immeuble', valeur: text(report.building.name) },
+        { indicateur: 'Unités totales', valeur: report.units_total },
+        { indicateur: 'Unités occupées', valeur: report.occupied_units },
+        { indicateur: 'Unités libres', valeur: report.vacant_units },
+        { indicateur: 'Taux occupation', valeur: `${report.occupancy_rate}%` },
+        { indicateur: 'Factures période', valeur: report.finances.invoices },
+        { indicateur: 'Factures payées', valeur: report.finances.paid_invoices },
+        { indicateur: 'Factures partielles', valeur: report.finances.partial_invoices },
+        { indicateur: 'Factures non payées', valeur: report.finances.unpaid_invoices },
+        { indicateur: 'Factures en retard', valeur: report.finances.overdue_invoices },
+        { indicateur: 'Total facturé', montant: report.finances.total_invoiced, devise: 'USD' },
+        { indicateur: 'Total encaissé', montant: report.finances.total_paid, devise: 'USD' },
+        { indicateur: 'Reste à encaisser', montant: report.finances.remaining, devise: 'USD' },
+      ],
+    },
+    { name: 'Locataires', rows: tenants.map(tenantExportRow) },
+    { name: 'Unités occupées', rows: occupiedUnits.map(unitExportRow) },
+    { name: 'Factures période', rows: invoices.map(invoiceExportRow) },
+    { name: 'Locataires payés', rows: report.tenants_paid.map(simpleTenantExportRow) },
+    { name: 'Locataires non payés', rows: report.tenants_unpaid.map(simpleTenantExportRow) },
+    { name: 'Factures en retard', rows: report.overdue_invoices.map(invoiceExportRow) },
+  ];
+}
+
+function tenantExportRow(row: ReportRow) {
+  return {
+    locataire: text(row.tenant_name),
+    telephone: text(row.phone),
+    unite: text(row.unit_number),
+    bail_actif: text(row.lease_status),
+    loyer: amount(row.monthly_rent),
+    statut_paiement: text(row.payment_status),
+    total_facture: amount(row.total_invoiced),
+    total_paye: amount(row.total_paid),
+    reste: amount(row.remaining_amount),
+    devise: 'USD',
+  };
+}
+
+function unitExportRow(row: ReportRow) {
+  return {
+    unite: text(row.number),
+    type: text(row.type),
+    statut: text(row.status),
+    montant: amount(row.monthly_rent),
+    devise: 'USD',
+  };
+}
+
+function invoiceExportRow(row: ReportRow) {
+  return {
+    facture: text(row.invoice_number),
+    locataire: text(row.tenant_name),
+    unite: text(row.unit_number),
+    periode: periodText(row.month, row.year),
+    date_facture: date(row.issue_date),
+    echeance: date(row.due_date),
+    statut: invoiceDisplayStatus(String(row.status ?? ''), String(row.due_date ?? '')),
+    montant: amount(row.total),
+    paye: amount(row.paid_amount),
+    reste: amount(row.remaining_amount),
+    devise: 'USD',
+  };
+}
+
+function simpleTenantExportRow(row: ReportRow) {
+  return {
+    locataire: text(row.tenant_name),
+    unite: text(row.unit_number),
+    reste: row.remaining_amount == null ? '' : amount(row.remaining_amount),
+    devise: row.remaining_amount == null ? '' : 'USD',
+  };
+}
+
+function exportReportExcel(filename: string, sheets: ExportSheet[]) {
+  const workbook = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ ${sheets.map(sheetToXml).join('')}
+</Workbook>`;
+  downloadBlob(filename.endsWith('.xls') ? filename : `${filename}.xls`, new Blob([workbook], { type: 'application/vnd.ms-excel;charset=utf-8;' }));
+}
+
+function sheetToXml(sheet: ExportSheet) {
+  const rows = sheet.rows.length ? sheet.rows : [{ Information: 'Aucune donnée' }];
+  const headers = Array.from(rows.reduce((set, row) => {
+    Object.keys(row).forEach((key) => set.add(key));
+    return set;
+  }, new Set<string>()));
+  return `<Worksheet ss:Name="${xml(sheet.name.slice(0, 31))}"><Table>
+    <Row>${headers.map((header) => `<Cell><Data ss:Type="String">${xml(header)}</Data></Cell>`).join('')}</Row>
+    ${rows.map((row) => `<Row>${headers.map((header) => `<Cell><Data ss:Type="String">${xml(row[header])}</Data></Cell>`).join('')}</Row>`).join('')}
+  </Table></Worksheet>`;
+}
+
+function exportReportCsv(filename: string, sheets: ExportSheet[]) {
+  const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+  const lines = sheets.flatMap((sheet) => {
+    const rows = sheet.rows.length ? sheet.rows : [{ Information: 'Aucune donnée' }];
+    const headers = Array.from(rows.reduce((set, row) => {
+      Object.keys(row).forEach((key) => set.add(key));
+      return set;
+    }, new Set<string>()));
+    return [
+      escape(sheet.name),
+      headers.map(escape).join(';'),
+      ...rows.map((row) => headers.map((header) => escape(row[header])).join(';')),
+      '',
+    ];
+  });
+  downloadBlob(filename, new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8;' }));
+}
+
+function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function xml(value: unknown) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function amount(value: unknown) {

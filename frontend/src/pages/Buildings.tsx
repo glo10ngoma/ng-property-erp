@@ -81,14 +81,14 @@ export function Buildings() {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
 
-  const cities = useMemo(() => uniqueValues(data.map((building) => building.city)), [data]);
-  const communes = useMemo(() => uniqueValues(data.map((building) => building.commune)), [data]);
+  const cities = useMemo(() => uniquePlaceOptions(data.map((building) => building.city)), [data]);
+  const communes = useMemo(() => uniquePlaceOptions(data.map((building) => building.commune)), [data]);
   const typeValues = useMemo(() => uniqueValues([...DEFAULT_BUILDING_TYPES, ...data.map((building) => building.building_type)]), [data]);
 
   const filtered = data
     .filter((building) => includesText(building, query))
-    .filter((building) => !filters.city || building.city === filters.city)
-    .filter((building) => !filters.commune || building.commune === filters.commune)
+    .filter((building) => !filters.city || normalizePlace(building.city) === filters.city)
+    .filter((building) => !filters.commune || normalizePlace(building.commune) === filters.commune)
     .filter((building) => !filters.building_type || building.building_type === filters.building_type)
     .filter((building) => !filters.status || (building.status ?? 'ACTIVE') === filters.status)
     .filter((building) => !filters.state || (building.state ?? 'EXPLOITED') === filters.state)
@@ -99,6 +99,7 @@ export function Buildings() {
 
   async function save(form: FormData) {
     const payload = cleanPayload(Object.fromEntries(form) as Record<string, string>);
+    console.log('[Buildings] payload envoyé', payload);
     setError('');
     try {
       if (editing?.id) await api.put(`/buildings/${editing.id}`, payload);
@@ -107,8 +108,8 @@ export function Buildings() {
       setEditing(null);
       await reload();
     } catch (err) {
-      console.error(err);
-      setError("Impossible d'enregistrer l'immeuble. Vérifiez les champs obligatoires.");
+      console.error('[Buildings] réponse API complète', getApiErrorResponse(err) ?? err);
+      setError(extractApiErrorMessage(err));
     }
   }
 
@@ -159,11 +160,11 @@ export function Buildings() {
         <input className="filter-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" />
         <select value={filters.city} onChange={(event) => setFilters({ ...filters, city: event.target.value })}>
           <option value="">Ville</option>
-          {cities.map((city) => <option key={city} value={city}>{city}</option>)}
+          {cities.map((city) => <option key={city.value} value={city.value}>{city.label}</option>)}
         </select>
         <select value={filters.commune} onChange={(event) => setFilters({ ...filters, commune: event.target.value })}>
           <option value="">Commune</option>
-          {communes.map((commune) => <option key={commune} value={commune}>{commune}</option>)}
+          {communes.map((commune) => <option key={commune.value} value={commune.value}>{commune.label}</option>)}
         </select>
         <select value={filters.building_type} onChange={(event) => setFilters({ ...filters, building_type: event.target.value })}>
           <option value="">Type</option>
@@ -231,7 +232,7 @@ export function Buildings() {
 
       {editing && (
         <Modal title={editing.id ? 'Modifier immeuble' : 'Nouvel immeuble'} onClose={() => setEditing(null)}>
-          {error && <div className="error-message">{error}</div>}
+          {error && <div className="error-message">{error.split('\n').map((line) => <div key={line}>{line}</div>)}</div>}
           <BuildingForm editing={editing} onSubmit={save} />
         </Modal>
       )}
@@ -267,6 +268,24 @@ function SummaryItem({ label, value }: { label: string; value: string | number }
 
 function uniqueValues(values: Array<string | undefined>) {
   return Array.from(new Set(values.filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b));
+}
+
+function uniquePlaceOptions(values: Array<string | undefined>) {
+  const options = new Map<string, string>();
+  values.filter(Boolean).forEach((rawValue) => {
+    const value = String(rawValue);
+    const normalized = normalizePlace(value);
+    if (normalized && !options.has(normalized)) options.set(normalized, titleCasePlace(value));
+  });
+  return Array.from(options, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function normalizePlace(value?: string) {
+  return String(value ?? '').trim().toLocaleLowerCase('fr-FR');
+}
+
+function titleCasePlace(value: string) {
+  return value.trim().toLocaleLowerCase('fr-FR').replace(/(^|\s|-)(\p{L})/gu, (_, separator: string, letter: string) => `${separator}${letter.toLocaleUpperCase('fr-FR')}`);
 }
 
 function matchesOccupation(building: Building, occupation: string) {
@@ -313,4 +332,34 @@ function stateClass(value?: string) {
 
 function cleanPayload(payload: Record<string, string>) {
   return Object.fromEntries(Object.entries(payload).map(([key, value]) => [key, value === '' ? undefined : value]));
+}
+
+function getApiErrorResponse(error: unknown) {
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    return (error as { response?: unknown }).response;
+  }
+  return undefined;
+}
+
+function extractApiErrorMessage(error: unknown) {
+  const response = getApiErrorResponse(error);
+  const data = response && typeof response === 'object' && 'data' in response
+    ? (response as { data?: unknown }).data
+    : undefined;
+
+  if (typeof data === 'string') return data;
+  if (data && typeof data === 'object') {
+    const payload = data as Record<string, unknown>;
+    const message = payload.message;
+    if (Array.isArray(message)) return message.map(String).join('\n');
+    if (typeof message === 'string') return message;
+    if (message) return JSON.stringify(message);
+
+    const errorLabel = payload.error;
+    if (Array.isArray(errorLabel)) return errorLabel.map(String).join('\n');
+    if (typeof errorLabel === 'string') return errorLabel;
+  }
+
+  if (error instanceof Error) return error.message;
+  return "Erreur inconnue pendant l'enregistrement de l'immeuble.";
 }
