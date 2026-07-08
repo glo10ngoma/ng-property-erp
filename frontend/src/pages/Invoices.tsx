@@ -198,14 +198,17 @@ export function Invoices() {
                 ))}
               </div>
               <button type="button" className="secondary invoice-add-line" onClick={() => setExtraLines([...extraLines, { description: 'Other', amount: 0 }])}>Ajouter une charge</button>
-              <div className="invoice-two-col invoice-field-full">
-                <label>Notes visibles<textarea rows={2} value={publicNotes} onChange={(event) => setPublicNotes(event.target.value)} placeholder="Texte affiche sur la facture" /></label>
-                <label>Notes internes<textarea rows={2} value={internalNotes} onChange={(event) => setInternalNotes(event.target.value)} placeholder="Note non imprimee" /></label>
-              </div>
-              <div className="invoice-two-col invoice-field-full">
-                <label>Piece jointe prevue<input type="file" accept="application/pdf,image/*" onChange={(event) => setAttachmentName(event.target.files?.[0]?.name ?? '')} /></label>
-                <label>Nom fichier<input className="locked-field" value={attachmentName} readOnly placeholder="Aucun fichier selectionne" /></label>
-              </div>
+              <details className="invoice-advanced invoice-field-full">
+                <summary>Options avancees</summary>
+                <div className="invoice-two-col">
+                  <label>Notes visibles<textarea rows={2} value={publicNotes} onChange={(event) => setPublicNotes(event.target.value)} placeholder="Texte affiche sur la facture" /></label>
+                  <label>Notes internes<textarea rows={2} value={internalNotes} onChange={(event) => setInternalNotes(event.target.value)} placeholder="Note non imprimee" /></label>
+                </div>
+                <div className="invoice-two-col">
+                  <label>Piece jointe prevue<input type="file" accept="application/pdf,image/*" onChange={(event) => setAttachmentName(event.target.files?.[0]?.name ?? '')} /></label>
+                  <label>Nom fichier<input className="locked-field" value={attachmentName} readOnly placeholder="Aucun fichier selectionne" /></label>
+                </div>
+              </details>
               <div className="total-row invoice-field-full"><span>Sous-total {money(subtotal)}</span><span>Remise {money(discount)}</span><strong>Total {money(total)}</strong></div>
             </div>
           </div>

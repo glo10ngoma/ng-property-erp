@@ -157,6 +157,10 @@ tfoot td { font-weight: 800; font-size: 18px; }
 .document-tile.available { background: white; color: #203845; border-color: #b7c7d2; }
 .document-tile span { font-weight: 800; }
 .document-tile strong { font-size: 12px; }
+.invoice-advanced, .invoice-collapsible { border: 1px solid #dce5eb; border-radius: 6px; background: #f8fafb; padding: 8px 10px; }
+.invoice-advanced summary, .invoice-collapsible summary { cursor: pointer; font-weight: 800; color: #334e68; }
+.invoice-advanced .invoice-two-col { margin-top: 8px; }
+.invoice-collapsible { max-width: 1040px; margin: 10px auto 0; }
 .mini-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 10px; }
 .mini-stat { background: white; border: 1px solid #dde5ea; border-radius: 8px; padding: 9px 10px; display: grid; gap: 2px; }
 .mini-stat span { color: #637783; font-size: 11px; text-transform: uppercase; }
