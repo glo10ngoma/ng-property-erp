@@ -124,15 +124,30 @@ textarea { min-height: 72px; resize: vertical; }
 .modal-sticky-actions { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 8px; background: white; border-top: 1px solid #dce5eb; padding-top: 10px; margin-top: 10px; }
 .invoice-line.fixed { background: #f4f7f9; border: 1px solid #dce5eb; border-radius: 6px; padding: 8px 10px; }
 .total-row { display: flex; justify-content: space-between; font-size: 18px; padding-top: 10px; border-top: 1px solid #dce5eb; }
-.print-invoice { background: white; border: 1px solid #dce5eb; border-radius: 8px; padding: 24px; max-width: 1040px; margin: 0 auto; }
-.print-invoice header { display: grid; grid-template-columns: 58px 1fr auto; gap: 14px; align-items: start; border-bottom: 2px solid #203845; padding-bottom: 16px; }
-.invoice-logo { width: 58px; height: 58px; border-radius: 8px; display: grid; place-items: center; background: #203845; color: white; font-weight: 800; }
-.invoice-meta { display: grid; gap: 7px; justify-items: end; }
+.print-invoice { background: white; border: 1px solid #dce5eb; border-radius: 8px; padding: 18px; max-width: 1040px; margin: 0 auto; }
+.print-invoice header { display: grid; grid-template-columns: 48px 1fr auto; gap: 12px; align-items: start; border-bottom: 2px solid #203845; padding-bottom: 10px; }
+.print-invoice header h2 { margin: 0 0 4px; font-size: 18px; }
+.print-invoice header p { margin: 1px 0; font-size: 12px; color: #526a78; line-height: 1.25; }
+.invoice-logo { width: 48px; height: 48px; border-radius: 7px; display: grid; place-items: center; background: #203845; color: white; font-weight: 800; font-size: 15px; }
+.invoice-meta { display: grid; gap: 5px; justify-items: end; font-size: 12px; }
+.invoice-meta strong { font-size: 14px; }
 .invoice-parties { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
 .invoice-parties div { border: 1px solid #e1e8ed; border-radius: 8px; padding: 11px; }
 .invoice-parties span { color: #637783; display: block; margin-bottom: 6px; }
-tfoot td { font-weight: 800; font-size: 18px; }
-.payment-summary { display: flex; justify-content: flex-end; gap: 18px; margin-top: 12px; }
+.invoice-parties p { margin: 3px 0; font-size: 12px; color: #526a78; }
+.invoice-detail-actions { flex-wrap: nowrap; gap: 6px; }
+.invoice-detail-actions button { min-height: 32px; padding: 0 10px; white-space: nowrap; }
+.print-invoice tbody tr:nth-child(even) { background: #f8fafb; }
+.print-invoice tbody td { border-bottom: 1px solid #edf1f4; }
+.print-invoice tfoot td { font-weight: 900; font-size: 19px; border-top: 2px solid #dce5eb; }
+.invoice-amount-cards { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px; margin-top: 14px; }
+.invoice-amount-card { border: 1px solid #dce5eb; border-radius: 8px; padding: 10px 12px; background: #f8fafb; display: grid; gap: 2px; }
+.invoice-amount-card span { color: #637783; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.invoice-amount-card strong { color: #203845; font-size: 22px; line-height: 1.1; text-align: right; }
+.invoice-amount-card em { color: #637783; font-style: normal; font-size: 12px; font-weight: 800; text-align: right; }
+.invoice-amount-card.due { background: white; border-color: #b7c7d2; box-shadow: inset 3px 0 0 #255e7e; }
+.invoice-amount-card.due strong { font-size: 27px; color: #1f2933; }
+.payment-summary { display: none; }
 .thanks { margin-top: 18px; color: #526a78; }
 .invoice-stamp { margin: 8px 0; border: 1px solid #dce5eb; border-radius: 6px; padding: 8px 12px; display: inline-flex; font-weight: 900; color: #425466; letter-spacing: .02em; }
 .invoice-stamp.paid { border-color: #b6dec9; color: #1f7a4d; background: #e0f2e9; }
@@ -161,6 +176,10 @@ tfoot td { font-weight: 800; font-size: 18px; }
 .invoice-advanced summary, .invoice-collapsible summary { cursor: pointer; font-weight: 800; color: #334e68; }
 .invoice-advanced .invoice-two-col { margin-top: 8px; }
 .invoice-collapsible { max-width: 1040px; margin: 10px auto 0; }
+.invoice-accordion-grid { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 8px; margin-top: 8px; }
+.invoice-accordion-grid details { border: 1px solid #dce5eb; border-radius: 6px; background: white; padding: 8px; }
+.invoice-accordion-grid summary { cursor: pointer; font-weight: 800; color: #255e7e; }
+.invoice-accordion-grid .compact-list { margin-top: 8px; max-height: 220px; }
 .mini-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 10px; }
 .mini-stat { background: white; border: 1px solid #dde5ea; border-radius: 8px; padding: 9px 10px; display: grid; gap: 2px; }
 .mini-stat span { color: #637783; font-size: 11px; text-transform: uppercase; }
@@ -348,6 +367,7 @@ tfoot td { font-weight: 800; font-size: 18px; }
   .metrics-grid, .finance-band, .mini-stats, .chart-grid, .quick-form, .lease-section-grid { grid-template-columns: repeat(2, 1fr); }
   .document-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
   .invoice-chart-row { grid-template-columns: 150px 1fr 90px; }
+  .invoice-amount-cards, .invoice-accordion-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
   .buildings-filter-bar, .leases-filter-bar, .invoices-filter-bar { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .building-form, .unit-form { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .tenant-form-section { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
@@ -366,6 +386,9 @@ tfoot td { font-weight: 800; font-size: 18px; }
 @media (max-width: 640px) {
   .lease-section-grid, .quick-form { grid-template-columns: 1fr; }
   .document-grid, .invoice-print-codes, .invoice-signature-row, .invoice-chart-row { grid-template-columns: 1fr; }
+  .invoice-amount-cards, .invoice-accordion-grid, .invoice-parties, .print-invoice header { grid-template-columns: 1fr; }
+  .invoice-meta { justify-items: start; }
+  .invoice-detail-actions { flex-wrap: wrap; }
   .invoice-chart-row strong { text-align: left; }
   .buildings-filter-bar, .leases-filter-bar, .invoices-filter-bar, .building-form, .unit-form { grid-template-columns: 1fr; }
   .tenant-form-section, .tenant-form-section.cols-3, .tenant-form-section.cols-4, .tenant-form-section.cols-1 { grid-template-columns: 1fr; }

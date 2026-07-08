@@ -19,6 +19,7 @@ type Invoice = {
   total: number;
   status: string;
   tenant_name?: string;
+  tenant_type?: string;
   first_name: string;
   last_name: string;
   phone: string;
@@ -27,6 +28,7 @@ type Invoice = {
   building_address: string;
   building_city: string;
   unit_number: string;
+  monthly_rent?: number;
   paid_amount: number;
   remaining_amount: number;
   discount_amount?: number;
@@ -120,7 +122,7 @@ export function InvoiceDetail() {
     <section>
       <div className="page-header no-print">
         <h2>{invoice.invoice_number}</h2>
-        <div className="actions">
+        <div className="actions invoice-detail-actions">
           <button className="secondary" onClick={() => navigate('/invoices')}><ArrowLeft size={16} />Retour</button>
           {can('invoices.update') && <button onClick={openEdit}><Pencil size={16} />Modifier</button>}
           <button onClick={() => window.print()}><Printer size={16} />Imprimer</button>
@@ -148,10 +150,6 @@ export function InvoiceDetail() {
           </div>
         </header>
 
-        <div className={displayStatus === 'PAID' ? 'invoice-stamp paid' : displayStatus === 'OVERDUE' ? 'invoice-stamp overdue' : 'invoice-stamp'}>
-          {displayStatus === 'PAID' ? 'FACTURE ACQUITTEE' : displayStatus === 'OVERDUE' ? 'FACTURE EN RETARD' : displayStatusLabel(displayStatus)}
-        </div>
-
         <div className="summary-band no-print">
           <div className="summary-item"><span>Date de facture</span><strong>{shortDate(invoice.issue_date)}</strong></div>
           <div className="summary-item"><span>Date d'echeance</span><strong>{shortDate(invoice.due_date)}</strong></div>
@@ -164,14 +162,19 @@ export function InvoiceDetail() {
           <div>
             <span>Locataire</span>
             <strong>{invoice.tenant_name || `${invoice.first_name} ${invoice.last_name}`}</strong>
-            <p>{invoice.phone || '-'}</p>
-            <p>{invoice.email || '-'}</p>
+            <p>Telephone: {invoice.phone || '-'}</p>
+            <p>Email: {invoice.email || '-'}</p>
+            <p>Reference client: CL-{String(invoice.tenant_id ?? invoice.id).padStart(4, '0')}</p>
+            <p>Type: {invoice.tenant_type === 'COMPANY' ? 'Societe' : 'Personne physique'}</p>
           </div>
           <div>
             <span>Appartement</span>
             <strong>{invoice.unit_number}</strong>
-            <p>{invoice.building_name}</p>
-            <p>{invoice.building_address}, {invoice.building_city}</p>
+            <p>Bail: {invoice.lease_id ? `B-${invoice.lease_id}` : '-'}</p>
+            <p>Immeuble: {invoice.building_name}</p>
+            <p>Appartement: {invoice.unit_number}</p>
+            <p>Adresse: {invoice.building_address}, {invoice.building_city}</p>
+            <p>Loyer contractuel: {invoice.monthly_rent ? money(invoice.monthly_rent) : '-'}</p>
           </div>
         </div>
 
@@ -184,32 +187,77 @@ export function InvoiceDetail() {
           </tfoot>
         </table>
 
-        {invoice.public_notes && <p className="thanks">{invoice.public_notes}</p>}
-        <div className="payment-summary">
-          <span>Paye: {money(invoice.paid_amount)}</span>
-          <strong>Restant du: {money(invoice.remaining_amount)}</strong>
+        <div className="invoice-amount-cards">
+          <div className="invoice-amount-card">
+            <span>Total</span>
+            <strong>{amount(invoice.total)}</strong>
+            <em>USD</em>
+          </div>
+          <div className="invoice-amount-card">
+            <span>Paye</span>
+            <strong>{amount(invoice.paid_amount)}</strong>
+            <em>USD</em>
+          </div>
+          <div className="invoice-amount-card due">
+            <span>Restant du</span>
+            <strong>{amount(invoice.remaining_amount)}</strong>
+            <em>USD</em>
+          </div>
         </div>
+        {invoice.public_notes && <p className="thanks">{invoice.public_notes}</p>}
         <p className="thanks">Merci pour votre confiance.</p>
       </article>
 
       <details className="detail-section no-print invoice-collapsible">
         <summary>Informations complementaires</summary>
-        <div className="compact-list">
-          {!!invoice.payments?.length && invoice.payments.map((payment) => (
-            <div className="compact-item" key={payment.id}>
-              <span>{payment.receipt_number ?? 'Recu'} - {shortDate(payment.payment_date)} - {paymentMethodLabel(payment.payment_method)}</span>
-              <strong>{money(payment.amount)}</strong>
+        <div className="invoice-accordion-grid">
+          <details>
+            <summary>Paiements ({invoice.payments.length})</summary>
+            <div className="compact-list">
+              {!!invoice.payments?.length && invoice.payments.map((payment) => (
+                <div className="compact-item" key={payment.id}>
+                  <span>{payment.receipt_number ?? 'Recu'} - {shortDate(payment.payment_date)} - {paymentMethodLabel(payment.payment_method)}</span>
+                  <strong>{money(payment.amount)}</strong>
+                </div>
+              ))}
+              {!invoice.payments.length && <div className="compact-empty">Aucun paiement enregistre.</div>}
             </div>
-          ))}
-          {!invoice.payments.length && <div className="compact-empty">Aucun paiement enregistre.</div>}
-          {invoice.internal_notes && <div className="compact-item"><span>Notes internes</span><strong>{invoice.internal_notes}</strong></div>}
-          {invoice.attachment_file_name && <div className="compact-item"><span>Piece jointe prevue</span><strong>{invoice.attachment_file_name}</strong></div>}
-          {!!invoice.reminders.length && invoice.reminders.map((reminder) => (
-            <div className="compact-item" key={reminder.id}>
-              <span>Relance {channelLabel(reminder.channel)} - {shortDate(reminder.reminded_at)}</span>
-              <strong>{reminder.status}</strong>
+          </details>
+          <details>
+            <summary>Relances ({invoice.reminders.length})</summary>
+            <div className="compact-list">
+              {!!invoice.reminders.length && invoice.reminders.map((reminder) => (
+                <div className="compact-item" key={reminder.id}>
+                  <span>Relance {channelLabel(reminder.channel)} - {shortDate(reminder.reminded_at)}</span>
+                  <strong>{reminder.status}</strong>
+                </div>
+              ))}
+              {!invoice.reminders.length && <div className="compact-empty">Aucune relance enregistree.</div>}
             </div>
-          ))}
+          </details>
+          <details>
+            <summary>Documents ({documents.filter((document) => document.exists).length})</summary>
+            <div className="compact-list">
+              {documents.map((document) => (
+                <div className="compact-item" key={document.name}>
+                  <span>{document.name}</span>
+                  <strong>{document.exists ? document.detail : 'Non disponible'}</strong>
+                </div>
+              ))}
+              {invoice.internal_notes && <div className="compact-item"><span>Notes internes</span><strong>{invoice.internal_notes}</strong></div>}
+            </div>
+          </details>
+          <details>
+            <summary>Timeline ({timeline.length + schedule.length})</summary>
+            <div className="compact-list">
+              {[...timeline, ...schedule.map((row) => ({ Date: row.Date, Evenement: row.Etape, Description: row.Statut }))].map((row, index) => (
+                <div className="compact-item" key={index}>
+                  <span>{row.Date} - {row.Evenement}</span>
+                  <strong>{row.Description}</strong>
+                </div>
+              ))}
+            </div>
+          </details>
         </div>
       </details>
 
