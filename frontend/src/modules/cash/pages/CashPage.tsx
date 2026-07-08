@@ -1,1 +1,1 @@
-export { CashPage } from '../../../pages/SaasPages';
+export { CashPage } from '../../../pages/CashEnterprise';

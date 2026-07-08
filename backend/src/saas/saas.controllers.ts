@@ -351,13 +351,18 @@ export class CashController {
     return this.service.cashMovements();
   }
 
+  @Get('movements/:id')
+  movementDetail(@Param('id', ParseIntPipe) id: number) {
+    return this.service.cashMovementDetail(id);
+  }
+
   @Post('expenses')
   expense(@Body() body: Record<string, unknown>) {
     return this.service.createCashMovement({ ...body, type: 'OUT' });
   }
 
   @Post('movements')
-  movement(@Body() body: Record<string, unknown>) {
+  createMovement(@Body() body: Record<string, unknown>) {
     return this.service.createCashMovement(body);
   }
 

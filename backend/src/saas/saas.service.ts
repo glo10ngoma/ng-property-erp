@@ -498,6 +498,50 @@ export class SaasService {
     return rows;
   }
 
+  async cashMovementDetail(id: number) {
+    const { rows } = await this.db.query(
+      `SELECT cm.*, cs.status AS session_status, cs.opened_at, cs.closed_at, cs.opening_balance, cs.closing_balance,
+              cs.expected_balance, cs.difference_amount,
+              i.invoice_number, i.total AS invoice_total, i.status AS invoice_status,
+              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
+              t.phone AS tenant_phone, t.email AS tenant_email,
+              CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+              u.number AS unit_number, b.name AS building_name,
+              al.action AS audit_action, al.created_at AS audit_date, al.metadata AS audit_metadata
+       FROM cash_movements cm
+       JOIN cash_sessions cs ON cs.id = cm.cash_session_id
+       LEFT JOIN invoices i ON i.id = cm.invoice_id
+       LEFT JOIN tenants t ON t.id = cm.tenant_id
+       LEFT JOIN employees e ON e.id = cm.employee_id
+       LEFT JOIN units u ON u.id = i.unit_id
+       LEFT JOIN buildings b ON b.id = u.building_id
+       LEFT JOIN LATERAL (
+         SELECT action, created_at, metadata
+         FROM audit_logs
+         WHERE organization_id = $2 AND resource = 'cash' AND resource_id = cm.id::TEXT
+         ORDER BY created_at DESC
+         LIMIT 1
+       ) al ON TRUE
+       WHERE cm.id = $1 AND cm.organization_id = $2 AND cm.deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+    const movement = requireRow(rows[0], 'Cash movement');
+    const timeline = await this.db.query(
+      `SELECT id, created_at AS date, action, resource, method, path, status_code, metadata
+       FROM audit_logs
+       WHERE organization_id = $1 AND resource = 'cash' AND resource_id = $2::TEXT
+       ORDER BY created_at DESC`,
+      [this.context.organizationId(), String(id)],
+    );
+    const documents = [
+      { name: 'Reçu PDF', exists: true, detail: `Mouvement_${movement.id}.pdf` },
+      { name: 'Pièce jointe', exists: Boolean((movement as Record<string, unknown>).attachment_file_name), detail: String((movement as Record<string, unknown>).attachment_file_name ?? 'Non disponible') },
+      { name: 'QR Code', exists: true, detail: 'Placeholder' },
+      { name: 'Code barre', exists: true, detail: 'Placeholder' },
+    ];
+    return { ...movement, timeline: timeline.rows, documents, history: timeline.rows };
+  }
+
   async stockCategories() {
     return this.findAll('stock_categories', 'name');
   }
