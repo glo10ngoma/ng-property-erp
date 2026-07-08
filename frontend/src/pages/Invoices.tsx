@@ -11,7 +11,7 @@ type Tenant = { id: number; tenant_type?: string; company_name?: string; first_n
 type Lease = { id: number; tenant_id: number; tenant_name: string; building_name: string; unit_number: string; monthly_rent: number; status: string };
 
 const lineTypes = ['Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Penalty', 'Other'];
-const emptyFilters = { month: '', year: '', start: '', end: '', status: '', building: '', tenant: '', unit: '', lease: '', attachment: '', min: '', max: '' };
+const emptyFilters = { month: '', year: '', status: '', building: '', tenant: '' };
 
 export function Invoices() {
   const { can } = useAuth();
@@ -58,16 +58,9 @@ export function Invoices() {
     return includesText({ ...invoice, displayStatus: statusLabel(displayStatus), tenant: tenantName }, query)
       && (!filters.month || Number(invoice.month) === Number(filters.month))
       && (!filters.year || Number(invoice.year) === Number(filters.year))
-      && (!filters.start || invoice.issue_date.slice(0, 10) >= filters.start)
-      && (!filters.end || invoice.issue_date.slice(0, 10) <= filters.end)
       && (!filters.status || displayStatus === filters.status)
       && (!filters.building || invoice.building_name === filters.building)
-      && (!filters.tenant || tenantName === filters.tenant)
-      && (!filters.unit || invoice.unit_number?.toLowerCase().includes(filters.unit.toLowerCase()))
-      && (!filters.lease || String(invoice.lease_number ?? '').includes(filters.lease))
-      && (!filters.attachment || (filters.attachment === 'PRESENT' ? Boolean(invoice.attachment_file_name) : !invoice.attachment_file_name))
-      && (!filters.min || Number(invoice.total) >= Number(filters.min))
-      && (!filters.max || Number(invoice.total) <= Number(filters.max));
+      && (!filters.tenant || tenantName === filters.tenant);
   });
 
   const kpis = {
@@ -135,16 +128,9 @@ export function Invoices() {
         <input placeholder="Recherche" value={query} onChange={(event) => setQuery(event.target.value)} />
         <input type="number" min="1" max="12" placeholder="Mois" value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })} />
         <input type="number" placeholder="Annee" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} />
-        <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, start: event.target.value })} />
-        <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, end: event.target.value })} />
         <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Statut</option><option value="PAID">Payee</option><option value="PARTIAL">Paiement partiel</option><option value="UNPAID">Non payee</option><option value="OVERDUE">En retard</option></select>
         <select value={filters.building} onChange={(event) => setFilters({ ...filters, building: event.target.value })}><option value="">Immeuble</option>{buildingOptions.map((building) => <option key={building} value={building}>{building}</option>)}</select>
         <select value={filters.tenant} onChange={(event) => setFilters({ ...filters, tenant: event.target.value })}><option value="">Locataire</option>{tenantOptions.map((tenantName) => <option key={tenantName} value={tenantName}>{tenantName}</option>)}</select>
-        <input placeholder="Unite" value={filters.unit} onChange={(event) => setFilters({ ...filters, unit: event.target.value })} />
-        <input placeholder="Bail" value={filters.lease} onChange={(event) => setFilters({ ...filters, lease: event.target.value })} />
-        <select value={filters.attachment} onChange={(event) => setFilters({ ...filters, attachment: event.target.value })}><option value="">Piece jointe</option><option value="PRESENT">Presente</option><option value="ABSENT">Absente</option></select>
-        <input type="number" placeholder="Min" value={filters.min} onChange={(event) => setFilters({ ...filters, min: event.target.value })} />
-        <input type="number" placeholder="Max" value={filters.max} onChange={(event) => setFilters({ ...filters, max: event.target.value })} />
         <div className="filter-actions">
           <button type="button" className="secondary" onClick={() => { setQuery(''); setFilters(emptyFilters); }}>Reinitialiser</button>
           <button type="button" className="secondary" onClick={() => exportCsv('factures.csv', exportRows)}><Download size={16} />CSV</button>
@@ -154,7 +140,7 @@ export function Invoices() {
 
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Numero</th><th>Locataire</th><th>Bail</th><th>Immeuble</th><th>Unite</th><th>Emission</th><th>Echeance</th><th>Periode</th><th className="right">Total</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th className="right">Restant</th><th>Devise</th><th>Piece</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Numero</th><th>Locataire</th><th>Bail</th><th>Immeuble</th><th>Unite</th><th>Emission</th><th>Echeance</th><th>Periode</th><th className="right">Total</th><th className="right">Paye</th><th className="right">Restant</th><th>Devise</th><th>Piece</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
             {filtered.map((invoice) => (
               <tr key={invoice.id} className="clickable-row" onClick={() => navigate(`/invoices/${invoice.id}`)}>
@@ -167,9 +153,7 @@ export function Invoices() {
                 <td>{shortDate(invoice.due_date)}</td>
                 <td>{periodLabel(invoice.month, invoice.year)}</td>
                 <td className="right">{amount(invoice.total)}</td>
-                <td>USD</td>
                 <td className="right">{amount(invoice.paid_amount)}</td>
-                <td>USD</td>
                 <td className="right">{amount(invoice.remaining_amount)}</td>
                 <td>USD</td>
                 <td><span className={invoice.attachment_file_name ? 'badge active' : 'badge'}>{invoice.attachment_file_name ? 'Presente' : 'Absente'}</span></td>
@@ -189,33 +173,43 @@ export function Invoices() {
 
       {open && (
         <Modal title="Nouvelle facture" onClose={() => setOpen(false)}>
-          <div className="form-grid">
-            <label>Locataire<TenantSearchSelect tenants={tenants.data} value={selectedTenantId} onChange={(value) => { setTenantId(value); setLeaseId(null); setRent(0); }} required /></label>
-            <label>Bail actif<SearchableSelect options={leaseOptions} value={selectedLease?.id ?? null} onChange={(value) => { setLeaseId(value ? Number(value) : null); const lease = leases.data.find((item) => item.id === value); if (lease) setRent(Number(lease.monthly_rent)); }} placeholder="Rechercher un bail" emptyMessage="Aucun bail actif trouve" /></label>
-            {selectedLease && <div className="summary-band"><div className="summary-item"><span>Immeuble</span><strong>{selectedLease.building_name}</strong></div><div className="summary-item"><span>Unite</span><strong>{selectedLease.unit_number}</strong></div><div className="summary-item"><span>Loyer bail</span><strong>{money(selectedLease.monthly_rent)}</strong></div></div>}
-            <div className="lease-section-grid">
-              <label>Date de facture<input type="date" value={invoiceForm.issue_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, issue_date: event.target.value })} required /></label>
-              <label>Date d'echeance<input type="date" value={invoiceForm.due_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, due_date: event.target.value })} required /></label>
-              <label>Mois du loyer<input type="number" min="1" max="12" value={invoiceForm.month} onChange={(event) => setInvoiceForm({ ...invoiceForm, month: event.target.value })} required /></label>
-              <label>Annee du loyer<input type="number" min="2000" max="2100" value={invoiceForm.year} onChange={(event) => setInvoiceForm({ ...invoiceForm, year: event.target.value })} required /></label>
-              <label>Periode debut<input className="locked-field" type="date" value={periodStart(invoiceForm.month, invoiceForm.year)} readOnly /></label>
-              <label>Periode fin<input className="locked-field" type="date" value={periodEnd(invoiceForm.month, invoiceForm.year)} readOnly /></label>
-            </div>
-            <label>Loyer contractuel<input type="number" value={invoiceRent} onChange={(event) => setRent(Number(event.target.value))} /></label>
-            {extraLines.map((line, index) => (
-              <div className="invoice-line" key={index}>
-                <select value={line.description} onChange={(event) => setExtraLines((lines) => lines.map((item, i) => i === index ? { ...item, description: event.target.value } : item))}>{lineTypes.map((type) => <option key={type} value={type}>{itemLabel(type)}</option>)}</select>
-                <input type="number" value={line.amount} onChange={(event) => setExtraLines((lines) => lines.map((item, i) => i === index ? { ...item, amount: Number(event.target.value) } : item))} />
-                <button type="button" className="icon-btn danger" onClick={() => setExtraLines((lines) => lines.filter((_, i) => i !== index))}><X size={16} /></button>
+          <div className="invoice-modal-body">
+            <div className="form-grid invoice-form-grid">
+              <label className="invoice-field-full">Locataire<TenantSearchSelect tenants={tenants.data} value={selectedTenantId} onChange={(value) => { setTenantId(value); setLeaseId(null); setRent(0); }} required /></label>
+              <label className="invoice-field-full">Bail actif<SearchableSelect options={leaseOptions} value={selectedLease?.id ?? null} onChange={(value) => { setLeaseId(value ? Number(value) : null); const lease = leases.data.find((item) => item.id === value); if (lease) setRent(Number(lease.monthly_rent)); }} placeholder="Rechercher un bail" emptyMessage="Aucun bail actif trouve" /></label>
+              {selectedLease && <div className="summary-band invoice-field-full"><div className="summary-item"><span>Immeuble</span><strong>{selectedLease.building_name}</strong></div><div className="summary-item"><span>Unite</span><strong>{selectedLease.unit_number}</strong></div><div className="summary-item"><span>Loyer bail</span><strong>{money(selectedLease.monthly_rent)}</strong></div></div>}
+              <div className="invoice-compact-grid invoice-field-full">
+                <label>Date de facture<input type="date" value={invoiceForm.issue_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, issue_date: event.target.value })} required /></label>
+                <label>Date d'echeance<input type="date" value={invoiceForm.due_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, due_date: event.target.value })} required /></label>
+                <label>Mois du loyer<input type="number" min="1" max="12" value={invoiceForm.month} onChange={(event) => setInvoiceForm({ ...invoiceForm, month: event.target.value })} required /></label>
+                <label>Annee du loyer<input type="number" min="2000" max="2100" value={invoiceForm.year} onChange={(event) => setInvoiceForm({ ...invoiceForm, year: event.target.value })} required /></label>
+                <label>Periode debut<input className="locked-field" type="date" value={periodStart(invoiceForm.month, invoiceForm.year)} readOnly /></label>
+                <label>Periode fin<input className="locked-field" type="date" value={periodEnd(invoiceForm.month, invoiceForm.year)} readOnly /></label>
+                <label>Loyer contractuel<input type="number" value={invoiceRent} onChange={(event) => setRent(Number(event.target.value))} /></label>
+                <label>Remise<input type="number" min="0" value={discount} onChange={(event) => setDiscount(Number(event.target.value))} /></label>
               </div>
-            ))}
-            <button type="button" className="secondary" onClick={() => setExtraLines([...extraLines, { description: 'Other', amount: 0 }])}>Ajouter une charge</button>
-            <label>Remise<input type="number" min="0" value={discount} onChange={(event) => setDiscount(Number(event.target.value))} /></label>
-            <label>Notes visibles<textarea rows={2} value={publicNotes} onChange={(event) => setPublicNotes(event.target.value)} placeholder="Texte affiche sur la facture" /></label>
-            <label>Notes internes<textarea rows={2} value={internalNotes} onChange={(event) => setInternalNotes(event.target.value)} placeholder="Note non imprimee" /></label>
-            <label>Piece jointe prevue<input type="file" accept="application/pdf,image/*" onChange={(event) => setAttachmentName(event.target.files?.[0]?.name ?? '')} /></label>
-            <label>Nom fichier<input className="locked-field" value={attachmentName} readOnly placeholder="Aucun fichier selectionne" /></label>
-            <div className="total-row"><span>Sous-total {money(subtotal)}</span><span>Remise {money(discount)}</span><strong>Total {money(total)}</strong></div>
+              <div className="invoice-lines invoice-field-full">
+                {extraLines.map((line, index) => (
+                  <div className="invoice-line" key={index}>
+                    <select aria-label="Description charge" value={line.description} onChange={(event) => setExtraLines((lines) => lines.map((item, i) => i === index ? { ...item, description: event.target.value } : item))}>{lineTypes.map((type) => <option key={type} value={type}>{itemLabel(type)}</option>)}</select>
+                    <input aria-label="Montant charge" type="number" value={line.amount} onChange={(event) => setExtraLines((lines) => lines.map((item, i) => i === index ? { ...item, amount: Number(event.target.value) } : item))} />
+                    <button type="button" className="icon-btn danger" aria-label="Supprimer la charge" onClick={() => setExtraLines((lines) => lines.filter((_, i) => i !== index))}><X size={16} /></button>
+                  </div>
+                ))}
+              </div>
+              <button type="button" className="secondary invoice-add-line" onClick={() => setExtraLines([...extraLines, { description: 'Other', amount: 0 }])}>Ajouter une charge</button>
+              <div className="invoice-two-col invoice-field-full">
+                <label>Notes visibles<textarea rows={2} value={publicNotes} onChange={(event) => setPublicNotes(event.target.value)} placeholder="Texte affiche sur la facture" /></label>
+                <label>Notes internes<textarea rows={2} value={internalNotes} onChange={(event) => setInternalNotes(event.target.value)} placeholder="Note non imprimee" /></label>
+              </div>
+              <div className="invoice-two-col invoice-field-full">
+                <label>Piece jointe prevue<input type="file" accept="application/pdf,image/*" onChange={(event) => setAttachmentName(event.target.files?.[0]?.name ?? '')} /></label>
+                <label>Nom fichier<input className="locked-field" value={attachmentName} readOnly placeholder="Aucun fichier selectionne" /></label>
+              </div>
+              <div className="total-row invoice-field-full"><span>Sous-total {money(subtotal)}</span><span>Remise {money(discount)}</span><strong>Total {money(total)}</strong></div>
+            </div>
+          </div>
+          <div className="modal-sticky-actions">
             <button onClick={save}>Creer la facture</button>
           </div>
         </Modal>
