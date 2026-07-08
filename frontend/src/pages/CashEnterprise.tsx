@@ -1,4 +1,4 @@
-import { ArrowLeft, FileSpreadsheet, Pencil, Plus, Printer, Trash2 } from 'lucide-react';
+import { ArrowLeft, Eye, FileSpreadsheet, Pencil, Printer } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, includesText, money, shortDate } from '../api';
@@ -8,13 +8,17 @@ import { useApiList } from '../hooks';
 
 type CashMovement = {
   id: number;
+  piece_number?: string;
   type: string;
+  label?: string;
   category: string;
   amount: number;
   movement_date: string;
   invoice_number?: string;
   tenant_name?: string;
+  supplier?: string;
   reference?: string;
+  attachment_file_name?: string;
 };
 
 type CashMovementDetail = CashMovement & {
@@ -37,7 +41,16 @@ type CashMovementDetail = CashMovement & {
   history?: Array<Record<string, unknown>>;
 };
 
-type CashSession = { id: number; status: string; opening_balance: number; closing_balance?: number; opened_at: string; closed_at?: string; expected_balance?: number; difference_amount?: number };
+type CashSession = {
+  id: number;
+  status: string;
+  opening_balance: number;
+  closing_balance?: number;
+  opened_at: string;
+  closed_at?: string;
+  expected_balance?: number;
+  difference_amount?: number;
+};
 
 export function CashPage() {
   const { can } = useAuth();
@@ -48,28 +61,51 @@ export function CashPage() {
   const [success, setSuccess] = useState('');
   const [filters, setFilters] = useState({ type: '', category: '', period: '' });
 
-  const filtered = useMemo(() => movements.data.filter((item) =>
-    includesText(item, query)
-    && (!filters.type || item.type === filters.type)
-    && (!filters.category || item.category === filters.category)
-    && (!filters.period || String(item.movement_date).slice(0, 7) === filters.period),
-  ), [movements.data, query, filters]);
+  const filtered = useMemo(
+    () =>
+      movements.data.filter(
+        (item) =>
+          includesText(item, query) &&
+          (!filters.type || item.type === filters.type) &&
+          (!filters.category || item.category === filters.category) &&
+          (!filters.period || String(item.movement_date).slice(0, 7) === filters.period),
+      ),
+    [movements.data, query, filters],
+  );
 
   const stats = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     const month = today.slice(0, 7);
     const totalIn = movements.data.filter((m) => m.type === 'IN').reduce((sum, m) => sum + Number(m.amount), 0);
     const totalOut = movements.data.filter((m) => m.type === 'OUT').reduce((sum, m) => sum + Number(m.amount), 0);
-    const todayIn = movements.data.filter((m) => m.type === 'IN' && String(m.movement_date).slice(0, 10) === today).reduce((sum, m) => sum + Number(m.amount), 0);
-    const todayOut = movements.data.filter((m) => m.type === 'OUT' && String(m.movement_date).slice(0, 10) === today).reduce((sum, m) => sum + Number(m.amount), 0);
-    const monthIn = movements.data.filter((m) => m.type === 'IN' && String(m.movement_date).slice(0, 7) === month).reduce((sum, m) => sum + Number(m.amount), 0);
-    const monthOut = movements.data.filter((m) => m.type === 'OUT' && String(m.movement_date).slice(0, 7) === month).reduce((sum, m) => sum + Number(m.amount), 0);
+    const todayIn = movements.data
+      .filter((m) => m.type === 'IN' && String(m.movement_date).slice(0, 10) === today)
+      .reduce((sum, m) => sum + Number(m.amount), 0);
+    const todayOut = movements.data
+      .filter((m) => m.type === 'OUT' && String(m.movement_date).slice(0, 10) === today)
+      .reduce((sum, m) => sum + Number(m.amount), 0);
+    const monthIn = movements.data
+      .filter((m) => m.type === 'IN' && String(m.movement_date).slice(0, 7) === month)
+      .reduce((sum, m) => sum + Number(m.amount), 0);
+    const monthOut = movements.data
+      .filter((m) => m.type === 'OUT' && String(m.movement_date).slice(0, 7) === month)
+      .reduce((sum, m) => sum + Number(m.amount), 0);
     return { balance: totalIn - totalOut, todayIn, todayOut, monthIn, monthOut, monthBalance: monthIn - monthOut, count: movements.data.length };
+  }, [movements.data]);
+
+  const nextPieceNumber = useMemo(() => {
+    const expenses = movements.data
+      .map((movement) => movement.piece_number ?? '')
+      .filter((value) => value.startsWith('D-'))
+      .map((value) => Number(value.replace(/^D-/, '')))
+      .filter((value) => Number.isFinite(value));
+    const next = expenses.length ? Math.max(...expenses) + 1 : 1;
+    return `D-${String(next).padStart(4, '0')}`;
   }, [movements.data]);
 
   async function expense(form: FormData) {
     await api.post('/cash/expenses', Object.fromEntries(form));
-    setSuccess('Mouvement de caisse enregistré.');
+    setSuccess('Mouvement de caisse enregistre.');
     movements.reload();
     sessions.reload();
   }
@@ -77,13 +113,15 @@ export function CashPage() {
   function exportRows() {
     return filtered.map((movement) => ({
       date: shortDate(movement.movement_date),
+      piece: movement.piece_number ?? '-',
       type: movementTypeLabel(movement.type),
+      libelle: movement.label ?? movement.reference ?? '-',
       categorie: cashCategoryLabel(movement.category),
       montant: money(movement.amount),
       facture: movement.invoice_number ?? '-',
-      locataire: movement.tenant_name ?? '-',
+      locataire_ou_fournisseur: movement.tenant_name ?? movement.supplier ?? '-',
       reference: movement.reference ?? '-',
-      statut: movement.type === 'IN' ? 'Entrée' : 'Dépense',
+      statut: movement.type === 'IN' ? 'Entree' : 'Depense',
     }));
   }
 
@@ -93,51 +131,110 @@ export function CashPage() {
       <SuccessMessage message={success} />
       <div className="mini-stats">
         <div className="mini-stat"><span>Solde actuel</span><strong>{money(stats.balance)}</strong></div>
-        <div className="mini-stat"><span>Entrées aujourd’hui</span><strong>{money(stats.todayIn)}</strong></div>
-        <div className="mini-stat"><span>Dépenses aujourd’hui</span><strong>{money(stats.todayOut)}</strong></div>
-        <div className="mini-stat"><span>Entrées du mois</span><strong>{money(stats.monthIn)}</strong></div>
-        <div className="mini-stat"><span>Dépenses du mois</span><strong>{money(stats.monthOut)}</strong></div>
+        <div className="mini-stat"><span>Entrees aujourd'hui</span><strong>{money(stats.todayIn)}</strong></div>
+        <div className="mini-stat"><span>Depenses aujourd'hui</span><strong>{money(stats.todayOut)}</strong></div>
+        <div className="mini-stat"><span>Entrees du mois</span><strong>{money(stats.monthIn)}</strong></div>
+        <div className="mini-stat"><span>Depenses du mois</span><strong>{money(stats.monthOut)}</strong></div>
         <div className="mini-stat"><span>Solde du mois</span><strong>{money(stats.monthBalance)}</strong></div>
         <div className="mini-stat"><span>Nombre de mouvements</span><strong>{stats.count}</strong></div>
       </div>
+
       <div className="table-toolbar">
         <div className="toolbar-main">
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" />
         </div>
         <div className="toolbar-actions">
-          <button type="button" className="secondary" onClick={() => setFilters({ type: '', category: '', period: '' })}>Réinitialiser</button>
-          <button type="button" className="secondary" onClick={() => exportXlsxWorkbook('Caisse.xlsx', [
-            { name: 'Résumé', rows: [{ solde_actuel: money(stats.balance), entrees_aujourd_hui: money(stats.todayIn), depenses_aujourd_hui: money(stats.todayOut), entrees_du_mois: money(stats.monthIn), depenses_du_mois: money(stats.monthOut), solde_du_mois: money(stats.monthBalance), nombre_mouvements: stats.count }] },
-            { name: 'Mouvements', rows: exportRows() },
-            { name: 'Entrées', rows: filtered.filter((movement) => movement.type === 'IN').map(cashExportRow) },
-            { name: 'Dépenses', rows: filtered.filter((movement) => movement.type === 'OUT').map(cashExportRow) },
-            { name: 'Catégories', rows: Array.from(new Set(filtered.map((movement) => movement.category))).map((category) => ({ categorie: cashCategoryLabel(category), nombre: filtered.filter((movement) => movement.category === category).length })) },
-            { name: 'Documents', rows: [] },
-            { name: 'Timeline', rows: filtered.map((movement) => ({ date: shortDate(movement.movement_date), evenement: movementTypeLabel(movement.type), description: movement.reference ?? movement.invoice_number ?? '-', utilisateur: '-' })) },
-            { name: 'Audit', rows: filtered.map((movement) => ({ reference: movement.reference ?? '-', statut: 'Disponible' })) },
-          ])}>Export</button>
+          <button type="button" className="secondary" onClick={() => setFilters({ type: '', category: '', period: '' })}>Reinitialiser</button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() =>
+              exportXlsxWorkbook('Caisse.xlsx', [
+                { name: 'Resume', rows: [{ solde_actuel: money(stats.balance), entrees_aujourd_hui: money(stats.todayIn), depenses_aujourd_hui: money(stats.todayOut), entrees_du_mois: money(stats.monthIn), depenses_du_mois: money(stats.monthOut), solde_du_mois: money(stats.monthBalance), nombre_mouvements: stats.count }] },
+                { name: 'Mouvements', rows: exportRows() },
+                { name: 'Entrees', rows: filtered.filter((movement) => movement.type === 'IN').map(cashExportRow) },
+                { name: 'Depenses', rows: filtered.filter((movement) => movement.type === 'OUT').map(cashExportRow) },
+                { name: 'Categories', rows: Array.from(new Set(filtered.map((movement) => movement.category))).map((category) => ({ categorie: cashCategoryLabel(category), nombre: filtered.filter((movement) => movement.category === category).length })) },
+                { name: 'Documents', rows: [] },
+                { name: 'Timeline', rows: filtered.map((movement) => ({ date: shortDate(movement.movement_date), evenement: movementTypeLabel(movement.type), description: movement.label ?? movement.reference ?? '-', utilisateur: '-' })) },
+                { name: 'Audit', rows: filtered.map((movement) => ({ piece: movement.piece_number ?? '-', reference: movement.reference ?? '-', statut: 'Disponible' })) },
+              ])
+            }
+          >
+            Export
+          </button>
         </div>
       </div>
-      <details className="detail-section">
-        <summary>Filtres avancés</summary>
-        <div className="quick-form compact-grid">
-          <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}>
-            <option value="">Type (Entrée / Dépense)</option>
-            <option value="IN">Entrée</option>
-            <option value="OUT">Dépense</option>
-          </select>
-          <select value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}>
-            <option value="">Catégorie</option>
-            {Array.from(new Set(movements.data.map((movement) => movement.category))).map((category) => <option key={category} value={category}>{cashCategoryLabel(category)}</option>)}
-          </select>
-          <input type="month" value={filters.period} onChange={(event) => setFilters({ ...filters, period: event.target.value })} />
-        </div>
-      </details>
-      {can('cash.create') && <CashExpenseForm onSubmit={expense} />}
+
+      <div className="quick-form compact-grid cash-filters-row">
+        <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}>
+          <option value="">Type</option>
+          <option value="IN">Entree</option>
+          <option value="OUT">Depense</option>
+        </select>
+        <select value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}>
+          <option value="">Categorie</option>
+          {Array.from(new Set(movements.data.map((movement) => movement.category))).map((category) => (
+            <option key={category} value={category}>
+              {cashCategoryLabel(category)}
+            </option>
+          ))}
+        </select>
+        <input type="month" value={filters.period} onChange={(event) => setFilters({ ...filters, period: event.target.value })} />
+      </div>
+
+      {can('cash.create') && <CashExpenseForm onSubmit={expense} nextPieceNumber={nextPieceNumber} />}
+
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Date</th><th>Type</th><th>Catégorie</th><th className="right">Montant</th><th>Facture</th><th>Locataire</th><th>Référence</th><th>Statut</th><th>Actions</th></tr></thead>
-          <tbody>{filtered.map((movement) => <tr key={movement.id} className="clickable-row" onClick={() => navigate(`/cash/${movement.id}`)}><td>{shortDate(movement.movement_date)}</td><td>{movementTypeLabel(movement.type)}</td><td>{cashCategoryLabel(movement.category)}</td><td className="right">{money(movement.amount)}</td><td>{movement.invoice_number ?? '-'}</td><td>{movement.tenant_name ?? '-'}</td><td>{movement.reference ?? '-'}</td><td><span className={`badge ${movement.type === 'IN' ? 'paid' : 'unpaid'}`}>{movement.type === 'IN' ? 'Entrée' : 'Dépense'}</span></td><td><div className="row-actions"><button type="button" className="icon-btn" title="Voir" onClick={(event) => { event.stopPropagation(); navigate(`/cash/${movement.id}`); }}>↗</button></div></td></tr>)}</tbody>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>N° piece</th>
+              <th>Type</th>
+              <th>Libelle</th>
+              <th>Categorie</th>
+              <th className="right">Montant</th>
+              <th>Facture</th>
+              <th>Locataire / Fournisseur</th>
+              <th>Reference</th>
+              <th>Statut</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((movement) => (
+              <tr key={movement.id} className="clickable-row" onClick={() => navigate(`/cash/${movement.id}`)}>
+                <td>{shortDate(movement.movement_date)}</td>
+                <td>{movement.piece_number ?? '-'}</td>
+                <td>{movementTypeLabel(movement.type)}</td>
+                <td>{movement.label ?? movement.reference ?? '-'}</td>
+                <td>{cashCategoryLabel(movement.category)}</td>
+                <td className="right">{money(movement.amount)}</td>
+                <td>{movement.invoice_number ?? '-'}</td>
+                <td>{movement.tenant_name ?? movement.supplier ?? '-'}</td>
+                <td>{movement.reference ?? '-'}</td>
+                <td>
+                  <span className={`badge ${movement.type === 'IN' ? 'paid' : 'unpaid'}`}>{movement.type === 'IN' ? 'Entree' : 'Depense'}</span>
+                </td>
+                <td>
+                  <div className="row-actions">
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Voir"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        navigate(`/cash/${movement.id}`);
+                      }}
+                    >
+                      <Eye size={16} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
         </table>
         {!filtered.length && <EmptyState />}
       </div>
@@ -159,7 +256,15 @@ export function CashDetailPage() {
   if (!movement) return <div className="empty">Chargement du mouvement...</div>;
 
   const rows = [
-    { date: shortDate(movement.movement_date), type: movementTypeLabel(movement.type), category: cashCategoryLabel(movement.category), amount: money(movement.amount), reference: movement.reference ?? '-', tenant: movement.tenant_name ?? '-' },
+    {
+      piece: movement.piece_number ?? '-',
+      date: shortDate(movement.movement_date),
+      type: movementTypeLabel(movement.type),
+      category: cashCategoryLabel(movement.category),
+      amount: money(movement.amount),
+      reference: movement.reference ?? '-',
+      tenant: movement.tenant_name ?? '-',
+    },
   ];
 
   return (
@@ -167,47 +272,72 @@ export function CashDetailPage() {
       <div className="page-header no-print">
         <h2>Mouvement de caisse</h2>
         <div className="actions">
-          <button className="secondary" onClick={() => navigate('/cash')}><ArrowLeft size={16} />Retour</button>
-          {can('cash.update') && <button><Pencil size={16} />Modifier</button>}
-          <button onClick={() => window.print()}><Printer size={16} />Imprimer</button>
-          <button className="secondary" onClick={() => exportXlsxWorkbook(`Caisse_${movement.id}.xlsx`, [
-            { name: 'Résumé', rows },
-            { name: 'Mouvements', rows },
-            { name: 'Entrées', rows: movement.type === 'IN' ? rows : [] },
-            { name: 'Dépenses', rows: movement.type === 'OUT' ? rows : [] },
-            { name: 'Catégories', rows: [{ categorie: cashCategoryLabel(movement.category), nombre: 1 }] },
-            { name: 'Documents', rows: movement.documents ?? [] },
-            { name: 'Timeline', rows: movement.timeline ?? [] },
-            { name: 'Audit', rows: movement.history ?? [] },
-          ])}><FileSpreadsheet size={16} />Exporter Excel</button>
+          <button className="secondary" onClick={() => navigate('/cash')}>
+            <ArrowLeft size={16} />
+            Retour
+          </button>
+          {can('cash.update') && (
+            <button>
+              <Pencil size={16} />
+              Modifier
+            </button>
+          )}
+          <button onClick={() => window.print()}>
+            <Printer size={16} />
+            Imprimer
+          </button>
+          <button
+            className="secondary"
+            onClick={() =>
+              exportXlsxWorkbook(`Caisse_${movement.id}.xlsx`, [
+                { name: 'Resume', rows },
+                { name: 'Mouvements', rows },
+                { name: 'Entrees', rows: movement.type === 'IN' ? rows : [] },
+                { name: 'Depenses', rows: movement.type === 'OUT' ? rows : [] },
+                { name: 'Categories', rows: [{ categorie: cashCategoryLabel(movement.category), nombre: 1 }] },
+                { name: 'Documents', rows: movement.documents ?? [] },
+                { name: 'Timeline', rows: movement.timeline ?? [] },
+                { name: 'Audit', rows: movement.history ?? [] },
+              ])
+            }
+          >
+            <FileSpreadsheet size={16} />
+            Exporter Excel
+          </button>
         </div>
       </div>
+
       <article className="print-invoice">
         <header>
           <div className="invoice-logo">PE</div>
           <div>
             <h2>NG Property ERP</h2>
-            <p>Reçu de mouvement de caisse</p>
+            <p>Recu de mouvement de caisse</p>
             <p>Merci pour votre confiance.</p>
           </div>
           <div className="invoice-meta">
-            <strong>{movement.type === 'IN' ? 'Entrée' : 'Dépense'} #{movement.id}</strong>
+            <strong>
+              {movement.type === 'IN' ? 'Entree' : 'Depense'} #{movement.id}
+            </strong>
+            <span>N° piece: {movement.piece_number ?? '-'}</span>
             <span>Date: {shortDate(movement.movement_date)}</span>
             <span>Montant: {money(movement.amount)}</span>
-            <span>Référence: {movement.reference ?? '-'}</span>
+            <span>Reference: {movement.reference ?? '-'}</span>
           </div>
         </header>
+
         <div className="invoice-parties">
           <div>
-            <span>Informations générales</span>
+            <span>Informations generales</span>
             <strong>{cashCategoryLabel(movement.category)}</strong>
+            <p>Libelle: {movement.label ?? movement.description ?? '-'}</p>
             <p>Facture: {movement.invoice_number ?? '-'}</p>
             <p>Locataire: {movement.tenant_name ?? '-'}</p>
-            <p>Téléphone: {movement.tenant_phone ?? '-'}</p>
+            <p>Telephone: {movement.tenant_phone ?? '-'}</p>
             <p>Email: {movement.tenant_email ?? '-'}</p>
           </div>
           <div>
-            <span>Détails</span>
+            <span>Details</span>
             <strong>{movement.building_name ?? '-'}</strong>
             <p>Appartement: {movement.unit_number ?? '-'}</p>
             <p>Utilisateur: {movement.user_name ?? movement.employee_name ?? '-'}</p>
@@ -215,57 +345,139 @@ export function CashDetailPage() {
             <p>Observations: {movement.description ?? '-'}</p>
           </div>
         </div>
-        <table>
-          <thead><tr><th>Date</th><th>Type</th><th>Catégorie</th><th className="right">Montant</th><th>Facture</th><th>Locataire</th><th>Référence</th></tr></thead>
-          <tbody><tr><td>{shortDate(movement.movement_date)}</td><td>{movementTypeLabel(movement.type)}</td><td>{cashCategoryLabel(movement.category)}</td><td className="right">{money(movement.amount)}</td><td>{movement.invoice_number ?? '-'}</td><td>{movement.tenant_name ?? '-'}</td><td>{movement.reference ?? '-'}</td></tr></tbody>
-        </table>
+
+        <div className="cash-summary-grid">
+          <div className="mini-stat">
+            <span>Type</span>
+            <strong>{movementTypeLabel(movement.type)}</strong>
+          </div>
+          <div className="mini-stat">
+            <span>Categorie</span>
+            <strong>{cashCategoryLabel(movement.category)}</strong>
+          </div>
+          <div className="mini-stat">
+            <span>Montant</span>
+            <strong>{money(movement.amount)}</strong>
+          </div>
+          <div className="mini-stat">
+            <span>Facture</span>
+            <strong>{movement.invoice_number ?? '-'}</strong>
+          </div>
+        </div>
       </article>
+
       <div className="invoice-accordion-grid no-print">
-        <details><summary>Timeline ({movement.timeline?.length ?? 0})</summary><SimpleBlock rows={movement.timeline ?? []} /></details>
-        <details><summary>Documents ({movement.documents?.length ?? 0})</summary><SimpleBlock rows={movement.documents ?? []} /></details>
-        <details><summary>Historique ({movement.history?.length ?? 0})</summary><SimpleBlock rows={movement.history ?? []} /></details>
+        <details>
+          <summary>Timeline ({movement.timeline?.length ?? 0})</summary>
+          <SimpleBlock rows={movement.timeline ?? []} />
+        </details>
+        <details>
+          <summary>Documents ({movement.documents?.length ?? 0})</summary>
+          <SimpleBlock rows={movement.documents ?? []} />
+        </details>
+        <details>
+          <summary>Historique ({movement.history?.length ?? 0})</summary>
+          <SimpleBlock rows={movement.history ?? []} />
+        </details>
       </div>
     </section>
   );
 }
 
-function CashExpenseForm({ onSubmit }: { onSubmit: (form: FormData) => void }) {
+function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormData) => void; nextPieceNumber: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <div className="actions-row">
-        <button type="button" onClick={() => setOpen(true)}>Enregistrer dépense</button>
+        <button type="button" onClick={() => setOpen(true)}>
+          Enregistrer depense
+        </button>
       </div>
       {open && (
-        <Modal title="Enregistrer dépense" onClose={() => setOpen(false)}>
-          <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); event.currentTarget.reset(); setOpen(false); }}>
-            <div className="detail-section compact-modal-section">
-              <summary>Informations générales</summary>
+        <Modal title="Enregistrer depense" onClose={() => setOpen(false)}>
+          <form
+            className="cash-modal-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSubmit(new FormData(event.currentTarget));
+              event.currentTarget.reset();
+              setOpen(false);
+            }}
+          >
+            <div className="modal-section">
+              <h3>Informations principales</h3>
               <div className="lease-section-grid">
-                <label>Catégorie *<input name="category" required placeholder="Catégorie" /></label>
-                <label>Montant *<input name="amount" type="number" required step="0.01" /></label>
-                <label>Date *<input name="movement_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></label>
+                <label>
+                  N° piece
+                  <input value={nextPieceNumber} readOnly className="locked-field" />
+                </label>
+                <label>
+                  Libelle *
+                  <input name="label" required placeholder="Libelle" />
+                </label>
+                <label>
+                  Categorie *
+                  <input name="category" required placeholder="Categorie" />
+                </label>
+                <label>
+                  Montant *
+                  <input name="amount" type="number" required step="0.01" />
+                </label>
+                <label>
+                  Date *
+                  <input name="movement_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} />
+                </label>
               </div>
             </div>
-            <div className="detail-section compact-modal-section">
-              <summary>Informations complémentaires</summary>
+
+            <div className="modal-section">
+              <h3>Paiement / fournisseur</h3>
               <div className="lease-section-grid">
-                <label>Référence<input name="reference" placeholder="Référence" /></label>
-                <label>Fournisseur<input name="supplier" placeholder="Fournisseur" /></label>
-                <label>Moyen de paiement<select name="payment_method"><option value="">-</option><option value="CASH">Espèces</option><option value="BANK">Banque</option><option value="MOBILE_MONEY">Mobile Money</option></select></label>
-                <label>Description<textarea name="description" rows={2} placeholder="Description" /></label>
+                <label>
+                  Fournisseur
+                  <input name="supplier" placeholder="Fournisseur" />
+                </label>
+                <label>
+                  Moyen de paiement
+                  <select name="payment_method">
+                    <option value="">-</option>
+                    <option value="CASH">Especes</option>
+                    <option value="BANK">Banque</option>
+                    <option value="MOBILE_MONEY">Mobile Money</option>
+                  </select>
+                </label>
+                <label>
+                  Reference
+                  <input name="reference" placeholder="Reference" />
+                </label>
+                <label>
+                  Piece jointe
+                  <input name="attachment_file_name" placeholder="Nom du fichier" />
+                </label>
               </div>
             </div>
-            <details className="detail-section" open={false}>
-              <summary>Options avancées</summary>
+
+            <div className="modal-section">
+              <h3>Notes</h3>
               <div className="lease-section-grid">
-                <label>Pièce jointe<input name="attachment_file_name" placeholder="Pièce jointe" /></label>
-                <label>Nom du fichier<input name="attachment_file_name_display" placeholder="Nom du fichier" /></label>
-                <label>Observations internes<textarea name="notes" rows={2} /></label>
-                <label>Devise<input value="USD" readOnly className="locked-field" /></label>
+                <label>
+                  Description
+                  <textarea name="description" rows={2} placeholder="Description" />
+                </label>
+                <label>
+                  Observations internes
+                  <textarea name="notes" rows={2} placeholder="Observations internes" />
+                </label>
+                <label>
+                  Devise
+                  <input value="USD" readOnly className="locked-field" />
+                </label>
               </div>
-            </details>
-            <button type="submit">Enregistrer</button>
+            </div>
+
+            <div className="modal-footer-sticky">
+              <button type="submit">Enregistrer</button>
+            </div>
           </form>
         </Modal>
       )}
@@ -276,33 +488,41 @@ function CashExpenseForm({ onSubmit }: { onSubmit: (form: FormData) => void }) {
 function cashExportRow(movement: CashMovement) {
   return {
     date: shortDate(movement.movement_date),
+    piece: movement.piece_number ?? '-',
     type: movementTypeLabel(movement.type),
+    libelle: movement.label ?? movement.reference ?? '-',
     categorie: cashCategoryLabel(movement.category),
     montant: money(movement.amount),
     facture: movement.invoice_number ?? '-',
-    locataire: movement.tenant_name ?? '-',
+    locataire_ou_fournisseur: movement.tenant_name ?? movement.supplier ?? '-',
     reference: movement.reference ?? '-',
   };
 }
 
 function cashCategoryLabel(value: string) {
-  return ({
-    INVOICE_PAYMENT: 'Paiement facture',
-    SALARY_ADVANCE: 'Avance salaire',
-    OTHER_INCOME: 'Autre entrée',
-    OTHER_EXPENSE: 'Autre dépense',
-    LEASE_GUARANTEE: 'Garantie locative',
-    LEASE_GUARANTEE_REFUND: 'Remboursement garantie',
-    SALARY_PAYMENT: 'Paiement salaire',
-    MAINTENANCE_EXPENSE: 'Dépense maintenance',
-    PAYMENT_REFUND: 'Remboursement paiement',
-  } as Record<string, string>)[value] ?? value;
+  return (
+    {
+      INVOICE_PAYMENT: 'Paiement facture',
+      SALARY_ADVANCE: 'Avance salaire',
+      OTHER_INCOME: 'Autre entree',
+      OTHER_EXPENSE: 'Autre depense',
+      LEASE_GUARANTEE: 'Garantie locative',
+      LEASE_GUARANTEE_REFUND: 'Remboursement garantie',
+      SALARY_PAYMENT: 'Paiement salaire',
+      MAINTENANCE_EXPENSE: 'Depense maintenance',
+      PAYMENT_REFUND: 'Remboursement paiement',
+    } as Record<string, string>
+  )[value] ?? value;
 }
 
 function movementTypeLabel(value: string) {
-  return ({ IN: 'Entrée', OUT: 'Dépense' } as Record<string, string>)[value] ?? value;
+  return ({ IN: 'Entree', OUT: 'Depense' } as Record<string, string>)[value] ?? value;
 }
 
 function SimpleBlock({ rows }: { rows: Array<Record<string, unknown>> }) {
-  return <div className="compact-list">{rows.map((row, index) => <div className="compact-item" key={index}><span>{Object.entries(row).map(([key, value]) => `${key}: ${String(value ?? '-')}`).join(' | ')}</span></div>)}</div>;
+  return (
+    <div className="compact-list">
+      {rows.length ? rows.map((row, index) => <div className="compact-item" key={index}><span>{Object.entries(row).map(([key, value]) => `${key}: ${String(value ?? '-')}`).join(' | ')}</span></div>) : <div className="empty-inline">Aucune donnee.</div>}
+    </div>
+  );
 }

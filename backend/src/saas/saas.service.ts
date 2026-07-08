@@ -2581,14 +2581,17 @@ export class SaasService {
     const session = await this.openSession(client);
     const type = String(body.type ?? 'OUT');
     const category = String(body.category ?? (type === 'IN' ? 'OTHER_INCOME' : 'OTHER_EXPENSE'));
+    const pieceNumber = body.piece_number ?? await this.nextCashPieceNumber(client, type);
     const { rows } = await client.query(
       `INSERT INTO cash_movements
-       (cash_session_id, type, category, amount, movement_date, payment_id, invoice_id, tenant_id, employee_id, description, reference, created_by, organization_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       (cash_session_id, piece_number, type, label, category, amount, movement_date, payment_id, invoice_id, tenant_id, employee_id, supplier, description, reference, attachment_file_name, attachment_file_url, created_by, organization_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
        RETURNING *`,
       [
         session.id,
+        pieceNumber,
         type,
+        String(body.label ?? body.description ?? body.category ?? 'Mouvement de caisse'),
         category,
         Number(body.amount ?? 0),
         body.movement_date ?? new Date().toISOString().slice(0, 10),
@@ -2596,12 +2599,26 @@ export class SaasService {
         body.invoice_id ?? null,
         body.tenant_id ?? null,
         body.employee_id ?? null,
+        body.supplier ?? null,
         body.description ?? null,
         body.reference ?? null,
+        body.attachment_file_name ?? null,
+        body.attachment_file_url ?? null,
         this.context.userId() ?? body.created_by ?? 1,
         this.context.organizationId(),
       ],
     );
     return rows[0];
+  }
+
+  private async nextCashPieceNumber(client: PoolClient, type: string) {
+    const prefix = type === 'IN' ? 'E' : 'D';
+    const { rows } = await client.query(
+      `SELECT COALESCE(MAX(NULLIF(SUBSTRING(piece_number FROM '([0-9]+)$'), '')::INT), 0) + 1 AS value
+       FROM cash_movements
+       WHERE organization_id = $1 AND deleted_at IS NULL AND piece_number LIKE $2`,
+      [this.context.organizationId(), `${prefix}-%`],
+    );
+    return `${prefix}-${String(rows[0]?.value ?? 1).padStart(4, '0')}`;
   }
 }
