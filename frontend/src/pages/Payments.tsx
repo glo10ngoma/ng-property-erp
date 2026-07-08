@@ -16,7 +16,6 @@ type Payment = {
   tenant_phone?: string;
   tenant_email?: string;
   unit_number?: string;
-  building_name?: string;
   payment_date: string;
   amount: number;
   payment_method: string;
@@ -36,7 +35,6 @@ type Invoice = {
   total: number;
   status: string;
   unit_number?: string;
-  building_name?: string;
   lease_id?: number;
   tenant_phone?: string;
   tenant_email?: string;
@@ -74,7 +72,7 @@ export function Payments() {
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
 
   const invoiceOptions = useMemo(
-    () => invoices.data.filter((invoice) => invoice.status !== 'PAID'),
+    () => invoices.data.filter((invoice) => ['UNPAID', 'PARTIAL', 'OVERDUE'].includes(invoice.status) && Number(invoice.remaining_amount) > 0),
     [invoices.data],
   );
 
@@ -149,13 +147,10 @@ export function Payments() {
       facture: payment.invoice_number,
       locataire: payment.tenant_name,
       appartement: payment.unit_number ?? '-',
-      immeuble: payment.building_name ?? '-',
       date: shortDate(payment.payment_date),
       montant: money(payment.amount),
-      devise: 'USD',
       mode: paymentMethodLabel(payment.payment_method),
       reference_externe: payment.reference ?? '-',
-      utilisateur: payment.payer_name ?? '-',
       statut: payment.status ?? payment.invoice_status ?? '-',
     }));
   }
@@ -233,17 +228,13 @@ export function Payments() {
         <table>
           <thead>
             <tr>
-              <th>Référence paiement</th>
               <th>Facture</th>
               <th>Locataire</th>
               <th>Appartement</th>
-              <th>Immeuble</th>
               <th>Date</th>
               <th className="right">Montant</th>
-              <th>Devise</th>
               <th>Mode</th>
-              <th>Référence externe</th>
-              <th>Utilisateur</th>
+              <th>Référence</th>
               <th>Statut</th>
               <th>Actions</th>
             </tr>
@@ -253,17 +244,13 @@ export function Payments() {
               const status = payment.status ?? payment.invoice_status ?? 'PAID';
               return (
                 <tr key={payment.id} className="clickable-row" onClick={() => navigate(`/payments/${payment.id}`)}>
-                  <td>{payment.receipt_number ?? `PAY-${payment.id}`}</td>
                   <td>{payment.invoice_number}</td>
                   <td>{payment.tenant_name}</td>
                   <td>{payment.unit_number ?? '-'}</td>
-                  <td>{payment.building_name ?? '-'}</td>
                   <td>{shortDate(payment.payment_date)}</td>
                   <td className="right">{money(payment.amount)}</td>
-                  <td>USD</td>
                   <td>{paymentMethodLabel(payment.payment_method)}</td>
                   <td>{payment.reference ?? '-'}</td>
-                  <td>{payment.payer_name ?? '-'}</td>
                   <td><span className={`badge ${String(status).toLowerCase()}`}>{statusLabel(status)}</span></td>
                   <td>
                     <div className="row-actions">
@@ -340,7 +327,7 @@ function PaymentModal({
                 <option value="">Choisir une facture</option>
                 {invoices.map((invoice) => (
                   <option key={invoice.id} value={invoice.id}>
-                    {invoice.invoice_number} - {invoice.tenant_name} ({money(invoice.remaining_amount)})
+                    {invoice.invoice_number} | {invoice.tenant_name} | {invoice.unit_number ?? '-'} | Facture: {money(invoice.total)} USD | Payé: {money(invoice.paid_amount ?? Math.max(0, Number(invoice.total) - Number(invoice.remaining_amount)))} USD | Reste: {money(invoice.remaining_amount)} USD
                   </option>
                 ))}
               </select>
@@ -360,10 +347,12 @@ function PaymentModal({
           </div>
           {selectedInvoice && (
             <div className="payment-summary-strip">
-              <span>Facture : <strong>{selectedInvoice.invoice_number}</strong></span>
-              <span>Montant facture : <strong>{money(selectedInvoice.total)}</strong></span>
-              <span>Déjà payé : <strong>{money(selectedInvoice.paid_amount ?? Math.max(0, Number(selectedInvoice.total) - Number(selectedInvoice.remaining_amount)))}</strong></span>
-              <span>Reste à payer : <strong>{money(remaining)}</strong></span>
+              <span>{selectedInvoice.invoice_number}</span>
+              <span>{selectedInvoice.tenant_name}</span>
+              <span>{selectedInvoice.unit_number ?? '-'}</span>
+              <span>Facture : <strong>{money(selectedInvoice.total)}</strong></span>
+              <span>Payé : <strong>{money(selectedInvoice.paid_amount ?? Math.max(0, Number(selectedInvoice.total) - Number(selectedInvoice.remaining_amount)))}</strong></span>
+              <span>Reste : <strong>{money(remaining)}</strong></span>
             </div>
           )}
         </div>
@@ -373,7 +362,6 @@ function PaymentModal({
           <div className="lease-section-grid">
             <label>Date<input name="payment_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></label>
             <label>Montant<input name="amount" type="number" step="0.01" required defaultValue={remaining || undefined} /></label>
-            <label>Devise<input value="USD" readOnly className="locked-field" /></label>
             <label>Mode de paiement
               <select name="payment_method">
                 <option value="CASH">Espèces</option>
@@ -402,5 +390,5 @@ function PaymentModal({
 }
 
 function statusLabel(value: string) {
-  return ({ PAID: 'Payee', PARTIAL: 'Paiement partiel', UNPAID: 'Non payee', OVERDUE: 'En retard', DRAFT: 'Brouillon', CANCELLED: 'Annulee' } as Record<string, string>)[value] ?? value;
+  return ({ PAID: 'Payée', PARTIAL: 'Paiement partiel', UNPAID: 'Non payée', OVERDUE: 'En retard', DRAFT: 'Brouillon', CANCELLED: 'Annulée' } as Record<string, string>)[value] ?? value;
 }
