@@ -5,6 +5,7 @@ import { api, exportExcel, statusLabel } from '../api';
 import { PageHeader } from '../components';
 
 type ChartPoint = { name: string; value: number };
+type DonutPoint = ChartPoint & { color: string; path: string };
 
 type Summary = {
   buildings: number;
@@ -28,6 +29,13 @@ type Summary = {
   cities?: string[];
   trends?: Record<string, number>;
   last_updated_at?: string;
+};
+
+const STATUS_COLORS = {
+  paid: '#1f7a4d',
+  partial: '#946200',
+  unpaid: '#a4343a',
+  neutral: '#8aa0ad',
 };
 
 export function Dashboard() {
@@ -54,6 +62,18 @@ export function Dashboard() {
     ['Maintenance ouverte', summary?.maintenance_open, Wrench, '/maintenance'],
     ['Paiements', summary?.payments, CreditCard, '/payments'],
   ];
+
+  const invoiceDonut = useMemo(() => [
+    { name: 'Payées', value: sumByStatus(summary?.invoice_statuses, ['PAID']), color: STATUS_COLORS.paid, path: '/invoices?status=PAID' },
+    { name: 'Paiement partiel', value: sumByStatus(summary?.invoice_statuses, ['PARTIAL']), color: STATUS_COLORS.partial, path: '/invoices?status=PARTIAL' },
+    { name: 'Non payées', value: sumByStatus(summary?.invoice_statuses, ['UNPAID', 'NOT_PAID']), color: STATUS_COLORS.unpaid, path: '/invoices?status=UNPAID' },
+  ], [summary]);
+
+  const occupancyDonut = useMemo(() => [
+    { name: 'Occupés', value: sumByStatus(summary?.unit_occupancy, ['OCCUPIED']), color: STATUS_COLORS.paid, path: '/rental-units?status=OCCUPIED' },
+    { name: 'Libres', value: sumByStatus(summary?.unit_occupancy, ['VACANT', 'AVAILABLE']), color: STATUS_COLORS.unpaid, path: '/rental-units?status=VACANT' },
+    { name: 'En maintenance', value: sumByStatus(summary?.unit_occupancy, ['MAINTENANCE']), color: STATUS_COLORS.partial, path: '/rental-units?status=MAINTENANCE' },
+  ], [summary]);
 
   const exportRows = useMemo(() => [
     ...(summary?.revenue_by_building ?? []).map((row) => ({ rapport: 'revenus_immeuble', ...row })),
@@ -100,6 +120,11 @@ export function Dashboard() {
         <FinanceKpi label="Restant dû" value={summary?.total_remaining} trend={summary?.trends?.total_remaining} currency={filters.currency} />
       </div>
 
+      <div className="donut-grid">
+        <DonutChart title="Répartition des factures" data={invoiceDonut} onClick={(item) => navigate(item.path)} />
+        <DonutChart title="Occupation des appartements" data={occupancyDonut} onClick={(item) => navigate(item.path)} />
+      </div>
+
       <div className="metrics-grid dashboard-metrics">
         {cards.map(([label, value, Icon, path]) => (
           <article className="metric-card clickable kpi-button" key={label} onClick={() => navigate(path)}>
@@ -132,6 +157,58 @@ function FinanceKpi({ label, value, trend, currency }: { label: string; value?: 
       <small className={trendValue >= 0 ? 'positive' : 'negative'}>{direction} {Math.abs(trendValue)}%</small>
       <em>{currency}</em>
     </div>
+  );
+}
+
+function DonutChart({ title, data, onClick }: { title: string; data: DonutPoint[]; onClick: (item: DonutPoint) => void }) {
+  const total = data.reduce((sum, item) => sum + Number(item.value), 0);
+  const radius = 44;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+
+  return (
+    <article className="chart-card donut-card">
+      <h3>{title}</h3>
+      <div className="donut-content">
+        <svg className="donut-svg" viewBox="0 0 120 120" role="img" aria-label={title}>
+          <circle cx="60" cy="60" r={radius} className="donut-bg" />
+          {data.map((item) => {
+            const ratio = total ? Number(item.value) / total : 0;
+            const length = ratio * circumference;
+            const segment = (
+              <circle
+                key={item.name}
+                cx="60"
+                cy="60"
+                r={radius}
+                className="donut-segment"
+                stroke={item.color}
+                strokeDasharray={`${length} ${circumference - length}`}
+                strokeDashoffset={-offset}
+                onClick={() => onClick(item)}
+              />
+            );
+            offset += length;
+            return segment;
+          })}
+          <text x="60" y="56" textAnchor="middle" className="donut-total">{total}</text>
+          <text x="60" y="72" textAnchor="middle" className="donut-label">Total</text>
+        </svg>
+        <div className="donut-legend">
+          {data.map((item) => {
+            const percent = total ? Math.round((Number(item.value) / total) * 100) : 0;
+            return (
+              <button key={item.name} className="donut-legend-row" onClick={() => onClick(item)}>
+                <span className="donut-dot" style={{ background: item.color }} />
+                <span>{item.name}</span>
+                <strong>{item.value}</strong>
+                <em>{percent}%</em>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -184,6 +261,12 @@ function BarChart({
       ))}
     </article>
   );
+}
+
+function sumByStatus(data: ChartPoint[] = [], statuses: string[]) {
+  return data
+    .filter((item) => statuses.includes(String(item.name).toUpperCase()))
+    .reduce((sum, item) => sum + Number(item.value ?? 0), 0);
 }
 
 function amount(value: unknown) {
