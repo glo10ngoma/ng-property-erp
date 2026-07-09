@@ -40,6 +40,49 @@ export class SaasService {
     return requireRow(rows[0], table);
   }
 
+  private normalizeMonth(value: unknown, fallback = new Date().getMonth() + 1) {
+    const month = Number(value ?? fallback);
+    if (!Number.isFinite(month) || month < 1 || month > 12) {
+      throw new BadRequestException('Mois invalide');
+    }
+    return month;
+  }
+
+  private normalizeYear(value: unknown, fallback = new Date().getFullYear()) {
+    const year = Number(value ?? fallback);
+    if (!Number.isFinite(year) || year < 2000) {
+      throw new BadRequestException('Année invalide');
+    }
+    return year;
+  }
+
+  private calculateMonthlyAttendanceMetrics(monthlySalary: number, workingDays: number, unjustifiedAbsenceDays: number, advancesTotal: number) {
+    const safeWorkingDays = Math.max(Number(workingDays || 0), 1);
+    const dailySalary = Number(monthlySalary || 0) / safeWorkingDays;
+    const absenceDeduction = dailySalary * Math.max(Number(unjustifiedAbsenceDays || 0), 0);
+    const estimatedNetSalary = Math.max(Number(monthlySalary || 0) - absenceDeduction - Number(advancesTotal || 0), 0);
+    return {
+      dailySalary: Number(dailySalary.toFixed(2)),
+      absenceDeduction: Number(absenceDeduction.toFixed(2)),
+      estimatedNetSalary: Number(estimatedNetSalary.toFixed(2)),
+    };
+  }
+
+  private async monthlyAdvanceTotal(client: PoolClient, employeeId: number, month: number, year: number) {
+    const { rows } = await client.query(
+      `SELECT COALESCE(SUM(amount), 0)::NUMERIC(12,2) AS total
+       FROM salary_advances
+       WHERE employee_id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL
+         AND status = 'PAID'
+         AND EXTRACT(MONTH FROM advance_date) = $3
+         AND EXTRACT(YEAR FROM advance_date) = $4`,
+      [employeeId, this.context.organizationId(), month, year],
+    );
+    return Number(rows[0]?.total ?? 0);
+  }
+
   async createUser(body: Record<string, unknown>) {
     const password = String(body.password ?? body.password_hash ?? 'demo');
     return this.insert('app_users', { status: 'ACTIVE', ...body, password_hash: await hashPassword(password) }, [
@@ -240,7 +283,13 @@ export class SaasService {
     const leaves = await this.db.query('SELECT * FROM leaves WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY start_date DESC, id DESC', [id, organizationId]);
     const payrolls = await this.db.query('SELECT * FROM payrolls WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY year DESC, month DESC', [id, organizationId]);
     const contracts = await this.db.query('SELECT * FROM employee_contracts WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY start_date DESC, id DESC', [id, organizationId]);
-    const attendance = await this.db.query('SELECT * FROM employee_attendance WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY attendance_date DESC, id DESC LIMIT 60', [id, organizationId]);
+    const attendance = await this.db.query(
+      `SELECT *
+       FROM employee_monthly_attendance
+       WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL
+       ORDER BY year DESC, month DESC, id DESC LIMIT 24`,
+      [id, organizationId],
+    );
     const audit = await this.db.query(
       `SELECT action, resource, resource_id, status_code, metadata, created_at
        FROM audit_logs
@@ -266,6 +315,7 @@ export class SaasService {
       ...contracts.rows.map((contract) => ({ date: contract.start_date, event: 'Contrat', description: `${contract.contract_number} - ${contract.contract_type}` })),
       ...advances.rows.map((advance) => ({ date: advance.advance_date, event: 'Avance', description: `Montant ${advance.amount}` })),
       ...leaves.rows.map((leave) => ({ date: leave.start_date, event: 'Congé', description: `${leave.leave_type} - ${leave.status}` })),
+      ...attendance.rows.map((entry) => ({ date: `${entry.year}-${String(entry.month).padStart(2, '0')}-01`, event: 'Pointage mensuel', description: `${entry.month}/${entry.year} - ${entry.status}` })),
       ...payrolls.rows.map((payroll) => ({ date: `${payroll.year}-${String(payroll.month).padStart(2, '0')}-01`, event: 'Paie', description: `${payroll.month}/${payroll.year} - ${payroll.status}` })),
     ].sort((a, b) => String(b.date).localeCompare(String(a.date)));
     return {
@@ -276,6 +326,7 @@ export class SaasService {
       leaves: leaves.rows,
       payrolls: payrolls.rows,
       attendance: attendance.rows,
+      latest_monthly_attendance: attendance.rows[0] ?? null,
       documents,
       timeline,
       audit: audit.rows,
@@ -445,55 +496,158 @@ export class SaasService {
     return requireRow(rows[0], 'Leave');
   }
 
-  async payrolls(month?: number, year?: number) {
+  async payrolls(filters: { month?: number; year?: number; department?: string; status?: string; employeeId?: number } = {}) {
     const { rows } = await this.db.query(
-      `SELECT p.*, CONCAT(e.first_name, ' ', e.last_name) AS employee_name, e.job_title
+      `SELECT p.*,
+              CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS employee_name,
+              e.job_title,
+              e.department,
+              e.employee_number
        FROM payrolls p
        JOIN employees e ON e.id = p.employee_id
        WHERE p.organization_id = $1 AND p.deleted_at IS NULL
          AND ($2::INT IS NULL OR p.month = $2)
          AND ($3::INT IS NULL OR p.year = $3)
-       ORDER BY p.year DESC, p.month DESC, p.id DESC`,
-      [this.context.organizationId(), month ?? null, year ?? null],
+         AND ($4::TEXT IS NULL OR e.department = $4)
+         AND ($5::TEXT IS NULL OR p.status = $5)
+         AND ($6::INT IS NULL OR p.employee_id = $6)
+       ORDER BY p.year DESC, p.month DESC, e.last_name, e.first_name, p.id DESC`,
+      [
+        this.context.organizationId(),
+        filters.month ?? null,
+        filters.year ?? null,
+        filters.department ?? null,
+        filters.status ?? null,
+        filters.employeeId ?? null,
+      ],
     );
     return rows;
   }
 
+  async payrollDetail(id: number) {
+    const { rows } = await this.db.query(
+      `SELECT p.*,
+              CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS employee_name,
+              e.employee_number,
+              e.department,
+              e.job_title
+       FROM payrolls p
+       JOIN employees e ON e.id = p.employee_id
+       WHERE p.id = $1 AND p.organization_id = $2 AND p.deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+    return requireRow(rows[0], 'Payroll');
+  }
+
   async generatePayroll(body: Record<string, unknown>) {
-    const employeeId = Number(body.employee_id);
-    const month = Number(body.month ?? new Date().getMonth() + 1);
-    const year = Number(body.year ?? new Date().getFullYear());
+    const month = this.normalizeMonth(body.month);
+    const year = this.normalizeYear(body.year);
+    const employeeId = body.employee_id ? Number(body.employee_id) : null;
     const organizationId = this.context.organizationId();
     return this.db.transaction(async (client) => {
-      const employee = await client.query(
-        `SELECT * FROM employees WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
-        [employeeId, organizationId],
+      const attendance = await client.query(
+        `SELECT ema.*,
+                e.monthly_salary,
+                e.employee_number,
+                e.department,
+                e.job_title,
+                CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS employee_name
+         FROM employee_monthly_attendance ema
+         JOIN employees e ON e.id = ema.employee_id
+         WHERE ema.organization_id = $1
+           AND ema.deleted_at IS NULL
+           AND ema.month = $2
+           AND ema.year = $3
+           AND ema.status = 'VALIDATED'
+           AND ($4::INT IS NULL OR ema.employee_id = $4)
+           AND e.deleted_at IS NULL
+         ORDER BY e.last_name, e.first_name`,
+        [organizationId, month, year, employeeId],
       );
-      const employeeRow = requireRow(employee.rows[0], 'Employee');
-      const advances = await client.query(
-        `SELECT COALESCE(SUM(amount), 0)::NUMERIC(12,2) AS total
-         FROM salary_advances
-         WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL AND status = 'PAID'
-           AND EXTRACT(MONTH FROM advance_date) = $3 AND EXTRACT(YEAR FROM advance_date) = $4`,
-        [employeeId, organizationId, month, year],
-      );
-      const gross = Number(body.gross_salary ?? employeeRow.monthly_salary ?? 0);
-      const advancesTotal = Number(body.advances_total ?? advances.rows[0].total ?? 0);
-      const deductions = Number(body.deductions_total ?? 0);
-      const net = Number(body.net_salary ?? Math.max(gross - advancesTotal - deductions, 0));
-      const { rows } = await client.query(
-        `INSERT INTO payrolls (employee_id, month, year, gross_salary, advances_total, deductions_total, net_salary, status, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         ON CONFLICT (organization_id, employee_id, year, month) WHERE deleted_at IS NULL
-         DO UPDATE SET gross_salary = EXCLUDED.gross_salary,
-                       advances_total = EXCLUDED.advances_total,
-                       deductions_total = EXCLUDED.deductions_total,
-                       net_salary = EXCLUDED.net_salary,
-                       status = EXCLUDED.status
-         RETURNING *`,
-        [employeeId, month, year, gross, advancesTotal, deductions, net, body.status ?? 'DRAFT', organizationId],
-      );
-      return rows[0];
+      if (!attendance.rows.length) {
+        throw new BadRequestException('Aucun pointage mensuel validé pour cette période.');
+      }
+
+      const generated: Record<string, unknown>[] = [];
+      for (const entry of attendance.rows) {
+        const existing = await client.query(
+          `SELECT id, status
+           FROM payrolls
+           WHERE organization_id = $1 AND employee_id = $2 AND month = $3 AND year = $4 AND deleted_at IS NULL`,
+          [organizationId, entry.employee_id, month, year],
+        );
+        if (existing.rows[0] && ['VALIDATED', 'PAID'].includes(String(existing.rows[0].status))) {
+          generated.push(existing.rows[0]);
+          continue;
+        }
+
+        const gross = Number(entry.monthly_salary ?? 0);
+        const advancesTotal = await this.monthlyAdvanceTotal(client, Number(entry.employee_id), month, year);
+        const metrics = this.calculateMonthlyAttendanceMetrics(
+          gross,
+          Number(entry.working_days ?? 0),
+          Number(entry.unjustified_absence_days ?? 0),
+          advancesTotal,
+        );
+        const bonusAmount = Number(body.bonus_amount ?? 0);
+        const overtimeAmount = Number(body.overtime_amount ?? 0);
+        const deductionsTotal = Number(entry.absence_deduction ?? metrics.absenceDeduction);
+        const netSalary = Math.max(gross - deductionsTotal - advancesTotal + bonusAmount + overtimeAmount, 0);
+
+        const { rows } = await client.query(
+          `INSERT INTO payrolls (
+             employee_id, employee_monthly_attendance_id, month, year,
+             gross_salary, daily_salary, working_days, present_days, paid_leave_days, sick_days,
+             unjustified_absence_days, late_count, overtime_hours, advances_total, deductions_total,
+             absence_deduction, bonus_amount, net_salary, status, organization_id
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+           ON CONFLICT (organization_id, employee_id, year, month) WHERE deleted_at IS NULL
+           DO UPDATE SET employee_monthly_attendance_id = EXCLUDED.employee_monthly_attendance_id,
+                         gross_salary = EXCLUDED.gross_salary,
+                         daily_salary = EXCLUDED.daily_salary,
+                         working_days = EXCLUDED.working_days,
+                         present_days = EXCLUDED.present_days,
+                         paid_leave_days = EXCLUDED.paid_leave_days,
+                         sick_days = EXCLUDED.sick_days,
+                         unjustified_absence_days = EXCLUDED.unjustified_absence_days,
+                         late_count = EXCLUDED.late_count,
+                         overtime_hours = EXCLUDED.overtime_hours,
+                         advances_total = EXCLUDED.advances_total,
+                         deductions_total = EXCLUDED.deductions_total,
+                         absence_deduction = EXCLUDED.absence_deduction,
+                         bonus_amount = EXCLUDED.bonus_amount,
+                         net_salary = EXCLUDED.net_salary,
+                         status = CASE WHEN payrolls.status IN ('VALIDATED', 'PAID') THEN payrolls.status ELSE EXCLUDED.status END,
+                         updated_at = NOW()
+           RETURNING *`,
+          [
+            entry.employee_id,
+            entry.id,
+            month,
+            year,
+            gross,
+            metrics.dailySalary,
+            entry.working_days,
+            entry.present_days,
+            entry.paid_leave_days,
+            entry.sick_days,
+            entry.unjustified_absence_days,
+            entry.late_count,
+            entry.overtime_hours,
+            advancesTotal,
+            deductionsTotal,
+            deductionsTotal,
+            bonusAmount,
+            Number(netSalary.toFixed(2)),
+            body.status ?? 'DRAFT',
+            organizationId,
+          ],
+        );
+        generated.push(rows[0]);
+      }
+
+      return employeeId ? generated[0] : generated;
     });
   }
 
@@ -780,35 +934,119 @@ export class SaasService {
     });
   }
 
-  async employeeAttendance() {
+  async employeeAttendance(filters: { month?: number; year?: number; department?: string; employeeId?: number } = {}) {
     const { rows } = await this.db.query(
-      `SELECT ea.*,
+      `SELECT ema.*,
               CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS employee_name,
               e.department,
-              e.job_title
-       FROM employee_attendance ea
-       JOIN employees e ON e.id = ea.employee_id
-       WHERE ea.organization_id = $1 AND ea.deleted_at IS NULL
-       ORDER BY ea.attendance_date DESC, ea.id DESC`,
-      [this.context.organizationId()],
+              e.job_title,
+              e.employee_number,
+              e.monthly_salary
+       FROM employee_monthly_attendance ema
+       JOIN employees e ON e.id = ema.employee_id
+       WHERE ema.organization_id = $1 AND ema.deleted_at IS NULL
+         AND ($2::INT IS NULL OR ema.month = $2)
+         AND ($3::INT IS NULL OR ema.year = $3)
+         AND ($4::TEXT IS NULL OR e.department = $4)
+         AND ($5::INT IS NULL OR ema.employee_id = $5)
+       ORDER BY ema.year DESC, ema.month DESC, e.last_name, e.first_name`,
+      [this.context.organizationId(), filters.month ?? null, filters.year ?? null, filters.department ?? null, filters.employeeId ?? null],
     );
     return rows;
   }
 
   async createEmployeeAttendance(body: Record<string, unknown>) {
-    const workedHours = Number(body.worked_hours ?? 0);
-    const lateMinutes = Number(body.late_minutes ?? 0);
-    return this.insert('employee_attendance', {
-      ...body,
-      worked_hours: workedHours,
-      late_minutes: lateMinutes,
-      absence: body.absence === true || body.absence === 'true',
-      status: body.status ?? (body.absence === true || body.absence === 'true' ? 'ABSENT' : 'PRESENT'),
-      created_by: this.context.userId() ?? 1,
-    }, [
-      'employee_id', 'attendance_date', 'check_in_time', 'check_out_time', 'late_minutes',
-      'absence', 'worked_hours', 'status', 'notes', 'created_by',
-    ]);
+    const employeeId = Number(body.employee_id ?? 0);
+    const month = this.normalizeMonth(body.month);
+    const year = this.normalizeYear(body.year);
+    const workingDays = Number(body.working_days ?? 0);
+    const presentDays = Number(body.present_days ?? 0);
+    const paidLeaveDays = Number(body.paid_leave_days ?? 0);
+    const sickDays = Number(body.sick_days ?? 0);
+    const unjustifiedAbsenceDays = Number(body.unjustified_absence_days ?? 0);
+    const lateCount = Number(body.late_count ?? 0);
+    const overtimeHours = Number(body.overtime_hours ?? 0);
+    const totalDays = presentDays + paidLeaveDays + sickDays + unjustifiedAbsenceDays;
+
+    if (!employeeId) throw new BadRequestException('Employé requis');
+    if (workingDays <= 0) throw new BadRequestException('Le nombre de jours ouvrables doit être supérieur à 0.');
+    if (totalDays > workingDays) {
+      throw new BadRequestException('La somme présence + congés payés + maladie + absences non justifiées ne peut pas dépasser les jours ouvrables.');
+    }
+
+    return this.db.transaction(async (client) => {
+      const employee = await client.query(
+        `SELECT id, monthly_salary
+         FROM employees
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+        [employeeId, this.context.organizationId()],
+      );
+      const employeeRow = requireRow(employee.rows[0], 'Employee');
+      const existing = await client.query(
+        `SELECT id, status
+         FROM employee_monthly_attendance
+         WHERE organization_id = $1 AND employee_id = $2 AND month = $3 AND year = $4 AND deleted_at IS NULL`,
+        [this.context.organizationId(), employeeId, month, year],
+      );
+      if (existing.rows[0] && existing.rows[0].status === 'VALIDATED') {
+        throw new BadRequestException('Ce pointage mensuel est déjà validé et ne peut plus être modifié.');
+      }
+
+      const advancesTotal = await this.monthlyAdvanceTotal(client, employeeId, month, year);
+      const metrics = this.calculateMonthlyAttendanceMetrics(Number(employeeRow.monthly_salary ?? 0), workingDays, unjustifiedAbsenceDays, advancesTotal);
+      const { rows } = await client.query(
+        `INSERT INTO employee_monthly_attendance (
+           employee_id, month, year, working_days, present_days, paid_leave_days, sick_days,
+           unjustified_absence_days, late_count, overtime_hours, absence_deduction,
+           estimated_net_salary, observations, status, created_by, organization_id
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         ON CONFLICT (organization_id, employee_id, year, month) WHERE deleted_at IS NULL
+         DO UPDATE SET working_days = EXCLUDED.working_days,
+                       present_days = EXCLUDED.present_days,
+                       paid_leave_days = EXCLUDED.paid_leave_days,
+                       sick_days = EXCLUDED.sick_days,
+                       unjustified_absence_days = EXCLUDED.unjustified_absence_days,
+                       late_count = EXCLUDED.late_count,
+                       overtime_hours = EXCLUDED.overtime_hours,
+                       absence_deduction = EXCLUDED.absence_deduction,
+                       estimated_net_salary = EXCLUDED.estimated_net_salary,
+                       observations = EXCLUDED.observations,
+                       status = CASE WHEN employee_monthly_attendance.status = 'VALIDATED' THEN employee_monthly_attendance.status ELSE EXCLUDED.status END,
+                       updated_at = NOW()
+         RETURNING *`,
+        [
+          employeeId,
+          month,
+          year,
+          workingDays,
+          presentDays,
+          paidLeaveDays,
+          sickDays,
+          unjustifiedAbsenceDays,
+          lateCount,
+          overtimeHours,
+          metrics.absenceDeduction,
+          metrics.estimatedNetSalary,
+          body.observations ?? null,
+          body.status ?? 'DRAFT',
+          this.context.userId() ?? 1,
+          this.context.organizationId(),
+        ],
+      );
+      return rows[0];
+    });
+  }
+
+  async validateEmployeeAttendance(id: number) {
+    const { rows } = await this.db.query(
+      `UPDATE employee_monthly_attendance
+       SET status = 'VALIDATED', validated_at = NOW(), validated_by = $3, updated_at = NOW()
+       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+       RETURNING *`,
+      [id, this.context.organizationId(), this.context.userId() ?? 1],
+    );
+    return requireRow(rows[0], 'Employee monthly attendance');
   }
 
   async hrReport(month?: number, year?: number) {
@@ -816,13 +1054,13 @@ export class SaasService {
     const contracts = await this.employeeContracts();
     const advances = await this.salaryAdvances();
     const leaves = await this.leaves();
-    const payrolls = await this.payrolls(month, year);
-    const attendance = await this.employeeAttendance();
     const monthFilter = month ?? new Date().getMonth() + 1;
     const yearFilter = year ?? new Date().getFullYear();
+    const payrolls = await this.payrolls({ month: monthFilter, year: yearFilter });
+    const attendance = await this.employeeAttendance({ month: monthFilter, year: yearFilter });
     const expiringContracts = contracts.filter((row) => row.end_date && new Date(row.end_date).getTime() <= Date.now() + 1000 * 60 * 60 * 24 * 45);
     const monthlyPayroll = payrolls.filter((row) => Number(row.month) === monthFilter && Number(row.year) === yearFilter);
-    const monthlyAttendance = attendance.filter((row) => String(row.attendance_date).slice(0, 7) === `${yearFilter}-${String(monthFilter).padStart(2, '0')}`);
+    const monthlyAttendance = attendance.filter((row) => Number(row.month) === monthFilter && Number(row.year) === yearFilter);
     const byDepartmentMap = new Map<string, number>();
     for (const employee of employees) {
       const key = String(employee.department ?? 'Non renseigné');
@@ -835,8 +1073,8 @@ export class SaasService {
         monthly_payroll: monthlyPayroll.reduce((sum, row) => sum + Number(row.net_salary ?? 0), 0),
         advances_open: advances.filter((row) => row.status !== 'PAID' && row.status !== 'REJECTED').length,
         contracts_expiring: expiringContracts.length,
-        absences: monthlyAttendance.filter((row) => row.absence || row.status === 'ABSENT').length,
-        delays: monthlyAttendance.filter((row) => Number(row.late_minutes ?? 0) > 0).length,
+        absences: monthlyAttendance.reduce((sum, row) => sum + Number(row.unjustified_absence_days ?? 0), 0),
+        delays: monthlyAttendance.reduce((sum, row) => sum + Number(row.late_count ?? 0), 0),
       },
       employees,
       contracts,
@@ -3188,7 +3426,7 @@ export class SaasService {
     const employees = await this.findAll('employees', 'last_name, first_name');
     const advances = await this.salaryAdvances();
     const leaves = await this.leaves(start, end);
-    const payrolls = await this.payrolls(month, year);
+    const payrolls = await this.payrolls({ month, year });
     return {
       employees,
       advances: advances.filter((advance) => String(advance.advance_date).slice(0, 10) >= start && String(advance.advance_date).slice(0, 10) <= end),

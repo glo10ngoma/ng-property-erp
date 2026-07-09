@@ -96,28 +96,53 @@ type AttendanceRow = {
   id: number;
   employee_id: number;
   employee_name: string;
+  employee_number?: string;
   department?: string;
   job_title?: string;
-  attendance_date: string;
+  monthly_salary?: number;
+  attendance_date?: string;
   check_in_time?: string;
   check_out_time?: string;
   late_minutes?: number;
   absence?: boolean;
   worked_hours?: number;
+  month: number;
+  year: number;
+  working_days: number;
+  present_days: number;
+  paid_leave_days: number;
+  sick_days: number;
+  unjustified_absence_days: number;
+  late_count?: number;
+  overtime_hours?: number;
+  absence_deduction?: number;
+  estimated_net_salary?: number;
   status: string;
-  notes?: string;
+  observations?: string;
 };
 
 type Payroll = {
   id: number;
   employee_id: number;
   employee_name: string;
+  employee_number?: string;
   job_title?: string;
+  department?: string;
   month: number;
   year: number;
   gross_salary: number;
+  daily_salary?: number;
+  working_days?: number;
+  present_days?: number;
+  paid_leave_days?: number;
+  sick_days?: number;
+  unjustified_absence_days?: number;
+  late_count?: number;
+  overtime_hours?: number;
   advances_total: number;
   deductions_total: number;
+  absence_deduction?: number;
+  bonus_amount?: number;
   net_salary: number;
   status: string;
   payment_date?: string;
@@ -130,6 +155,7 @@ type EmployeeDetail = Employee & {
   leaves: LeaveRequest[];
   payrolls: Payroll[];
   attendance: AttendanceRow[];
+  latest_monthly_attendance?: AttendanceRow | null;
   documents: Array<{ type: string; file_name: string }>;
   timeline: Array<{ date: string; event: string; description: string }>;
   audit: Array<{ action: string; resource: string; resource_id: string; created_at: string }>;
@@ -420,6 +446,8 @@ export function EmployeeDetailPage() {
         <span>Manager</span><strong>{detail.manager_name ?? '—'}</strong>
         <span>Mode paiement</span><strong>{paymentMethodLabel(detail.payment_method)}</strong>
         <span>Banque</span><strong>{detail.bank_name ?? '—'}</strong>
+        <span>Dernier pointage</span><strong>{detail.latest_monthly_attendance ? `${monthLabel(detail.latest_monthly_attendance.month)} ${detail.latest_monthly_attendance.year} - ${attendanceStatusLabel(detail.latest_monthly_attendance.status)}` : '—'}</strong>
+        <span>Net estimé</span><strong>{detail.latest_monthly_attendance ? `${money(detail.latest_monthly_attendance.estimated_net_salary ?? 0)} USD` : '—'}</strong>
       </div>
     </Section>
     <Section title="Contrat actuel">
@@ -433,8 +461,8 @@ export function EmployeeDetailPage() {
     <Section title="Congés">
       {detail.leaves.length ? <SimpleTable headers={['Début', 'Fin', 'Type', 'Statut']} rows={detail.leaves.map((row) => [shortDate(row.start_date), shortDate(row.end_date), row.leave_type, leaveStatusLabel(row.status)])} /> : <CompactEmpty message="Aucun congé enregistré." />}
     </Section>
-    <Section title="Pointages">
-      {detail.attendance.length ? <SimpleTable headers={['Date', 'Entrée', 'Sortie', 'Retard', 'Heures', 'Statut']} rows={detail.attendance.map((row) => [shortDate(row.attendance_date), row.check_in_time ?? '—', row.check_out_time ?? '—', `${row.late_minutes ?? 0} min`, Number(row.worked_hours ?? 0).toFixed(2), attendanceStatusLabel(row.status, row.absence)])} /> : <CompactEmpty message="Aucun pointage enregistré." />}
+    <Section title="Pointages mensuels">
+      {detail.attendance.length ? <SimpleTable headers={['Période', 'Présence', 'Congés', 'Maladie', 'Absences', 'Retards', 'Retenue', 'Net estimé', 'Statut']} rows={detail.attendance.map((row) => [`${monthLabel(row.month)} ${row.year}`, `${row.present_days}/${row.working_days}`, row.paid_leave_days, row.sick_days, row.unjustified_absence_days, row.late_count ?? 0, `${money(row.absence_deduction ?? 0)} USD`, `${money(row.estimated_net_salary ?? 0)} USD`, attendanceStatusLabel(row.status)])} /> : <CompactEmpty message="Aucun pointage mensuel enregistré." />}
     </Section>
     <Section title="Paies">
       {detail.payrolls.length ? <SimpleTable headers={['Période', 'Brut', 'Avances', 'Retenues', 'Net', 'Statut']} rows={detail.payrolls.map((row) => [`${monthLabel(row.month)} ${row.year}`, `${money(row.gross_salary)} USD`, `${money(row.advances_total)} USD`, `${money(row.deductions_total)} USD`, `${money(row.net_salary)} USD`, payrollStatusLabel(row.status)])} /> : <CompactEmpty message="Aucune paie générée." />}
@@ -637,7 +665,7 @@ export function AttendancePage() {
     <div className="table-wrap">
       <table>
         <thead><tr><th>Date</th><th>Employé</th><th>Heure entrée</th><th>Heure sortie</th><th className="right">Retard</th><th>Absence</th><th className="right">Heures travaillées</th><th>Statut</th></tr></thead>
-        <tbody>{filtered.map((row) => <tr key={row.id}><td>{shortDate(row.attendance_date)}</td><td>{row.employee_name}</td><td>{row.check_in_time ?? '—'}</td><td>{row.check_out_time ?? '—'}</td><td className="right">{row.late_minutes ?? 0} min</td><td>{row.absence ? 'Oui' : 'Non'}</td><td className="right">{Number(row.worked_hours ?? 0).toFixed(2)}</td><td>{attendanceStatusLabel(row.status, row.absence)}</td></tr>)}</tbody>
+        <tbody>{filtered.map((row) => <tr key={row.id}><td>{row.attendance_date ? shortDate(row.attendance_date) : '—'}</td><td>{row.employee_name}</td><td>{row.check_in_time ?? '—'}</td><td>{row.check_out_time ?? '—'}</td><td className="right">{row.late_minutes ?? 0} min</td><td>{row.absence ? 'Oui' : 'Non'}</td><td className="right">{Number(row.worked_hours ?? 0).toFixed(2)}</td><td>{attendanceStatusLabel(row.status, row.absence)}</td></tr>)}</tbody>
       </table>
       {!filtered.length && <EmptyState message="Aucun pointage enregistré." />}
     </div>
@@ -743,7 +771,7 @@ export function HrReportsPage() {
       <SimpleTable headers={['Employé', 'Début', 'Fin', 'Type', 'Statut']} rows={report.leaves.map((row) => [row.employee_name, shortDate(row.start_date), shortDate(row.end_date), row.leave_type, leaveStatusLabel(row.status)])} />
     </Section>
     <Section title="Absences et retards">
-      <SimpleTable headers={['Employé', 'Date', 'Retard', 'Absence', 'Statut']} rows={report.attendance.map((row) => [row.employee_name, shortDate(row.attendance_date), `${row.late_minutes ?? 0} min`, row.absence ? 'Oui' : 'Non', attendanceStatusLabel(row.status, row.absence)])} />
+      <SimpleTable headers={['Employé', 'Date', 'Retard', 'Absence', 'Statut']} rows={report.attendance.map((row) => [row.attendance_date ? shortDate(row.attendance_date) : '—', `${row.employee_name}`, `${row.late_minutes ?? 0} min`, row.absence ? 'Oui' : 'Non', attendanceStatusLabel(row.status, row.absence)])} />
     </Section>
     <Section title="Paie par mois">
       <SimpleTable headers={['Employé', 'Période', 'Net', 'Statut']} rows={report.payrolls.map((row) => [row.employee_name, `${monthLabel(row.month)} ${row.year}`, `${money(row.net_salary)} USD`, payrollStatusLabel(row.status)])} />
@@ -1119,7 +1147,7 @@ function exportLeaveRow(row: LeaveRequest) {
 
 function exportAttendanceRow(row: AttendanceRow) {
   return {
-    date: shortDate(row.attendance_date),
+    date: row.attendance_date ? shortDate(row.attendance_date) : '',
     employe: row.employee_name,
     heure_entree: row.check_in_time ?? '',
     heure_sortie: row.check_out_time ?? '',

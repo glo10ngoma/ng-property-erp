@@ -257,13 +257,28 @@ export class EmployeeAttendanceController {
   constructor(private readonly service: SaasService) {}
 
   @Get()
-  attendance() {
-    return this.service.employeeAttendance();
+  attendance(
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+    @Query('department') department?: string,
+    @Query('employee_id') employeeId?: string,
+  ) {
+    return this.service.employeeAttendance({
+      month: month ? Number(month) : undefined,
+      year: year ? Number(year) : undefined,
+      department: department || undefined,
+      employeeId: employeeId ? Number(employeeId) : undefined,
+    });
   }
 
   @Post()
   create(@Body() body: Record<string, unknown>) {
     return this.service.createEmployeeAttendance(body);
+  }
+
+  @Post(':id/validate')
+  validate(@Param('id', ParseIntPipe) id: number) {
+    return this.service.validateEmployeeAttendance(id);
   }
 }
 
@@ -337,8 +352,25 @@ export class PayrollsController {
   constructor(private readonly service: SaasService) {}
 
   @Get()
-  payrolls(@Query('month') month?: string, @Query('year') year?: string) {
-    return this.service.payrolls(month ? Number(month) : undefined, year ? Number(year) : undefined);
+  payrolls(
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+    @Query('department') department?: string,
+    @Query('status') status?: string,
+    @Query('employee_id') employeeId?: string,
+  ) {
+    return this.service.payrolls({
+      month: month ? Number(month) : undefined,
+      year: year ? Number(year) : undefined,
+      department: department || undefined,
+      status: status || undefined,
+      employeeId: employeeId ? Number(employeeId) : undefined,
+    });
+  }
+
+  @Get(':id')
+  payroll(@Param('id', ParseIntPipe) id: number) {
+    return this.service.payrollDetail(id);
   }
 
   @Post('generate')

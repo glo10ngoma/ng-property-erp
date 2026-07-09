@@ -1,11 +1,14 @@
 export {
   AdvancesPage,
-  AttendancePage,
   ContractsPage,
   EmployeeDetailPage,
   EmployeesPage,
-  HrReportsPage,
   LeavesPage,
-  PayrollPage,
   StaffPage,
 } from './StaffPages';
+
+export {
+  AttendancePage,
+  HrReportsPage,
+  PayrollPage,
+} from './StaffAttendancePayrollPages';
