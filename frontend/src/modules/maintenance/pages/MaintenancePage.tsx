@@ -374,6 +374,8 @@ export function MaintenanceDetailPage() {
   const [success, setSuccessMessage] = useState('');
   const [editing, setEditing] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  const [expenseOpen, setExpenseOpen] = useState(false);
+  const [stockOpen, setStockOpen] = useState(false);
   const buildings = useApiList<BuildingOption>('/buildings');
   const units = useApiList<UnitOption>('/units');
   const tenants = useApiList<TenantSearchOption>('/tenants');
@@ -418,8 +420,8 @@ export function MaintenanceDetailPage() {
             {can('maintenance.update') && actionState.canEdit && <button onClick={() => setEditing(true)}><Pencil size={16} />Modifier</button>}
             {can('maintenance.assign') && actionState.canAssign && <button onClick={() => setAssigning(true)}><UserCog size={16} />Affecter technicien</button>}
             {can('maintenance.update') && actionState.canStart && <button onClick={() => action(`/maintenance/requests/${request.id}/start`, 'Intervention démarrée.', {})}><CirclePause size={16} />Démarrer intervention</button>}
-            {can('maintenance.update') && actionState.canWork && <button onClick={() => action(`/maintenance/requests/${request.id}/expenses`, 'Dépense enregistrée.', { amount: request.estimated_cost ?? 0, category: request.category, description: 'Dépense maintenance' })}><CircleAlert size={16} />Ajouter dépense</button>}
-            {can('maintenance.update') && actionState.canWork && <button onClick={() => action(`/maintenance/requests/${request.id}/stock`, 'Stock consommé.', { stock_item_id: stockItems.data[0]?.id ?? null, quantity: 1, comment: 'Consommation maintenance' })}><Paperclip size={16} />Consommer stock</button>}
+            {can('maintenance.update') && actionState.canWork && <button onClick={() => setExpenseOpen(true)}><CircleAlert size={16} />Ajouter dépense</button>}
+            {can('maintenance.update') && actionState.canWork && <button onClick={() => setStockOpen(true)}><Paperclip size={16} />Consommer stock</button>}
             {can('maintenance.update') && actionState.canResolve && <button onClick={() => action(`/maintenance/requests/${request.id}/resolve`, 'Intervention résolue.', { actual_hours: request.actual_hours ?? 0, resolution_comments: request.proposed_solution ?? 'Résolution' })}><CheckCircle2 size={16} />Marquer résolu</button>}
             {can('maintenance.validate') && actionState.canValidate && <button onClick={() => action(`/maintenance/requests/${request.id}/validate`, 'Demande validée.', { comments: 'Validation finale' })}><CheckCircle2 size={16} />Valider</button>}
             {can('maintenance.close') && actionState.canClose && <button onClick={() => action(`/maintenance/requests/${request.id}/close`, 'Demande clôturée.')}>Clôturer</button>}
@@ -573,6 +575,33 @@ export function MaintenanceDetailPage() {
             await api.post(`/maintenance/requests/${request.id}/assign`, body);
             setSuccessMessage('Technicien affecté.');
             setAssigning(false);
+            await refresh();
+          }}
+        />
+      )}
+
+      {expenseOpen && (
+        <MaintenanceExpenseModal
+          request={request}
+          onClose={() => setExpenseOpen(false)}
+          onSubmit={async (body) => {
+            await api.post(`/maintenance/requests/${request.id}/expenses`, body);
+            setSuccessMessage('Dépense enregistrée.');
+            setExpenseOpen(false);
+            await refresh();
+          }}
+        />
+      )}
+
+      {stockOpen && (
+        <MaintenanceStockModal
+          request={request}
+          stockItems={stockItems.data}
+          onClose={() => setStockOpen(false)}
+          onSubmit={async (body) => {
+            await api.post(`/maintenance/requests/${request.id}/stock`, body);
+            setSuccessMessage('Stock consommé.');
+            setStockOpen(false);
             await refresh();
           }}
         />
@@ -737,7 +766,12 @@ function AssignMaintenanceModal({
   onClose: () => void;
   onSubmit: (body: Record<string, unknown>) => void;
 }) {
+  const hasInternalTechnician = Boolean(request.assigned_employee_id);
+  const [assignmentType, setAssignmentType] = useState<'INTERNAL' | 'EXTERNAL'>(hasInternalTechnician ? 'INTERNAL' : 'EXTERNAL');
   const [employeeId, setEmployeeId] = useState<number | null>(request.assigned_employee_id ?? null);
+  const [technicianName, setTechnicianName] = useState('');
+  const [plannedDate, setPlannedDate] = useState('');
+  const [plannedTime, setPlannedTime] = useState('');
   const [notes, setNotes] = useState('');
   const [externalProvider, setExternalProvider] = useState('');
 
@@ -747,23 +781,51 @@ function AssignMaintenanceModal({
         className="maintenance-modal-form"
         onSubmit={(event) => {
           event.preventDefault();
-          onSubmit({ employee_id: employeeId, external_provider: externalProvider, notes });
+          onSubmit({
+            employee_id: assignmentType === 'INTERNAL' ? employeeId : null,
+            employee_name: assignmentType === 'INTERNAL' ? technicianName || null : null,
+            external_provider: assignmentType === 'EXTERNAL' ? externalProvider : null,
+            planned_date: plannedDate || null,
+            planned_time: plannedTime || null,
+            notes,
+          });
         }}
       >
         <div className="modal-section">
           <h3>Affectation</h3>
-          <div className="maintenance-grid">
-            <label className="wide-field">Technicien
-              <SearchableSelect
-                options={employeeOptions(employees)}
-                value={employeeId}
-                onChange={(value) => setEmployeeId(value ? Number(value) : null)}
-                placeholder="Rechercher un technicien"
-                emptyMessage="Aucun technicien trouvé"
-              />
+          <p className="storage-note">Choisissez si la mission est confiée à un technicien interne ou à un prestataire externe.</p>
+          <div className="maintenance-grid maintenance-assignment-grid">
+            <label className="wide-field">Type d’affectation
+              <select value={assignmentType} onChange={(event) => setAssignmentType(event.target.value as 'INTERNAL' | 'EXTERNAL')}>
+                <option value="INTERNAL">Technicien interne</option>
+                <option value="EXTERNAL">Prestataire externe</option>
+              </select>
             </label>
-            <label>Prestataire externe<input value={externalProvider} onChange={(event) => setExternalProvider(event.target.value)} placeholder="Prestataire externe" /></label>
-            <label className="wide-field">Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Notes affectation" /></label>
+            {assignmentType === 'INTERNAL' ? (
+              employees.length ? (
+                <label className="wide-field">Technicien
+                  <SearchableSelect
+                    options={employeeOptions(employees)}
+                    value={employeeId}
+                    onChange={(value) => {
+                      const next = value ? Number(value) : null;
+                      setEmployeeId(next);
+                      const employee = employees.find((item) => Number(item.id) === next);
+                      setTechnicianName(employee ? `${employee.first_name} ${employee.last_name}`.trim() : '');
+                    }}
+                    placeholder="Rechercher un technicien"
+                    emptyMessage="Aucun technicien trouvé"
+                  />
+                </label>
+              ) : (
+                <label className="wide-field">Technicien<input value={technicianName} onChange={(event) => setTechnicianName(event.target.value)} placeholder="Nom du technicien" /></label>
+              )
+            ) : (
+              <label className="wide-field">Prestataire externe<input value={externalProvider} onChange={(event) => setExternalProvider(event.target.value)} placeholder="Prestataire externe" /></label>
+            )}
+            <label>Date prévue d’intervention<input type="date" value={plannedDate} onChange={(event) => setPlannedDate(event.target.value)} /></label>
+            <label>Heure prévue<input type="time" value={plannedTime} onChange={(event) => setPlannedTime(event.target.value)} /></label>
+            <label className="wide-field">Notes d’affectation<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Notes affectation" /></label>
           </div>
         </div>
         <div className="modal-footer-sticky">
@@ -775,6 +837,102 @@ function AssignMaintenanceModal({
   );
 }
 
+function MaintenanceExpenseModal({
+  request,
+  onClose,
+  onSubmit,
+}: {
+  request: MaintenanceDetail;
+  onClose: () => void;
+  onSubmit: (body: Record<string, unknown>) => void;
+}) {
+  const [label, setLabel] = useState('');
+  const [category, setCategory] = useState('Autre');
+  const [amount, setAmount] = useState<number | string>(0);
+  const [expenseDate, setExpenseDate] = useState(new Date().toISOString().slice(0, 10));
+  const [supplier, setSupplier] = useState('');
+  const [reference, setReference] = useState('');
+  const [notes, setNotes] = useState('');
+  const [attachmentName, setAttachmentName] = useState('');
+
+  return (
+    <Modal title={`Ajouter une dépense à l’intervention ${request.request_number}`} onClose={onClose}>
+      <form className="maintenance-modal-form" onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit({ amount: Number(amount), expense_date: expenseDate, category, description: label, supplier, reference, notes, attachment_file_name: attachmentName || null });
+      }}>
+        <div className="modal-section">
+          <h3>Informations générales</h3>
+          <p className="storage-note">Cette dépense sera rattachée à l’intervention et pourra alimenter la caisse si le workflow le permet.</p>
+          <div className="maintenance-grid maintenance-cost-grid">
+            <label className="wide-field">Libellé<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Libellé" /></label>
+            <label>Catégorie<select value={category} onChange={(event) => setCategory(event.target.value)}>{MAINTENANCE_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+            <label>Montant<input type="number" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
+            <label>Date<input type="date" value={expenseDate} onChange={(event) => setExpenseDate(event.target.value)} /></label>
+            <label className="wide-field">Fournisseur<input value={supplier} onChange={(event) => setSupplier(event.target.value)} placeholder="Fournisseur" /></label>
+            <label className="wide-field">Référence<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Référence" /></label>
+            <label className="wide-field">Pièce jointe<input type="file" accept=".pdf,image/jpeg,image/png" onChange={(event) => setAttachmentName(event.target.files?.[0]?.name ?? '')} /></label>
+            {attachmentName ? <div className="storage-note wide-field">Fichier sélectionné : {attachmentName}</div> : null}
+            <label className="wide-field">Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Notes" /></label>
+          </div>
+        </div>
+        <div className="modal-footer-sticky">
+          <button type="button" className="secondary" onClick={onClose}>Annuler</button>
+          <button type="submit">Enregistrer</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function MaintenanceStockModal({
+  request,
+  stockItems,
+  onClose,
+  onSubmit,
+}: {
+  request: MaintenanceDetail;
+  stockItems: Array<{ id: number; name: string; current_quantity: number; unit: string }>;
+  onClose: () => void;
+  onSubmit: (body: Record<string, unknown>) => void;
+}) {
+  const [stockItemId, setStockItemId] = useState<number | null>(stockItems[0]?.id ?? null);
+  const [quantity, setQuantity] = useState(1);
+  const [unitPrice, setUnitPrice] = useState<number | string>(0);
+  const [notes, setNotes] = useState('');
+  const selected = stockItems.find((item) => item.id === stockItemId);
+  const total = Number(quantity || 0) * Number(unitPrice || 0);
+
+  return (
+    <Modal title={`Consommer stock pour intervention ${request.request_number}`} onClose={onClose}>
+      <form className="maintenance-modal-form" onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit({ stock_item_id: stockItemId, quantity: Number(quantity), unit_price: Number(unitPrice), comment: notes });
+      }}>
+        <div className="modal-section">
+          <h3>Consommation stock</h3>
+          <p className="storage-note">Cette action déduit les articles utilisés du stock et les rattache à cette intervention.</p>
+          {stockItems.length ? (
+            <div className="maintenance-grid maintenance-cost-grid">
+              <label className="wide-field">Article<select value={stockItemId ?? ''} onChange={(event) => setStockItemId(event.target.value ? Number(event.target.value) : null)}>{stockItems.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.current_quantity})</option>)}</select></label>
+              {selected ? <div className="storage-note wide-field">Disponible : {selected.current_quantity} {selected.unit}</div> : null}
+              <label>Quantité<input type="number" min="1" step="1" value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} /></label>
+              <label>Coût unitaire<input type="number" min="0" step="0.01" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} /></label>
+              <label>Total<input value={`${money(total)} USD`} readOnly className="locked-field" /></label>
+              <label className="wide-field">Observation<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observation" /></label>
+            </div>
+          ) : (
+            <div className="compact-empty">Aucun article disponible dans le stock.</div>
+          )}
+        </div>
+        <div className="modal-footer-sticky">
+          <button type="button" className="secondary" onClick={onClose}>Annuler</button>
+          <button type="submit" disabled={!stockItems.length}>Consommer</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
 function SectionBlock({ title, children }: { title: string; children: ReactNode }) {
   return <section className="maintenance-section"><h3>{title}</h3>{children}</section>;
 }

@@ -31,9 +31,16 @@ button, .icon-btn {
 .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
 .brand strong { display: block; color: white; }
 .brand span, .eyebrow { color: #8fb0bf; font-size: 12px; text-transform: uppercase; }
-.sidebar nav { display: grid; gap: 4px; }
-.sidebar a { color: #c8d8df; text-decoration: none; display: flex; align-items: center; gap: 10px; padding: 10px 11px; border-radius: 6px; }
-.sidebar a.active, .sidebar a:hover { background: #24404d; color: white; }
+.sidebar nav { display: grid; gap: 8px; }
+.sidebar-group { display: grid; gap: 4px; }
+.sidebar-group-toggle { width: 100%; min-height: 36px; background: transparent; color: #e8f0f4; border: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 6px; font-weight: 800; text-align: left; }
+.sidebar-group-toggle span { display: inline-flex; align-items: center; gap: 8px; }
+.sidebar-group-items { display: grid; gap: 4px; padding-left: 4px; }
+.sidebar a, .sidebar-subitem { color: #c8d8df; text-decoration: none; display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 6px; }
+.sidebar a.active, .sidebar a:hover, .sidebar-subitem:hover { background: #24404d; color: white; }
+.sidebar-subitem { min-height: 34px; }
+.sidebar-subitem-soon { opacity: .72; justify-content: space-between; }
+.sidebar-subitem-soon small { margin-left: auto; color: #8fb0bf; font-size: 11px; text-transform: uppercase; }
 .main { padding: 18px 24px 28px; min-width: 0; }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
 .topbar h1 { margin: 2px 0 0; font-size: 23px; }
@@ -204,6 +211,7 @@ textarea { min-height: 72px; resize: vertical; }
 .maintenance-triplet-grid { grid-template-columns: repeat(3, minmax(180px, 1fr)); }
 .maintenance-notes-grid { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
 .maintenance-cost-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+.maintenance-assignment-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
 .maintenance-grid label { display: grid; gap: 4px; color: #637783; font-size: 12px; font-weight: 700; }
 .wide-field { grid-column: span 2; }
 .maintenance-triplet-grid .wide-field { grid-column: span 1; }
@@ -251,6 +259,7 @@ textarea { min-height: 72px; resize: vertical; }
 .signature-box span { color: #637783; font-size: 11px; text-transform: uppercase; }
 .signature-box strong { color: #203845; font-size: 13px; }
 .signature-box small { color: #8a9ca6; font-size: 12px; }
+.maintenance-modal-form .maintenance-assignment-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
 .maintenance-print { background: white; border: 1px solid #dce5eb; border-radius: 8px; padding: 18px; max-width: 1080px; margin: 10px auto 0; }
 .maintenance-print header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: start; border-bottom: 2px solid #203845; padding-bottom: 10px; }
 .maintenance-logo { width: 48px; height: 48px; border-radius: 7px; display: grid; place-items: center; background: #203845; color: white; font-weight: 800; font-size: 15px; }
@@ -434,7 +443,7 @@ textarea { min-height: 72px; resize: vertical; }
 @media (max-width: 980px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { position: static; }
-  .sidebar nav { grid-template-columns: repeat(2, 1fr); }
+  .sidebar nav { grid-template-columns: 1fr; }
   .metrics-grid, .finance-band, .mini-stats, .chart-grid, .quick-form, .lease-section-grid { grid-template-columns: repeat(2, 1fr); }
   .document-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
   .invoice-chart-row { grid-template-columns: 150px 1fr 90px; }
@@ -445,6 +454,7 @@ textarea { min-height: 72px; resize: vertical; }
   .maintenance-filter-bar { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .maintenance-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .maintenance-general-grid, .maintenance-triplet-grid, .maintenance-notes-grid, .maintenance-cost-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+  .maintenance-assignment-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .maintenance-grid .wide-field { grid-column: span 2; }
   .maintenance-detail-header { grid-template-columns: 44px minmax(0, 1fr); }
   .maintenance-detail-meta { grid-column: 1 / -1; justify-items: start; }
@@ -475,6 +485,7 @@ textarea { min-height: 72px; resize: vertical; }
   .tenant-form-section, .tenant-form-section.cols-3, .tenant-form-section.cols-4, .tenant-form-section.cols-1 { grid-template-columns: 1fr; }
   .maintenance-filter-bar, .maintenance-grid { grid-template-columns: 1fr; }
   .maintenance-general-grid, .maintenance-triplet-grid, .maintenance-notes-grid, .maintenance-cost-grid { grid-template-columns: 1fr; }
+  .maintenance-assignment-grid { grid-template-columns: 1fr; }
   .maintenance-grid .wide-field { grid-column: auto; }
   .maintenance-textarea-full { grid-column: auto; }
   .maintenance-detail-header { grid-template-columns: 1fr; }
