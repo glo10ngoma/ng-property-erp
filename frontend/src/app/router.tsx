@@ -21,6 +21,7 @@ import { PaymentsPage } from '../modules/payments/pages/PaymentsPage';
 import { CashPage } from '../modules/cash/pages/CashPage';
 import { StaffPage } from '../modules/staff/pages/StaffPage';
 import { StockPage } from '../modules/stock/pages/StockPage';
+import { StockDetailPage } from '../pages/StockDetailPage';
 import { ReportsPage } from '../modules/reports/pages/ReportsPage';
 import { UsersPage } from '../modules/users/pages/UsersPage';
 import { MaintenanceDetailPage, MaintenancePage } from '../modules/maintenance/pages/MaintenancePage';
@@ -68,6 +69,7 @@ export function AppRouter() {
           <Route path="/staff" element={guarded('staff.read', <StaffPage />)} />
           <Route path="/staff/:id" element={guarded('staff.read', <ModulePlaceholder title="Détail employé" />)} />
           <Route path="/stock" element={guarded('stock.read', <StockPage />)} />
+          <Route path="/stock/:id" element={guarded('stock.read', <StockDetailPage />)} />
           <Route path="/maintenance" element={guarded('maintenance.read', <MaintenancePage />)} />
           <Route path="/maintenance/:id" element={guarded('maintenance.read', <MaintenanceDetailPage />)} />
           <Route path="/reports" element={guarded('reports.read', <ReportsPage />)} />
