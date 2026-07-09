@@ -1,11 +1,11 @@
-import { Eye, FileSpreadsheet, Plus, Printer, RotateCcw, WalletCards } from 'lucide-react';
+import { ArrowLeft, Eye, FileSpreadsheet, Plus, Printer, RotateCcw, WalletCards } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { api, exportXlsxWorkbook, includesText, money } from '../../../api';
 import { useAuth } from '../../../auth';
-import { EmptyState, LoadingState, Modal, PageHeader, SearchableSelect, SuccessMessage } from '../../../components';
-import type { SearchableSelectOption } from '../../../components';
+import { EmptyState, LoadingState, Modal, PageHeader, SuccessMessage } from '../../../components';
 import { useApiList } from '../../../hooks';
 import { StaffNav } from '../StaffNav';
+import { useNavigate } from 'react-router-dom';
 
 type Employee = {
   id: number;
@@ -94,6 +94,7 @@ type HrReport = {
 
 export function AttendancePage() {
   const { can } = useAuth();
+  const navigate = useNavigate();
   const employees = useApiList<Employee>('/employees');
   const [rows, setRows] = useState<AttendanceRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,7 +104,6 @@ export function AttendancePage() {
   const [department, setDepartment] = useState('');
   const [employeeId, setEmployeeId] = useState('');
   const [status, setStatus] = useState('');
-  const [createOpen, setCreateOpen] = useState(false);
   const [success, setSuccess] = useState('');
 
   async function loadRows() {
@@ -140,13 +140,6 @@ export function AttendancePage() {
     [filtered],
   );
 
-  async function saveAttendance(form: FormData) {
-    await api.post('/employee-attendance', attendancePayload(form));
-    setSuccess('Pointage mensuel enregistre.');
-    setCreateOpen(false);
-    await loadRows();
-  }
-
   async function validateAttendance(id: number) {
     await api.post(`/employee-attendance/${id}/validate`, {});
     setSuccess('Pointage mensuel valide.');
@@ -154,7 +147,7 @@ export function AttendancePage() {
   }
 
   return <section>
-    <PageHeader title="Pointage mensuel" action={can('staff.create') ? <button onClick={() => setCreateOpen(true)}><Plus size={16} />Saisir pointage mensuel</button> : undefined} />
+    <PageHeader title="Pointage mensuel" action={can('staff.create') ? <button onClick={() => navigate('/personnel/attendance/monthly-entry')}><Plus size={16} />Saisir pointage mensuel</button> : undefined} />
     <StaffNav />
     <SuccessMessage message={success} />
     <div className="mini-stats">
@@ -199,7 +192,6 @@ export function AttendancePage() {
       </table>
       {!filtered.length && <EmptyState message="Aucun pointage mensuel trouve." />}
     </div>}
-    {createOpen && <AttendanceModal employees={employees.data} onClose={() => setCreateOpen(false)} onSaved={async (message) => { setSuccess(message); setCreateOpen(false); await loadRows(); }} defaultMonth={month} defaultYear={year} />}
   </section>;
 }
 
@@ -375,7 +367,30 @@ export function HrReportsPage() {
   </section>;
 }
 
-function AttendanceModal({ employees, onClose, onSaved, defaultMonth, defaultYear }: { employees: Employee[]; onClose: () => void; onSaved: (message: string) => Promise<void> | void; defaultMonth: string; defaultYear: string }) {
+export function AttendanceMonthlyEntryPage() {
+  const navigate = useNavigate();
+  const employees = useApiList<Employee>('/employees');
+  const [success, setSuccess] = useState('');
+
+  return <section>
+    <PageHeader title="Saisie pointage mensuel" />
+    <StaffNav />
+    <SuccessMessage message={success} />
+    <AttendanceBulkEditor
+      employees={employees.data}
+      defaultMonth={String(new Date().getMonth() + 1)}
+      defaultYear={String(new Date().getFullYear())}
+      asPage
+      onCancel={() => navigate('/personnel/attendance')}
+      onSaved={async (message) => {
+        setSuccess(message);
+        navigate('/personnel/attendance');
+      }}
+    />
+  </section>;
+}
+
+function AttendanceBulkEditor({ employees, onCancel, onSaved, defaultMonth, defaultYear, asPage = false }: { employees: Employee[]; onCancel: () => void; onSaved: (message: string) => Promise<void> | void; defaultMonth: string; defaultYear: string; asPage?: boolean }) {
   const [month, setMonth] = useState(defaultMonth);
   const [year, setYear] = useState(defaultYear);
   const [workingDays, setWorkingDays] = useState('26');
@@ -459,15 +474,16 @@ function AttendanceModal({ employees, onClose, onSaved, defaultMonth, defaultYea
     await onSaved(validateAfterSave ? 'Pointage mensuel collectif validé.' : 'Pointage mensuel collectif enregistré.');
   }
 
-  return <Modal title="Saisir pointage mensuel" onClose={onClose}>
-    <div className="stock-purchase-modal">
+  const content = <div className="stock-purchase-modal">
       <div className="modal-section">
         <h3>Parametres du mois</h3>
         <div className="maintenance-grid hr-form-grid">
+          {asPage && <button type="button" className="secondary" onClick={onCancel}><ArrowLeft size={15} />Retour</button>}
           <label>Mois<select value={month} onChange={(event) => setMonth(event.target.value)}>{monthOptions()}</select></label>
           <label>Annee<input value={year} onChange={(event) => setYear(event.target.value)} /></label>
           <label>Jours ouvrables<input type="number" min="1" value={workingDays} onChange={(event) => setWorkingDays(event.target.value)} /></label>
           <label>Service optionnel<select value={department} onChange={(event) => setDepartment(event.target.value)}><option value="">Tous les services</option>{departmentOptions.map((value) => <option key={value}>{value}</option>)}</select></label>
+          {asPage && <button type="button" className="secondary" onClick={() => void loadTemplate()}>Charger employes</button>}
         </div>
         <div className="maintenance-grid hr-form-grid" style={{ marginTop: 12 }}>
           <div className="summary-item"><span>Employes charges</span><strong>{rows.length}</strong></div>
@@ -479,7 +495,7 @@ function AttendanceModal({ employees, onClose, onSaved, defaultMonth, defaultYea
         <h3>Tableau collectif</h3>
         {loading ? <LoadingState /> : <div className="table-wrap">
           <table>
-            <thead><tr><th>Matricule</th><th>Employe</th><th>Service</th><th>Fonction</th><th className="right">Salaire mensuel</th><th className="right">Conges payes</th><th className="right">Maladie</th><th className="right">Absences non justifiees</th><th className="right">Retards</th><th className="right">Heures sup.</th><th className="right">Jours presents</th><th className="right">Retenue absences</th><th className="right">Net estime</th><th>Observations</th></tr></thead>
+            <thead><tr><th>Matricule</th><th>Employe</th><th>Service</th><th>Fonction</th><th className="right">Salaire mensuel</th><th className="right">Conges payes</th><th className="right">Maladie</th><th className="right">Absences non justifiees</th><th className="right">Retards</th><th className="right">Heures sup.</th><th className="right">Jours presents</th><th className="right">Retenue absences</th><th className="right">Net estime</th><th>Observations</th><th>Statut</th></tr></thead>
             <tbody>{rows.map((row) => {
               const error = attendanceRowError(row);
               return <tr key={row.employee_id}>
@@ -500,6 +516,7 @@ function AttendanceModal({ employees, onClose, onSaved, defaultMonth, defaultYea
                   <input value={row.observations ?? ''} disabled={row.locked} onChange={(event) => updateRow(row.employee_id, 'observations', event.target.value)} />
                   {error && <div className="field-error" style={{ color: '#b91c1c', fontSize: 12, marginTop: 4 }}>{error}</div>}
                 </td>
+                <td>{attendanceStatusLabel(row.status)}</td>
               </tr>;
             })}</tbody>
           </table>
@@ -507,12 +524,16 @@ function AttendanceModal({ employees, onClose, onSaved, defaultMonth, defaultYea
         </div>}
       </div>
       <div className="modal-footer-sticky" style={{ gap: 12 }}>
-        <button type="button" className="secondary" onClick={onClose}>Annuler</button>
+        <button type="button" className="secondary" onClick={onCancel}>Retour</button>
         <button type="button" className="secondary" onClick={() => void saveBulk(false)} disabled={submitting || loading || !rows.length || invalidRows > 0}>Enregistrer</button>
         <button type="button" onClick={() => void saveBulk(true)} disabled={submitting || loading || !rows.length || invalidRows > 0}>Valider</button>
+        <button type="button" className="secondary" onClick={() => exportXlsxWorkbook(`RH_Pointage_Mensuel_${year}_${month}.xlsx`, [{ name: 'Pointage', rows: rows.map(exportAttendanceRow) }])} disabled={!rows.length}><FileSpreadsheet size={15} />Export Excel</button>
       </div>
-    </div>
-  </Modal>;
+    </div>;
+
+  if (asPage) return content;
+
+  return <Modal title="Saisir pointage mensuel" onClose={onCancel}>{content}</Modal>;
 }
 
 function PayrollModal({ employees, onClose, onSubmit, defaultMonth, defaultYear }: { employees: Employee[]; onClose: () => void; onSubmit: (form: FormData) => void; defaultMonth: string; defaultYear: string }) {
@@ -581,14 +602,6 @@ function IconAction({ title, icon, onClick }: { title: string; icon: ReactNode; 
 
 function employeeName(employee: Pick<Employee, 'first_name' | 'last_name' | 'post_name'>) {
   return [employee.first_name, employee.post_name, employee.last_name].filter(Boolean).join(' ');
-}
-
-function employeeOptions(rows: Employee[]): SearchableSelectOption<number>[] {
-  return rows.map((row) => ({
-    value: row.id,
-    label: `${row.employee_number ?? `EMP-${row.id}`} - ${employeeName(row)}`,
-    meta: [row.department, row.job_title].filter(Boolean).join(' - '),
-  }));
 }
 
 function monthOptions() {

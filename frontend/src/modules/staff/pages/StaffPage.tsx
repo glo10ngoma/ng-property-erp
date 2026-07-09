@@ -9,6 +9,7 @@ export {
 
 export {
   AttendancePage,
+  AttendanceMonthlyEntryPage,
   HrReportsPage,
   PayrollPage,
 } from './StaffAttendancePayrollPages';

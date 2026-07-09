@@ -16,7 +16,7 @@ import { RentalUnitsPage } from '../modules/rental-units/pages/RentalUnitsPage';
 import { ReportsPage } from '../modules/reports/pages/ReportsPage';
 import { ModulePlaceholder } from '../modules/shared/ModulePlaceholder';
 import { SettingsPage } from '../modules/settings/pages/SettingsPage';
-import { AdvancesPage, AttendancePage, ContractsPage, EmployeeDetailPage, EmployeesPage, HrReportsPage, LeavesPage, PayrollPage, StaffPage } from '../modules/staff/pages/StaffPage';
+import { AdvancesPage, AttendanceMonthlyEntryPage, AttendancePage, ContractsPage, EmployeeDetailPage, EmployeesPage, HrReportsPage, LeavesPage, PayrollPage, StaffPage } from '../modules/staff/pages/StaffPage';
 import { StockArticlesPage } from '../modules/stock/pages/StockArticlesPage';
 import { StockInventoriesPage, StockInventoryDetailPage } from '../modules/stock/pages/StockInventoriesPage';
 import { StockMovementDetailPage } from '../modules/stock/pages/StockMovementDetailPage';
@@ -80,6 +80,7 @@ export function AppRouter() {
           <Route path="/personnel/employees/:id" element={guarded('staff.read', <EmployeeDetailPage />)} />
           <Route path="/personnel/contracts" element={guarded('staff.read', <ContractsPage />)} />
           <Route path="/personnel/attendance" element={guarded('staff.read', <AttendancePage />)} />
+          <Route path="/personnel/attendance/monthly-entry" element={guarded('staff.read', <AttendanceMonthlyEntryPage />)} />
           <Route path="/personnel/advances" element={guarded('staff.read', <AdvancesPage />)} />
           <Route path="/personnel/leaves" element={guarded('staff.read', <LeavesPage />)} />
           <Route path="/personnel/payroll" element={guarded('staff.read', <PayrollPage />)} />
