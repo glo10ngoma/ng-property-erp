@@ -40,6 +40,7 @@ type MaintenanceRequest = {
   assigned_employee_name?: string;
   due_date?: string;
   reported_at?: string;
+  resolved_at?: string;
   attachment_file_name?: string;
   attachment_file_url?: string;
   internal_notes?: string;
@@ -387,7 +388,9 @@ export function MaintenanceDetailPage() {
     setLoading(false);
   }
 
-  useEffect(() => { refresh(); }, [id]);
+  useEffect(() => {
+    refresh();
+  }, [id]);
 
   async function action(path: string, message: string, body: Record<string, unknown> = {}) {
     await api.post(path, body);
@@ -396,6 +399,12 @@ export function MaintenanceDetailPage() {
   }
 
   const printable = request ? maintenanceWorkbook(request) : [];
+
+  const actionState = useMemo(() => maintenanceDetailActions(request?.status ?? 'NEW'), [request?.status]);
+  const timelineItems = useMemo(() => maintenanceTimelineItems(request), [request]);
+  const attachmentItems = useMemo(() => maintenanceAttachmentItems(request), [request]);
+  const costBreakdown = useMemo(() => maintenanceCostBreakdown(request), [request]);
+  const interventionTime = useMemo(() => maintenanceTimeSummary(request), [request]);
 
   if (loading || !request) return <div className="empty">Chargement de la demande...</div>;
 
@@ -406,14 +415,14 @@ export function MaintenanceDetailPage() {
         action={
           <div className="page-actions">
             <button className="secondary" onClick={() => navigate('/maintenance')}><ArrowLeft size={16} />Retour</button>
-            {can('maintenance.update') && <button onClick={() => setEditing(true)}><Pencil size={16} />Modifier</button>}
-            {can('maintenance.assign') && <button onClick={() => setAssigning(true)}><UserCog size={16} />Affecter technicien</button>}
-            {can('maintenance.update') && <button onClick={() => action(`/maintenance/requests/${request.id}/start`, 'Intervention démarrée.', {})}><CirclePause size={16} />Démarrer intervention</button>}
-            {can('maintenance.update') && <button onClick={() => action(`/maintenance/requests/${request.id}/expenses`, 'Dépense enregistrée.', { amount: request.estimated_cost ?? 0, category: request.category, description: 'Dépense maintenance' })}><CircleAlert size={16} />Ajouter dépense</button>}
-            {can('maintenance.update') && <button onClick={() => action(`/maintenance/requests/${request.id}/stock`, 'Stock consommé.', { stock_item_id: stockItems.data[0]?.id ?? null, quantity: 1, comment: 'Consommation maintenance' })}><Paperclip size={16} />Consommer stock</button>}
-            {can('maintenance.update') && <button onClick={() => action(`/maintenance/requests/${request.id}/resolve`, 'Intervention résolue.', { actual_hours: request.actual_hours ?? 0, resolution_comments: request.proposed_solution ?? 'Résolution' })}><CheckCircle2 size={16} />Marquer résolu</button>}
-            {can('maintenance.validate') && <button onClick={() => action(`/maintenance/requests/${request.id}/validate`, 'Demande validée.', { comments: 'Validation finale' })}><CheckCircle2 size={16} />Valider</button>}
-            {can('maintenance.close') && <button onClick={() => action(`/maintenance/requests/${request.id}/close`, 'Demande clôturée.')}>Clôturer</button>}
+            {can('maintenance.update') && actionState.canEdit && <button onClick={() => setEditing(true)}><Pencil size={16} />Modifier</button>}
+            {can('maintenance.assign') && actionState.canAssign && <button onClick={() => setAssigning(true)}><UserCog size={16} />Affecter technicien</button>}
+            {can('maintenance.update') && actionState.canStart && <button onClick={() => action(`/maintenance/requests/${request.id}/start`, 'Intervention démarrée.', {})}><CirclePause size={16} />Démarrer intervention</button>}
+            {can('maintenance.update') && actionState.canWork && <button onClick={() => action(`/maintenance/requests/${request.id}/expenses`, 'Dépense enregistrée.', { amount: request.estimated_cost ?? 0, category: request.category, description: 'Dépense maintenance' })}><CircleAlert size={16} />Ajouter dépense</button>}
+            {can('maintenance.update') && actionState.canWork && <button onClick={() => action(`/maintenance/requests/${request.id}/stock`, 'Stock consommé.', { stock_item_id: stockItems.data[0]?.id ?? null, quantity: 1, comment: 'Consommation maintenance' })}><Paperclip size={16} />Consommer stock</button>}
+            {can('maintenance.update') && actionState.canResolve && <button onClick={() => action(`/maintenance/requests/${request.id}/resolve`, 'Intervention résolue.', { actual_hours: request.actual_hours ?? 0, resolution_comments: request.proposed_solution ?? 'Résolution' })}><CheckCircle2 size={16} />Marquer résolu</button>}
+            {can('maintenance.validate') && actionState.canValidate && <button onClick={() => action(`/maintenance/requests/${request.id}/validate`, 'Demande validée.', { comments: 'Validation finale' })}><CheckCircle2 size={16} />Valider</button>}
+            {can('maintenance.close') && actionState.canClose && <button onClick={() => action(`/maintenance/requests/${request.id}/close`, 'Demande clôturée.')}>Clôturer</button>}
             <button onClick={() => window.print()}><Printer size={16} />Imprimer</button>
             <button className="secondary" onClick={() => exportXlsxWorkbook(`maintenance_${request.request_number}.xlsx`, printable)}><FileSpreadsheet size={16} />Excel</button>
           </div>
@@ -432,66 +441,108 @@ export function MaintenanceDetailPage() {
         <SummaryItem label="Technicien" value={request.assigned_employee_name ?? '-'} />
         <SummaryItem label="Date" value={request.reported_at ? shortDate(request.reported_at) : '-'} />
         <SummaryItem label="Échéance" value={request.due_date ? shortDate(request.due_date) : '-'} />
-        <SummaryItem label="Coût" value={money(request.total_cost ?? request.estimated_cost ?? 0)} />
+        <SummaryItem label="Coût" value={money(costBreakdown.total)} />
       </div>
 
       <article className="maintenance-print">
-        <header>
-          <div className="maintenance-logo">PE</div>
-          <div>
-            <h2>NG Property ERP</h2>
-            <p>Fiche intervention</p>
-            <p>Merci pour votre confiance.</p>
+        <header className="maintenance-detail-header">
+          <div className="maintenance-detail-brand">
+            <div className="maintenance-logo">PE</div>
+            <div>
+              <strong>NG Property ERP</strong>
+              <span>Maintenance</span>
+            </div>
           </div>
-          <div className="invoice-meta">
-            <strong>{request.request_number}</strong>
-            <span>{maintenanceStatusLabel(request.status)}</span>
-            <span>{priorityLabel(request.priority)}</span>
+          <div className="maintenance-detail-title">
+            <span className="maintenance-detail-number">{request.request_number}</span>
+            <h2>{request.title}</h2>
+            <div className="maintenance-detail-badges">
+              <span className={`badge ${statusClass(request.status)}`}>{maintenanceStatusLabel(request.status)}</span>
+              <span className={`badge ${priorityClass(request.priority)}`}>{priorityLabel(request.priority)}</span>
+            </div>
+          </div>
+          <div className="invoice-meta maintenance-detail-meta">
+            <strong>{request.building_name ?? 'Immeuble -'}</strong>
+            <span>{request.unit_number ?? 'Unité -'}</span>
+            <span>{request.tenant_name ?? 'Locataire -'}</span>
           </div>
         </header>
 
         <div className="maintenance-section-grid">
           <SectionBlock title="Informations générales">
-            <DetailLine label="Immeuble" value={request.building_name ?? '-'} />
-            <DetailLine label="Unité" value={request.unit_number ?? '-'} />
-            <DetailLine label="Locataire" value={request.tenant_name ?? '-'} />
-            <DetailLine label="Technicien" value={request.assigned_employee_name ?? '-'} />
-            <DetailLine label="Date signalement" value={request.reported_at ? shortDate(request.reported_at) : '-'} />
-            <DetailLine label="Échéance" value={request.due_date ? shortDate(request.due_date) : '-'} />
-            <DetailLine label="Coût" value={money(request.total_cost ?? request.estimated_cost ?? 0)} />
+            <div className="maintenance-detail-grid">
+              <DetailLine label="Immeuble" value={request.building_name ?? '-'} />
+              <DetailLine label="Unité" value={request.unit_number ?? '-'} />
+              <DetailLine label="Locataire" value={request.tenant_name ?? '-'} />
+              <DetailLine label="Technicien" value={request.assigned_employee_name ?? '-'} />
+              <DetailLine label="Date signalement" value={request.reported_at ? shortDate(request.reported_at) : '-'} />
+              <DetailLine label="Échéance" value={request.due_date ? shortDate(request.due_date) : '-'} />
+              <DetailLine label="Coût estimé" value={money(request.estimated_cost ?? 0)} />
+              <DetailLine label="Coût total" value={money(costBreakdown.total)} />
+            </div>
           </SectionBlock>
+
           <SectionBlock title="Diagnostic">
-            <DetailLine label="Description" value={request.description ?? '-'} />
-            <DetailLine label="Diagnostic" value={request.diagnostic ?? '-'} />
-            <DetailLine label="Cause" value={request.cause ?? '-'} />
-            <DetailLine label="Solution proposée" value={request.proposed_solution ?? '-'} />
-            <DetailLine label="Observations internes" value={request.internal_notes ?? '-'} />
+            <div className="maintenance-detail-grid">
+              <DetailLine label="Description" value={request.description ?? '-'} />
+              <DetailLine label="Diagnostic" value={request.diagnostic ?? '-'} />
+              <DetailLine label="Cause" value={request.cause ?? '-'} />
+              <DetailLine label="Solution proposée" value={request.proposed_solution ?? '-'} />
+              <DetailLine label="Observations internes" value={request.internal_notes ?? '-'} />
+            </div>
+          </SectionBlock>
+
+          <SectionBlock title={`Pièces jointes (${attachmentItems.length})`}>
+            {attachmentItems.length ? <div className="maintenance-gallery">{attachmentItems.map((item, index) => <AttachmentCard item={item} key={`${item.label}-${index}`} />)}</div> : <div className="compact-empty">Aucune pièce jointe.</div>}
+          </SectionBlock>
+
+          <SectionBlock title="Timeline">
+            {timelineItems.length ? <div className="maintenance-timeline">{timelineItems.map((item, index) => <TimelineEntry item={item} key={`${item.title}-${index}`} />)}</div> : <div className="compact-empty">Aucun historique trouvé.</div>}
+          </SectionBlock>
+
+          <SectionBlock title="Dépenses">
+            <SimpleTable
+              headers={['Date', 'Catégorie', 'Description', 'Montant', 'Statut']}
+              rows={request.expenses.map((expense) => [shortDate(expense.expense_date), expense.category, expense.description ?? '-', money(expense.amount), maintenanceStatusLabel(expense.status)])}
+            />
+            <div className="summary-band maintenance-cost-footer">
+              <SummaryItem label="Main-d'œuvre" value={money(costBreakdown.labor)} />
+              <SummaryItem label="Pièces" value={money(costBreakdown.parts)} />
+              <SummaryItem label="Dépenses" value={money(costBreakdown.expenses)} />
+              <SummaryItem label="Total" value={money(costBreakdown.total)} />
+            </div>
+          </SectionBlock>
+
+          <SectionBlock title="Consommation de stock">
+            {request.stock_movements.length ? (
+              <SimpleTable
+                headers={['Article', 'Quantité', 'Référence', 'Date']}
+                rows={request.stock_movements.map((movement) => [movement.item_name, movement.quantity, movement.reference ?? '-', shortDate(movement.movement_date)])}
+              />
+            ) : (
+              <div className="compact-empty">Aucune consommation de stock.</div>
+            )}
+          </SectionBlock>
+
+          <SectionBlock title="Temps d’intervention">
+            <div className="maintenance-detail-grid">
+              <DetailLine label="Temps estimé" value={interventionTime.estimated} />
+              <DetailLine label="Temps réel" value={interventionTime.actual} />
+              <DetailLine label="Date début" value={interventionTime.startedAt} />
+              <DetailLine label="Date fin" value={interventionTime.endedAt} />
+              <DetailLine label="Retard" value={interventionTime.overdue} />
+              <DetailLine label="SLA" value={interventionTime.slaRespect} />
+            </div>
+          </SectionBlock>
+
+          <SectionBlock title="Validation">
+            <div className="maintenance-signature-grid">
+              <div className="signature-box"><span>Technicien</span><strong>{request.assigned_employee_name ?? 'À signer'}</strong><small>Signature prévue</small></div>
+              <div className="signature-box"><span>Responsable</span><strong>À valider</strong><small>Signature prévue</small></div>
+              <div className="signature-box"><span>Client</span><strong>{request.tenant_name ?? 'À signer'}</strong><small>Signature prévue</small></div>
+            </div>
           </SectionBlock>
         </div>
-
-        <SectionBlock title={`Pièces jointes (${request.documents.length + (request.attachment_file_name ? 1 : 0)})`}>
-          <div className="compact-list">
-            {request.attachment_file_name ? (
-              <div className="compact-item"><span>Signalement</span><strong>{request.attachment_file_name}</strong></div>
-            ) : null}
-            {request.documents.map((document) => (
-              <div className="compact-item" key={document.id}><span>{document.document_type}</span><strong>{document.file_name}</strong></div>
-            ))}
-            {!request.attachment_file_name && !request.documents.length && <div className="compact-empty">Aucune pièce jointe.</div>}
-          </div>
-        </SectionBlock>
-
-        <SectionBlock title="Timeline">
-          <CompactRows rows={request.timeline} />
-        </SectionBlock>
-
-        <SectionBlock title="Dépenses">
-          <SimpleTable headers={['Date', 'Catégorie', 'Montant', 'Statut']} rows={request.expenses.map((expense) => [shortDate(expense.expense_date), expense.category, money(expense.amount), maintenanceStatusLabel(expense.status)])} />
-        </SectionBlock>
-
-        <SectionBlock title="Consommation stock">
-          <SimpleTable headers={['Article', 'Quantité', 'Date']} rows={request.stock_movements.map((movement) => [movement.item_name, movement.quantity, shortDate(movement.movement_date)])} />
-        </SectionBlock>
       </article>
 
       {editing && (
@@ -811,6 +862,155 @@ function maintenanceWorkbook(request: MaintenanceDetail) {
     { name: 'Timeline', rows: timelineRows([request]) },
     { name: 'Audit', rows: timelineRows([request]) },
   ];
+}
+
+type MaintenanceActionState = {
+  canEdit: boolean;
+  canAssign: boolean;
+  canStart: boolean;
+  canWork: boolean;
+  canResolve: boolean;
+  canValidate: boolean;
+  canClose: boolean;
+};
+
+type MaintenanceTimelineView = {
+  date: string;
+  title: string;
+  details?: string;
+  status?: string;
+};
+
+type MaintenanceAttachmentView = {
+  label: string;
+  fileName: string;
+  fileUrl?: string;
+  kind: string;
+};
+
+function maintenanceDetailActions(status: string): MaintenanceActionState {
+  const final = new Set(['CLOSED', 'CANCELLED']);
+  const active = new Set(['APPROVED', 'ASSIGNED', 'IN_PROGRESS', 'ON_HOLD']);
+  return {
+    canEdit: !final.has(status),
+    canAssign: !final.has(status),
+    canStart: !final.has(status) && new Set(['NEW', 'DIAGNOSIS', 'WAITING_APPROVAL', 'APPROVED', 'ASSIGNED', 'ON_HOLD']).has(status),
+    canWork: active.has(status),
+    canResolve: new Set(['IN_PROGRESS', 'ON_HOLD']).has(status),
+    canValidate: status === 'RESOLVED',
+    canClose: new Set(['RESOLVED', 'VALIDATED']).has(status),
+  };
+}
+
+function maintenanceTimelineItems(request: MaintenanceDetail | null): MaintenanceTimelineView[] {
+  if (!request) return [];
+  const items: MaintenanceTimelineView[] = [];
+  if (request.reported_at) {
+    items.push({ date: request.reported_at, title: 'Signalement créé', details: request.description ?? '-' });
+  }
+  if (request.assignments?.length) {
+    request.assignments.forEach((assignment) => {
+      items.push({
+        date: assignment.assigned_at,
+        title: assignment.employee_name ? `Affectation à ${assignment.employee_name}` : 'Affectation',
+        details: [assignment.external_provider ? `Prestataire: ${assignment.external_provider}` : '', assignment.notes ?? ''].filter(Boolean).join(' · ') || undefined,
+      });
+    });
+  }
+  if (request.timeline?.length) {
+    request.timeline.forEach((event) => {
+      items.push({
+        date: event.created_at,
+        title: event.title,
+        details: event.details?.trim() || undefined,
+        status: event.event_type ? event.event_type.replace(/_/g, ' ') : undefined,
+      });
+    });
+  }
+  if (request.resolved_at) {
+    items.push({ date: request.resolved_at, title: 'Intervention résolue', details: request.proposed_solution ?? undefined });
+  }
+  return items
+    .filter((item) => item.title)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
+function maintenanceAttachmentItems(request: MaintenanceDetail | null): MaintenanceAttachmentView[] {
+  if (!request) return [];
+  const items: MaintenanceAttachmentView[] = [];
+  if (request.attachment_file_name) {
+    items.push({
+      label: 'Signalement',
+      fileName: request.attachment_file_name,
+      fileUrl: request.attachment_file_url ?? undefined,
+      kind: 'main',
+    });
+  }
+  request.documents.forEach((document) => {
+    items.push({
+      label: document.document_type,
+      fileName: document.file_name,
+      fileUrl: document.file_url,
+      kind: 'document',
+    });
+  });
+  return items;
+}
+
+function maintenanceCostBreakdown(request: MaintenanceDetail | null) {
+  const labor = Number(request?.estimated_cost ?? 0);
+  const parts = Number(request?.stock_cost_total ?? 0);
+  const expenses = Number(request?.expenses_total ?? 0);
+  const total = Number(request?.total_cost ?? labor + parts + expenses);
+  return { labor, parts, expenses, total };
+}
+
+function maintenanceTimeSummary(request: MaintenanceDetail | null) {
+  const reportedAt = request?.reported_at ? new Date(request.reported_at) : null;
+  const resolvedAt = request?.resolved_at ? new Date(request.resolved_at) : null;
+  const now = new Date();
+  const elapsed = reportedAt ? (resolvedAt ?? now).getTime() - reportedAt.getTime() : 0;
+  const hours = Math.max(0, Math.round(elapsed / 36e5));
+  return {
+    estimated: request?.actual_hours ? `${request.actual_hours} h` : `${hours || 0} h`,
+    actual: request?.actual_hours ? `${request.actual_hours} h` : 'Non disponible',
+    startedAt: reportedAt ? shortDate(reportedAt.toISOString()) : '-',
+    endedAt: resolvedAt ? shortDate(resolvedAt.toISOString()) : 'Non résolu',
+    overdue: request?.is_overdue ? 'Oui' : 'Non',
+    slaRespect: request?.is_overdue ? 'Non' : 'Oui',
+  };
+}
+
+function isImageAttachment(fileName?: string, fileUrl?: string) {
+  const candidate = `${fileName ?? ''} ${fileUrl ?? ''}`.toLowerCase();
+  return ['.png', '.jpg', '.jpeg', '.webp', '.gif'].some((extension) => candidate.includes(extension));
+}
+
+function AttachmentCard({ item }: { item: MaintenanceAttachmentView }) {
+  const preview = isImageAttachment(item.fileName, item.fileUrl) && item.fileUrl;
+  return (
+    <article className="maintenance-attachment-card">
+      <div className="maintenance-attachment-head">
+        <span>{item.label}</span>
+        <strong>{item.fileName}</strong>
+      </div>
+      {preview ? <img src={item.fileUrl} alt={item.fileName} className="maintenance-attachment-preview" /> : <div className="maintenance-attachment-placeholder">Aperçu non disponible</div>}
+      {item.fileUrl ? <a href={item.fileUrl} target="_blank" rel="noreferrer">Voir le fichier</a> : <span className="storage-note">Aucune URL disponible</span>}
+    </article>
+  );
+}
+
+function TimelineEntry({ item }: { item: MaintenanceTimelineView }) {
+  return (
+    <div className="maintenance-timeline-item">
+      <div className="maintenance-timeline-date">{shortDate(item.date)}</div>
+      <div className="maintenance-timeline-body">
+        <strong>{item.title}</strong>
+        {item.details ? <span>{item.details}</span> : null}
+        {item.status ? <small>{item.status}</small> : null}
+      </div>
+    </div>
+  );
 }
 
 function buildingOptions(buildings: BuildingOption[]) {
