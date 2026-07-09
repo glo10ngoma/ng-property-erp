@@ -614,6 +614,291 @@ export class SaasService {
     return { ...requireRow(item.rows[0], 'Stock item'), movements: movements.rows, inventories: inventories.rows, alerts: alerts.rows };
   }
 
+  async stockPurchases() {
+    const { rows } = await this.db.query(
+      `SELECT sp.*,
+              CONCAT(u.first_name, ' ', u.last_name) AS user_name,
+              COUNT(spl.id)::INT AS line_count
+       FROM stock_purchases sp
+       LEFT JOIN stock_purchase_lines spl
+         ON spl.stock_purchase_id = sp.id AND spl.deleted_at IS NULL
+       LEFT JOIN app_users u ON u.id = sp.created_by
+       WHERE sp.organization_id = $1 AND sp.deleted_at IS NULL
+       GROUP BY sp.id, u.first_name, u.last_name
+       ORDER BY sp.purchase_date DESC, sp.id DESC`,
+      [this.context.organizationId()],
+    );
+    return rows;
+  }
+
+  async stockPurchaseDetail(id: number) {
+    const purchase = await this.db.query(
+      `SELECT sp.*, CONCAT(u.first_name, ' ', u.last_name) AS user_name
+       FROM stock_purchases sp
+       LEFT JOIN app_users u ON u.id = sp.created_by
+       WHERE sp.id = $1 AND sp.organization_id = $2 AND sp.deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+    const row = requireRow(purchase.rows[0], 'Stock purchase');
+    const [lines, receipts, payments, timeline, stockMovements, cashMovements] = await Promise.all([
+      this.db.query(
+        `SELECT spl.*, si.code AS item_code, si.name AS item_name, si.unit, si.category
+         FROM stock_purchase_lines spl
+         JOIN stock_items si ON si.id = spl.stock_item_id
+         WHERE spl.stock_purchase_id = $1 AND spl.organization_id = $2 AND spl.deleted_at IS NULL
+         ORDER BY spl.id`,
+        [id, this.context.organizationId()],
+      ),
+      this.db.query(
+        `SELECT spr.*,
+                (
+                  SELECT COALESCE(SUM(quantity_received), 0)
+                  FROM stock_purchase_receipt_lines sprl
+                  WHERE sprl.stock_purchase_receipt_id = spr.id
+                    AND sprl.organization_id = spr.organization_id
+                    AND sprl.deleted_at IS NULL
+                )::FLOAT AS quantity_received
+         FROM stock_purchase_receipts spr
+         WHERE spr.stock_purchase_id = $1 AND spr.organization_id = $2 AND spr.deleted_at IS NULL
+         ORDER BY spr.receipt_date DESC, spr.id DESC`,
+        [id, this.context.organizationId()],
+      ),
+      this.db.query(
+        `SELECT spp.*, CONCAT(u.first_name, ' ', u.last_name) AS user_name
+         FROM stock_purchase_payments spp
+         LEFT JOIN app_users u ON u.id = spp.created_by
+         WHERE spp.stock_purchase_id = $1 AND spp.organization_id = $2 AND spp.deleted_at IS NULL
+         ORDER BY spp.payment_date DESC, spp.id DESC`,
+        [id, this.context.organizationId()],
+      ),
+      this.db.query(
+        `SELECT spt.*, CONCAT(u.first_name, ' ', u.last_name) AS user_name
+         FROM stock_purchase_timeline spt
+         LEFT JOIN app_users u ON u.id = spt.created_by
+         WHERE spt.stock_purchase_id = $1 AND spt.organization_id = $2
+         ORDER BY spt.created_at DESC, spt.id DESC`,
+        [id, this.context.organizationId()],
+      ),
+      this.db.query(
+        `SELECT sm.*, si.code AS item_code, si.name AS item_name, si.unit,
+                CONCAT(u.first_name, ' ', u.last_name) AS user_name
+         FROM stock_movements sm
+         JOIN stock_items si ON si.id = sm.stock_item_id
+         LEFT JOIN app_users u ON u.id = sm.created_by
+         WHERE sm.stock_purchase_id = $1 AND sm.organization_id = $2 AND sm.deleted_at IS NULL
+         ORDER BY sm.movement_date DESC, sm.id DESC`,
+        [id, this.context.organizationId()],
+      ),
+      this.db.query(
+        `SELECT cm.*, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name
+         FROM cash_movements cm
+         LEFT JOIN tenants t ON t.id = cm.tenant_id
+         WHERE cm.stock_purchase_id = $1 AND cm.organization_id = $2 AND cm.deleted_at IS NULL
+         ORDER BY cm.movement_date DESC, cm.id DESC`,
+        [id, this.context.organizationId()],
+      ),
+    ]);
+
+    const receiptIds = receipts.rows.map((entry) => Number(entry.id));
+    const receiptLines = receiptIds.length
+      ? await this.db.query(
+          `SELECT sprl.*, spr.receipt_number, spr.receipt_date, si.code AS item_code, si.name AS item_name, si.unit
+           FROM stock_purchase_receipt_lines sprl
+           JOIN stock_purchase_receipts spr ON spr.id = sprl.stock_purchase_receipt_id
+           JOIN stock_items si ON si.id = sprl.stock_item_id
+           WHERE sprl.organization_id = $1 AND sprl.deleted_at IS NULL AND sprl.stock_purchase_receipt_id = ANY($2::INT[])
+           ORDER BY spr.receipt_date DESC, sprl.id DESC`,
+          [this.context.organizationId(), receiptIds],
+        )
+      : { rows: [] };
+
+    return {
+      ...row,
+      lines: lines.rows,
+      receipts: receipts.rows,
+      receipt_lines: receiptLines.rows,
+      payments: payments.rows,
+      timeline: timeline.rows,
+      stock_movements: stockMovements.rows,
+      cash_movements: cashMovements.rows,
+    };
+  }
+
+  async createStockPurchase(body: Record<string, unknown>) {
+    const lines = Array.isArray(body.lines) ? (body.lines as Array<Record<string, unknown>>) : [];
+    if (!lines.length) throw new BadRequestException('Ajoutez au moins un article');
+    return this.db.transaction(async (client) => {
+      const paymentType = String(body.payment_type ?? 'DEFERRED').toUpperCase();
+      if (!['CASH', 'PARTIAL', 'DEFERRED'].includes(paymentType)) {
+        throw new BadRequestException('Type de paiement invalide');
+      }
+      const purchaseNumber = await this.nextStockPurchaseNumber(client);
+      const normalizedLines = await this.normalizeStockPurchaseLines(client, lines);
+      const subtotalAmount = normalizedLines.reduce((sum, line) => sum + Number(line.line_total), 0);
+      const taxAmount = Number(body.tax_amount ?? 0);
+      const discountAmount = Number(body.discount_amount ?? 0);
+      const totalAmount = subtotalAmount + taxAmount - discountAmount;
+      let initialPaidAmount = 0;
+      if (paymentType === 'CASH') initialPaidAmount = totalAmount;
+      if (paymentType === 'PARTIAL') initialPaidAmount = Number(body.initial_payment_amount ?? 0);
+      if (initialPaidAmount < 0 || initialPaidAmount > totalAmount) {
+        throw new BadRequestException('Montant paye initial invalide');
+      }
+      const { rows } = await client.query(
+        `INSERT INTO stock_purchases
+         (purchase_number, purchase_date, supplier_name, supplier_reference, store, payment_terms, payment_method,
+          payment_type, due_date, subtotal_amount, tax_amount, discount_amount, total_amount, paid_amount,
+          outstanding_amount, purchase_status, reception_status, payment_status, observations, created_by, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'OPEN', 'PENDING', $16, $17, $18, $19)
+         RETURNING *`,
+        [
+          purchaseNumber,
+          body.purchase_date ?? new Date().toISOString().slice(0, 10),
+          body.supplier_name,
+          body.supplier_reference ?? null,
+          body.store ?? null,
+          body.payment_terms ?? null,
+          body.payment_method ?? null,
+          paymentType,
+          body.due_date ?? null,
+          subtotalAmount,
+          taxAmount,
+          discountAmount,
+          totalAmount,
+          0,
+          totalAmount,
+          'UNPAID',
+          body.observations ?? null,
+          this.context.userId() ?? 1,
+          this.context.organizationId(),
+        ],
+      );
+      const purchase = rows[0];
+      for (const line of normalizedLines) {
+        await client.query(
+          `INSERT INTO stock_purchase_lines
+           (stock_purchase_id, stock_item_id, quantity, received_quantity, unit_price, line_total, organization_id)
+           VALUES ($1, $2, $3, 0, $4, $5, $6)`,
+          [purchase.id, line.stock_item_id, line.quantity, line.unit_price, line.line_total, this.context.organizationId()],
+        );
+      }
+      await this.addStockPurchaseTimeline(client, purchase.id, 'CREATED', 'Achat fournisseur', `Bon ${purchaseNumber} cree`);
+      if (initialPaidAmount > 0) {
+        const payment = await this.recordStockPurchasePaymentInTransaction(client, purchase.id, {
+          amount: initialPaidAmount,
+          payment_date: body.purchase_date ?? new Date().toISOString().slice(0, 10),
+          payment_method: body.payment_method ?? null,
+          reference: purchaseNumber,
+          notes: paymentType === 'CASH' ? 'Paiement comptant achat fournisseur' : 'Paiement partiel achat fournisseur',
+        }, false);
+        await this.addStockPurchaseTimeline(client, purchase.id, 'PAYMENT', 'Paiement fournisseur', `Paiement initial ${initialPaidAmount.toFixed(2)} USD`);
+        return { ...purchase, payments: [payment] };
+      }
+      return purchase;
+    });
+  }
+
+  async receiveStockPurchase(id: number, body: Record<string, unknown>) {
+    const lines = Array.isArray(body.lines) ? (body.lines as Array<Record<string, unknown>>) : [];
+    if (!lines.length) throw new BadRequestException('Ajoutez au moins une ligne de reception');
+    return this.db.transaction(async (client) => {
+      const purchase = await client.query(
+        `SELECT * FROM stock_purchases
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+         FOR UPDATE`,
+        [id, this.context.organizationId()],
+      );
+      const purchaseRow = requireRow(purchase.rows[0], 'Stock purchase');
+      if (purchaseRow.purchase_status === 'CANCELLED') throw new BadRequestException('Cet achat est annule');
+      const purchaseLines = await client.query(
+        `SELECT spl.*, si.name AS item_name
+         FROM stock_purchase_lines spl
+         JOIN stock_items si ON si.id = spl.stock_item_id
+         WHERE spl.stock_purchase_id = $1 AND spl.organization_id = $2 AND spl.deleted_at IS NULL
+         ORDER BY spl.id
+         FOR UPDATE`,
+        [id, this.context.organizationId()],
+      );
+      const linesById = new Map<number, Record<string, unknown>>(purchaseLines.rows.map((line) => [Number(line.id), line]));
+      const receiptNumber = await this.nextStockReceiptNumber(client);
+      const receipt = await client.query(
+        `INSERT INTO stock_purchase_receipts
+         (stock_purchase_id, receipt_number, receipt_date, receiver_name, store, notes, created_by, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [
+          id,
+          receiptNumber,
+          body.receipt_date ?? new Date().toISOString().slice(0, 10),
+          body.receiver_name ?? null,
+          body.store ?? purchaseRow.store ?? null,
+          body.notes ?? null,
+          this.context.userId() ?? 1,
+          this.context.organizationId(),
+        ],
+      );
+
+      for (let index = 0; index < lines.length; index += 1) {
+        const entry = lines[index];
+        const purchaseLineId = Number(entry.stock_purchase_line_id ?? 0);
+        const quantityReceived = Number(entry.quantity_received ?? 0);
+        if (!purchaseLineId || quantityReceived <= 0) {
+          throw new BadRequestException(`Ligne ${index + 1}: quantite recue invalide`);
+        }
+        const purchaseLine = linesById.get(purchaseLineId);
+        if (!purchaseLine) throw new BadRequestException(`Ligne ${index + 1}: article achat introuvable`);
+        const remaining = Number(purchaseLine.quantity) - Number(purchaseLine.received_quantity ?? 0);
+        if (quantityReceived > remaining) {
+          throw new BadRequestException(`Ligne ${index + 1}: quantite recue superieure au reste a recevoir (${remaining})`);
+        }
+        await client.query(
+          `INSERT INTO stock_purchase_receipt_lines
+           (stock_purchase_receipt_id, stock_purchase_line_id, stock_item_id, quantity_received, unit_price, line_total, organization_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            receipt.rows[0].id,
+            purchaseLineId,
+            purchaseLine.stock_item_id,
+            quantityReceived,
+            purchaseLine.unit_price,
+            quantityReceived * Number(purchaseLine.unit_price ?? 0),
+            this.context.organizationId(),
+          ],
+        );
+        await client.query(
+          `UPDATE stock_purchase_lines
+           SET received_quantity = received_quantity + $3, updated_at = NOW()
+           WHERE id = $1 AND stock_purchase_id = $2 AND organization_id = $4`,
+          [purchaseLineId, id, quantityReceived, this.context.organizationId()],
+        );
+        await this.createStockMovementInTransaction(client, {
+          stock_item_id: purchaseLine.stock_item_id,
+          type: 'IN',
+          quantity: quantityReceived,
+          movement_date: receipt.rows[0].receipt_date,
+          source: 'PURCHASE_RECEIPT',
+          reference: receiptNumber,
+          notes: body.notes ?? `Reception achat ${purchaseRow.purchase_number}`,
+          unit_price: Number(purchaseLine.unit_price ?? 0),
+          stock_purchase_id: id,
+          stock_purchase_receipt_id: receipt.rows[0].id,
+        });
+      }
+
+      await this.refreshStockPurchaseStatus(client, id);
+      await this.addStockPurchaseTimeline(client, id, 'RECEIPT', 'Reception de marchandises', `Bon ${receiptNumber} enregistre`);
+      return this.stockPurchaseDetail(id);
+    });
+  }
+
+  async payStockPurchase(id: number, body: Record<string, unknown>) {
+    return this.db.transaction(async (client) => {
+      const payment = await this.recordStockPurchasePaymentInTransaction(client, id, body, true);
+      await this.addStockPurchaseTimeline(client, id, 'PAYMENT', 'Paiement fournisseur', `${Number(body.amount ?? 0).toFixed(2)} USD enregistre`);
+      return payment;
+    });
+  }
+
   async createStockItem(body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
       const nextId = await client.query(`SELECT nextval('stock_items_id_seq')::INT AS value`);
@@ -1261,10 +1546,13 @@ export class SaasService {
     const { rows } = await this.db.query(`
       SELECT sm.*, si.code AS item_code, si.name AS item_name, si.category, si.unit, si.store,
              sd.document_number, sd.document_type, sd.reason AS document_reason,
+             sp.purchase_number, spr.receipt_number,
              CONCAT(u.first_name, ' ', u.last_name) AS user_name
       FROM stock_movements sm
       JOIN stock_items si ON si.id = sm.stock_item_id
       LEFT JOIN stock_documents sd ON sd.id = sm.stock_document_id AND sd.organization_id = sm.organization_id
+      LEFT JOIN stock_purchases sp ON sp.id = sm.stock_purchase_id AND sp.organization_id = sm.organization_id
+      LEFT JOIN stock_purchase_receipts spr ON spr.id = sm.stock_purchase_receipt_id AND spr.organization_id = sm.organization_id
       LEFT JOIN app_users u ON u.id = sm.created_by
       WHERE sm.organization_id = $1 AND sm.deleted_at IS NULL
       ORDER BY sm.movement_date DESC, sm.id DESC
@@ -1294,11 +1582,14 @@ export class SaasService {
               COALESCE(sd.store, si.store) AS store, sd.document_number, sd.document_type,
               sd.supplier, sd.supplier_reference, sd.reference AS document_reference,
               sd.reason AS document_reason, sd.observations AS document_observations,
+              sp.purchase_number, spr.receipt_number,
               COALESCE(sd.attachment_file_name, sm.attachment_file_name) AS attachment_file_name,
               sd.attachment_file_url, CONCAT(u.first_name, ' ', u.last_name) AS user_name
        FROM stock_movements sm
        JOIN stock_items si ON si.id = sm.stock_item_id
        LEFT JOIN stock_documents sd ON sd.id = sm.stock_document_id AND sd.organization_id = sm.organization_id
+       LEFT JOIN stock_purchases sp ON sp.id = sm.stock_purchase_id AND sp.organization_id = sm.organization_id
+       LEFT JOIN stock_purchase_receipts spr ON spr.id = sm.stock_purchase_receipt_id AND spr.organization_id = sm.organization_id
        LEFT JOIN app_users u ON u.id = sm.created_by
        WHERE sm.id = $1 AND sm.organization_id = $2 AND sm.deleted_at IS NULL`,
       [id, this.context.organizationId()],
@@ -2588,6 +2879,7 @@ export class SaasService {
     const movements = await this.stockMovements();
     const inventories = await this.stockInventories();
     const alerts = await this.stockAlerts();
+    const purchases = await this.stockPurchases();
     const byCategory = Object.values(items.reduce((acc: Record<string, { category: string; quantity: number; value: number }>, item) => {
       const key = String(item.category ?? 'Sans catégorie');
       acc[key] ??= { category: key, quantity: 0, value: 0 };
@@ -2607,13 +2899,38 @@ export class SaasService {
       movements,
       inventories,
       alerts,
+      purchases,
       by_category: byCategory,
       by_store: byStore,
+      purchases_by_supplier: Object.values(
+        purchases.reduce((acc: Record<string, { supplier: string; count: number; amount: number; paid: number; outstanding: number }>, purchase) => {
+          const key = String(purchase.supplier_name ?? 'Non renseigne');
+          acc[key] ??= { supplier: key, count: 0, amount: 0, paid: 0, outstanding: 0 };
+          acc[key].count += 1;
+          acc[key].amount += Number(purchase.total_amount ?? 0);
+          acc[key].paid += Number(purchase.paid_amount ?? 0);
+          acc[key].outstanding += Number(purchase.outstanding_amount ?? 0);
+          return acc;
+        }, {}),
+      ),
+      purchases_by_month: Object.values(
+        purchases.reduce((acc: Record<string, { period: string; amount: number; paid: number; count: number }>, purchase) => {
+          const key = String(purchase.purchase_date).slice(0, 7);
+          acc[key] ??= { period: key, amount: 0, paid: 0, count: 0 };
+          acc[key].amount += Number(purchase.total_amount ?? 0);
+          acc[key].paid += Number(purchase.paid_amount ?? 0);
+          acc[key].count += 1;
+          return acc;
+        }, {}),
+      ).sort((a, b) => String(a.period).localeCompare(String(b.period))),
       maintenance_consumption: movements.filter((movement) => movement.source === 'MAINTENANCE'),
       under_minimum: items.filter((item) => item.status === 'ACTIVE' && Number(item.current_quantity) <= Number(item.minimum_quantity) && Number(item.current_quantity) > 0),
       out_of_stock: items.filter((item) => item.status === 'ACTIVE' && Number(item.current_quantity) <= 0),
       inactive: items.filter((item) => item.status !== 'ACTIVE'),
       valuation: items.reduce((sum, item) => sum + Number(item.current_quantity) * Number(item.average_purchase_price ?? item.purchase_price ?? 0), 0),
+      supplier_debt: purchases.reduce((sum, purchase) => sum + Number(purchase.outstanding_amount ?? 0), 0),
+      pending_receptions: purchases.filter((purchase) => purchase.reception_status !== 'RECEIVED'),
+      unpaid_purchases: purchases.filter((purchase) => purchase.payment_status !== 'PAID'),
     };
   }
 
@@ -2770,8 +3087,8 @@ export class SaasService {
       `INSERT INTO stock_movements
        (movement_number, stock_item_id, type, quantity, movement_date, source, reference, notes, created_by, organization_id,
         unit_price, supplier, destination, quantity_before, quantity_after, maintenance_reference, inventory_count_id,
-        maintenance_request_id, stock_document_id, reason, attachment_file_name)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+        maintenance_request_id, stock_document_id, reason, attachment_file_name, stock_purchase_id, stock_purchase_receipt_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
        RETURNING *`,
       [
         movementNumber,
@@ -2795,6 +3112,8 @@ export class SaasService {
         body.stock_document_id ?? null,
         body.reason ?? null,
         body.attachment_file_name ?? null,
+        body.stock_purchase_id ?? null,
+        body.stock_purchase_receipt_id ?? null,
       ],
     );
     await client.query(
@@ -3216,6 +3535,161 @@ export class SaasService {
     return rows[0] ?? null;
   }
 
+  private async nextStockPurchaseNumber(client: PoolClient) {
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`stock-purchase-${this.context.organizationId()}`]);
+    const { rows } = await client.query(
+      `SELECT COALESCE(MAX(NULLIF(regexp_replace(purchase_number, '[^0-9]', '', 'g'), '')::INT), 0) + 1 AS value
+       FROM stock_purchases
+       WHERE organization_id = $1`,
+      [this.context.organizationId()],
+    );
+    return `PO-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
+  }
+
+  private async nextStockReceiptNumber(client: PoolClient) {
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`stock-receipt-${this.context.organizationId()}`]);
+    const { rows } = await client.query(
+      `SELECT COALESCE(MAX(NULLIF(regexp_replace(receipt_number, '[^0-9]', '', 'g'), '')::INT), 0) + 1 AS value
+       FROM stock_purchase_receipts
+       WHERE organization_id = $1`,
+      [this.context.organizationId()],
+    );
+    return `BR-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
+  }
+
+  private async normalizeStockPurchaseLines(client: PoolClient, lines: Array<Record<string, unknown>>) {
+    const normalized: Array<Record<string, unknown>> = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      const stockItemId = Number(line.stock_item_id ?? 0);
+      const quantity = Number(line.quantity ?? 0);
+      const unitPrice = Number(line.unit_price ?? 0);
+      if (!stockItemId || quantity <= 0) throw new BadRequestException(`Ligne ${index + 1}: article ou quantite invalide`);
+      const item = await client.query(
+        `SELECT id, name, status FROM stock_items WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+        [stockItemId, this.context.organizationId()],
+      );
+      const itemRow = requireRow(item.rows[0], `Article ligne ${index + 1}`);
+      if (itemRow.status !== 'ACTIVE') throw new BadRequestException(`Ligne ${index + 1}: article inactif`);
+      normalized.push({
+        stock_item_id: stockItemId,
+        quantity,
+        unit_price: unitPrice,
+        line_total: quantity * unitPrice,
+      });
+    }
+    return normalized;
+  }
+
+  private async refreshStockPurchaseStatus(client: PoolClient, purchaseId: number) {
+    const lines = await client.query(
+      `SELECT quantity, received_quantity FROM stock_purchase_lines
+       WHERE stock_purchase_id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+      [purchaseId, this.context.organizationId()],
+    );
+    const purchase = await client.query(
+      `SELECT total_amount, paid_amount FROM stock_purchases
+       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+      [purchaseId, this.context.organizationId()],
+    );
+    const purchaseRow = requireRow(purchase.rows[0], 'Stock purchase');
+    const totalOrdered = lines.rows.reduce((sum, line) => sum + Number(line.quantity ?? 0), 0);
+    const totalReceived = lines.rows.reduce((sum, line) => sum + Number(line.received_quantity ?? 0), 0);
+    const receptionStatus = totalReceived <= 0 ? 'PENDING' : totalReceived >= totalOrdered ? 'RECEIVED' : 'PARTIAL';
+    const outstandingAmount = Math.max(Number(purchaseRow.total_amount ?? 0) - Number(purchaseRow.paid_amount ?? 0), 0);
+    const paymentStatus = outstandingAmount <= 0 && Number(purchaseRow.total_amount ?? 0) > 0 ? 'PAID' : Number(purchaseRow.paid_amount ?? 0) > 0 ? 'PARTIAL' : 'UNPAID';
+    const purchaseStatus = receptionStatus === 'RECEIVED' && paymentStatus === 'PAID' ? 'CLOSED' : 'OPEN';
+    const { rows } = await client.query(
+      `UPDATE stock_purchases
+       SET reception_status = $2,
+           payment_status = $3,
+           outstanding_amount = $4,
+           purchase_status = $5,
+           updated_at = NOW()
+       WHERE id = $1 AND organization_id = $6
+       RETURNING *`,
+      [purchaseId, receptionStatus, paymentStatus, outstandingAmount, purchaseStatus, this.context.organizationId()],
+    );
+    return rows[0];
+  }
+
+  private async addStockPurchaseTimeline(client: PoolClient, purchaseId: number, eventType: string, title: string, details?: string) {
+    await client.query(
+      `INSERT INTO stock_purchase_timeline
+       (stock_purchase_id, event_type, title, details, created_by, organization_id)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [purchaseId, eventType, title, details ?? null, this.context.userId() ?? 1, this.context.organizationId()],
+    );
+  }
+
+  private async recordStockPurchasePaymentInTransaction(
+    client: PoolClient,
+    purchaseId: number,
+    body: Record<string, unknown>,
+    refreshStatus = true,
+  ) {
+    const purchase = await client.query(
+      `SELECT * FROM stock_purchases
+       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+       FOR UPDATE`,
+      [purchaseId, this.context.organizationId()],
+    );
+    const purchaseRow = requireRow(purchase.rows[0], 'Stock purchase');
+    const amount = Number(body.amount ?? 0);
+    if (amount <= 0) throw new BadRequestException('Le montant du paiement fournisseur doit etre positif');
+    const outstanding = Math.max(Number(purchaseRow.total_amount ?? 0) - Number(purchaseRow.paid_amount ?? 0), 0);
+    if (amount > outstanding) throw new BadRequestException(`Le paiement depasse le solde restant (${outstanding.toFixed(2)} USD)`);
+    const cashMovement = await this.createCashMovementInTransaction(client, {
+      type: 'OUT',
+      category: 'STOCK_PURCHASE',
+      amount,
+      movement_date: body.payment_date ?? new Date().toISOString().slice(0, 10),
+      supplier: purchaseRow.supplier_name,
+      description: body.notes ?? `Paiement fournisseur ${purchaseRow.purchase_number}`,
+      label: `Achat stock ${purchaseRow.purchase_number}`,
+      reference: body.reference ?? purchaseRow.purchase_number,
+      stock_purchase_id: purchaseId,
+    });
+    const { rows } = await client.query(
+      `INSERT INTO stock_purchase_payments
+       (stock_purchase_id, payment_date, amount, payment_method, reference, notes, cash_movement_id, created_by, organization_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [
+        purchaseId,
+        body.payment_date ?? new Date().toISOString().slice(0, 10),
+        amount,
+        body.payment_method ?? purchaseRow.payment_method ?? null,
+        body.reference ?? purchaseRow.purchase_number,
+        body.notes ?? null,
+        cashMovement.id,
+        this.context.userId() ?? 1,
+        this.context.organizationId(),
+      ],
+    );
+    await client.query(
+      `UPDATE stock_purchases
+       SET paid_amount = paid_amount + $2,
+           updated_at = NOW()
+       WHERE id = $1 AND organization_id = $3`,
+      [purchaseId, amount, this.context.organizationId()],
+    );
+    if (refreshStatus) {
+      await this.refreshStockPurchaseStatus(client, purchaseId);
+    } else {
+      const paidAmount = Number(purchaseRow.paid_amount ?? 0) + amount;
+      const outstandingAmount = Math.max(Number(purchaseRow.total_amount ?? 0) - paidAmount, 0);
+      const paymentStatus = outstandingAmount <= 0 && Number(purchaseRow.total_amount ?? 0) > 0 ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'UNPAID';
+      await client.query(
+        `UPDATE stock_purchases
+         SET payment_status = $2, outstanding_amount = $3, updated_at = NOW()
+         WHERE id = $1 AND organization_id = $4`,
+        [purchaseId, paymentStatus, outstandingAmount, this.context.organizationId()],
+      );
+    }
+    return { ...rows[0], cash_movement_id: cashMovement.id };
+  }
+
   private normalizeVariables(value: unknown) {
     if (Array.isArray(value)) return JSON.stringify(value);
     if (typeof value === 'string') {
@@ -3297,8 +3771,8 @@ export class SaasService {
     const pieceNumber = body.piece_number ?? await this.nextCashPieceNumber(client, type);
     const { rows } = await client.query(
       `INSERT INTO cash_movements
-       (cash_session_id, piece_number, type, label, category, amount, movement_date, payment_id, invoice_id, tenant_id, employee_id, supplier, description, reference, attachment_file_name, attachment_file_url, created_by, organization_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+       (cash_session_id, piece_number, type, label, category, amount, movement_date, payment_id, invoice_id, tenant_id, employee_id, supplier, description, reference, attachment_file_name, attachment_file_url, stock_purchase_id, created_by, organization_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
        RETURNING *`,
       [
         session.id,
@@ -3317,6 +3791,7 @@ export class SaasService {
         body.reference ?? null,
         body.attachment_file_name ?? null,
         body.attachment_file_url ?? null,
+        body.stock_purchase_id ?? null,
         this.context.userId() ?? body.created_by ?? 1,
         this.context.organizationId(),
       ],

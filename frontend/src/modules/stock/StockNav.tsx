@@ -5,6 +5,7 @@ const links = [
   ['/stock', 'Stock'],
   ['/stock/movements', 'Mouvements'],
   ['/stock/inventories', 'Inventaires'],
+  ['/stock/purchases', 'Achats fournisseurs'],
   ['/stock/report', 'Rapports'],
 ];
 

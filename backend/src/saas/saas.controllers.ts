@@ -421,6 +421,31 @@ export class StockController {
     return this.service.stockMovements();
   }
 
+  @Get('purchases')
+  purchases() {
+    return this.service.stockPurchases();
+  }
+
+  @Get('purchases/:id')
+  purchase(@Param('id', ParseIntPipe) id: number) {
+    return this.service.stockPurchaseDetail(id);
+  }
+
+  @Post('purchases')
+  createPurchase(@Body() body: Record<string, unknown>) {
+    return this.service.createStockPurchase(body);
+  }
+
+  @Post('purchases/:id/receive')
+  receivePurchase(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.receiveStockPurchase(id, body);
+  }
+
+  @Post('purchases/:id/pay')
+  payPurchase(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.payStockPurchase(id, body);
+  }
+
   @Get('movements/:id')
   movementDetail(@Param('id', ParseIntPipe) id: number) {
     return this.service.stockMovementDetail(id);

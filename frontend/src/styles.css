@@ -56,6 +56,9 @@ button, .icon-btn {
 .menu-item.danger { color: #a4343a; }
 .page-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .page-header h2 { margin: 0; font-size: 20px; }
+.tabs.compact-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.tabs.compact-tabs a { display: inline-flex; align-items: center; min-height: 34px; padding: 0 12px; border-radius: 6px; border: 1px solid #d6e1e8; background: white; color: #48606d; text-decoration: none; font-size: 13px; font-weight: 700; }
+.tabs.compact-tabs a.active { background: #255e7e; border-color: #255e7e; color: white; }
 .metrics-grid { display: grid; grid-template-columns: repeat(6, minmax(140px, 1fr)); gap: 10px; }
 .metric-card { background: white; border: 1px solid #dde5ea; border-radius: 8px; padding: 12px; display: grid; gap: 5px; }
 .metric-card svg { color: #255e7e; }
@@ -107,11 +110,22 @@ tbody tr.clickable-row:hover { background: #f8fafb; }
 .field-error { display: block; margin-top: 4px; color: #b42318; font-size: 12px; }
 .stock-document-form .summary-band { justify-content: flex-end; gap: 20px; }
 .stock-movement-detail .compact-detail-banner { margin-bottom: 10px; }
+.stock-purchase-filter-bar { grid-template-columns: minmax(180px, 1.2fr) repeat(4, minmax(120px, .8fr)) repeat(3, auto); }
+.stock-purchase-modal { display: grid; gap: 10px; max-height: 84vh; overflow-y: auto; padding-right: 2px; }
+.stock-purchase-grid { grid-template-columns: repeat(4, minmax(140px, 1fr)); align-items: end; }
+.stock-purchase-grid .wide-field { grid-column: 1 / -1; }
+.stock-document-lines-wrap { max-height: 40vh; overflow: auto; }
+.stock-document-lines input { min-width: 98px; }
+.stock-document-totals { display: flex; justify-content: flex-end; gap: 18px; flex-wrap: wrap; margin-top: 10px; }
+.stock-document-totals div { display: grid; gap: 2px; text-align: right; }
+.stock-document-totals span { color: #637783; font-size: 12px; }
+.error-banner { margin-top: 8px; border: 1px solid #efb8bd; background: #fbe3e3; color: #a4343a; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
 
 @media (max-width: 900px) {
   .stock-document-lines { overflow-x: auto; }
   .stock-document-lines table { min-width: 860px; }
   .section-heading-row { align-items: flex-start; flex-direction: column; }
+  .stock-purchase-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
 }
 .cash-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 8px; margin-top: 12px; }
 .table-meta { color: #637783; font-size: 13px; display: inline-flex; align-items: center; gap: 8px; }
@@ -467,6 +481,7 @@ textarea { min-height: 72px; resize: vertical; }
   .building-form, .unit-form { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .tenant-form-section { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
   .maintenance-filter-bar { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+  .stock-purchase-filter-bar { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .maintenance-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .maintenance-general-grid, .maintenance-triplet-grid, .maintenance-notes-grid, .maintenance-cost-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .maintenance-assignment-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
@@ -514,6 +529,8 @@ textarea { min-height: 72px; resize: vertical; }
   .alert-row { grid-template-columns: auto 1fr; }
   .alert-row strong { grid-column: 2; text-align: left; }
   .lease-field-wide, .lease-field-full { grid-column: auto; }
+  .tabs.compact-tabs { flex-direction: column; }
+  .stock-purchase-grid { grid-template-columns: 1fr; }
   .summary-band { align-items: flex-start; gap: 7px 12px; }
   .summary-item { flex: 1 1 100%; }
   .timeline-item { grid-template-columns: 1fr; gap: 3px; }
