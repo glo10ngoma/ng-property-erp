@@ -64,7 +64,7 @@ type MaintenanceDetail = MaintenanceRequest & {
 };
 
 type BuildingOption = { id: number; name: string; city?: string; commune?: string };
-type UnitOption = { id: number; number: string; building_id?: number; building_name?: string };
+type UnitOption = { id: number; number: string; building_id?: number; building_name?: string; tenant_id?: number | null; tenant_name?: string; monthly_rent?: number };
 type EmployeeOption = { id: number; first_name: string; last_name: string; job_title?: string };
 
 const PRIORITY_OPTIONS = [
@@ -556,6 +556,19 @@ function MaintenanceRequestModal({
   const [tenantId, setTenantId] = useState<number | null>(editing?.tenant_id ?? null);
   const [attachmentName, setAttachmentName] = useState(editing?.attachment_file_name ?? '');
 
+  useEffect(() => {
+    if (!unitId) {
+      if (!editing?.tenant_id) setTenantId(null);
+      return;
+    }
+    const selectedUnit = units.find((unit) => Number(unit.id) === Number(unitId));
+    if (selectedUnit?.tenant_id) {
+      setTenantId(Number(selectedUnit.tenant_id));
+    } else if (!editing?.tenant_id) {
+      setTenantId(null);
+    }
+  }, [unitId, units, editing?.tenant_id]);
+
   const buildingOptionsData = useMemo(() => buildingOptions(buildings), [buildings]);
   const unitOptionsData = useMemo(() => unitOptions(units, buildingId), [units, buildingId]);
   const tenantOptionsData = useMemo(() => tenants.map((tenant) => ({
@@ -587,8 +600,8 @@ function MaintenanceRequestModal({
         }}
       >
         <div className="modal-section">
-          <h3>Informations principales</h3>
-          <div className="maintenance-grid">
+          <h3>Informations générales</h3>
+          <div className="maintenance-grid maintenance-general-grid">
             <label>N° demande<input value={requestNumber} readOnly className="locked-field" /></label>
             <label>Titre *<input name="title" defaultValue={editing?.title ?? ''} required placeholder="Titre du signalement" /></label>
             <label>Catégorie *<select name="category" defaultValue={editing?.category ?? 'Autre'}>{MAINTENANCE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
@@ -600,7 +613,7 @@ function MaintenanceRequestModal({
 
         <div className="modal-section">
           <h3>Lieu concerné</h3>
-          <div className="maintenance-grid">
+          <div className="maintenance-grid maintenance-triplet-grid">
             <label className="wide-field">Immeuble
               <SearchableSelect
                 options={buildingOptionsData}
@@ -616,7 +629,7 @@ function MaintenanceRequestModal({
               />
               <input name="building_id" value={buildingId ?? ''} readOnly type="hidden" />
             </label>
-            <label className="wide-field">Appartement / unité
+            <label className="wide-field">Appartement
               <SearchableSelect
                 options={unitOptionsData}
                 value={unitId}
@@ -638,22 +651,21 @@ function MaintenanceRequestModal({
 
         <div className="modal-section">
           <h3>Description</h3>
-          <div className="maintenance-grid">
-            <label className="wide-field">Description *<textarea name="description" defaultValue={editing?.description ?? ''} required placeholder="Décrire le signalement" /></label>
-            <label>Observations internes<textarea name="internal_notes" defaultValue={editing?.internal_notes ?? ''} placeholder="Notes internes" /></label>
-            <label>Pièce jointe / photo<input name="attachment_file" type="file" accept=".pdf,image/jpeg,image/png" onChange={(event) => setAttachmentName(event.target.files?.[0]?.name ?? '')} /></label>
-            <label>Nom du fichier<input value={attachmentName || '-'} readOnly className="locked-field" /></label>
+          <div className="maintenance-grid maintenance-notes-grid">
+            <label className="wide-field maintenance-textarea-full">Description *<textarea name="description" defaultValue={editing?.description ?? ""} required placeholder="Décrire le signalement" /></label>
+            <label className="wide-field maintenance-textarea-full">Observations internes<textarea name="internal_notes" defaultValue={editing?.internal_notes ?? ""} placeholder="Notes internes" /></label>
+            <label>Pièce jointe / photo<input name="attachment_file" type="file" accept=".pdf,image/jpeg,image/png" onChange={(event) => setAttachmentName(event.target.files?.[0]?.name ?? "")} /></label>
+            {attachmentName ? <div className="storage-note wide-field">Fichier sélectionné : {attachmentName}</div> : null}
           </div>
         </div>
 
         <div className="modal-section">
           <h3>Calculs</h3>
-          <div className="maintenance-grid">
+          <div className="maintenance-grid maintenance-cost-grid">
             <label>Coût estimé<input name="estimated_cost" type="number" step="0.01" defaultValue={editing?.estimated_cost ?? 0} /></label>
-            <label>Devise<input value="USD" readOnly className="locked-field" /></label>
+            <label>Montant affiché<input value={`${Number(editing?.estimated_cost ?? 0) || 0} USD`} readOnly className="locked-field" /></label>
           </div>
         </div>
-
         <div className="modal-footer-sticky">
           <button type="button" className="secondary" onClick={onClose}>Annuler</button>
           <button type="submit">Enregistrer</button>
@@ -815,7 +827,7 @@ function unitOptions(units: UnitOption[], buildingId: number | null) {
     .map((unit) => ({
       value: unit.id,
       label: unit.number,
-      meta: unit.building_name ?? '-',
+      meta: [unit.building_name, unit.tenant_name ? `Locataire: ${unit.tenant_name}` : '', unit.monthly_rent ? `${money(unit.monthly_rent)} USD` : ''].filter(Boolean).join(' - ') || '-',
     }));
 }
 

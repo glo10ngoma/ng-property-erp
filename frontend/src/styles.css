@@ -190,14 +190,32 @@ textarea { min-height: 72px; resize: vertical; }
 .mini-stat { background: white; border: 1px solid #dde5ea; border-radius: 8px; padding: 9px 10px; display: grid; gap: 2px; }
 .mini-stat span { color: #637783; font-size: 11px; text-transform: uppercase; }
 .mini-stat strong { font-size: 16px; }
-.maintenance-kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-.maintenance-filter-bar { display: grid; grid-template-columns: minmax(180px, 1.2fr) repeat(4, minmax(130px, .8fr)) repeat(2, minmax(140px, 1fr)) repeat(2, auto) auto auto; gap: 8px; align-items: end; margin-bottom: 10px; }
+.maintenance-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+.maintenance-kpis .mini-stat { padding: 8px 9px; }
+.maintenance-filter-bar { display: grid; grid-template-columns: minmax(180px, 1.2fr) repeat(5, minmax(120px, .8fr)) repeat(2, auto) auto auto auto; gap: 8px; align-items: end; margin-bottom: 10px; }
 .maintenance-filter-bar input, .maintenance-filter-bar select { min-height: 34px; }
+.maintenance-filter-bar .search-select { position: relative; gap: 0; }
+.maintenance-filter-bar .search-select input { min-height: 34px; }
+.maintenance-filter-bar .search-select-list { position: absolute; z-index: 6; width: min(300px, 90vw); background: white; border: 1px solid #dce5eb; border-radius: 6px; box-shadow: 0 12px 32px rgba(31,41,51,.14); padding: 5px; margin-top: 36px; }
+.maintenance-filter-bar .search-select-option { min-height: 34px; padding: 5px 8px; }
 .checkbox-filter { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 6px; background: white; border: 1px solid #dce5eb; border-radius: 6px; color: #334e68; font-size: 12px; white-space: nowrap; }
 .maintenance-grid { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 8px; align-items: end; }
+.maintenance-general-grid { grid-template-columns: repeat(3, minmax(170px, 1fr)); }
+.maintenance-triplet-grid { grid-template-columns: repeat(3, minmax(180px, 1fr)); }
+.maintenance-notes-grid { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
+.maintenance-cost-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
 .maintenance-grid label { display: grid; gap: 4px; color: #637783; font-size: 12px; font-weight: 700; }
 .wide-field { grid-column: span 2; }
+.maintenance-triplet-grid .wide-field { grid-column: span 1; }
+.maintenance-notes-grid .wide-field { grid-column: span 2; }
+.maintenance-cost-grid .locked-field { background: #f1f4f6; color: #6b7f8b; }
 .maintenance-modal-form { display: grid; gap: 10px; max-height: 86vh; overflow: auto; padding-right: 4px; }
+.maintenance-modal-form .search-select { position: relative; gap: 0; }
+.maintenance-modal-form .search-select input { min-height: 34px; }
+.maintenance-modal-form .search-select-list { position: absolute; z-index: 6; width: min(360px, 90vw); background: white; border: 1px solid #dce5eb; border-radius: 6px; box-shadow: 0 12px 32px rgba(31,41,51,.14); padding: 5px; margin-top: 36px; }
+.maintenance-modal-form .search-select-option { min-height: 34px; padding: 5px 8px; }
+.maintenance-modal-form textarea { min-height: 88px; }
+.maintenance-textarea-full { grid-column: 1 / -1; }
 .maintenance-section { border: 1px solid #dde5ea; border-radius: 8px; background: white; padding: 10px 12px; margin-top: 10px; }
 .maintenance-section > h3 { margin: 0 0 8px; font-size: 14px; color: #255e7e; border-left: 4px solid #255e7e; padding-left: 8px; }
 .maintenance-section-grid { display: grid; gap: 10px; }
@@ -394,6 +412,7 @@ textarea { min-height: 72px; resize: vertical; }
   .tenant-form-section { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
   .maintenance-filter-bar { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .maintenance-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+  .maintenance-general-grid, .maintenance-triplet-grid, .maintenance-notes-grid, .maintenance-cost-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .maintenance-grid .wide-field { grid-column: span 2; }
   .maintenance-print header { grid-template-columns: 44px 1fr; }
   .maintenance-print header .invoice-meta { grid-column: 1 / -1; }
@@ -419,7 +438,9 @@ textarea { min-height: 72px; resize: vertical; }
   .buildings-filter-bar, .leases-filter-bar, .invoices-filter-bar, .building-form, .unit-form { grid-template-columns: 1fr; }
   .tenant-form-section, .tenant-form-section.cols-3, .tenant-form-section.cols-4, .tenant-form-section.cols-1 { grid-template-columns: 1fr; }
   .maintenance-filter-bar, .maintenance-grid { grid-template-columns: 1fr; }
+  .maintenance-general-grid, .maintenance-triplet-grid, .maintenance-notes-grid, .maintenance-cost-grid { grid-template-columns: 1fr; }
   .maintenance-grid .wide-field { grid-column: auto; }
+  .maintenance-textarea-full { grid-column: auto; }
   .maintenance-print header { grid-template-columns: 1fr; }
   .maintenance-print header .invoice-meta { grid-column: auto; }
   .filter-actions { justify-content: flex-start; flex-wrap: wrap; }
