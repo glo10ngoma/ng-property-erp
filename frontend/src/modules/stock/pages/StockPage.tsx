@@ -2,9 +2,10 @@ import { ArrowDownToLine, ArrowUpFromLine, Eye, FileSpreadsheet, RotateCcw } fro
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, includesText, money, shortDate } from '../../../api';
-import { EmptyState, Modal, PageHeader, SuccessMessage } from '../../../components';
+import { EmptyState, PageHeader, SuccessMessage } from '../../../components';
 import { useApiList } from '../../../hooks';
 import { StockNav } from '../StockNav';
+import { StockDocumentModal } from '../StockDocumentModal';
 import type { StockItem, StockMovement } from '../stock.types';
 import { exportStockItem, stockStatusLabel } from '../stock.utils';
 
@@ -33,16 +34,8 @@ export function StockPage() {
   const monthExits = movements.data.filter((item) =>
     item.movement_date.slice(0, 7) === currentMonth && (item.type === 'OUT' || item.type === 'INVENTORY_LOSS')).length;
 
-  async function saveMovement(form: FormData) {
-    const payload = Object.fromEntries(form);
-    await api.post(movement === 'ENTRY' ? '/stock/entries' : '/stock/exits', {
-      stock_item_id: Number(payload.stock_item_id),
-      quantity: Number(payload.quantity),
-      unit_price: Number(payload.unit_price ?? 0),
-      movement_date: payload.movement_date,
-      reference: payload.reference,
-      notes: payload.notes,
-    });
+  async function saveMovement(payload: Record<string, unknown>) {
+    await api.post(movement === 'ENTRY' ? '/stock/entries' : '/stock/exits', payload);
     setSuccess(movement === 'ENTRY' ? 'Entrée enregistrée.' : 'Sortie enregistrée.');
     setMovement(null);
     items.reload();
@@ -93,27 +86,8 @@ export function StockPage() {
         <td onClick={(event) => event.stopPropagation()}><button className="icon-btn" title="Voir" onClick={() => navigate(`/stock/${item.id}`)}><Eye size={16} /></button></td>
       </tr>)}</tbody>
     </table>{!filtered.length && <EmptyState message="Aucun article correspondant." />}</div>
-    {movement && <MovementModal type={movement} items={items.data.filter((item) => item.status === 'ACTIVE')} onClose={() => setMovement(null)} onSubmit={saveMovement} />}
+    {movement && <StockDocumentModal type={movement} items={items.data.filter((item) => item.status === 'ACTIVE')} stores={stores} onClose={() => setMovement(null)} onSubmit={saveMovement} />}
   </section>;
-}
-
-function MovementModal({ type, items, onClose, onSubmit }: { type: 'ENTRY' | 'EXIT'; items: StockItem[]; onClose: () => void; onSubmit: (form: FormData) => Promise<void> }) {
-  const [itemId, setItemId] = useState('');
-  const selected = items.find((item) => item.id === Number(itemId));
-  return <Modal title={type === 'ENTRY' ? 'Entrée de stock' : 'Sortie de stock'} onClose={onClose}>
-    <form onSubmit={(event) => { event.preventDefault(); void onSubmit(new FormData(event.currentTarget)); }}>
-      <div className="form-grid">
-        <label>Article *<select name="stock_item_id" value={itemId} onChange={(event) => setItemId(event.target.value)} required><option value="">Sélectionner</option>{items.map((item) => <option key={item.id} value={item.id}>{item.code} - {item.name}</option>)}</select></label>
-        <label>Stock disponible<input value={selected?.current_quantity ?? 0} readOnly /></label>
-        <label>Quantité *<input name="quantity" type="number" min="0.01" step="0.01" required /></label>
-        <label>Coût unitaire<input name="unit_price" type="number" min="0" step="0.01" defaultValue={price(selected)} /></label>
-        <label>Date *<input name="movement_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
-        <label>Référence<input name="reference" /></label>
-        <label className="wide-field">Observation<textarea name="notes" /></label>
-      </div>
-      <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose}>Annuler</button><button type="submit">Enregistrer</button></div>
-    </form>
-  </Modal>;
 }
 
 function price(item?: StockItem) { return Number(item?.average_purchase_price ?? item?.purchase_price ?? 0); }

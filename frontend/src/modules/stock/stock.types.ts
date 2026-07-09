@@ -37,6 +37,20 @@ export type StockMovement = {
   reference?: string;
   user_name?: string;
   notes?: string;
+  unit?: string;
+  store?: string;
+  document_number?: string;
+  document_type?: string;
+  document_reason?: string;
+  stock_document_id?: number;
+  quantity_before?: number;
+  quantity_after?: number;
+  supplier?: string;
+  supplier_reference?: string;
+  document_reference?: string;
+  document_observations?: string;
+  attachment_file_name?: string;
+  attachment_file_url?: string;
 };
 
 export type InventoryLine = {

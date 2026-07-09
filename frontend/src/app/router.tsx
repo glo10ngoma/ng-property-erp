@@ -25,6 +25,7 @@ import { StockArticlesPage } from '../modules/stock/pages/StockArticlesPage';
 import { StockMovementsPage } from '../modules/stock/pages/StockMovementsPage';
 import { StockInventoriesPage } from '../modules/stock/pages/StockInventoriesPage';
 import { StockReportPage } from '../modules/stock/pages/StockReportPage';
+import { StockMovementDetailPage } from '../modules/stock/pages/StockMovementDetailPage';
 import { StockDetailPage } from '../pages/StockDetailPage';
 import { ReportsPage } from '../modules/reports/pages/ReportsPage';
 import { UsersPage } from '../modules/users/pages/UsersPage';
@@ -75,6 +76,7 @@ export function AppRouter() {
           <Route path="/stock" element={guarded('stock.read', <StockPage />)} />
           <Route path="/stock/articles" element={guarded('stock.read', <StockArticlesPage />)} />
           <Route path="/stock/movements" element={guarded('stock.read', <StockMovementsPage />)} />
+          <Route path="/stock/movements/:id" element={guarded('stock.read', <StockMovementDetailPage />)} />
           <Route path="/stock/inventories" element={guarded('stock.read', <StockInventoriesPage />)} />
           <Route path="/stock/report" element={guarded('reports.read', <StockReportPage />)} />
           <Route path="/stock/:id" element={guarded('stock.read', <StockDetailPage />)} />

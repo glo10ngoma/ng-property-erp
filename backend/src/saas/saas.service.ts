@@ -691,11 +691,98 @@ export class SaasService {
   }
 
   createStockEntry(body: Record<string, unknown>) {
+    if (Array.isArray(body.lines)) return this.createStockDocument('ENTRY', body);
     return this.createStockMovement({ ...body, type: 'IN', source: 'STOCK_ENTRY' });
   }
 
   createStockExit(body: Record<string, unknown>) {
+    if (Array.isArray(body.lines)) return this.createStockDocument('EXIT', body);
     return this.createStockMovement({ ...body, type: 'OUT', source: 'STOCK_EXIT' });
+  }
+
+  async createStockDocument(documentType: 'ENTRY' | 'EXIT', body: Record<string, unknown>) {
+    const lines = Array.isArray(body.lines) ? body.lines as Array<Record<string, unknown>> : [];
+    if (!lines.length) throw new BadRequestException('Ajoutez au moins un article');
+    return this.db.transaction(async (client) => {
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`stock-document-${this.context.organizationId()}-${documentType}`]);
+      const prefix = documentType === 'ENTRY' ? 'ES' : 'SO';
+      const sequence = await client.query(
+        `SELECT COALESCE(MAX(NULLIF(regexp_replace(document_number, '[^0-9]', '', 'g'), '')::INT), 0) + 1 AS value
+         FROM stock_documents
+         WHERE organization_id = $1 AND document_type = $2`,
+        [this.context.organizationId(), documentType],
+      );
+      const documentNumber = `${prefix}-${String(sequence.rows[0].value).padStart(6, '0')}`;
+      const document = await client.query(
+        `INSERT INTO stock_documents
+         (document_number, document_type, document_date, supplier, supplier_reference, store, reference,
+          reason, observations, attachment_file_name, attachment_file_url, created_by, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         RETURNING *`,
+        [
+          documentNumber,
+          documentType,
+          body.document_date ?? new Date().toISOString().slice(0, 10),
+          body.supplier ?? null,
+          body.supplier_reference ?? null,
+          body.store ?? null,
+          body.reference ?? null,
+          body.reason ?? null,
+          body.observations ?? null,
+          body.attachment_file_name ?? null,
+          body.attachment_file_url ?? null,
+          this.context.userId() ?? 1,
+          this.context.organizationId(),
+        ],
+      );
+      const movements: Record<string, unknown>[] = [];
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        const quantity = Number(line.quantity ?? 0);
+        if (quantity <= 0) throw new BadRequestException(`Ligne ${index + 1}: la quantité doit être positive`);
+        const item = await client.query(
+          `SELECT id, name, current_quantity, status
+           FROM stock_items
+           WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+          [line.stock_item_id, this.context.organizationId()],
+        );
+        const itemRow = requireRow(item.rows[0], `Article ligne ${index + 1}`);
+        if (documentType === 'EXIT' && quantity > Number(itemRow.current_quantity)) {
+          throw new BadRequestException(
+            `Ligne ${index + 1} - ${itemRow.name}: stock insuffisant (${itemRow.current_quantity} disponible)`,
+          );
+        }
+        const unitPrice = Number(line.unit_price ?? 0);
+        await client.query(
+          `INSERT INTO stock_document_lines
+           (stock_document_id, stock_item_id, quantity, unit_price, line_total, organization_id)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [document.rows[0].id, line.stock_item_id, quantity, unitPrice, quantity * unitPrice, this.context.organizationId()],
+        );
+        movements.push(await this.createStockMovementInTransaction(client, {
+          stock_item_id: line.stock_item_id,
+          movement_number: `${documentNumber}-${String(index + 1).padStart(3, '0')}`,
+          type: documentType === 'ENTRY' ? 'IN' : 'OUT',
+          quantity,
+          unit_price: unitPrice,
+          movement_date: document.rows[0].document_date,
+          source: documentType === 'ENTRY' ? 'STOCK_ENTRY' : 'STOCK_EXIT',
+          reference: documentNumber,
+          supplier: body.supplier ?? null,
+          destination: body.store ?? null,
+          notes: body.observations ?? null,
+          reason: body.reason ?? null,
+          attachment_file_name: body.attachment_file_name ?? null,
+          stock_document_id: document.rows[0].id,
+        }));
+      }
+      return {
+        ...document.rows[0],
+        lines_count: lines.length,
+        total: lines.reduce((sum, line) => sum + Number(line.quantity ?? 0) * Number(line.unit_price ?? 0), 0),
+        movements,
+      };
+    });
   }
 
   createMaintenanceStockConsumption(body: Record<string, unknown>) {
@@ -1172,10 +1259,12 @@ export class SaasService {
 
   async stockMovements() {
     const { rows } = await this.db.query(`
-      SELECT sm.*, si.code AS item_code, si.name AS item_name, si.category,
+      SELECT sm.*, si.code AS item_code, si.name AS item_name, si.category, si.unit, si.store,
+             sd.document_number, sd.document_type, sd.reason AS document_reason,
              CONCAT(u.first_name, ' ', u.last_name) AS user_name
       FROM stock_movements sm
       JOIN stock_items si ON si.id = sm.stock_item_id
+      LEFT JOIN stock_documents sd ON sd.id = sm.stock_document_id AND sd.organization_id = sm.organization_id
       LEFT JOIN app_users u ON u.id = sm.created_by
       WHERE sm.organization_id = $1 AND sm.deleted_at IS NULL
       ORDER BY sm.movement_date DESC, sm.id DESC
@@ -1197,6 +1286,32 @@ export class SaasService {
       ORDER BY ic.count_date DESC, ic.id DESC
     `, [this.context.organizationId()]);
     return rows;
+  }
+
+  async stockMovementDetail(id: number) {
+    const movement = await this.db.query(
+      `SELECT sm.*, si.code AS item_code, si.name AS item_name, si.category, si.unit,
+              COALESCE(sd.store, si.store) AS store, sd.document_number, sd.document_type,
+              sd.supplier, sd.supplier_reference, sd.reference AS document_reference,
+              sd.reason AS document_reason, sd.observations AS document_observations,
+              COALESCE(sd.attachment_file_name, sm.attachment_file_name) AS attachment_file_name,
+              sd.attachment_file_url, CONCAT(u.first_name, ' ', u.last_name) AS user_name
+       FROM stock_movements sm
+       JOIN stock_items si ON si.id = sm.stock_item_id
+       LEFT JOIN stock_documents sd ON sd.id = sm.stock_document_id AND sd.organization_id = sm.organization_id
+       LEFT JOIN app_users u ON u.id = sm.created_by
+       WHERE sm.id = $1 AND sm.organization_id = $2 AND sm.deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+    const history = await this.db.query(
+      `SELECT smh.*, CONCAT(u.first_name, ' ', u.last_name) AS user_name
+       FROM stock_movement_history smh
+       LEFT JOIN app_users u ON u.id = smh.performed_by
+       WHERE smh.stock_movement_id = $1 AND smh.organization_id = $2
+       ORDER BY smh.created_at DESC, smh.id DESC`,
+      [id, this.context.organizationId()],
+    );
+    return { ...requireRow(movement.rows[0], 'Stock movement'), history: history.rows };
   }
 
   async stockInventoryDetail(id: number) {
@@ -2654,8 +2769,9 @@ export class SaasService {
     const { rows } = await client.query(
       `INSERT INTO stock_movements
        (movement_number, stock_item_id, type, quantity, movement_date, source, reference, notes, created_by, organization_id,
-        unit_price, supplier, destination, quantity_before, quantity_after, maintenance_reference, inventory_count_id, maintenance_request_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        unit_price, supplier, destination, quantity_before, quantity_after, maintenance_reference, inventory_count_id,
+        maintenance_request_id, stock_document_id, reason, attachment_file_name)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
        RETURNING *`,
       [
         movementNumber,
@@ -2676,7 +2792,16 @@ export class SaasService {
         body.maintenance_reference ?? null,
         body.inventory_count_id ?? null,
         body.maintenance_request_id ?? null,
+        body.stock_document_id ?? null,
+        body.reason ?? null,
+        body.attachment_file_name ?? null,
       ],
+    );
+    await client.query(
+      `INSERT INTO stock_movement_history
+       (stock_movement_id, action, description, performed_by, organization_id)
+       VALUES ($1, 'CREATED', $2, $3, $4)`,
+      [rows[0].id, `Mouvement créé depuis ${body.reference ?? movementNumber}`, this.context.userId() ?? 1, this.context.organizationId()],
     );
     const averagePrice =
       sign > 0 && unitPrice > 0 && after > 0

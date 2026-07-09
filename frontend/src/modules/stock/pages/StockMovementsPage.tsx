@@ -1,5 +1,6 @@
 import { FileSpreadsheet, RotateCcw } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { exportCsv, exportXlsxWorkbook, includesText, money, shortDate } from '../../../api';
 import { EmptyState, PageHeader } from '../../../components';
 import { useApiList } from '../../../hooks';
@@ -8,6 +9,7 @@ import type { StockItem, StockMovement } from '../stock.types';
 import { exportMovement, movementLabel } from '../stock.utils';
 
 export function StockMovementsPage() {
+  const navigate = useNavigate();
   const movements = useApiList<StockMovement>('/stock/movements');
   const items = useApiList<StockItem>('/stock/items');
   const [query, setQuery] = useState('');
@@ -44,7 +46,7 @@ export function StockMovementsPage() {
       <button className="secondary" onClick={() => exportXlsxWorkbook('Mouvements_stock.xlsx', [{ name: 'Mouvements', rows: filtered.map(exportMovement) }])}><FileSpreadsheet size={15} />Excel</button>
     </div>
     <div className="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Article</th><th className="right">Quantité</th><th>Unité</th><th className="right">Coût unitaire</th><th className="right">Valeur</th><th>Référence</th><th>Source</th><th>Utilisateur</th><th>Observation</th></tr></thead>
-      <tbody>{filtered.map((item) => <tr key={item.id}><td>{shortDate(item.movement_date)}</td><td>{movementLabel(item)}</td><td>{item.item_name}</td><td className="right">{item.quantity}</td><td>{items.data.find((stock) => stock.code === item.item_code)?.unit ?? '—'}</td><td className="right">{money(item.unit_price ?? 0)}</td><td className="right">{money(Number(item.quantity) * Number(item.unit_price ?? 0))}</td><td>{item.reference ?? '—'}</td><td>{item.source ?? '—'}</td><td>{item.user_name ?? '—'}</td><td>{item.notes ?? '—'}</td></tr>)}</tbody>
+      <tbody>{filtered.map((item) => <tr key={item.id} className="clickable-row" onClick={() => navigate(`/stock/movements/${item.id}`)}><td>{shortDate(item.movement_date)}</td><td>{movementLabel(item)}</td><td>{item.item_name}</td><td className="right">{item.quantity}</td><td>{item.unit ?? items.data.find((stock) => stock.code === item.item_code)?.unit ?? '—'}</td><td className="right">{money(item.unit_price ?? 0)}</td><td className="right">{money(Number(item.quantity) * Number(item.unit_price ?? 0))}</td><td>{item.document_number ?? item.reference ?? '—'}</td><td>{item.source ?? '—'}</td><td>{item.user_name ?? '—'}</td><td>{item.notes ?? '—'}</td></tr>)}</tbody>
     </table>{!filtered.length && <EmptyState message="Aucun mouvement trouvé." />}</div>
   </section>;
 }

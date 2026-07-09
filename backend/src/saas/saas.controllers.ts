@@ -421,6 +421,11 @@ export class StockController {
     return this.service.stockMovements();
   }
 
+  @Get('movements/:id')
+  movementDetail(@Param('id', ParseIntPipe) id: number) {
+    return this.service.stockMovementDetail(id);
+  }
+
   @Post('entries')
   entry(@Body() body: Record<string, unknown>) {
     return this.service.createStockEntry(body);

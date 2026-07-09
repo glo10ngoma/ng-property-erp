@@ -98,6 +98,21 @@ tbody tr.clickable-row:hover { background: #f8fafb; }
 .modal-section { border: 1px solid #dce5eb; border-radius: 8px; padding: 10px 12px; background: #fafcfd; }
 .modal-section h3 { margin: 0 0 8px; font-size: 13px; color: #255e7e; }
 .modal-footer-sticky { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 12px; padding-top: 10px; background: linear-gradient(to bottom, rgba(250,252,253,0), #fafcfd 18px); }
+
+.stock-document-form { max-height: 78vh; overflow-y: auto; padding-right: 2px; }
+.section-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.stock-document-lines select { min-width: 220px; }
+.stock-document-lines .compact-number { width: 112px; text-align: right; }
+.stock-document-lines .row-error { background: #fff7f7; }
+.field-error { display: block; margin-top: 4px; color: #b42318; font-size: 12px; }
+.stock-document-form .summary-band { justify-content: flex-end; gap: 20px; }
+.stock-movement-detail .compact-detail-banner { margin-bottom: 10px; }
+
+@media (max-width: 900px) {
+  .stock-document-lines { overflow-x: auto; }
+  .stock-document-lines table { min-width: 860px; }
+  .section-heading-row { align-items: flex-start; flex-direction: column; }
+}
 .cash-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 8px; margin-top: 12px; }
 .table-meta { color: #637783; font-size: 13px; display: inline-flex; align-items: center; gap: 8px; }
 .pagination-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; flex-wrap: wrap; }
