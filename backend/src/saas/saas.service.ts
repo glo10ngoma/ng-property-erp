@@ -671,6 +671,9 @@ export class SaasService {
       `SELECT mr.*, b.name AS building_name, u.number AS unit_number,
               CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
               CONCAT(e.first_name, ' ', e.last_name) AS assigned_employee_name,
+              COALESCE(exp.total_expenses, 0)::FLOAT AS expenses_total,
+              COALESCE(stock.total_stock_cost, 0)::FLOAT AS stock_cost_total,
+              (COALESCE(exp.total_expenses, 0) + COALESCE(stock.total_stock_cost, 0))::FLOAT AS total_cost,
               CASE WHEN mr.due_date IS NOT NULL AND mr.status NOT IN ('RESOLVED', 'VALIDATED', 'CLOSED', 'CANCELLED') AND mr.due_date < NOW() THEN TRUE ELSE FALSE END AS is_overdue,
               CASE WHEN mr.resolved_at IS NOT NULL THEN EXTRACT(EPOCH FROM (mr.resolved_at - mr.reported_at)) / 3600 ELSE NULL END AS resolution_hours
        FROM maintenance_requests mr
@@ -678,6 +681,18 @@ export class SaasService {
        LEFT JOIN units u ON u.id = mr.unit_id
        LEFT JOIN tenants t ON t.id = mr.tenant_id
        LEFT JOIN employees e ON e.id = mr.assigned_employee_id
+       LEFT JOIN (
+         SELECT maintenance_request_id, SUM(amount) AS total_expenses
+         FROM maintenance_expenses
+         WHERE organization_id = $1 AND deleted_at IS NULL AND status <> 'REJECTED'
+         GROUP BY maintenance_request_id
+       ) exp ON exp.maintenance_request_id = mr.id
+       LEFT JOIN (
+         SELECT maintenance_request_id, SUM(quantity * unit_price) AS total_stock_cost
+         FROM stock_movements
+         WHERE organization_id = $1 AND deleted_at IS NULL AND maintenance_request_id IS NOT NULL
+         GROUP BY maintenance_request_id
+       ) stock ON stock.maintenance_request_id = mr.id
        WHERE mr.organization_id = $1 AND mr.deleted_at IS NULL
        ORDER BY mr.reported_at DESC, mr.id DESC`,
       [this.context.organizationId()],
@@ -689,12 +704,27 @@ export class SaasService {
     const request = await this.db.query(
       `SELECT mr.*, b.name AS building_name, u.number AS unit_number,
               CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
-              CONCAT(e.first_name, ' ', e.last_name) AS assigned_employee_name
+              CONCAT(e.first_name, ' ', e.last_name) AS assigned_employee_name,
+              COALESCE(exp.total_expenses, 0)::FLOAT AS expenses_total,
+              COALESCE(stock.total_stock_cost, 0)::FLOAT AS stock_cost_total,
+              (COALESCE(exp.total_expenses, 0) + COALESCE(stock.total_stock_cost, 0))::FLOAT AS total_cost
        FROM maintenance_requests mr
        LEFT JOIN buildings b ON b.id = mr.building_id
        LEFT JOIN units u ON u.id = mr.unit_id
        LEFT JOIN tenants t ON t.id = mr.tenant_id
        LEFT JOIN employees e ON e.id = mr.assigned_employee_id
+       LEFT JOIN (
+         SELECT maintenance_request_id, SUM(amount) AS total_expenses
+         FROM maintenance_expenses
+         WHERE organization_id = $2 AND deleted_at IS NULL AND status <> 'REJECTED'
+         GROUP BY maintenance_request_id
+       ) exp ON exp.maintenance_request_id = mr.id
+       LEFT JOIN (
+         SELECT maintenance_request_id, SUM(quantity * unit_price) AS total_stock_cost
+         FROM stock_movements
+         WHERE organization_id = $2 AND deleted_at IS NULL AND maintenance_request_id IS NOT NULL
+         GROUP BY maintenance_request_id
+       ) stock ON stock.maintenance_request_id = mr.id
        WHERE mr.id = $1 AND mr.organization_id = $2 AND mr.deleted_at IS NULL`,
       [id, this.context.organizationId()],
     );
@@ -740,15 +770,15 @@ export class SaasService {
 
   async createMaintenanceRequest(body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
-      const sequence = await client.query(`SELECT COALESCE(MAX(id), 0) + 1 AS value FROM maintenance_requests WHERE organization_id = $1`, [
+      const sequence = await client.query(`SELECT COALESCE(MAX(NULLIF(SUBSTRING(request_number FROM '([0-9]+)$'), '')::INT), 0) + 1 AS value FROM maintenance_requests WHERE organization_id = $1 AND request_number LIKE 'M-%'`, [
         this.context.organizationId(),
       ]);
-      const requestNumber = body.request_number ?? `MNT-${new Date().getFullYear()}-${String(sequence.rows[0].value).padStart(4, '0')}`;
+      const requestNumber = body.request_number ?? `M-${String(sequence.rows[0].value).padStart(4, '0')}`;
       const { rows } = await client.query(
         `INSERT INTO maintenance_requests
          (request_number, title, description, category, priority, status, building_id, unit_id, lease_id, tenant_id,
-          reported_by_name, reported_at, due_date, created_by, organization_id)
-         VALUES ($1, $2, $3, $4, $5, 'NEW', $6, $7, $8, $9, $10, COALESCE($11::TIMESTAMP, NOW()), $12, $13, $14)
+          reported_by_name, reported_at, due_date, attachment_file_name, attachment_file_url, internal_notes, created_by, organization_id)
+         VALUES ($1, $2, $3, $4, $5, 'NEW', $6, $7, $8, $9, $10, COALESCE($11::TIMESTAMP, NOW()), $12, $13, $14, $15, $16, $17)
          RETURNING *`,
         [
           requestNumber,
@@ -763,6 +793,9 @@ export class SaasService {
           body.reported_by_name ?? null,
           body.reported_at ?? null,
           body.due_date ?? null,
+          body.attachment_file_name ?? null,
+          body.attachment_file_url ?? null,
+          body.internal_notes ?? null,
           this.context.userId() ?? 1,
           this.context.organizationId(),
         ],
@@ -785,6 +818,9 @@ export class SaasService {
       'tenant_id',
       'reported_by_name',
       'due_date',
+      'attachment_file_name',
+      'attachment_file_url',
+      'internal_notes',
     ]);
     await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'UPDATE', 'Modification', 'Demande mise à jour'));
     return updated;

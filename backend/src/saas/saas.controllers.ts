@@ -531,6 +531,11 @@ export class MaintenanceController {
     return this.service.closeMaintenanceRequest(id);
   }
 
+  @Post('requests/:id/cancel')
+  cancel(@Param('id', ParseIntPipe) id: number) {
+    return this.service.transitionMaintenanceRequest(id, 'CANCELLED', 'Annulation', 'Demande annulée');
+  }
+
   @Post('requests/:id/stock')
   consumeRequestStock(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
     return this.service.createMaintenanceStockConsumption({ ...body, maintenance_request_id: id });

@@ -23,7 +23,7 @@ import { StaffPage } from '../modules/staff/pages/StaffPage';
 import { StockPage } from '../modules/stock/pages/StockPage';
 import { ReportsPage } from '../modules/reports/pages/ReportsPage';
 import { UsersPage } from '../modules/users/pages/UsersPage';
-import { MaintenancePage } from '../modules/maintenance/pages/MaintenancePage';
+import { MaintenanceDetailPage, MaintenancePage } from '../modules/maintenance/pages/MaintenancePage';
 import { DocumentsPage } from '../modules/documents/pages/DocumentsPage';
 import { CommunicationsPage } from '../modules/communications/pages/CommunicationsPage';
 import { WorkflowsPage } from '../modules/workflows/pages/WorkflowsPage';
@@ -69,6 +69,7 @@ export function AppRouter() {
           <Route path="/staff/:id" element={guarded('staff.read', <ModulePlaceholder title="Détail employé" />)} />
           <Route path="/stock" element={guarded('stock.read', <StockPage />)} />
           <Route path="/maintenance" element={guarded('maintenance.read', <MaintenancePage />)} />
+          <Route path="/maintenance/:id" element={guarded('maintenance.read', <MaintenanceDetailPage />)} />
           <Route path="/reports" element={guarded('reports.read', <ReportsPage />)} />
           <Route path="/reports/buildings" element={guarded('reports.read', <ReportsPage />)} />
           <Route path="/reports/tenants" element={guarded('reports.read', <ReportsPage />)} />
