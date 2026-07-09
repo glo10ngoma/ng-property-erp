@@ -271,14 +271,33 @@ export class EmployeeAttendanceController {
     });
   }
 
+  @Get('template')
+  template(
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+    @Query('department') department?: string,
+  ) {
+    return this.service.employeeAttendanceTemplate(month ? Number(month) : undefined, year ? Number(year) : undefined, department || undefined);
+  }
+
   @Post()
   create(@Body() body: Record<string, unknown>) {
     return this.service.createEmployeeAttendance(body);
   }
 
+  @Post('bulk')
+  createBulk(@Body() body: Record<string, unknown>) {
+    return this.service.createEmployeeAttendanceBulk(body);
+  }
+
   @Post(':id/validate')
   validate(@Param('id', ParseIntPipe) id: number) {
     return this.service.validateEmployeeAttendance(id);
+  }
+
+  @Post('validate-month')
+  validateMonth(@Body() body: Record<string, unknown>) {
+    return this.service.validateEmployeeAttendanceMonth(body);
   }
 }
 

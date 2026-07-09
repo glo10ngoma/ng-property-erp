@@ -83,6 +83,111 @@ export class SaasService {
     return Number(rows[0]?.total ?? 0);
   }
 
+  private normalizeAttendancePayload(body: Record<string, unknown>) {
+    const employeeId = Number(body.employee_id ?? 0);
+    const month = this.normalizeMonth(body.month);
+    const year = this.normalizeYear(body.year);
+    const workingDays = Number(body.working_days ?? 0);
+    const paidLeaveDays = Number(body.paid_leave_days ?? 0);
+    const sickDays = Number(body.sick_days ?? 0);
+    const unjustifiedAbsenceDays = Number(body.unjustified_absence_days ?? 0);
+    const lateCount = Number(body.late_count ?? 0);
+    const overtimeHours = Number(body.overtime_hours ?? 0);
+    const presentDays = body.present_days !== undefined
+      ? Number(body.present_days ?? 0)
+      : Math.max(workingDays - paidLeaveDays - sickDays - unjustifiedAbsenceDays, 0);
+    const totalDays = presentDays + paidLeaveDays + sickDays + unjustifiedAbsenceDays;
+
+    if (!employeeId) throw new BadRequestException('Employé requis');
+    if (workingDays <= 0) throw new BadRequestException('Le nombre de jours ouvrables doit être supérieur à 0.');
+    if (totalDays > workingDays) {
+      throw new BadRequestException('La somme présence + congés payés + maladie + absences non justifiées ne peut pas dépasser les jours ouvrables.');
+    }
+
+    return {
+      employeeId,
+      month,
+      year,
+      workingDays,
+      presentDays,
+      paidLeaveDays,
+      sickDays,
+      unjustifiedAbsenceDays,
+      lateCount,
+      overtimeHours,
+      observations: body.observations ?? null,
+      status: body.status ?? 'DRAFT',
+    };
+  }
+
+  private async upsertEmployeeMonthlyAttendance(client: PoolClient, payload: ReturnType<SaasService['normalizeAttendancePayload']>) {
+    const employee = await client.query(
+      `SELECT id, monthly_salary
+       FROM employees
+       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+      [payload.employeeId, this.context.organizationId()],
+    );
+    const employeeRow = requireRow(employee.rows[0], 'Employee');
+    const existing = await client.query(
+      `SELECT id, status
+       FROM employee_monthly_attendance
+       WHERE organization_id = $1 AND employee_id = $2 AND month = $3 AND year = $4 AND deleted_at IS NULL`,
+      [this.context.organizationId(), payload.employeeId, payload.month, payload.year],
+    );
+    if (existing.rows[0] && existing.rows[0].status === 'VALIDATED') {
+      throw new BadRequestException('Ce pointage mensuel est déjà validé et ne peut plus être modifié.');
+    }
+
+    const advancesTotal = await this.monthlyAdvanceTotal(client, payload.employeeId, payload.month, payload.year);
+    const metrics = this.calculateMonthlyAttendanceMetrics(
+      Number(employeeRow.monthly_salary ?? 0),
+      payload.workingDays,
+      payload.unjustifiedAbsenceDays,
+      advancesTotal,
+    );
+    const { rows } = await client.query(
+      `INSERT INTO employee_monthly_attendance (
+         employee_id, month, year, working_days, present_days, paid_leave_days, sick_days,
+         unjustified_absence_days, late_count, overtime_hours, absence_deduction,
+         estimated_net_salary, observations, status, created_by, organization_id
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+       ON CONFLICT (organization_id, employee_id, year, month) WHERE deleted_at IS NULL
+       DO UPDATE SET working_days = EXCLUDED.working_days,
+                     present_days = EXCLUDED.present_days,
+                     paid_leave_days = EXCLUDED.paid_leave_days,
+                     sick_days = EXCLUDED.sick_days,
+                     unjustified_absence_days = EXCLUDED.unjustified_absence_days,
+                     late_count = EXCLUDED.late_count,
+                     overtime_hours = EXCLUDED.overtime_hours,
+                     absence_deduction = EXCLUDED.absence_deduction,
+                     estimated_net_salary = EXCLUDED.estimated_net_salary,
+                     observations = EXCLUDED.observations,
+                     status = CASE WHEN employee_monthly_attendance.status = 'VALIDATED' THEN employee_monthly_attendance.status ELSE EXCLUDED.status END,
+                     updated_at = NOW()
+       RETURNING *`,
+      [
+        payload.employeeId,
+        payload.month,
+        payload.year,
+        payload.workingDays,
+        payload.presentDays,
+        payload.paidLeaveDays,
+        payload.sickDays,
+        payload.unjustifiedAbsenceDays,
+        payload.lateCount,
+        payload.overtimeHours,
+        metrics.absenceDeduction,
+        metrics.estimatedNetSalary,
+        payload.observations,
+        payload.status,
+        this.context.userId() ?? 1,
+        this.context.organizationId(),
+      ],
+    );
+    return rows[0];
+  }
+
   async createUser(body: Record<string, unknown>) {
     const password = String(body.password ?? body.password_hash ?? 'demo');
     return this.insert('app_users', { status: 'ACTIVE', ...body, password_hash: await hashPassword(password) }, [
@@ -955,86 +1060,115 @@ export class SaasService {
     return rows;
   }
 
+  async employeeAttendanceTemplate(month?: number, year?: number, department?: string) {
+    const normalizedMonth = this.normalizeMonth(month);
+    const normalizedYear = this.normalizeYear(year);
+    const { rows } = await this.db.query(
+      `SELECT e.id AS employee_id,
+              e.employee_number,
+              CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS employee_name,
+              e.department,
+              e.job_title,
+              e.monthly_salary,
+              COALESCE(ema.id, 0) AS attendance_id,
+              ema.status,
+              ema.working_days,
+              ema.present_days,
+              ema.paid_leave_days,
+              ema.sick_days,
+              ema.unjustified_absence_days,
+              ema.late_count,
+              ema.overtime_hours,
+              ema.absence_deduction,
+              ema.estimated_net_salary,
+              ema.observations,
+              COALESCE(adv.total, 0)::NUMERIC(12,2) AS advances_total
+       FROM employees e
+       LEFT JOIN employee_monthly_attendance ema
+         ON ema.employee_id = e.id
+        AND ema.organization_id = e.organization_id
+        AND ema.deleted_at IS NULL
+        AND ema.month = $2
+        AND ema.year = $3
+       LEFT JOIN (
+         SELECT employee_id, COALESCE(SUM(amount), 0)::NUMERIC(12,2) AS total
+         FROM salary_advances
+         WHERE organization_id = $1
+           AND deleted_at IS NULL
+           AND status = 'PAID'
+           AND EXTRACT(MONTH FROM advance_date) = $2
+           AND EXTRACT(YEAR FROM advance_date) = $3
+         GROUP BY employee_id
+       ) adv ON adv.employee_id = e.id
+       WHERE e.organization_id = $1
+         AND e.deleted_at IS NULL
+         AND e.status = 'ACTIVE'
+         AND ($4::TEXT IS NULL OR e.department = $4)
+       ORDER BY e.last_name, e.first_name`,
+      [this.context.organizationId(), normalizedMonth, normalizedYear, department ?? null],
+    );
+    return rows.map((row) => {
+      const workingDays = Number(row.working_days ?? 0);
+      const paidLeaveDays = Number(row.paid_leave_days ?? 0);
+      const sickDays = Number(row.sick_days ?? 0);
+      const unjustifiedAbsenceDays = Number(row.unjustified_absence_days ?? 0);
+      const effectiveWorkingDays = workingDays > 0 ? workingDays : 26;
+      const presentDays = row.present_days !== null && row.present_days !== undefined
+        ? Number(row.present_days)
+        : Math.max(effectiveWorkingDays - paidLeaveDays - sickDays - unjustifiedAbsenceDays, 0);
+      const metrics = this.calculateMonthlyAttendanceMetrics(
+        Number(row.monthly_salary ?? 0),
+        effectiveWorkingDays,
+        unjustifiedAbsenceDays,
+        Number(row.advances_total ?? 0),
+      );
+      return {
+        employee_id: row.employee_id,
+        employee_number: row.employee_number,
+        employee_name: row.employee_name,
+        department: row.department,
+        job_title: row.job_title,
+        monthly_salary: Number(row.monthly_salary ?? 0),
+        month: normalizedMonth,
+        year: normalizedYear,
+        attendance_id: Number(row.attendance_id || 0) || null,
+        working_days: effectiveWorkingDays,
+        paid_leave_days: paidLeaveDays,
+        sick_days: sickDays,
+        unjustified_absence_days: unjustifiedAbsenceDays,
+        late_count: Number(row.late_count ?? 0),
+        overtime_hours: Number(row.overtime_hours ?? 0),
+        present_days: presentDays,
+        absence_deduction: row.absence_deduction !== null && row.absence_deduction !== undefined ? Number(row.absence_deduction) : metrics.absenceDeduction,
+        estimated_net_salary: row.estimated_net_salary !== null && row.estimated_net_salary !== undefined ? Number(row.estimated_net_salary) : metrics.estimatedNetSalary,
+        advances_total: Number(row.advances_total ?? 0),
+        status: row.status ?? 'DRAFT',
+        observations: row.observations ?? null,
+        locked: row.status === 'VALIDATED',
+      };
+    });
+  }
+
   async createEmployeeAttendance(body: Record<string, unknown>) {
-    const employeeId = Number(body.employee_id ?? 0);
-    const month = this.normalizeMonth(body.month);
-    const year = this.normalizeYear(body.year);
-    const workingDays = Number(body.working_days ?? 0);
-    const presentDays = Number(body.present_days ?? 0);
-    const paidLeaveDays = Number(body.paid_leave_days ?? 0);
-    const sickDays = Number(body.sick_days ?? 0);
-    const unjustifiedAbsenceDays = Number(body.unjustified_absence_days ?? 0);
-    const lateCount = Number(body.late_count ?? 0);
-    const overtimeHours = Number(body.overtime_hours ?? 0);
-    const totalDays = presentDays + paidLeaveDays + sickDays + unjustifiedAbsenceDays;
+    return this.db.transaction(async (client) => this.upsertEmployeeMonthlyAttendance(client, this.normalizeAttendancePayload(body)));
+  }
 
-    if (!employeeId) throw new BadRequestException('Employé requis');
-    if (workingDays <= 0) throw new BadRequestException('Le nombre de jours ouvrables doit être supérieur à 0.');
-    if (totalDays > workingDays) {
-      throw new BadRequestException('La somme présence + congés payés + maladie + absences non justifiées ne peut pas dépasser les jours ouvrables.');
-    }
-
+  async createEmployeeAttendanceBulk(body: Record<string, unknown>) {
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+    if (!rows.length) throw new BadRequestException('Aucune ligne de pointage à enregistrer.');
     return this.db.transaction(async (client) => {
-      const employee = await client.query(
-        `SELECT id, monthly_salary
-         FROM employees
-         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
-        [employeeId, this.context.organizationId()],
-      );
-      const employeeRow = requireRow(employee.rows[0], 'Employee');
-      const existing = await client.query(
-        `SELECT id, status
-         FROM employee_monthly_attendance
-         WHERE organization_id = $1 AND employee_id = $2 AND month = $3 AND year = $4 AND deleted_at IS NULL`,
-        [this.context.organizationId(), employeeId, month, year],
-      );
-      if (existing.rows[0] && existing.rows[0].status === 'VALIDATED') {
-        throw new BadRequestException('Ce pointage mensuel est déjà validé et ne peut plus être modifié.');
+      const saved = [];
+      for (const row of rows) {
+        const payload = this.normalizeAttendancePayload({
+          ...row,
+          month: row.month ?? body.month,
+          year: row.year ?? body.year,
+          working_days: row.working_days ?? body.working_days,
+          status: row.status ?? body.status ?? 'DRAFT',
+        });
+        saved.push(await this.upsertEmployeeMonthlyAttendance(client, payload));
       }
-
-      const advancesTotal = await this.monthlyAdvanceTotal(client, employeeId, month, year);
-      const metrics = this.calculateMonthlyAttendanceMetrics(Number(employeeRow.monthly_salary ?? 0), workingDays, unjustifiedAbsenceDays, advancesTotal);
-      const { rows } = await client.query(
-        `INSERT INTO employee_monthly_attendance (
-           employee_id, month, year, working_days, present_days, paid_leave_days, sick_days,
-           unjustified_absence_days, late_count, overtime_hours, absence_deduction,
-           estimated_net_salary, observations, status, created_by, organization_id
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-         ON CONFLICT (organization_id, employee_id, year, month) WHERE deleted_at IS NULL
-         DO UPDATE SET working_days = EXCLUDED.working_days,
-                       present_days = EXCLUDED.present_days,
-                       paid_leave_days = EXCLUDED.paid_leave_days,
-                       sick_days = EXCLUDED.sick_days,
-                       unjustified_absence_days = EXCLUDED.unjustified_absence_days,
-                       late_count = EXCLUDED.late_count,
-                       overtime_hours = EXCLUDED.overtime_hours,
-                       absence_deduction = EXCLUDED.absence_deduction,
-                       estimated_net_salary = EXCLUDED.estimated_net_salary,
-                       observations = EXCLUDED.observations,
-                       status = CASE WHEN employee_monthly_attendance.status = 'VALIDATED' THEN employee_monthly_attendance.status ELSE EXCLUDED.status END,
-                       updated_at = NOW()
-         RETURNING *`,
-        [
-          employeeId,
-          month,
-          year,
-          workingDays,
-          presentDays,
-          paidLeaveDays,
-          sickDays,
-          unjustifiedAbsenceDays,
-          lateCount,
-          overtimeHours,
-          metrics.absenceDeduction,
-          metrics.estimatedNetSalary,
-          body.observations ?? null,
-          body.status ?? 'DRAFT',
-          this.context.userId() ?? 1,
-          this.context.organizationId(),
-        ],
-      );
-      return rows[0];
+      return saved;
     });
   }
 
@@ -1047,6 +1181,33 @@ export class SaasService {
       [id, this.context.organizationId(), this.context.userId() ?? 1],
     );
     return requireRow(rows[0], 'Employee monthly attendance');
+  }
+
+  async validateEmployeeAttendanceMonth(body: Record<string, unknown>) {
+    const month = this.normalizeMonth(body.month);
+    const year = this.normalizeYear(body.year);
+    const department = body.department ? String(body.department) : null;
+    const employeeIds = Array.isArray(body.employee_ids) ? body.employee_ids.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0) : [];
+    return this.db.transaction(async (client) => {
+      const { rows } = await client.query(
+        `UPDATE employee_monthly_attendance ema
+         SET status = 'VALIDATED', validated_at = NOW(), validated_by = $5, updated_at = NOW()
+         FROM employees e
+         WHERE ema.employee_id = e.id
+           AND ema.organization_id = $1
+           AND ema.deleted_at IS NULL
+           AND ema.month = $2
+           AND ema.year = $3
+           AND e.organization_id = $1
+           AND e.deleted_at IS NULL
+           AND ($4::TEXT IS NULL OR e.department = $4)
+           AND (CARDINALITY($6::INT[]) = 0 OR ema.employee_id = ANY($6::INT[]))
+           AND ema.status <> 'VALIDATED'
+         RETURNING ema.*`,
+        [this.context.organizationId(), month, year, department, this.context.userId() ?? 1, employeeIds],
+      );
+      return rows;
+    });
   }
 
   async hrReport(month?: number, year?: number) {

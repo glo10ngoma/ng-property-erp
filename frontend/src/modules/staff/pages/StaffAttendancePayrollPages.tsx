@@ -41,6 +41,12 @@ type AttendanceRow = {
   observations?: string;
 };
 
+type AttendanceTemplateRow = AttendanceRow & {
+  attendance_id?: number | null;
+  advances_total?: number;
+  locked?: boolean;
+};
+
 type Payroll = {
   id: number;
   employee_id: number;
@@ -193,7 +199,7 @@ export function AttendancePage() {
       </table>
       {!filtered.length && <EmptyState message="Aucun pointage mensuel trouve." />}
     </div>}
-    {createOpen && <AttendanceModal employees={employees.data} onClose={() => setCreateOpen(false)} onSubmit={saveAttendance} defaultMonth={month} defaultYear={year} />}
+    {createOpen && <AttendanceModal employees={employees.data} onClose={() => setCreateOpen(false)} onSaved={async (message) => { setSuccess(message); setCreateOpen(false); await loadRows(); }} defaultMonth={month} defaultYear={year} />}
   </section>;
 }
 
@@ -369,25 +375,143 @@ export function HrReportsPage() {
   </section>;
 }
 
-function AttendanceModal({ employees, onClose, onSubmit, defaultMonth, defaultYear }: { employees: Employee[]; onClose: () => void; onSubmit: (form: FormData) => void; defaultMonth: string; defaultYear: string }) {
-  const [selectedEmployee, setSelectedEmployee] = useState<number | null>(null);
+function AttendanceModal({ employees, onClose, onSaved, defaultMonth, defaultYear }: { employees: Employee[]; onClose: () => void; onSaved: (message: string) => Promise<void> | void; defaultMonth: string; defaultYear: string }) {
+  const [month, setMonth] = useState(defaultMonth);
+  const [year, setYear] = useState(defaultYear);
+  const [workingDays, setWorkingDays] = useState('26');
+  const [department, setDepartment] = useState('');
+  const [rows, setRows] = useState<AttendanceTemplateRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const departmentOptions = uniqueValues(employees.map((row) => row.department));
+
+  async function loadTemplate() {
+    setLoading(true);
+    const response = await api.get<AttendanceTemplateRow[]>('/employee-attendance/template', {
+      params: {
+        month: Number(month),
+        year: Number(year),
+        department: department || undefined,
+      },
+    });
+    setRows(response.data.map((row) => {
+      const effectiveWorkingDays = row.working_days || Number(workingDays) || 26;
+      return recomputeAttendanceRow({ ...row, working_days: effectiveWorkingDays }, effectiveWorkingDays);
+    }));
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    void loadTemplate();
+  }, [month, year, department]);
+
+  useEffect(() => {
+    const nextWorkingDays = Number(workingDays) || 0;
+    setRows((current) => current.map((row) => recomputeAttendanceRow({ ...row, working_days: nextWorkingDays || row.working_days }, nextWorkingDays || row.working_days)));
+  }, [workingDays]);
+
+  const invalidRows = useMemo(() => rows.filter((row) => attendanceRowError(row)).length, [rows]);
+  const totalEstimatedNet = useMemo(() => rows.reduce((sum, row) => sum + Number(row.estimated_net_salary ?? 0), 0), [rows]);
+
+  function updateRow(employeeId: number, field: keyof AttendanceTemplateRow, rawValue: string) {
+    setRows((current) => current.map((row) => {
+      if (row.employee_id !== employeeId || row.locked) return row;
+      const parsed = field === 'observations'
+        ? rawValue
+        : Number(rawValue || 0);
+      return recomputeAttendanceRow({ ...row, [field]: parsed }, Number(workingDays) || row.working_days);
+    }));
+  }
+
+  async function saveBulk(validateAfterSave = false) {
+    if (invalidRows) return;
+    setSubmitting(true);
+    const payload = {
+      month: Number(month),
+      year: Number(year),
+      working_days: Number(workingDays),
+      department: department || undefined,
+      rows: rows.map((row) => ({
+        employee_id: row.employee_id,
+        month: Number(month),
+        year: Number(year),
+        working_days: Number(workingDays),
+        present_days: row.present_days,
+        paid_leave_days: row.paid_leave_days,
+        sick_days: row.sick_days,
+        unjustified_absence_days: row.unjustified_absence_days,
+        late_count: row.late_count ?? 0,
+        overtime_hours: row.overtime_hours ?? 0,
+        observations: row.observations ?? '',
+        status: row.locked ? 'VALIDATED' : 'DRAFT',
+      })),
+    };
+    await api.post('/employee-attendance/bulk', payload);
+    if (validateAfterSave) {
+      await api.post('/employee-attendance/validate-month', {
+        month: Number(month),
+        year: Number(year),
+        department: department || undefined,
+        employee_ids: rows.map((row) => row.employee_id),
+      });
+    }
+    setSubmitting(false);
+    await onSaved(validateAfterSave ? 'Pointage mensuel collectif validé.' : 'Pointage mensuel collectif enregistré.');
+  }
+
   return <Modal title="Saisir pointage mensuel" onClose={onClose}>
-    <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); if (selectedEmployee) { const form = new FormData(event.currentTarget); form.set('employee_id', String(selectedEmployee)); onSubmit(form); } }}>
-      <div className="modal-section"><h3>Pointage mensuel</h3><div className="maintenance-grid hr-form-grid">
-        <label>Mois<select name="month" defaultValue={defaultMonth}>{monthOptions()}</select></label>
-        <label>Annee<input name="year" defaultValue={defaultYear} /></label>
-        <label>Employe *<SearchableSelect options={employeeOptions(employees)} value={selectedEmployee} onChange={(value) => setSelectedEmployee(value ? Number(value) : null)} placeholder="Choisir employe" emptyMessage="Aucun employe" /></label>
-        <label>Jours ouvrables *<input type="number" min="1" name="working_days" defaultValue="26" required /></label>
-        <label>Jours presents *<input type="number" min="0" name="present_days" defaultValue="26" required /></label>
-        <label>Conges payes<input type="number" min="0" name="paid_leave_days" defaultValue="0" /></label>
-        <label>Jours maladie<input type="number" min="0" name="sick_days" defaultValue="0" /></label>
-        <label>Absences non justifiees<input type="number" min="0" name="unjustified_absence_days" defaultValue="0" /></label>
-        <label>Nombre de retards<input type="number" min="0" name="late_count" defaultValue="0" /></label>
-        <label>Heures supplementaires<input type="number" min="0" step="0.25" name="overtime_hours" defaultValue="0" /></label>
-        <label className="wide-field">Observations<textarea name="observations" rows={3} /></label>
-      </div></div>
-      <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose}>Annuler</button><button type="submit" disabled={!selectedEmployee}>Enregistrer</button></div>
-    </form>
+    <div className="stock-purchase-modal">
+      <div className="modal-section">
+        <h3>Parametres du mois</h3>
+        <div className="maintenance-grid hr-form-grid">
+          <label>Mois<select value={month} onChange={(event) => setMonth(event.target.value)}>{monthOptions()}</select></label>
+          <label>Annee<input value={year} onChange={(event) => setYear(event.target.value)} /></label>
+          <label>Jours ouvrables<input type="number" min="1" value={workingDays} onChange={(event) => setWorkingDays(event.target.value)} /></label>
+          <label>Service optionnel<select value={department} onChange={(event) => setDepartment(event.target.value)}><option value="">Tous les services</option>{departmentOptions.map((value) => <option key={value}>{value}</option>)}</select></label>
+        </div>
+        <div className="maintenance-grid hr-form-grid" style={{ marginTop: 12 }}>
+          <div className="summary-item"><span>Employes charges</span><strong>{rows.length}</strong></div>
+          <div className="summary-item"><span>Lignes invalides</span><strong>{invalidRows}</strong></div>
+          <div className="summary-item"><span>Net estime total</span><strong>{money(totalEstimatedNet)} USD</strong></div>
+        </div>
+      </div>
+      <div className="modal-section">
+        <h3>Tableau collectif</h3>
+        {loading ? <LoadingState /> : <div className="table-wrap">
+          <table>
+            <thead><tr><th>Matricule</th><th>Employe</th><th>Service</th><th>Fonction</th><th className="right">Salaire mensuel</th><th className="right">Conges payes</th><th className="right">Maladie</th><th className="right">Absences non justifiees</th><th className="right">Retards</th><th className="right">Heures sup.</th><th className="right">Jours presents</th><th className="right">Retenue absences</th><th className="right">Net estime</th><th>Observations</th></tr></thead>
+            <tbody>{rows.map((row) => {
+              const error = attendanceRowError(row);
+              return <tr key={row.employee_id}>
+                <td>{row.employee_number ?? `EMP-${row.employee_id}`}</td>
+                <td>{row.employee_name}</td>
+                <td>{row.department ?? '—'}</td>
+                <td>{row.job_title ?? '—'}</td>
+                <td className="right">{money(row.monthly_salary ?? 0)}</td>
+                <td><input type="number" min="0" value={row.paid_leave_days} disabled={row.locked} onChange={(event) => updateRow(row.employee_id, 'paid_leave_days', event.target.value)} /></td>
+                <td><input type="number" min="0" value={row.sick_days} disabled={row.locked} onChange={(event) => updateRow(row.employee_id, 'sick_days', event.target.value)} /></td>
+                <td><input type="number" min="0" value={row.unjustified_absence_days} disabled={row.locked} onChange={(event) => updateRow(row.employee_id, 'unjustified_absence_days', event.target.value)} /></td>
+                <td><input type="number" min="0" value={row.late_count ?? 0} disabled={row.locked} onChange={(event) => updateRow(row.employee_id, 'late_count', event.target.value)} /></td>
+                <td><input type="number" min="0" step="0.25" value={row.overtime_hours ?? 0} disabled={row.locked} onChange={(event) => updateRow(row.employee_id, 'overtime_hours', event.target.value)} /></td>
+                <td className="right">{row.present_days}</td>
+                <td className="right">{money(row.absence_deduction ?? 0)}</td>
+                <td className="right">{money(row.estimated_net_salary ?? 0)}</td>
+                <td>
+                  <input value={row.observations ?? ''} disabled={row.locked} onChange={(event) => updateRow(row.employee_id, 'observations', event.target.value)} />
+                  {error && <div className="field-error" style={{ color: '#b91c1c', fontSize: 12, marginTop: 4 }}>{error}</div>}
+                </td>
+              </tr>;
+            })}</tbody>
+          </table>
+          {!rows.length && <EmptyState message="Aucun employe actif pour cette selection." />}
+        </div>}
+      </div>
+      <div className="modal-footer-sticky" style={{ gap: 12 }}>
+        <button type="button" className="secondary" onClick={onClose}>Annuler</button>
+        <button type="button" className="secondary" onClick={() => void saveBulk(false)} disabled={submitting || loading || !rows.length || invalidRows > 0}>Enregistrer</button>
+        <button type="button" onClick={() => void saveBulk(true)} disabled={submitting || loading || !rows.length || invalidRows > 0}>Valider</button>
+      </div>
+    </div>
   </Modal>;
 }
 
@@ -485,6 +609,32 @@ function attendanceStatusLabel(value?: string) {
 
 function payrollStatusLabel(value?: string) {
   return ({ DRAFT: 'Brouillon', VALIDATED: 'Validee', PAID: 'Payee' } as Record<string, string>)[value ?? ''] ?? value ?? 'Brouillon';
+}
+
+function recomputeAttendanceRow(row: AttendanceTemplateRow, workingDays: number) {
+  const safeWorkingDays = Math.max(Number(workingDays || row.working_days || 0), 1);
+  const paidLeaveDays = Number(row.paid_leave_days ?? 0);
+  const sickDays = Number(row.sick_days ?? 0);
+  const unjustifiedAbsenceDays = Number(row.unjustified_absence_days ?? 0);
+  const presentDays = Math.max(safeWorkingDays - paidLeaveDays - sickDays - unjustifiedAbsenceDays, 0);
+  const dailySalary = Number(row.monthly_salary ?? 0) / safeWorkingDays;
+  const absenceDeduction = unjustifiedAbsenceDays * dailySalary;
+  const estimatedNetSalary = Math.max(Number(row.monthly_salary ?? 0) - absenceDeduction - Number(row.advances_total ?? 0), 0);
+  return {
+    ...row,
+    working_days: safeWorkingDays,
+    present_days: presentDays,
+    absence_deduction: Number(absenceDeduction.toFixed(2)),
+    estimated_net_salary: Number(estimatedNetSalary.toFixed(2)),
+  };
+}
+
+function attendanceRowError(row: AttendanceTemplateRow) {
+  const total = Number(row.paid_leave_days ?? 0) + Number(row.sick_days ?? 0) + Number(row.unjustified_absence_days ?? 0);
+  if (total > Number(row.working_days ?? 0)) {
+    return 'Conges + maladie + absences non justifiees depassent les jours ouvrables.';
+  }
+  return '';
 }
 
 function stringValue(form: FormData, key: string) {
