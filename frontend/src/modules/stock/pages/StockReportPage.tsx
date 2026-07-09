@@ -47,7 +47,7 @@ export function StockReportPage() {
   if (!report) return <section><PageHeader title="Rapport Stock" /><StockNav /></section>;
 
   const exportAll = () => exportXlsxWorkbook('Rapport_stock_avance.xlsx', [
-    { name: 'Resume', rows: [{ valeur_totale: report.valuation, articles: report.items.length, ruptures: report.out_of_stock.length, sous_seuil: report.under_minimum.length, dette_fournisseurs: report.supplier_debt }] },
+    { name: 'Resume', rows: [{ valeur_totale: report.valuation, articles: report.items.length, ruptures: report.out_of_stock.length, sous_seuil: report.under_minimum.length, dette_fournisseurs: report.supplier_debt, inventaires: report.inventories.length }] },
     { name: 'Etat stock', rows: report.items.map(exportStockItem) },
     { name: 'Ruptures', rows: report.out_of_stock.map(exportStockItem) },
     { name: 'Sous seuil', rows: report.under_minimum.map(exportStockItem) },
@@ -70,34 +70,50 @@ export function StockReportPage() {
       <Kpi label="Alertes" value={report.alerts.length} />
       <Kpi label="Dette fournisseurs" value={`${money(report.supplier_debt)} USD`} />
     </div>
-    <Section title="Stock par categorie">
-      <table><thead><tr><th>Categorie</th><th className="right">Quantite</th><th className="right">Valeur</th></tr></thead>
+    <Section title="Résumé">
+      <div className="summary-band">
+        <div className="summary-item"><span>Articles</span><strong>{report.items.length}</strong></div>
+        <div className="summary-item"><span>Valeur stock</span><strong>{money(report.valuation)} USD</strong></div>
+        <div className="summary-item"><span>Ruptures</span><strong>{report.out_of_stock.length}</strong></div>
+        <div className="summary-item"><span>Sous seuil</span><strong>{report.under_minimum.length}</strong></div>
+        <div className="summary-item"><span>Alertes</span><strong>{report.alerts.length}</strong></div>
+        <div className="summary-item"><span>Dette fournisseurs</span><strong>{money(report.supplier_debt)} USD</strong></div>
+        <div className="summary-item"><span>Inventaires</span><strong>{report.inventories.length}</strong></div>
+      </div>
+    </Section>
+    <Section title="Stock par catégorie">
+      <table><thead><tr><th>Catégorie</th><th className="right">Quantité</th><th className="right">Valeur</th></tr></thead>
         <tbody>{report.by_category.map((row) => <tr key={row.category}><td>{row.category}</td><td className="right">{row.quantity}</td><td className="right">{money(row.value)} USD</td></tr>)}</tbody>
       </table>
     </Section>
     <Section title="Stock par magasin">
-      <table><thead><tr><th>Magasin</th><th className="right">Quantite</th><th className="right">Valeur</th></tr></thead>
+      <table><thead><tr><th>Magasin</th><th className="right">Quantité</th><th className="right">Valeur</th></tr></thead>
         <tbody>{report.by_store.map((row) => <tr key={row.store}><td>{row.store}</td><td className="right">{row.quantity}</td><td className="right">{money(row.value)} USD</td></tr>)}</tbody>
       </table>
     </Section>
     <Section title="Achats par fournisseur">
-      <table><thead><tr><th>Fournisseur</th><th className="right">Achats</th><th className="right">Montant</th><th className="right">Paye</th><th className="right">Dette</th></tr></thead>
+      <table><thead><tr><th>Fournisseur</th><th className="right">Achats</th><th className="right">Montant</th><th className="right">Payé</th><th className="right">Dette</th></tr></thead>
         <tbody>{report.purchases_by_supplier.map((row) => <tr key={row.supplier}><td>{row.supplier}</td><td className="right">{row.count}</td><td className="right">{money(row.amount)} USD</td><td className="right">{money(row.paid)} USD</td><td className="right">{money(row.outstanding)} USD</td></tr>)}</tbody>
       </table>
     </Section>
-    <Section title="Achats non receptionnes">
-      <table><thead><tr><th>N° achat</th><th>Date</th><th>Fournisseur</th><th>Reception</th><th className="right">Montant</th></tr></thead>
+    <Section title="Achats non réceptionnés">
+      <table><thead><tr><th>N° achat</th><th>Date</th><th>Fournisseur</th><th>Réception</th><th className="right">Montant</th></tr></thead>
         <tbody>{report.pending_receptions.map((row) => <tr key={row.id}><td>{row.purchase_number}</td><td>{row.purchase_date}</td><td>{row.supplier_name}</td><td>{receptionStatusLabel(row.reception_status)}</td><td className="right">{money(row.total_amount)} USD</td></tr>)}</tbody>
       </table>
     </Section>
     <Section title="Dettes fournisseurs">
-      <table><thead><tr><th>N° achat</th><th>Fournisseur</th><th>Echeance</th><th>Paiement</th><th className="right">Reste</th></tr></thead>
+      <table><thead><tr><th>N° achat</th><th>Fournisseur</th><th>Échéance</th><th>Paiement</th><th className="right">Reste</th></tr></thead>
         <tbody>{report.unpaid_purchases.map((row) => <tr key={row.id}><td>{row.purchase_number}</td><td>{row.supplier_name}</td><td>{row.due_date ?? '-'}</td><td>{paymentStatusLabel(row.payment_status)}</td><td className="right">{money(row.outstanding_amount)} USD</td></tr>)}</tbody>
       </table>
     </Section>
     <Section title="Alertes stock">
       <table><thead><tr><th>Article</th><th>Niveau</th><th className="right">Stock</th><th className="right">Seuil</th><th>Canal</th><th>Statut</th></tr></thead>
         <tbody>{report.alerts.map((row) => <tr key={row.id}><td>{row.item_code} - {row.item_name}</td><td>{row.level === 'OUT_OF_STOCK' ? 'Rupture' : 'Sous seuil'}</td><td className="right">{row.quantity}</td><td className="right">{row.minimum_quantity}</td><td>{row.channel}</td><td>{row.status}</td></tr>)}</tbody>
+      </table>
+    </Section>
+    <Section title="Inventaires / écarts">
+      <table><thead><tr><th>Inventaire</th><th>Date</th><th>Statut</th><th className="right">Articles</th><th className="right">Écarts positifs</th><th className="right">Écarts négatifs</th><th className="right">Valeur écart</th><th>Utilisateur</th></tr></thead>
+        <tbody>{report.inventories.map((row) => <tr key={row.id}><td>{row.inventory_number}</td><td>{row.count_date}</td><td>{row.status}</td><td className="right">{row.line_count ?? 0}</td><td className="right">{row.positive_difference ?? 0}</td><td className="right">{row.negative_difference ?? 0}</td><td className="right">{money(row.difference_value ?? 0)} USD</td><td>{row.user_name ?? '-'}</td></tr>)}</tbody>
       </table>
     </Section>
   </section>;
@@ -117,7 +133,7 @@ function exportPurchaseRow(purchase: StockPurchase) {
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
-  return <div className="detail-section"><h4>{title}</h4>{children}</div>;
+  return <div className="detail-section report-section"><h4>{title}</h4>{children}</div>;
 }
 
 function Kpi({ label, value }: { label: string; value: string | number }) {

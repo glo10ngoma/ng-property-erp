@@ -1564,6 +1564,7 @@ export class SaasService {
     const { rows } = await this.db.query(`
       SELECT ic.*,
              COUNT(icl.id)::INT AS line_count,
+             COUNT(icl.id) FILTER (WHERE icl.physical_quantity IS NOT NULL)::INT AS counted_lines,
              COALESCE(SUM(CASE WHEN icl.difference_quantity > 0 THEN icl.difference_quantity ELSE 0 END), 0)::FLOAT AS positive_difference,
              COALESCE(SUM(CASE WHEN icl.difference_quantity < 0 THEN ABS(icl.difference_quantity) ELSE 0 END), 0)::FLOAT AS negative_difference,
              COALESCE(SUM(icl.difference_cost), 0)::FLOAT AS difference_value
@@ -1621,7 +1622,13 @@ export class SaasService {
        ORDER BY si.name`,
       [id, this.context.organizationId()],
     );
-    return { ...requireRow(inventory.rows[0], 'Inventory'), lines: lines.rows };
+    const countedLines = lines.rows.filter((line) => line.physical_quantity !== null && line.physical_quantity !== undefined).length;
+    return {
+      ...requireRow(inventory.rows[0], 'Inventory'),
+      counted_lines: countedLines,
+      uncounted_lines: Math.max(lines.rows.length - countedLines, 0),
+      lines: lines.rows,
+    };
   }
 
   async createStockInventory(body: Record<string, unknown>) {
@@ -1652,16 +1659,17 @@ export class SaasService {
           [line.stock_item_id, this.context.organizationId()],
         );
         const theoretical = Number(line.theoretical_quantity ?? item.rows[0]?.current_quantity ?? 0);
-        const physical = line.physical_quantity === undefined || line.physical_quantity === null ? theoretical : Number(line.physical_quantity);
+        const hasPhysical = line.physical_quantity !== undefined && line.physical_quantity !== null && String(line.physical_quantity) !== '';
+        const physical = hasPhysical ? Number(line.physical_quantity) : null;
         const unitCost = Number(line.unit_cost ?? item.rows[0]?.average_purchase_price ?? item.rows[0]?.purchase_price ?? 0);
-        const difference = physical - theoretical;
+        const difference = physical === null ? null : physical - theoretical;
         await client.query(
           `INSERT INTO inventory_count_lines
            (inventory_count_id, stock_item_id, theoretical_quantity, physical_quantity, difference_quantity,
             unit_cost, difference_cost, notes, organization_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [inventory.rows[0].id, line.stock_item_id, theoretical, physical, difference, unitCost,
-            difference * unitCost, line.notes ?? null, this.context.organizationId()],
+            difference === null ? null : difference * unitCost, line.notes ?? null, this.context.organizationId()],
         );
       }
       return { ...inventory.rows[0], line_count: lines.length };
@@ -1679,13 +1687,16 @@ export class SaasService {
         throw new BadRequestException('Cet inventaire est verrouillé');
       }
       const lines = Array.isArray(body.lines) ? body.lines as Array<Record<string, unknown>> : [];
+      let counted = 0;
       for (const line of lines) {
-        const physical = Number(line.physical_quantity ?? 0);
+        const hasPhysical = line.physical_quantity !== undefined && line.physical_quantity !== null && String(line.physical_quantity) !== '';
+        const physical = hasPhysical ? Number(line.physical_quantity) : null;
+        if (physical !== null) counted += 1;
         const updated = await client.query(
           `UPDATE inventory_count_lines
            SET physical_quantity = $3,
-               difference_quantity = $3 - theoretical_quantity,
-               difference_cost = ($3 - theoretical_quantity) * unit_cost,
+               difference_quantity = CASE WHEN $3::NUMERIC IS NULL THEN NULL ELSE $3 - theoretical_quantity END,
+               difference_cost = CASE WHEN $3::NUMERIC IS NULL THEN NULL ELSE ($3 - theoretical_quantity) * unit_cost END,
                notes = COALESCE($4, notes)
            WHERE id = $1 AND inventory_count_id = $2 AND organization_id = $5 AND deleted_at IS NULL
            RETURNING id`,
@@ -1694,11 +1705,11 @@ export class SaasService {
         requireRow(updated.rows[0], 'Inventory line');
       }
       await client.query(
-        `UPDATE inventory_counts SET status = 'IN_PROGRESS', updated_at = NOW()
+        `UPDATE inventory_counts SET status = $3, updated_at = NOW()
          WHERE id = $1 AND organization_id = $2`,
-        [id, this.context.organizationId()],
+        [id, this.context.organizationId(), counted > 0 ? 'IN_PROGRESS' : 'DRAFT'],
       );
-      return { ...row, status: 'IN_PROGRESS' };
+      return { ...row, status: counted > 0 ? 'IN_PROGRESS' : 'DRAFT' };
     });
   }
 
@@ -1714,6 +1725,9 @@ export class SaasService {
         `SELECT * FROM inventory_count_lines WHERE inventory_count_id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
         [id, this.context.organizationId()],
       );
+      if (lines.rows.some((line) => line.physical_quantity === null || line.physical_quantity === undefined)) {
+        throw new BadRequestException('Tous les articles doivent avoir un stock physique saisi avant validation.');
+      }
       for (const line of lines.rows) {
         const difference = Number(line.difference_quantity);
         if (difference === 0) continue;

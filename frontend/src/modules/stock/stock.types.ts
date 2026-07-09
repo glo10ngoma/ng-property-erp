@@ -157,10 +157,10 @@ export type InventoryLine = {
   item_name: string;
   unit?: string;
   theoretical_quantity: number;
-  physical_quantity: number;
-  difference_quantity: number;
+  physical_quantity?: number | null;
+  difference_quantity?: number | null;
   unit_cost: number;
-  difference_cost: number;
+  difference_cost?: number | null;
   notes?: string;
 };
 
@@ -175,5 +175,7 @@ export type StockInventory = {
   difference_value?: number;
   user_name?: string;
   notes?: string;
+  counted_lines?: number;
+  uncounted_lines?: number;
   lines?: InventoryLine[];
 };
