@@ -1,135 +1,46 @@
-import { ArrowLeft, FileSpreadsheet, History, Pencil, Printer } from 'lucide-react';
+import { ArrowLeft, FileSpreadsheet, Printer } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api, exportExcel, money, shortDate, statusLabel } from '../api';
-import { EmptyState, PageHeader, SuccessMessage } from '../components';
+import { api, exportXlsxWorkbook, money, shortDate } from '../api';
+import { EmptyState, PageHeader } from '../components';
+import { StockNav } from '../modules/stock/StockNav';
+import type { InventoryLine, StockItem, StockMovement } from '../modules/stock/stock.types';
+import { exportMovement, exportStockItem, movementLabel, stockStatusLabel } from '../modules/stock/stock.utils';
 
-type StockMovement = {
-  id: number;
-  movement_number?: string;
-  item_name: string;
-  type: string;
-  quantity: number;
-  movement_date: string;
-  reference?: string;
-  destination?: string;
-  quantity_before?: number;
-  quantity_after?: number;
-  user_name?: string;
-  notes?: string;
-};
-
-type StockItemDetail = {
-  id: number;
-  code?: string;
-  name: string;
-  category?: string;
-  store?: string;
-  unit?: string;
-  current_quantity?: number;
-  minimum_quantity?: number;
-  purchase_price?: number;
-  average_purchase_price?: number;
-  description?: string;
-  observations?: string;
-  barcode?: string;
-  supplier_reference?: string;
-  brand?: string;
-  model?: string;
-  status: string;
-  movements: StockMovement[];
-};
+type Alert = { id: number; level: string; quantity: number; minimum_quantity: number; channel: string; status: string; created_at: string; resolved_at?: string };
+type InventoryHistory = Pick<InventoryLine, 'theoretical_quantity' | 'physical_quantity' | 'difference_quantity' | 'difference_cost'> & { inventory_number: string; count_date: string; status: string };
+type Detail = StockItem & { movements: StockMovement[]; inventories: InventoryHistory[]; alerts: Alert[] };
 
 export function StockDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [item, setItem] = useState<StockItemDetail | null>(null);
-  const [success, setSuccess] = useState('');
-
-  useEffect(() => {
-    if (!id) return;
-    api.get<StockItemDetail>(`/stock/items/${id}`).then((response) => setItem(response.data));
-  }, [id]);
-
+  const [item, setItem] = useState<Detail | null>(null);
+  useEffect(() => { if (id) api.get<Detail>(`/stock/items/${id}`).then((response) => setItem(response.data)); }, [id]);
   const value = useMemo(() => Number(item?.current_quantity ?? 0) * Number(item?.average_purchase_price ?? item?.purchase_price ?? 0), [item]);
-
-  if (!item) {
-    return <section><PageHeader title="Fiche article" /><EmptyState /></section>;
-  }
-
-  return (
-    <section>
-      <PageHeader title={`Fiche article - ${item.name}`} />
-      <SuccessMessage message={success} />
-      <div className="actions-row">
-        <button className="secondary" onClick={() => navigate('/stock')}><ArrowLeft size={16} />Retour</button>
-        <button className="secondary" onClick={() => navigate('/stock')}><Pencil size={16} />Modifier</button>
-        <button className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
-        <button className="secondary" onClick={() => exportExcel(`stock-${item.code ?? item.id}.xls`, [{ code: item.code ?? '-', article: item.name, categorie: item.category ?? '-', magasin: item.store ?? '-', stock_actuel: item.current_quantity ?? 0, seuil_min: item.minimum_quantity ?? 0, unite: item.unit ?? '-', cout: money(item.average_purchase_price ?? item.purchase_price ?? 0), valeur_stock: money(value) }])}><FileSpreadsheet size={16} />Excel</button>
-      </div>
-      <div className="mini-stats">
-        <div className="mini-stat"><span>Stock actuel</span><strong>{item.current_quantity ?? 0}</strong></div>
-        <div className="mini-stat"><span>Valeur</span><strong>{money(value)}</strong></div>
-        <div className="mini-stat"><span>Seuil mini</span><strong>{item.minimum_quantity ?? 0}</strong></div>
-      </div>
-      <div className="detail-list">
-        <span>Code</span><strong>{item.code ?? '-'}</strong>
-        <span>Article</span><strong>{item.name}</strong>
-        <span>Catégorie</span><strong>{item.category ?? '-'}</strong>
-        <span>Magasin</span><strong>{item.store ?? '-'}</strong>
-        <span>Unité</span><strong>{item.unit ?? '-'}</strong>
-        <span>Coût unitaire</span><strong>{money(item.average_purchase_price ?? item.purchase_price ?? 0)}</strong>
-        <span>Statut</span><strong>{statusLabel(item.status)}</strong>
-        <span>Observations</span><strong>{item.observations ?? '-'}</strong>
-      </div>
-      <div className="detail-section" id="history">
-        <h4>Historique mouvements</h4>
-        <table>
-          <thead>
-            <tr><th>Date</th><th>Type</th><th className="right">Quantité</th><th className="right">Avant</th><th className="right">Après</th><th>Référence</th></tr>
-          </thead>
-          <tbody>
-            {item.movements.map((movement) => (
-              <tr key={movement.id}>
-                <td>{shortDate(movement.movement_date)}</td>
-                <td>{movementTypeLabel(movement.type)}</td>
-                <td className="right">{movement.quantity}</td>
-                <td className="right">{movement.quantity_before ?? '-'}</td>
-                <td className="right">{movement.quantity_after ?? '-'}</td>
-                <td>{movement.reference ?? '-'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="detail-section">
-        <h4>Dernières entrées / sorties</h4>
-        <div className="compact-list">
-          {item.movements.slice(0, 6).map((movement) => <div className="compact-item" key={movement.id}><span>{shortDate(movement.movement_date)} | {movementTypeLabel(movement.type)} | {movement.quantity}</span></div>)}
-        </div>
-      </div>
-      <div className="detail-section">
-        <h4>Maintenances ayant consommé cet article</h4>
-        <div className="compact-empty">Aucune donnée disponible pour le moment.</div>
-      </div>
-      <div className="detail-section">
-        <h4>Documents</h4>
-        <div className="compact-empty">Aucun document enregistré.</div>
-      </div>
-      <div className="detail-section">
-        <h4>Informations complémentaires</h4>
-        <div className="detail-list">
-          <span>Code-barres</span><strong>{item.barcode ?? '-'}</strong>
-          <span>Référence fournisseur</span><strong>{item.supplier_reference ?? '-'}</strong>
-          <span>Marque</span><strong>{item.brand ?? '-'}</strong>
-          <span>Modèle</span><strong>{item.model ?? '-'}</strong>
-          <span>Description</span><strong>{item.description ?? '-'}</strong>
-        </div>
-      </div>
-    </section>
-  );
+  if (!item) return <section><PageHeader title="Fiche article" /><EmptyState message="Chargement de l'article..." /></section>;
+  const maintenance = item.movements.filter((row) => row.source === 'MAINTENANCE');
+  const exportAll = () => exportXlsxWorkbook(`Article_${item.code ?? item.id}.xlsx`, [
+    { name: 'Résumé', rows: [exportStockItem(item)] },
+    { name: 'Mouvements', rows: item.movements.map(exportMovement) },
+    { name: 'Maintenance', rows: maintenance.map(exportMovement) },
+    { name: 'Inventaires', rows: item.inventories },
+    { name: 'Alertes', rows: item.alerts },
+    { name: 'Documents', rows: [{ piece_jointe: item.attachment_file_name ?? 'Non disponible' }] },
+  ]);
+  return <section>
+    <PageHeader title={`Fiche article - ${item.name}`} /><StockNav />
+    <div className="actions-row"><button className="secondary" onClick={() => navigate('/stock')}><ArrowLeft size={16} />Retour</button><button className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button><button onClick={exportAll}><FileSpreadsheet size={16} />Excel</button></div>
+    <div className="mini-stats"><Kpi label="Stock actuel" value={`${item.current_quantity ?? 0} ${item.unit ?? ''}`} /><Kpi label="Valeur stock" value={`${money(value)} USD`} /><Kpi label="Seuil sécurité" value={item.minimum_quantity ?? 0} /><Kpi label="Statut" value={stockStatusLabel(item)} /></div>
+    <div className="detail-section"><h4>Informations article</h4><div className="detail-list">
+      <span>Code</span><strong>{item.code ?? '—'}</strong><span>Catégorie</span><strong>{item.category ?? '—'}</strong><span>Magasin</span><strong>{item.store ?? '—'}</strong><span>Marque / modèle</span><strong>{[item.brand, item.model].filter(Boolean).join(' ') || '—'}</strong>
+      <span>Fournisseur</span><strong>{item.supplier_name ?? item.supplier_reference ?? '—'}</strong><span>Code-barres</span><strong>{item.barcode ?? '—'}</strong><span>Description</span><strong>{item.description ?? '—'}</strong><span>Observations</span><strong>{item.observations ?? '—'}</strong>
+    </div></div>
+    <Section title="Historique des mouvements"><table><thead><tr><th>Date</th><th>Type</th><th className="right">Quantité</th><th className="right">Coût</th><th>Référence</th><th>Utilisateur</th></tr></thead><tbody>{item.movements.map((row) => <tr key={row.id}><td>{shortDate(row.movement_date)}</td><td>{movementLabel(row)}</td><td className="right">{row.quantity}</td><td className="right">{money(row.unit_price ?? 0)}</td><td>{row.reference ?? '—'}</td><td>{row.user_name ?? '—'}</td></tr>)}</tbody></table></Section>
+    <Section title="Maintenances ayant consommé cet article">{maintenance.length ? <table><thead><tr><th>Date</th><th>Référence</th><th className="right">Quantité</th><th>Observation</th></tr></thead><tbody>{maintenance.map((row) => <tr key={row.id}><td>{shortDate(row.movement_date)}</td><td>{row.reference ?? '—'}</td><td className="right">{row.quantity}</td><td>{row.notes ?? '—'}</td></tr>)}</tbody></table> : <div className="compact-empty">Aucune consommation maintenance.</div>}</Section>
+    <Section title="Inventaires concernés">{item.inventories.length ? <table><thead><tr><th>Inventaire</th><th>Date</th><th className="right">Théorique</th><th className="right">Physique</th><th className="right">Écart</th></tr></thead><tbody>{item.inventories.map((row) => <tr key={`${row.inventory_number}-${row.count_date}`}><td>{row.inventory_number}</td><td>{shortDate(row.count_date)}</td><td className="right">{row.theoretical_quantity}</td><td className="right">{row.physical_quantity}</td><td className="right">{row.difference_quantity}</td></tr>)}</tbody></table> : <div className="compact-empty">Aucun inventaire lié.</div>}</Section>
+    <Section title="Alertes">{item.alerts.length ? <table><thead><tr><th>Date</th><th>Niveau</th><th>Canal</th><th>Statut</th></tr></thead><tbody>{item.alerts.map((row) => <tr key={row.id}><td>{shortDate(row.created_at)}</td><td>{row.level === 'OUT_OF_STOCK' ? 'Rupture' : 'Sous seuil'}</td><td>{row.channel}</td><td>{row.status}</td></tr>)}</tbody></table> : <div className="compact-empty">Aucune alerte.</div>}</Section>
+    <Section title="Documents"><div className="compact-empty">{item.attachment_file_name ?? 'Aucun document enregistré.'}</div></Section>
+  </section>;
 }
-
-function movementTypeLabel(value: string) {
-  return ({ IN: 'Entrée', OUT: 'Sortie', INVENTORY: 'Inventaire', ADJUSTMENT: 'Correction' } as Record<string, string>)[value] ?? value;
-}
+function Kpi({ label, value }: { label: string; value: string | number }) { return <div className="mini-stat"><span>{label}</span><strong>{value}</strong></div>; }
+function Section({ title, children }: { title: string; children: React.ReactNode }) { return <div className="detail-section"><h4>{title}</h4>{children}</div>; }

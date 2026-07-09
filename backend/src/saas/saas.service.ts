@@ -553,6 +553,8 @@ export class SaasService {
   async stockItems() {
     const { rows } = await this.db.query(`
       SELECT si.*,
+             last_entry.movement_date AS last_entry_date,
+             last_exit.movement_date AS last_exit_date,
              CASE
                WHEN si.status <> 'ACTIVE' THEN 'INACTIVE'
                WHEN si.current_quantity <= 0 THEN 'OUT_OF_STOCK'
@@ -560,6 +562,18 @@ export class SaasService {
                ELSE 'OK'
              END AS stock_alert
       FROM stock_items si
+      LEFT JOIN LATERAL (
+        SELECT movement_date FROM stock_movements
+        WHERE stock_item_id = si.id AND organization_id = si.organization_id
+          AND deleted_at IS NULL AND type IN ('IN', 'ENTRY', 'RETURN', 'INVENTORY_GAIN')
+        ORDER BY movement_date DESC, id DESC LIMIT 1
+      ) last_entry ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT movement_date FROM stock_movements
+        WHERE stock_item_id = si.id AND organization_id = si.organization_id
+          AND deleted_at IS NULL AND type IN ('OUT', 'EXIT', 'MAINTENANCE_CONSUMPTION', 'INVENTORY_LOSS')
+        ORDER BY movement_date DESC, id DESC LIMIT 1
+      ) last_exit ON TRUE
       WHERE si.organization_id = $1 AND si.deleted_at IS NULL
       ORDER BY si.name
     `, [this.context.organizationId()]);
@@ -572,10 +586,32 @@ export class SaasService {
       [id, this.context.organizationId()],
     );
     const movements = await this.db.query(
-      `SELECT * FROM stock_movements WHERE stock_item_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY movement_date DESC, id DESC`,
+      `SELECT sm.*, CONCAT(u.first_name, ' ', u.last_name) AS user_name
+       FROM stock_movements sm
+       LEFT JOIN app_users u ON u.id = sm.created_by
+       WHERE sm.stock_item_id = $1 AND sm.organization_id = $2 AND sm.deleted_at IS NULL
+       ORDER BY sm.movement_date DESC, sm.id DESC`,
       [id, this.context.organizationId()],
     );
-    return { ...requireRow(item.rows[0], 'Stock item'), movements: movements.rows };
+    const [inventories, alerts] = await Promise.all([
+      this.db.query(
+        `SELECT ic.inventory_number, ic.count_date, ic.status, icl.theoretical_quantity,
+                icl.physical_quantity, icl.difference_quantity, icl.difference_cost
+         FROM inventory_count_lines icl
+         JOIN inventory_counts ic ON ic.id = icl.inventory_count_id
+         WHERE icl.stock_item_id = $1 AND icl.organization_id = $2
+           AND icl.deleted_at IS NULL AND ic.deleted_at IS NULL
+         ORDER BY ic.count_date DESC, ic.id DESC`,
+        [id, this.context.organizationId()],
+      ),
+      this.db.query(
+        `SELECT * FROM stock_alerts
+         WHERE stock_item_id = $1 AND organization_id = $2 AND deleted_at IS NULL
+         ORDER BY created_at DESC`,
+        [id, this.context.organizationId()],
+      ),
+    ]);
+    return { ...requireRow(item.rows[0], 'Stock item'), movements: movements.rows, inventories: inventories.rows, alerts: alerts.rows };
   }
 
   async createStockItem(body: Record<string, unknown>) {
@@ -586,8 +622,10 @@ export class SaasService {
       const initialQuantity = Number(body.current_quantity ?? 0);
       const { rows } = await client.query(
         `INSERT INTO stock_items
-         (id, code, name, description, category, unit, current_quantity, minimum_quantity, purchase_price, average_purchase_price, observations, status, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8, $8, $9, $10, $11)
+         (id, code, name, description, category, unit, current_quantity, minimum_quantity, purchase_price,
+          average_purchase_price, observations, status, organization_id, store, barcode, supplier_reference,
+          supplier_name, brand, model, photo_file_name, attachment_file_name)
+         VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
          RETURNING *`,
         [
           id,
@@ -601,6 +639,14 @@ export class SaasService {
           body.observations ?? null,
           body.status ?? 'ACTIVE',
           this.context.organizationId(),
+          body.store ?? null,
+          body.barcode ?? null,
+          body.supplier_reference ?? null,
+          body.supplier_name ?? null,
+          body.brand ?? null,
+          body.model ?? null,
+          body.photo_file_name ?? null,
+          body.attachment_file_name ?? null,
         ],
       );
       if (initialQuantity > 0) {
@@ -620,7 +666,9 @@ export class SaasService {
   }
 
   async updateStockItem(id: number, body: Record<string, unknown>) {
-    const keys = ['code', 'name', 'description', 'category', 'unit', 'minimum_quantity', 'purchase_price', 'average_purchase_price', 'observations', 'status'].filter(
+    const keys = ['code', 'name', 'description', 'category', 'unit', 'minimum_quantity', 'purchase_price', 'average_purchase_price',
+      'observations', 'status', 'store', 'barcode', 'supplier_reference', 'supplier_name', 'brand', 'model',
+      'photo_file_name', 'attachment_file_name'].filter(
       (key) => body[key] !== undefined,
     );
     if (!keys.length) throw new BadRequestException('No data provided');
@@ -1139,7 +1187,9 @@ export class SaasService {
     const { rows } = await this.db.query(`
       SELECT ic.*,
              COUNT(icl.id)::INT AS line_count,
-             COALESCE(SUM(ABS(icl.difference_quantity)), 0)::FLOAT AS total_difference
+             COALESCE(SUM(CASE WHEN icl.difference_quantity > 0 THEN icl.difference_quantity ELSE 0 END), 0)::FLOAT AS positive_difference,
+             COALESCE(SUM(CASE WHEN icl.difference_quantity < 0 THEN ABS(icl.difference_quantity) ELSE 0 END), 0)::FLOAT AS negative_difference,
+             COALESCE(SUM(icl.difference_cost), 0)::FLOAT AS difference_value
       FROM inventory_counts ic
       LEFT JOIN inventory_count_lines icl ON icl.inventory_count_id = ic.id AND icl.deleted_at IS NULL
       WHERE ic.organization_id = $1 AND ic.deleted_at IS NULL
@@ -1147,6 +1197,25 @@ export class SaasService {
       ORDER BY ic.count_date DESC, ic.id DESC
     `, [this.context.organizationId()]);
     return rows;
+  }
+
+  async stockInventoryDetail(id: number) {
+    const inventory = await this.db.query(
+      `SELECT ic.*, CONCAT(u.first_name, ' ', u.last_name) AS user_name
+       FROM inventory_counts ic
+       LEFT JOIN app_users u ON u.id = ic.created_by
+       WHERE ic.id = $1 AND ic.organization_id = $2 AND ic.deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+    const lines = await this.db.query(
+      `SELECT icl.*, si.code AS item_code, si.name AS item_name, si.unit
+       FROM inventory_count_lines icl
+       JOIN stock_items si ON si.id = icl.stock_item_id
+       WHERE icl.inventory_count_id = $1 AND icl.organization_id = $2 AND icl.deleted_at IS NULL
+       ORDER BY si.name`,
+      [id, this.context.organizationId()],
+    );
+    return { ...requireRow(inventory.rows[0], 'Inventory'), lines: lines.rows };
   }
 
   async createStockInventory(body: Record<string, unknown>) {
@@ -1160,22 +1229,70 @@ export class SaasService {
          VALUES ($1, $2, 'DRAFT', $3, $4, $5) RETURNING *`,
         [inventoryNumber, body.count_date ?? new Date().toISOString().slice(0, 10), body.notes ?? null, this.context.userId() ?? 1, this.context.organizationId()],
       );
-      const lines = Array.isArray(body.lines) ? (body.lines as Array<Record<string, unknown>>) : [];
+      const suppliedLines = Array.isArray(body.lines) ? (body.lines as Array<Record<string, unknown>>) : [];
+      const activeItems = suppliedLines.length ? { rows: suppliedLines } : await client.query(
+        `SELECT id AS stock_item_id, current_quantity AS theoretical_quantity,
+                average_purchase_price AS unit_cost
+         FROM stock_items
+         WHERE organization_id = $1 AND deleted_at IS NULL AND status = 'ACTIVE'
+         ORDER BY name`,
+        [this.context.organizationId()],
+      );
+      const lines = activeItems.rows;
       for (const line of lines) {
         const item = await client.query(
-          `SELECT current_quantity FROM stock_items WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+          `SELECT current_quantity, average_purchase_price, purchase_price
+           FROM stock_items WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
           [line.stock_item_id, this.context.organizationId()],
         );
         const theoretical = Number(line.theoretical_quantity ?? item.rows[0]?.current_quantity ?? 0);
-        const physical = Number(line.physical_quantity ?? theoretical);
+        const physical = line.physical_quantity === undefined || line.physical_quantity === null ? theoretical : Number(line.physical_quantity);
+        const unitCost = Number(line.unit_cost ?? item.rows[0]?.average_purchase_price ?? item.rows[0]?.purchase_price ?? 0);
+        const difference = physical - theoretical;
         await client.query(
           `INSERT INTO inventory_count_lines
-           (inventory_count_id, stock_item_id, theoretical_quantity, physical_quantity, difference_quantity, notes, organization_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [inventory.rows[0].id, line.stock_item_id, theoretical, physical, physical - theoretical, line.notes ?? null, this.context.organizationId()],
+           (inventory_count_id, stock_item_id, theoretical_quantity, physical_quantity, difference_quantity,
+            unit_cost, difference_cost, notes, organization_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [inventory.rows[0].id, line.stock_item_id, theoretical, physical, difference, unitCost,
+            difference * unitCost, line.notes ?? null, this.context.organizationId()],
         );
       }
-      return inventory.rows[0];
+      return { ...inventory.rows[0], line_count: lines.length };
+    });
+  }
+
+  async updateStockInventory(id: number, body: Record<string, unknown>) {
+    return this.db.transaction(async (client) => {
+      const inventory = await client.query(
+        `SELECT * FROM inventory_counts WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+        [id, this.context.organizationId()],
+      );
+      const row = requireRow(inventory.rows[0], 'Inventory');
+      if (row.status === 'VALIDATED' || row.status === 'CANCELLED') {
+        throw new BadRequestException('Cet inventaire est verrouillé');
+      }
+      const lines = Array.isArray(body.lines) ? body.lines as Array<Record<string, unknown>> : [];
+      for (const line of lines) {
+        const physical = Number(line.physical_quantity ?? 0);
+        const updated = await client.query(
+          `UPDATE inventory_count_lines
+           SET physical_quantity = $3,
+               difference_quantity = $3 - theoretical_quantity,
+               difference_cost = ($3 - theoretical_quantity) * unit_cost,
+               notes = COALESCE($4, notes)
+           WHERE id = $1 AND inventory_count_id = $2 AND organization_id = $5 AND deleted_at IS NULL
+           RETURNING id`,
+          [line.id, id, physical, line.notes ?? null, this.context.organizationId()],
+        );
+        requireRow(updated.rows[0], 'Inventory line');
+      }
+      await client.query(
+        `UPDATE inventory_counts SET status = 'IN_PROGRESS', updated_at = NOW()
+         WHERE id = $1 AND organization_id = $2`,
+        [id, this.context.organizationId()],
+      );
+      return { ...row, status: 'IN_PROGRESS' };
     });
   }
 
@@ -1213,6 +1330,18 @@ export class SaasService {
       );
       return rows[0];
     });
+  }
+
+  async stockAlerts() {
+    const { rows } = await this.db.query(
+      `SELECT sa.*, si.code AS item_code, si.name AS item_name, si.unit
+       FROM stock_alerts sa
+       JOIN stock_items si ON si.id = sa.stock_item_id
+       WHERE sa.organization_id = $1 AND sa.deleted_at IS NULL
+       ORDER BY sa.created_at DESC`,
+      [this.context.organizationId()],
+    );
+    return rows;
   }
 
   async leases() {
@@ -2343,10 +2472,29 @@ export class SaasService {
     const items = await this.stockItems();
     const movements = await this.stockMovements();
     const inventories = await this.stockInventories();
+    const alerts = await this.stockAlerts();
+    const byCategory = Object.values(items.reduce((acc: Record<string, { category: string; quantity: number; value: number }>, item) => {
+      const key = String(item.category ?? 'Sans catégorie');
+      acc[key] ??= { category: key, quantity: 0, value: 0 };
+      acc[key].quantity += Number(item.current_quantity ?? 0);
+      acc[key].value += Number(item.current_quantity ?? 0) * Number(item.average_purchase_price ?? item.purchase_price ?? 0);
+      return acc;
+    }, {}));
+    const byStore = Object.values(items.reduce((acc: Record<string, { store: string; quantity: number; value: number }>, item) => {
+      const key = String(item.store ?? 'Non renseigné');
+      acc[key] ??= { store: key, quantity: 0, value: 0 };
+      acc[key].quantity += Number(item.current_quantity ?? 0);
+      acc[key].value += Number(item.current_quantity ?? 0) * Number(item.average_purchase_price ?? item.purchase_price ?? 0);
+      return acc;
+    }, {}));
     return {
       items,
       movements,
       inventories,
+      alerts,
+      by_category: byCategory,
+      by_store: byStore,
+      maintenance_consumption: movements.filter((movement) => movement.source === 'MAINTENANCE'),
       under_minimum: items.filter((item) => item.status === 'ACTIVE' && Number(item.current_quantity) <= Number(item.minimum_quantity) && Number(item.current_quantity) > 0),
       out_of_stock: items.filter((item) => item.status === 'ACTIVE' && Number(item.current_quantity) <= 0),
       inactive: items.filter((item) => item.status !== 'ACTIVE'),
@@ -2543,7 +2691,83 @@ export class SaasService {
        WHERE id = $1 AND organization_id = $5`,
       [body.stock_item_id, after, averagePrice, unitPrice, this.context.organizationId()],
     );
+    await this.syncStockAlerts(client, itemRow, after);
     return rows[0];
+  }
+
+  private async syncStockAlerts(client: PoolClient, item: Record<string, unknown>, quantity: number) {
+    const organizationId = this.context.organizationId();
+    const minimum = Number(item.minimum_quantity ?? 0);
+    const level = quantity <= 0 ? 'OUT_OF_STOCK' : quantity <= minimum ? 'LOW_STOCK' : null;
+    if (!level) {
+      await client.query(
+        `UPDATE stock_alerts SET resolved_at = NOW()
+         WHERE stock_item_id = $1 AND organization_id = $2 AND resolved_at IS NULL AND deleted_at IS NULL`,
+        [item.id, organizationId],
+      );
+      return;
+    }
+    await client.query(
+      `UPDATE stock_alerts SET resolved_at = NOW()
+       WHERE stock_item_id = $1 AND organization_id = $2 AND level <> $3
+         AND resolved_at IS NULL AND deleted_at IS NULL`,
+      [item.id, organizationId, level],
+    );
+    const message = level === 'OUT_OF_STOCK'
+      ? `L'article ${item.name} est en rupture de stock.`
+      : `L'article ${item.name} est sous le seuil de sécurité. Stock actuel : ${quantity} ${item.unit}. Seuil : ${minimum}.`;
+    const responsible = await client.query(
+      `SELECT id, email FROM app_users
+       WHERE organization_id = $1 AND deleted_at IS NULL AND status = 'ACTIVE'
+         AND role IN ('ADMIN', 'ACCOUNTANT')
+       ORDER BY CASE WHEN role = 'ADMIN' THEN 0 ELSE 1 END, id LIMIT 1`,
+      [organizationId],
+    );
+    const recipient = responsible.rows[0]?.email ?? 'Responsable stock';
+    const created = [];
+    for (const channel of ['INTERNAL', 'EMAIL', 'WHATSAPP']) {
+      const inserted = await client.query(
+        `INSERT INTO stock_alerts
+         (stock_item_id, level, quantity, minimum_quantity, channel, recipient, message, status, created_by, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'SIMULATED', $8, $9)
+         ON CONFLICT DO NOTHING RETURNING id`,
+        [item.id, level, quantity, minimum, channel, channel === 'INTERNAL' ? null : recipient, message,
+          this.context.userId() ?? 1, organizationId],
+      );
+      if (inserted.rows[0]) created.push(channel);
+    }
+    if (created.includes('INTERNAL')) {
+      await client.query(
+        `INSERT INTO notifications
+         (user_id, title, message, priority, source, related_entity_type, related_entity_id,
+          link_path, created_by, organization_id)
+         SELECT au.id, $1, $2, $3, 'STOCK', 'STOCK_ITEM', $4, $5, $6, $7
+         FROM app_users au
+         WHERE au.organization_id = $7 AND au.deleted_at IS NULL
+           AND au.role IN ('ADMIN', 'ACCOUNTANT')
+         LIMIT 5`,
+        [level === 'OUT_OF_STOCK' ? 'Rupture de stock' : 'Stock sous seuil', message,
+          level === 'OUT_OF_STOCK' ? 'CRITICAL' : 'HIGH', item.id, `/stock/${item.id}`,
+          this.context.userId() ?? 1, organizationId],
+      );
+    }
+    if (created.includes('EMAIL')) {
+      await client.query(
+        `INSERT INTO email_logs
+         (recipient, subject, message, status, related_entity_type, related_entity_id, sent_at, created_by, organization_id)
+         VALUES ($1, $2, $3, 'SIMULATED', 'STOCK_ITEM', $4, NOW(), $5, $6)`,
+        [recipient, level === 'OUT_OF_STOCK' ? 'Rupture de stock' : 'Stock sous seuil', message,
+          item.id, this.context.userId() ?? 1, organizationId],
+      );
+    }
+    if (created.includes('WHATSAPP')) {
+      await client.query(
+        `INSERT INTO whatsapp_logs
+         (recipient, message, status, related_entity_type, related_entity_id, sent_at, created_by, organization_id)
+         VALUES ($1, $2, 'SIMULATED', 'STOCK_ITEM', $3, NOW(), $4, $5)`,
+        [recipient, message, item.id, this.context.userId() ?? 1, organizationId],
+      );
+    }
   }
 
   private async createMaintenanceAssignmentCommunications(client: PoolClient, request: Record<string, unknown>, body: Record<string, unknown>) {

@@ -441,6 +441,11 @@ export class StockController {
     return this.service.stockInventories();
   }
 
+  @Get('inventories/:id')
+  inventory(@Param('id', ParseIntPipe) id: number) {
+    return this.service.stockInventoryDetail(id);
+  }
+
   @Get('inventory')
   inventoryLegacy() {
     return this.service.stockInventories();
@@ -451,9 +456,24 @@ export class StockController {
     return this.service.createStockInventory(body);
   }
 
+  @Patch('inventories/:id')
+  updateInventory(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.updateStockInventory(id, body);
+  }
+
   @Post('inventories/:id/validate')
   validateInventory(@Param('id', ParseIntPipe) id: number) {
     return this.service.validateStockInventory(id);
+  }
+
+  @Get('alerts')
+  alerts() {
+    return this.service.stockAlerts();
+  }
+
+  @Get('report')
+  report() {
+    return this.service.stockReport();
   }
 }
 
