@@ -1,6 +1,6 @@
 ﻿import { ReactNode, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { api, exportCsv, exportExcel, includesText, money, shortDate, statusLabel } from '../api';
+import { api, exportCsv, exportExcel, exportXlsxWorkbook, includesText, money, shortDate, statusLabel } from '../api';
 import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, SuccessMessage, TableToolbar } from '../components';
 import { useApiList } from '../hooks';
@@ -605,13 +605,29 @@ export function ReportsPage() {
       {(reportKind === 'availability' || reportKind === 'reports') && <><SummaryCards values={[['Total unités', (availability?.totals as Record<string, unknown> | undefined)?.total_units], ['Occupées', (availability?.totals as Record<string, unknown> | undefined)?.occupied_units], ['Libres', (availability?.totals as Record<string, unknown> | undefined)?.vacant_units], ['Maintenance', (availability?.totals as Record<string, unknown> | undefined)?.maintenance_units], ['Bloquées', (availability?.totals as Record<string, unknown> | undefined)?.blocked_units], ['Loyer potentiel', money((availability?.totals as Record<string, unknown> | undefined)?.vacant_potential_rent as number)]]} /><ReportBlock title="Disponibilité par immeuble" rows={availabilityRows} filename="rapport-disponibilite.csv" /></>}
       {reportKind === 'overdue' && <><SummaryCards values={[['Factures en retard', overdue?.count], ['Total restant', money(overdue?.total_remaining as number)]]} /><ReportBlock title="Impayés et retards" rows={overdueRows} filename="rapport-impayes.csv" /></>}
       {reportKind === 'stock' && <><SummaryCards values={[['Articles', stockRows.length], ['Sous seuil', arrayOfRecords(stockReport?.under_minimum).length], ['Rupture', arrayOfRecords(stockReport?.out_of_stock).length], ['Inactifs', arrayOfRecords(stockReport?.inactive).length], ['Valorisation', money(stockReport?.valuation as number)]]} /><ReportBlock title="État stock" rows={stockRows} filename="rapport-stock-etat.csv" /><ReportBlock title="Historique mouvements" rows={stockMovementRows} filename="rapport-stock-mouvements.csv" /><ReportBlock title="Inventaires" rows={stockInventoryRows} filename="rapport-stock-inventaires.csv" /></>}
-      {reportKind === 'maintenance' && <><SummaryCards values={[['Ouvertes', (maintenanceReport?.summary as Record<string, unknown> | undefined)?.open], ['Urgentes', (maintenanceReport?.summary as Record<string, unknown> | undefined)?.urgent], ['En retard', (maintenanceReport?.summary as Record<string, unknown> | undefined)?.overdue], ['Terminées', (maintenanceReport?.summary as Record<string, unknown> | undefined)?.completed], ['Coût total', money((maintenanceReport?.summary as Record<string, unknown> | undefined)?.total_cost as number)]]} /><ReportBlock title="Rapport maintenance période" rows={maintenanceRows} filename="rapport-maintenance.csv" /><ReportBlock title="Maintenance par immeuble" rows={arrayOfRecords(maintenanceReport?.by_building)} filename="rapport-maintenance-immeubles.csv" /><ReportBlock title="Maintenance par technicien" rows={arrayOfRecords(maintenanceReport?.by_technician)} filename="rapport-maintenance-techniciens.csv" /><ReportBlock title="Maintenance par catégorie" rows={arrayOfRecords(maintenanceReport?.by_category)} filename="rapport-maintenance-categories.csv" /></>}
+      {reportKind === 'maintenance' && <><div className="page-header"><h3>Rapport maintenance</h3><div className="actions"><button className="secondary" onClick={() => exportXlsxWorkbook('rapport-maintenance.xlsx', maintenanceWorkbook(arrayOfRecords(maintenanceReport?.requests), maintenanceReport))}>Excel multi-onglets</button></div></div><SummaryCards values={[['Ouvertes', (maintenanceReport?.summary as Record<string, unknown> | undefined)?.open], ['En cours', (maintenanceReport?.summary as Record<string, unknown> | undefined)?.in_progress], ['Urgentes', (maintenanceReport?.summary as Record<string, unknown> | undefined)?.urgent], ['En retard', (maintenanceReport?.summary as Record<string, unknown> | undefined)?.overdue], ['Terminées', (maintenanceReport?.summary as Record<string, unknown> | undefined)?.completed], ['Taux résolution', `${(maintenanceReport?.summary as Record<string, unknown> | undefined)?.resolution_rate ?? 0}%`], ['Coût total', money((maintenanceReport?.summary as Record<string, unknown> | undefined)?.total_cost as number)], ['Temps moyen résolution', `${Math.round(Number((maintenanceReport?.summary as Record<string, unknown> | undefined)?.average_resolution_hours ?? 0))} h`]]} /><ReportBlock title="Rapport maintenance période" rows={maintenanceRows} filename="rapport-maintenance.csv" /><ReportBlock title="Maintenance par immeuble" rows={arrayOfRecords(maintenanceReport?.by_building)} filename="rapport-maintenance-immeubles.csv" /><ReportBlock title="Maintenance par unité" rows={arrayOfRecords(maintenanceReport?.by_unit)} filename="rapport-maintenance-unites.csv" /><ReportBlock title="Maintenance par technicien" rows={arrayOfRecords(maintenanceReport?.by_technician)} filename="rapport-maintenance-techniciens.csv" /><ReportBlock title="Maintenance par catégorie" rows={arrayOfRecords(maintenanceReport?.by_category)} filename="rapport-maintenance-categories.csv" /><ReportBlock title="Stock consommé" rows={arrayOfRecords(maintenanceReport?.stock_consumed)} filename="rapport-maintenance-stock.csv" /><ReportBlock title="Dépenses par mois" rows={arrayOfRecords(maintenanceReport?.monthly_expenses)} filename="rapport-maintenance-depenses.csv" /><ReportBlock title="Temps de résolution" rows={arrayOfRecords(maintenanceReport?.resolution_times)} filename="rapport-maintenance-resolution.csv" /><ReportBlock title="Interventions urgentes" rows={arrayOfRecords(maintenanceReport?.urgent_requests)} filename="rapport-maintenance-urgences.csv" /><ReportBlock title="Interventions en retard" rows={arrayOfRecords(maintenanceReport?.overdue_requests)} filename="rapport-maintenance-retards.csv" /></>}
     </section>
   );
 }
 
 function arrayOfRecords(value: unknown) {
   return Array.isArray(value) ? value as Array<Record<string, unknown>> : [];
+}
+
+function maintenanceWorkbook(requests: Array<Record<string, unknown>>, report: Record<string, unknown> | null) {
+  return [
+    { name: 'Resume', rows: [report?.summary as Record<string, unknown> ?? {}] },
+    { name: 'Demandes', rows: requests },
+    { name: 'Par immeuble', rows: arrayOfRecords(report?.by_building) },
+    { name: 'Par unite', rows: arrayOfRecords(report?.by_unit) },
+    { name: 'Par categorie', rows: arrayOfRecords(report?.by_category) },
+    { name: 'Par technicien', rows: arrayOfRecords(report?.by_technician) },
+    { name: 'Stock consomme', rows: arrayOfRecords(report?.stock_consumed) },
+    { name: 'Depenses', rows: arrayOfRecords(report?.monthly_expenses) },
+    { name: 'Temps resolution', rows: arrayOfRecords(report?.resolution_times) },
+    { name: 'Urgences', rows: arrayOfRecords(report?.urgent_requests) },
+    { name: 'Audit', rows: requests.map((row) => ({ numero: row.request_number, statut: row.status, priorite: row.priority, date: row.reported_at, technicien: row.technician_name ?? row.external_provider ?? '-', cout: row.total_cost ?? 0 })) },
+  ];
 }
 
 function ReportFilters({

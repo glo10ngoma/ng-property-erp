@@ -561,6 +561,15 @@ export class MaintenanceController {
     return this.service.createMaintenanceExpense(id, body);
   }
 
+  @Post('requests/:id/communicate/:channel')
+  communicate(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('channel') channel: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.service.sendMaintenanceCommunication(id, channel, body);
+  }
+
   @Post('requests/:id/documents')
   document(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
     return this.service.createMaintenanceDocument(id, body);
