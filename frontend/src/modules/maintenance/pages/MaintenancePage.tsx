@@ -50,6 +50,10 @@ type MaintenanceRequest = {
   total_cost?: number;
   actual_hours?: number;
   is_overdue?: boolean;
+  technician_signature_name?: string;
+  technician_signed_at?: string;
+  client_signature_name?: string;
+  client_signed_at?: string;
 };
 
 type MaintenanceDetail = MaintenanceRequest & {
@@ -59,8 +63,8 @@ type MaintenanceDetail = MaintenanceRequest & {
   timeline: Array<{ id: number; title: string; details?: string; created_at: string; event_type?: string }>;
   assignments: Array<{ id: number; employee_name?: string; external_provider?: string; assigned_at: string; notes?: string }>;
   documents: Array<{ id: number; document_type: string; file_name: string; file_url?: string }>;
-  expenses: Array<{ id: number; amount: number; expense_date: string; category: string; status: string; description?: string }>;
-  stock_movements: Array<{ id: number; item_name: string; quantity: number; movement_date: string; reference?: string }>;
+  expenses: Array<{ id: number; amount: number; expense_date: string; category: string; status: string; description?: string; supplier?: string; reference?: string; attachment_file_name?: string }>;
+  stock_movements: Array<{ id: number; item_name: string; quantity: number; unit_price?: number; movement_date: string; reference?: string; notes?: string }>;
   maintenance_documents?: Array<{ id: number; document_type: string; file_name: string; file_url?: string }>;
 };
 
@@ -380,7 +384,7 @@ export function MaintenanceDetailPage() {
   const units = useApiList<UnitOption>('/units');
   const tenants = useApiList<TenantSearchOption>('/tenants');
   const employees = useApiList<EmployeeOption>('/employees');
-  const stockItems = useApiList<{ id: number; name: string; current_quantity: number; unit: string }>('/stock/items');
+  const stockItems = useApiList<{ id: number; name: string; current_quantity: number; unit: string; average_purchase_price?: number; purchase_price?: number }>('/stock/items');
 
   async function refresh() {
     if (!id) return;
@@ -418,13 +422,25 @@ export function MaintenanceDetailPage() {
           <div className="page-actions">
             <button className="secondary" onClick={() => navigate('/maintenance')}><ArrowLeft size={16} />Retour</button>
             {can('maintenance.update') && actionState.canEdit && <button onClick={() => setEditing(true)}><Pencil size={16} />Modifier</button>}
-            {can('maintenance.assign') && actionState.canAssign && <button onClick={() => setAssigning(true)}><UserCog size={16} />Affecter technicien</button>}
+            {can('maintenance.update') && actionState.canDiagnose && <button onClick={() => action(`/maintenance/requests/${request.id}/diagnosis`, 'Diagnostic enregistré.', { diagnostic: request.diagnostic ?? request.description ?? 'Diagnostic à compléter' })}><CircleAlert size={16} />Diagnostic</button>}
+            {can('maintenance.update') && actionState.canRequestApproval && <button onClick={() => action(`/maintenance/requests/${request.id}/request-approval`, 'Approbation demandée.')}>Demander approbation</button>}
+            {can('maintenance.validate') && actionState.canApprove && <button onClick={() => action(`/maintenance/requests/${request.id}/approve`, 'Demande approuvée.')}>Approuver</button>}
+            {can('maintenance.validate') && actionState.canApprove && <button className="secondary" onClick={() => action(`/maintenance/requests/${request.id}/reject`, 'Demande rejetée.', { reason: 'Diagnostic à revoir' })}>Rejeter</button>}
+            {can('maintenance.assign') && actionState.canAssign && <button onClick={() => setAssigning(true)}><UserCog size={16} />{request.status === 'ASSIGNED' ? 'Réaffecter' : 'Affecter'}</button>}
             {can('maintenance.update') && actionState.canStart && <button onClick={() => action(`/maintenance/requests/${request.id}/start`, 'Intervention démarrée.', {})}><CirclePause size={16} />Démarrer intervention</button>}
-            {can('maintenance.update') && actionState.canWork && <button onClick={() => setExpenseOpen(true)}><CircleAlert size={16} />Ajouter dépense</button>}
+            {can('maintenance.update') && actionState.canPause && <button onClick={() => action(`/maintenance/requests/${request.id}/pause`, 'Intervention mise en pause.')}>Mettre en pause</button>}
+            {can('maintenance.update') && actionState.canResume && <button onClick={() => action(`/maintenance/requests/${request.id}/resume`, 'Intervention reprise.')}>Reprendre</button>}
+            {can('maintenance.update') && actionState.canWork && <button onClick={() => setExpenseOpen(true)}><CircleAlert size={16} />Ajouter coût</button>}
             {can('maintenance.update') && actionState.canWork && <button onClick={() => setStockOpen(true)}><Paperclip size={16} />Consommer stock</button>}
             {can('maintenance.update') && actionState.canResolve && <button onClick={() => action(`/maintenance/requests/${request.id}/resolve`, 'Intervention résolue.', { actual_hours: request.actual_hours ?? 0, resolution_comments: request.proposed_solution ?? 'Résolution' })}><CheckCircle2 size={16} />Marquer résolu</button>}
-            {can('maintenance.validate') && actionState.canValidate && <button onClick={() => action(`/maintenance/requests/${request.id}/validate`, 'Demande validée.', { comments: 'Validation finale' })}><CheckCircle2 size={16} />Valider</button>}
+            {can('maintenance.update') && actionState.canReopen && <button onClick={() => action(`/maintenance/requests/${request.id}/reopen`, 'Intervention rouverte.')}>Rouvrir</button>}
+            {can('maintenance.validate') && actionState.canValidate && <button onClick={() => {
+              const technicianSignature = window.prompt('Nom du technicien signataire', request.assigned_employee_name ?? '') ?? '';
+              const clientSignature = window.prompt('Nom du client signataire', request.tenant_name ?? '') ?? '';
+              return action(`/maintenance/requests/${request.id}/validate`, 'Demande validée.', { comments: 'Validation finale', technician_signature_name: technicianSignature || null, client_signature_name: clientSignature || null });
+            }}><CheckCircle2 size={16} />Valider</button>}
             {can('maintenance.close') && actionState.canClose && <button onClick={() => action(`/maintenance/requests/${request.id}/close`, 'Demande clôturée.')}>Clôturer</button>}
+            {can('maintenance.update') && actionState.canCancel && <button className="secondary" onClick={() => action(`/maintenance/requests/${request.id}/cancel`, 'Demande annulée.')}>Annuler</button>}
             <button onClick={() => window.print()}><Printer size={16} />Imprimer</button>
             <button className="secondary" onClick={() => exportXlsxWorkbook(`maintenance_${request.request_number}.xlsx`, printable)}><FileSpreadsheet size={16} />Excel</button>
           </div>
@@ -518,8 +534,8 @@ export function MaintenanceDetailPage() {
           <SectionBlock title="Consommation de stock">
             {request.stock_movements.length ? (
               <SimpleTable
-                headers={['Article', 'Quantité', 'Référence', 'Date']}
-                rows={request.stock_movements.map((movement) => [movement.item_name, movement.quantity, movement.reference ?? '-', shortDate(movement.movement_date)])}
+                headers={['Article', 'Quantité', 'Prix moyen', 'Total', 'Motif', 'Date']}
+                rows={request.stock_movements.map((movement) => [movement.item_name, movement.quantity, money(movement.unit_price ?? 0), money(Number(movement.quantity) * Number(movement.unit_price ?? 0)), movement.notes ?? '-', shortDate(movement.movement_date)])}
               />
             ) : (
               <div className="compact-empty">Aucune consommation de stock.</div>
@@ -539,9 +555,9 @@ export function MaintenanceDetailPage() {
 
           <SectionBlock title="Validation">
             <div className="maintenance-signature-grid">
-              <div className="signature-box"><span>Technicien</span><strong>{request.assigned_employee_name ?? 'À signer'}</strong><small>Signature prévue</small></div>
+              <div className="signature-box"><span>Technicien</span><strong>{request.technician_signature_name ?? request.assigned_employee_name ?? 'À signer'}</strong><small>{request.technician_signed_at ? shortDate(request.technician_signed_at) : 'Signature prévue'}</small></div>
               <div className="signature-box"><span>Responsable</span><strong>À valider</strong><small>Signature prévue</small></div>
-              <div className="signature-box"><span>Client</span><strong>{request.tenant_name ?? 'À signer'}</strong><small>Signature prévue</small></div>
+              <div className="signature-box"><span>Client</span><strong>{request.client_signature_name ?? request.tenant_name ?? 'À signer'}</strong><small>{request.client_signed_at ? shortDate(request.client_signed_at) : 'Signature prévue'}</small></div>
             </div>
           </SectionBlock>
         </div>
@@ -847,11 +863,12 @@ function MaintenanceExpenseModal({
   onSubmit: (body: Record<string, unknown>) => void;
 }) {
   const [label, setLabel] = useState('');
-  const [category, setCategory] = useState('Autre');
+  const [category, setCategory] = useState('Main d’œuvre');
   const [amount, setAmount] = useState<number | string>(0);
   const [expenseDate, setExpenseDate] = useState(new Date().toISOString().slice(0, 10));
   const [supplier, setSupplier] = useState('');
   const [reference, setReference] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('');
   const [notes, setNotes] = useState('');
   const [attachmentName, setAttachmentName] = useState('');
 
@@ -859,17 +876,18 @@ function MaintenanceExpenseModal({
     <Modal title={`Ajouter une dépense à l’intervention ${request.request_number}`} onClose={onClose}>
       <form className="maintenance-modal-form" onSubmit={(event) => {
         event.preventDefault();
-        onSubmit({ amount: Number(amount), expense_date: expenseDate, category, description: label, supplier, reference, notes, attachment_file_name: attachmentName || null });
+        onSubmit({ amount: Number(amount), expense_date: expenseDate, category, description: label, supplier, payment_method: paymentMethod || null, reference, observation: notes, attachment_file_name: attachmentName || null });
       }}>
         <div className="modal-section">
           <h3>Informations générales</h3>
           <p className="storage-note">Cette dépense sera rattachée à l’intervention et pourra alimenter la caisse si le workflow le permet.</p>
           <div className="maintenance-grid maintenance-cost-grid">
-            <label className="wide-field">Libellé<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Libellé" /></label>
-            <label>Catégorie<select value={category} onChange={(event) => setCategory(event.target.value)}>{MAINTENANCE_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-            <label>Montant<input type="number" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
+            <label>Nature du coût<select value={category} onChange={(event) => setCategory(event.target.value)}>{['Main d’œuvre', 'Transport', 'Sous-traitance', 'Achat local', 'Location matériel', 'Autre'].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+            <label className="wide-field">Libellé<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Libellé" required /></label>
+            <label>Montant (USD)<input type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} required /></label>
             <label>Date<input type="date" value={expenseDate} onChange={(event) => setExpenseDate(event.target.value)} /></label>
             <label className="wide-field">Fournisseur<input value={supplier} onChange={(event) => setSupplier(event.target.value)} placeholder="Fournisseur" /></label>
+            <label>Moyen de paiement<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option value="">Non précisé</option><option value="CASH">Espèces</option><option value="BANK">Banque</option><option value="MOBILE_MONEY">Mobile Money</option></select></label>
             <label className="wide-field">Référence<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Référence" /></label>
             <label className="wide-field">Pièce jointe<input type="file" accept=".pdf,image/jpeg,image/png" onChange={(event) => setAttachmentName(event.target.files?.[0]?.name ?? '')} /></label>
             {attachmentName ? <div className="storage-note wide-field">Fichier sélectionné : {attachmentName}</div> : null}
@@ -892,13 +910,13 @@ function MaintenanceStockModal({
   onSubmit,
 }: {
   request: MaintenanceDetail;
-  stockItems: Array<{ id: number; name: string; current_quantity: number; unit: string }>;
+  stockItems: Array<{ id: number; name: string; current_quantity: number; unit: string; average_purchase_price?: number; purchase_price?: number }>;
   onClose: () => void;
   onSubmit: (body: Record<string, unknown>) => void;
 }) {
   const [stockItemId, setStockItemId] = useState<number | null>(stockItems[0]?.id ?? null);
   const [quantity, setQuantity] = useState(1);
-  const [unitPrice, setUnitPrice] = useState<number | string>(0);
+  const [unitPrice, setUnitPrice] = useState<number | string>(stockItems[0]?.average_purchase_price ?? stockItems[0]?.purchase_price ?? 0);
   const [notes, setNotes] = useState('');
   const selected = stockItems.find((item) => item.id === stockItemId);
   const total = Number(quantity || 0) * Number(unitPrice || 0);
@@ -914,12 +932,17 @@ function MaintenanceStockModal({
           <p className="storage-note">Cette action déduit les articles utilisés du stock et les rattache à cette intervention.</p>
           {stockItems.length ? (
             <div className="maintenance-grid maintenance-cost-grid">
-              <label className="wide-field">Article<select value={stockItemId ?? ''} onChange={(event) => setStockItemId(event.target.value ? Number(event.target.value) : null)}>{stockItems.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.current_quantity})</option>)}</select></label>
+              <label className="wide-field">Article<select value={stockItemId ?? ''} onChange={(event) => {
+                const nextId = event.target.value ? Number(event.target.value) : null;
+                setStockItemId(nextId);
+                const next = stockItems.find((item) => item.id === nextId);
+                setUnitPrice(next?.average_purchase_price ?? next?.purchase_price ?? 0);
+              }}>{stockItems.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.current_quantity})</option>)}</select></label>
               {selected ? <div className="storage-note wide-field">Disponible : {selected.current_quantity} {selected.unit}</div> : null}
-              <label>Quantité<input type="number" min="1" step="1" value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} /></label>
+              <label>Quantité<input type="number" min="0.01" max={selected?.current_quantity} step="0.01" value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} /></label>
               <label>Coût unitaire<input type="number" min="0" step="0.01" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} /></label>
               <label>Total<input value={`${money(total)} USD`} readOnly className="locked-field" /></label>
-              <label className="wide-field">Observation<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observation" /></label>
+              <label className="wide-field">Motif<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Motif de la consommation" required /></label>
             </div>
           ) : (
             <div className="compact-empty">Aucun article disponible dans le stock.</div>
@@ -1024,12 +1047,19 @@ function maintenanceWorkbook(request: MaintenanceDetail) {
 
 type MaintenanceActionState = {
   canEdit: boolean;
+  canDiagnose: boolean;
+  canRequestApproval: boolean;
+  canApprove: boolean;
   canAssign: boolean;
   canStart: boolean;
+  canPause: boolean;
+  canResume: boolean;
   canWork: boolean;
   canResolve: boolean;
+  canReopen: boolean;
   canValidate: boolean;
   canClose: boolean;
+  canCancel: boolean;
 };
 
 type MaintenanceTimelineView = {
@@ -1048,15 +1078,21 @@ type MaintenanceAttachmentView = {
 
 function maintenanceDetailActions(status: string): MaintenanceActionState {
   const final = new Set(['CLOSED', 'CANCELLED']);
-  const active = new Set(['APPROVED', 'ASSIGNED', 'IN_PROGRESS', 'ON_HOLD']);
   return {
     canEdit: !final.has(status),
-    canAssign: !final.has(status),
-    canStart: !final.has(status) && new Set(['NEW', 'DIAGNOSIS', 'WAITING_APPROVAL', 'APPROVED', 'ASSIGNED', 'ON_HOLD']).has(status),
-    canWork: active.has(status),
-    canResolve: new Set(['IN_PROGRESS', 'ON_HOLD']).has(status),
+    canDiagnose: status === 'NEW',
+    canRequestApproval: status === 'DIAGNOSIS',
+    canApprove: status === 'WAITING_APPROVAL',
+    canAssign: new Set(['NEW', 'DIAGNOSIS', 'APPROVED', 'ASSIGNED']).has(status),
+    canStart: status === 'ASSIGNED',
+    canPause: status === 'IN_PROGRESS',
+    canResume: status === 'ON_HOLD',
+    canWork: status === 'IN_PROGRESS',
+    canResolve: status === 'IN_PROGRESS',
+    canReopen: status === 'RESOLVED',
     canValidate: status === 'RESOLVED',
-    canClose: new Set(['RESOLVED', 'VALIDATED']).has(status),
+    canClose: status === 'VALIDATED',
+    canCancel: new Set(['NEW', 'DIAGNOSIS', 'ON_HOLD']).has(status),
   };
 }
 
@@ -1110,6 +1146,13 @@ function maintenanceAttachmentItems(request: MaintenanceDetail | null): Maintena
       fileName: document.file_name,
       fileUrl: document.file_url,
       kind: 'document',
+    });
+  });
+  request.expenses.filter((expense) => expense.attachment_file_name).forEach((expense) => {
+    items.push({
+      label: 'Justificatif de coût',
+      fileName: expense.attachment_file_name!,
+      kind: 'expense',
     });
   });
   return items;

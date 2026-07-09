@@ -828,9 +828,11 @@ export class SaasService {
 
   async diagnoseMaintenanceRequest(id: number, body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
+      await this.assertMaintenanceStatus(client, id, ['NEW', 'DIAGNOSIS']);
+      const nextStatus = body.workflow_required ? 'WAITING_APPROVAL' : 'DIAGNOSIS';
       const { rows } = await client.query(
         `UPDATE maintenance_requests
-         SET status = 'WAITING_APPROVAL',
+         SET status = $9,
              diagnostic = $3,
              cause = $4,
              proposed_solution = $5,
@@ -849,6 +851,7 @@ export class SaasService {
           Number(body.estimated_cost ?? 0),
           Number(body.estimated_hours ?? 0),
           body.recommended_technician ?? null,
+          nextStatus,
         ],
       );
       if (body.workflow_required) {
@@ -867,22 +870,65 @@ export class SaasService {
     });
   }
 
+  async requestMaintenanceApproval(id: number, body: Record<string, unknown>) {
+    return this.db.transaction(async (client) => {
+      await this.assertMaintenanceStatus(client, id, ['DIAGNOSIS']);
+      const current = await client.query(
+        `SELECT request_number, workflow_instance_id FROM maintenance_requests
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+        [id, this.context.organizationId()],
+      );
+      const request = requireRow(current.rows[0], 'Maintenance request');
+      let workflowInstanceId = request.workflow_instance_id;
+      if (!workflowInstanceId && body.workflow_required === true) {
+        const workflow = await this.createWorkflowInstanceInTransaction(client, {
+          type: 'MAINTENANCE_APPROVAL',
+          entity_type: 'maintenance_requests',
+          entity_id: id,
+          title: `Approbation maintenance ${request.request_number}`,
+          comment: body.comment ?? null,
+        });
+        workflowInstanceId = workflow.id;
+      }
+      const { rows } = await client.query(
+        `UPDATE maintenance_requests
+         SET status = 'WAITING_APPROVAL', workflow_instance_id = $3, updated_at = NOW()
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL RETURNING *`,
+        [id, this.context.organizationId(), workflowInstanceId ?? null],
+      );
+      await this.addMaintenanceTimeline(client, id, 'WAITING_APPROVAL', 'Demande approbation', String(body.comment ?? 'Demande transmise pour approbation'));
+      return rows[0];
+    });
+  }
+
   async transitionMaintenanceRequest(id: number, status: string, title: string, details: string) {
+    const allowedPrevious: Record<string, string[]> = {
+      APPROVED: ['WAITING_APPROVAL'],
+      DIAGNOSIS: ['WAITING_APPROVAL'],
+      ON_HOLD: ['IN_PROGRESS'],
+      IN_PROGRESS: ['ON_HOLD', 'RESOLVED'],
+      CANCELLED: ['NEW', 'DIAGNOSIS', 'ON_HOLD'],
+    };
+    if (!allowedPrevious[status]) throw new BadRequestException('Transition maintenance non prise en charge');
     if (status === 'APPROVED') {
       const wf = await this.db.query('SELECT workflow_instance_id FROM maintenance_requests WHERE id = $1 AND organization_id = $2', [id, this.context.organizationId()]);
       await this.db.transaction((client) => this.ensureWorkflowApproved(client, wf.rows[0]?.workflow_instance_id));
     }
-    const { rows } = await this.db.query(
-      `UPDATE maintenance_requests SET status = $3, updated_at = NOW()
-       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL RETURNING *`,
-      [id, this.context.organizationId(), status],
-    );
-    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, status, title, details));
-    return requireRow(rows[0], 'Maintenance request');
+    return this.db.transaction(async (client) => {
+      await this.assertMaintenanceStatus(client, id, allowedPrevious[status]);
+      const { rows } = await client.query(
+        `UPDATE maintenance_requests SET status = $3, updated_at = NOW()
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL RETURNING *`,
+        [id, this.context.organizationId(), status],
+      );
+      await this.addMaintenanceTimeline(client, id, status, title, details);
+      return requireRow(rows[0], 'Maintenance request');
+    });
   }
 
   async assignMaintenanceRequest(id: number, body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
+      await this.assertMaintenanceStatus(client, id, ['NEW', 'DIAGNOSIS', 'APPROVED', 'ASSIGNED']);
       const { rows } = await client.query(
         `UPDATE maintenance_requests
          SET status = 'ASSIGNED', assigned_employee_id = $3, external_provider = $4, updated_at = NOW()
@@ -891,16 +937,19 @@ export class SaasService {
       );
       const request = requireRow(rows[0], 'Maintenance request');
       await client.query(
-        `INSERT INTO maintenance_assignments (maintenance_request_id, employee_id, external_provider, assigned_by, notes, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [id, body.employee_id ?? null, body.external_provider ?? null, this.context.userId() ?? 1, body.notes ?? null, this.context.organizationId()],
+        `INSERT INTO maintenance_assignments
+         (maintenance_request_id, employee_id, external_provider, assigned_by, notes, planned_date, planned_time, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [id, body.employee_id ?? null, body.external_provider ?? null, this.context.userId() ?? 1, body.notes ?? null, body.planned_date ?? null, body.planned_time ?? null, this.context.organizationId()],
       );
+      await this.createMaintenanceAssignmentCommunications(client, request, body);
       await this.addMaintenanceTimeline(client, id, 'ASSIGNMENT', 'Assignation', body.notes ? String(body.notes) : 'Intervention affectée');
       return request;
     });
   }
 
   async startMaintenanceRequest(id: number, body: Record<string, unknown>) {
+    await this.db.transaction((client) => this.assertMaintenanceStatus(client, id, ['ASSIGNED']));
     const { rows } = await this.db.query(
       `UPDATE maintenance_requests
        SET status = 'IN_PROGRESS', started_at = COALESCE(started_at, COALESCE($3::TIMESTAMP, NOW())), updated_at = NOW()
@@ -912,6 +961,7 @@ export class SaasService {
   }
 
   async resolveMaintenanceRequest(id: number, body: Record<string, unknown>) {
+    await this.db.transaction((client) => this.assertMaintenanceStatus(client, id, ['IN_PROGRESS']));
     const { rows } = await this.db.query(
       `UPDATE maintenance_requests
        SET status = 'RESOLVED',
@@ -927,17 +977,24 @@ export class SaasService {
   }
 
   async validateMaintenanceRequest(id: number, body: Record<string, unknown>) {
+    await this.db.transaction((client) => this.assertMaintenanceStatus(client, id, ['RESOLVED']));
     const { rows } = await this.db.query(
       `UPDATE maintenance_requests
-       SET status = 'VALIDATED', validated_by = $3, validated_at = NOW(), final_validation_comments = $4, updated_at = NOW()
+       SET status = 'VALIDATED', validated_by = $3, validated_at = NOW(), final_validation_comments = $4,
+           technician_signature_name = COALESCE($5, technician_signature_name),
+           technician_signed_at = CASE WHEN $5 IS NOT NULL THEN NOW() ELSE technician_signed_at END,
+           client_signature_name = COALESCE($6, client_signature_name),
+           client_signed_at = CASE WHEN $6 IS NOT NULL THEN NOW() ELSE client_signed_at END,
+           updated_at = NOW()
        WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL RETURNING *`,
-      [id, this.context.organizationId(), this.context.userId() ?? 1, body.comments ?? null],
+      [id, this.context.organizationId(), this.context.userId() ?? 1, body.comments ?? null, body.technician_signature_name ?? null, body.client_signature_name ?? null],
     );
     await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'VALIDATION', 'Validation finale', body.comments ? String(body.comments) : 'Résolution validée'));
     return requireRow(rows[0], 'Maintenance request');
   }
 
   async closeMaintenanceRequest(id: number) {
+    await this.db.transaction((client) => this.assertMaintenanceStatus(client, id, ['VALIDATED']));
     const { rows } = await this.db.query(
       `UPDATE maintenance_requests
        SET status = 'CLOSED', closed_by = $3, closed_at = NOW(), updated_at = NOW()
@@ -950,13 +1007,16 @@ export class SaasService {
 
   async createMaintenanceExpense(id: number, body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
+      await this.assertMaintenanceStatus(client, id, ['IN_PROGRESS']);
+      const amount = Number(body.amount ?? 0);
+      if (amount <= 0) throw new BadRequestException('Le montant doit etre superieur a zero');
       let cashMovementId = null;
       const status = String(body.status ?? 'APPROVED');
       if (status !== 'REJECTED') {
         const movement = await this.createCashMovementInTransaction(client, {
           type: 'OUT',
           category: 'MAINTENANCE_EXPENSE',
-          amount: Number(body.amount ?? 0),
+          amount,
           movement_date: body.expense_date ?? new Date().toISOString().slice(0, 10),
           description: body.description ?? 'Dépense maintenance',
           reference: body.reference ?? `MNT-EXP-${id}`,
@@ -965,16 +1025,24 @@ export class SaasService {
       }
       const { rows } = await client.query(
         `INSERT INTO maintenance_expenses
-         (maintenance_request_id, amount, expense_date, category, description, status, cash_movement_id, created_by, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+         (maintenance_request_id, amount, expense_date, category, description, status, cash_movement_id,
+          supplier, payment_method, reference, attachment_file_name, attachment_file_url, observation,
+          created_by, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
         [
           id,
-          Number(body.amount ?? 0),
+          amount,
           body.expense_date ?? new Date().toISOString().slice(0, 10),
           body.category ?? 'Autre',
           body.description ?? null,
           status,
           cashMovementId,
+          body.supplier ?? null,
+          body.payment_method ?? null,
+          body.reference ?? null,
+          body.attachment_file_name ?? null,
+          body.attachment_file_url ?? null,
+          body.observation ?? body.notes ?? null,
           this.context.userId() ?? 1,
           this.context.organizationId(),
         ],
@@ -2253,7 +2321,7 @@ export class SaasService {
     const start = filters.start ?? '2000-01-01';
     const end = filters.end ?? '2999-12-31';
     const { rows } = await this.db.query(
-      `SELECT mr.*, b.name AS building_name,
+      `SELECT mr.*, b.name AS building_name, u.number AS unit_number,
               CONCAT(e.first_name, ' ', e.last_name) AS technician_name,
               COALESCE(exp.total_expenses, 0)::FLOAT AS expenses_total,
               COALESCE(stock.total_stock_cost, 0)::FLOAT AS stock_cost_total,
@@ -2261,6 +2329,7 @@ export class SaasService {
               CASE WHEN mr.resolved_at IS NOT NULL THEN EXTRACT(EPOCH FROM (mr.resolved_at - mr.reported_at)) / 3600 ELSE NULL END AS resolution_hours
        FROM maintenance_requests mr
        LEFT JOIN buildings b ON b.id = mr.building_id
+       LEFT JOIN units u ON u.id = mr.unit_id
        LEFT JOIN employees e ON e.id = mr.assigned_employee_id
        LEFT JOIN (
          SELECT maintenance_request_id, SUM(amount) AS total_expenses
@@ -2281,11 +2350,41 @@ export class SaasService {
        ORDER BY mr.reported_at DESC`,
       [start, end, filters.buildingId ?? null, filters.employeeId ?? null, this.context.organizationId()],
     );
+    const [stockConsumed, monthlyExpenses] = await Promise.all([
+      this.db.query(
+        `SELECT si.code, si.name, SUM(sm.quantity)::FLOAT AS quantity,
+                SUM(sm.quantity * sm.unit_price)::FLOAT AS total_cost
+         FROM stock_movements sm
+         JOIN stock_items si ON si.id = sm.stock_item_id
+         JOIN maintenance_requests mr ON mr.id = sm.maintenance_request_id
+         WHERE sm.organization_id = $3 AND sm.deleted_at IS NULL
+           AND mr.reported_at::DATE BETWEEN $1::DATE AND $2::DATE
+         GROUP BY si.id, si.code, si.name
+         ORDER BY quantity DESC`,
+        [start, end, this.context.organizationId()],
+      ),
+      this.db.query(
+        `SELECT TO_CHAR(me.expense_date, 'YYYY-MM') AS month, SUM(me.amount)::FLOAT AS amount
+         FROM maintenance_expenses me
+         WHERE me.organization_id = $3 AND me.deleted_at IS NULL AND me.status <> 'REJECTED'
+           AND me.expense_date BETWEEN $1::DATE AND $2::DATE
+         GROUP BY TO_CHAR(me.expense_date, 'YYYY-MM')
+         ORDER BY month`,
+        [start, end, this.context.organizationId()],
+      ),
+    ]);
     return {
       requests: rows,
       by_building: Object.values(rows.reduce<Record<string, { building_name: string; count: number; cost: number }>>((acc, row) => {
         const key = row.building_name ?? 'Non lié';
         acc[key] ??= { building_name: key, count: 0, cost: 0 };
+        acc[key].count += 1;
+        acc[key].cost += Number(row.expenses_total) + Number(row.stock_cost_total);
+        return acc;
+      }, {})),
+      by_unit: Object.values(rows.reduce<Record<string, { building_name: string; unit_number: string; count: number; cost: number }>>((acc, row) => {
+        const key = `${row.building_name ?? 'Non lie'} / ${row.unit_number ?? 'Sans unite'}`;
+        acc[key] ??= { building_name: row.building_name ?? 'Non lie', unit_number: row.unit_number ?? 'Sans unite', count: 0, cost: 0 };
         acc[key].count += 1;
         acc[key].cost += Number(row.expenses_total) + Number(row.stock_cost_total);
         return acc;
@@ -2303,6 +2402,8 @@ export class SaasService {
         acc[row.category].cost += Number(row.expenses_total) + Number(row.stock_cost_total);
         return acc;
       }, {})),
+      stock_consumed: stockConsumed.rows,
+      monthly_expenses: monthlyExpenses.rows,
       summary: {
         open: rows.filter((row) => !['CLOSED', 'CANCELLED'].includes(row.status)).length,
         urgent: rows.filter((row) => row.priority === 'URGENT').length,
@@ -2315,6 +2416,9 @@ export class SaasService {
   }
 
   private async createStockMovementInTransaction(client: PoolClient, body: Record<string, unknown>) {
+    if (body.maintenance_request_id) {
+      await this.assertMaintenanceStatus(client, Number(body.maintenance_request_id), ['IN_PROGRESS']);
+    }
     const item = await client.query(
       `SELECT * FROM stock_items WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL FOR UPDATE`,
       [body.stock_item_id, this.context.organizationId()],
@@ -2372,6 +2476,74 @@ export class SaasService {
       [body.stock_item_id, after, averagePrice, unitPrice, this.context.organizationId()],
     );
     return rows[0];
+  }
+
+  private async createMaintenanceAssignmentCommunications(client: PoolClient, request: Record<string, unknown>, body: Record<string, unknown>) {
+    if (!body.employee_id) return;
+    const contact = await client.query(
+      `SELECT e.email, e.phone, b.name AS building_name, u.number AS unit_number,
+              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name
+       FROM employees e
+       LEFT JOIN maintenance_requests mr ON mr.id = $1 AND mr.organization_id = $3
+       LEFT JOIN buildings b ON b.id = mr.building_id
+       LEFT JOIN units u ON u.id = mr.unit_id
+       LEFT JOIN tenants t ON t.id = mr.tenant_id
+       WHERE e.id = $2 AND e.organization_id = $3 AND e.deleted_at IS NULL`,
+      [request.id, body.employee_id, this.context.organizationId()],
+    );
+    const technician = contact.rows[0];
+    if (!technician) return;
+    const message = [
+      `${request.request_number} - ${request.title}`,
+      technician.building_name ? `Immeuble: ${technician.building_name}` : null,
+      technician.unit_number ? `Unite: ${technician.unit_number}` : null,
+      technician.tenant_name ? `Locataire: ${technician.tenant_name}` : null,
+      `Priorite: ${request.priority}`,
+      body.planned_date ? `Prevue: ${body.planned_date} ${body.planned_time ?? ''}` : null,
+      body.notes ? `Commentaire: ${body.notes}` : null,
+    ].filter(Boolean).join('\n');
+    const organizationId = this.context.organizationId();
+    const createdBy = this.context.userId() ?? 1;
+    if (technician.email) {
+      await client.query(
+        `INSERT INTO notifications
+         (user_id, title, message, priority, source, related_entity_type, related_entity_id, link_path, created_by, organization_id)
+         VALUES (
+           (SELECT au.id FROM app_users au WHERE au.organization_id = $7 AND au.deleted_at IS NULL AND LOWER(au.email) = LOWER($8) LIMIT 1),
+           $2, $3, $4, 'MAINTENANCE', 'maintenance_request', $1, $5, $6, $7
+         )`,
+        [request.id, `Affectation ${request.request_number}`, message, request.priority === 'URGENT' ? 'CRITICAL' : 'NORMAL', `/maintenance/${request.id}`, createdBy, organizationId, technician.email],
+      );
+      await client.query(
+        `INSERT INTO email_logs
+         (recipient, subject, message, status, provider_response, related_entity_type, related_entity_id, sent_at, created_by, organization_id)
+         VALUES ($1, $2, $3, 'SIMULATED', $4, 'maintenance_request', $5, NOW(), $6, $7)`,
+        [technician.email, `Affectation ${request.request_number}`, message, JSON.stringify({ provider: 'LOCAL_SIMULATOR' }), request.id, createdBy, organizationId],
+      );
+    }
+    if (technician.phone) {
+      for (const table of ['sms_logs', 'whatsapp_logs']) {
+        await client.query(
+          `INSERT INTO ${table}
+           (recipient, message, status, provider_response, related_entity_type, related_entity_id, sent_at, created_by, organization_id)
+           VALUES ($1, $2, 'SIMULATED', $3, 'maintenance_request', $4, NOW(), $5, $6)`,
+          [technician.phone, message, JSON.stringify({ provider: 'LOCAL_SIMULATOR' }), request.id, createdBy, organizationId],
+        );
+      }
+    }
+  }
+
+  private async assertMaintenanceStatus(client: PoolClient, id: number, allowed: string[]) {
+    const current = await client.query(
+      `SELECT status FROM maintenance_requests
+       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+      [id, this.context.organizationId()],
+    );
+    const request = requireRow(current.rows[0], 'Maintenance request');
+    if (!allowed.includes(String(request.status))) {
+      throw new BadRequestException(`Action impossible pour une maintenance au statut ${request.status}`);
+    }
+    return request;
   }
 
   private async createWorkflowInstanceInTransaction(client: PoolClient, body: Record<string, unknown>) {

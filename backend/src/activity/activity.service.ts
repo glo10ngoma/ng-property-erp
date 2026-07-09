@@ -107,12 +107,13 @@ export class ActivityService {
     );
     alerts.push(...guarantees.rows.map((row) => ({ id: `guarantee-${row.id}`, level: 'NORMAL', title: 'Garantie non payée', detail: `Bail #${row.lease_id}`, path: '/leases' })));
     const maintenance = await this.db.query(
-      `SELECT id, request_number, title, due_date, priority FROM maintenance_requests
-       WHERE organization_id = $1 AND deleted_at IS NULL AND status NOT IN ('CLOSED', 'CANCELLED') AND (priority = 'URGENT' OR due_date < NOW())
+      `SELECT id, request_number, title, due_date, priority, status FROM maintenance_requests
+       WHERE organization_id = $1 AND deleted_at IS NULL AND status NOT IN ('CLOSED', 'CANCELLED')
+         AND (priority = 'URGENT' OR due_date < NOW() OR status = 'WAITING_APPROVAL')
        ORDER BY due_date NULLS LAST LIMIT 10`,
       [organizationId],
     );
-    alerts.push(...maintenance.rows.map((row) => ({ id: `maintenance-${row.id}`, level: row.priority === 'URGENT' ? 'CRITICAL' : 'HIGH', title: 'Maintenance urgente', detail: `${row.request_number} - ${row.title}`, due_date: row.due_date, path: '/maintenance' })));
+    alerts.push(...maintenance.rows.map((row) => ({ id: `maintenance-${row.id}`, level: row.priority === 'URGENT' ? 'CRITICAL' : 'HIGH', title: row.status === 'WAITING_APPROVAL' ? 'Maintenance en attente de validation' : row.due_date && new Date(row.due_date) < new Date() ? 'Maintenance en retard' : 'Maintenance urgente', detail: `${row.request_number} - ${row.title}`, due_date: row.due_date, path: `/maintenance/${row.id}` })));
     const notifications = await this.db.query(
       `SELECT id, title, message, priority, link_path FROM notifications
        WHERE organization_id = $1
@@ -189,7 +190,17 @@ export class ActivityService {
        ORDER BY created_at DESC LIMIT 8`,
       [this.context.organizationId(), this.context.userId()],
     );
-    return [...tasks.filter((task) => String(task.due_date ?? '').slice(0, 10) === today), ...notifications.rows];
+    const assignments = await this.db.query(
+      `SELECT ma.id, ma.planned_date AS due_date, 'Intervention affectee' AS title, 'Maintenance' AS module,
+              CONCAT(mr.request_number, ' - ', mr.title) AS object, mr.priority, mr.status,
+              CONCAT('/maintenance/', mr.id) AS path
+       FROM maintenance_assignments ma
+       JOIN maintenance_requests mr ON mr.id = ma.maintenance_request_id
+       WHERE ma.organization_id = $1 AND ma.deleted_at IS NULL AND ma.planned_date = CURRENT_DATE
+       ORDER BY ma.planned_time NULLS LAST`,
+      [this.context.organizationId()],
+    );
+    return [...tasks.filter((task) => String(task.due_date ?? '').slice(0, 10) === today), ...assignments.rows, ...notifications.rows];
   }
 
   async week() {
