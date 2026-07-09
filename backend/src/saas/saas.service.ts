@@ -163,13 +163,123 @@ export class SaasService {
     return requireRow(rows[0], 'Workflow');
   }
 
+  async employees() {
+    const today = new Date().toISOString().slice(0, 10);
+    const { rows } = await this.db.query(
+      `SELECT e.*,
+              CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS full_name,
+              c.contract_number AS current_contract_number,
+              c.contract_type AS current_contract_type,
+              c.end_date AS current_contract_end_date,
+              a.status AS attendance_status_today
+       FROM employees e
+       LEFT JOIN LATERAL (
+         SELECT ec.contract_number, ec.contract_type, ec.end_date
+         FROM employee_contracts ec
+         WHERE ec.employee_id = e.id
+           AND ec.organization_id = e.organization_id
+           AND ec.deleted_at IS NULL
+         ORDER BY CASE WHEN ec.status = 'ACTIVE' THEN 0 ELSE 1 END, ec.start_date DESC, ec.id DESC
+         LIMIT 1
+       ) c ON TRUE
+       LEFT JOIN employee_attendance a
+         ON a.employee_id = e.id
+        AND a.organization_id = e.organization_id
+        AND a.deleted_at IS NULL
+        AND a.attendance_date = $2::DATE
+       WHERE e.organization_id = $1 AND e.deleted_at IS NULL
+       ORDER BY e.created_at DESC, e.id DESC`,
+      [this.context.organizationId(), today],
+    );
+    return rows;
+  }
+
+  async createEmployee(body: Record<string, unknown>) {
+    return this.db.transaction(async (client) => {
+      const employeeNumber = body.employee_number ? String(body.employee_number) : await this.nextEmployeeNumber(client);
+      const payload = {
+        ...body,
+        employee_number: employeeNumber,
+        monthly_salary: Number(body.monthly_salary ?? 0),
+        status: body.status ?? 'ACTIVE',
+      };
+      const employee = await this.insertInTransaction(client, 'employees', payload, [
+        'employee_number', 'first_name', 'last_name', 'post_name', 'gender', 'birth_date', 'nationality', 'marital_status',
+        'phone', 'secondary_phone', 'email', 'address', 'job_title', 'department', 'hire_date', 'contract_type',
+        'assigned_site', 'manager_name', 'status', 'monthly_salary', 'payment_method', 'bank_name', 'account_number',
+        'mobile_money_number', 'id_document_type', 'id_document_number', 'identity_attachment_name', 'cv_attachment_name',
+        'signed_contract_attachment_name', 'emergency_contact_name', 'emergency_contact_phone', 'internal_notes',
+      ]);
+      return employee;
+    });
+  }
+
+  async updateEmployee(id: number, body: Record<string, unknown>) {
+    const payload = {
+      ...body,
+      monthly_salary: body.monthly_salary !== undefined ? Number(body.monthly_salary ?? 0) : undefined,
+    };
+    return this.updateById('employees', id, payload, [
+      'employee_number', 'first_name', 'last_name', 'post_name', 'gender', 'birth_date', 'nationality', 'marital_status',
+      'phone', 'secondary_phone', 'email', 'address', 'job_title', 'department', 'hire_date', 'contract_type',
+      'assigned_site', 'manager_name', 'status', 'monthly_salary', 'payment_method', 'bank_name', 'account_number',
+      'mobile_money_number', 'id_document_type', 'id_document_number', 'identity_attachment_name', 'cv_attachment_name',
+      'signed_contract_attachment_name', 'emergency_contact_name', 'emergency_contact_phone', 'internal_notes',
+    ]);
+  }
+
   async employeeDetail(id: number) {
     const organizationId = this.context.organizationId();
-    const employee = await this.db.query('SELECT * FROM employees WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL', [id, organizationId]);
-    const advances = await this.db.query('SELECT * FROM salary_advances WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY advance_date DESC', [id, organizationId]);
-    const leaves = await this.db.query('SELECT * FROM leaves WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY start_date DESC', [id, organizationId]);
+    const employee = await this.db.query(
+      `SELECT e.*, CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS full_name
+       FROM employees e
+       WHERE e.id = $1 AND e.organization_id = $2 AND e.deleted_at IS NULL`,
+      [id, organizationId],
+    );
+    const advances = await this.db.query('SELECT * FROM salary_advances WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY advance_date DESC, id DESC', [id, organizationId]);
+    const leaves = await this.db.query('SELECT * FROM leaves WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY start_date DESC, id DESC', [id, organizationId]);
     const payrolls = await this.db.query('SELECT * FROM payrolls WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY year DESC, month DESC', [id, organizationId]);
-    return { ...requireRow(employee.rows[0], 'Employee'), advances: advances.rows, leaves: leaves.rows, payrolls: payrolls.rows };
+    const contracts = await this.db.query('SELECT * FROM employee_contracts WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY start_date DESC, id DESC', [id, organizationId]);
+    const attendance = await this.db.query('SELECT * FROM employee_attendance WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY attendance_date DESC, id DESC LIMIT 60', [id, organizationId]);
+    const audit = await this.db.query(
+      `SELECT action, resource, resource_id, status_code, metadata, created_at
+       FROM audit_logs
+       WHERE organization_id = $1
+         AND deleted_at IS NULL
+         AND (
+           (resource = 'employees' AND resource_id = $2::TEXT)
+           OR metadata::TEXT LIKE $3
+         )
+       ORDER BY created_at DESC
+       LIMIT 40`,
+      [organizationId, id, `%\"employee_id\":${id}%`],
+    );
+    const row = requireRow(employee.rows[0], 'Employee');
+    const documents = [
+      row.identity_attachment_name ? { type: 'Pièce identité', file_name: row.identity_attachment_name } : null,
+      row.cv_attachment_name ? { type: 'CV', file_name: row.cv_attachment_name } : null,
+      row.signed_contract_attachment_name ? { type: 'Contrat signé', file_name: row.signed_contract_attachment_name } : null,
+      ...contracts.rows.filter((contract) => contract.contract_file_name).map((contract) => ({ type: 'Contrat RH', file_name: contract.contract_file_name })),
+    ].filter(Boolean);
+    const timeline = [
+      { date: row.created_at, event: 'Création employé', description: row.full_name },
+      ...contracts.rows.map((contract) => ({ date: contract.start_date, event: 'Contrat', description: `${contract.contract_number} - ${contract.contract_type}` })),
+      ...advances.rows.map((advance) => ({ date: advance.advance_date, event: 'Avance', description: `Montant ${advance.amount}` })),
+      ...leaves.rows.map((leave) => ({ date: leave.start_date, event: 'Congé', description: `${leave.leave_type} - ${leave.status}` })),
+      ...payrolls.rows.map((payroll) => ({ date: `${payroll.year}-${String(payroll.month).padStart(2, '0')}-01`, event: 'Paie', description: `${payroll.month}/${payroll.year} - ${payroll.status}` })),
+    ].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    return {
+      ...row,
+      current_contract: contracts.rows[0] ?? null,
+      contracts: contracts.rows,
+      advances: advances.rows,
+      leaves: leaves.rows,
+      payrolls: payrolls.rows,
+      attendance: attendance.rows,
+      documents,
+      timeline,
+      audit: audit.rows,
+    };
   }
 
   async deactivateEmployee(id: number) {
@@ -197,13 +307,17 @@ export class SaasService {
   async createSalaryAdvance(body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
       const { rows } = await client.query(
-        `INSERT INTO salary_advances (employee_id, amount, advance_date, reason, status, created_by, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        `INSERT INTO salary_advances (employee_id, amount, advance_date, reason, payment_method, reference, repayment_schedule, observations, status, created_by, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
         [
           body.employee_id,
           Number(body.amount ?? 0),
           body.advance_date ?? new Date().toISOString().slice(0, 10),
           body.reason ?? null,
+          body.payment_method ?? null,
+          body.reference ?? null,
+          body.repayment_schedule ?? null,
+          body.observations ?? null,
           body.workflow_required ? 'PENDING' : body.status ?? 'DRAFT',
           this.context.userId() ?? body.created_by ?? 1,
           this.context.organizationId(),
@@ -282,8 +396,8 @@ export class SaasService {
   async createLeave(body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
       const { rows } = await client.query(
-        `INSERT INTO leaves (employee_id, start_date, end_date, leave_type, reason, status, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO leaves (employee_id, start_date, end_date, leave_type, reason, attachment_file_name, observations, status, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING *`,
         [
           body.employee_id,
@@ -291,6 +405,8 @@ export class SaasService {
           body.end_date,
           body.leave_type,
           body.reason ?? null,
+          body.attachment_file_name ?? null,
+          body.observations ?? null,
           body.workflow_required ? 'PENDING' : body.status ?? 'PENDING',
           this.context.organizationId(),
         ],
@@ -311,7 +427,7 @@ export class SaasService {
   }
 
   async updateLeave(id: number, body: Record<string, unknown>) {
-    return this.updateById('leaves', id, body, ['employee_id', 'start_date', 'end_date', 'leave_type', 'reason', 'status']);
+    return this.updateById('leaves', id, body, ['employee_id', 'start_date', 'end_date', 'leave_type', 'reason', 'attachment_file_name', 'observations', 'status']);
   }
 
   async updateLeaveStatus(id: number, status: string) {
@@ -612,6 +728,126 @@ export class SaasService {
       ),
     ]);
     return { ...requireRow(item.rows[0], 'Stock item'), movements: movements.rows, inventories: inventories.rows, alerts: alerts.rows };
+  }
+
+  async employeeContracts() {
+    const { rows } = await this.db.query(
+      `SELECT ec.*,
+              CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS employee_name
+       FROM employee_contracts ec
+       JOIN employees e ON e.id = ec.employee_id
+       WHERE ec.organization_id = $1 AND ec.deleted_at IS NULL
+       ORDER BY ec.start_date DESC, ec.id DESC`,
+      [this.context.organizationId()],
+    );
+    return rows;
+  }
+
+  async createEmployeeContract(body: Record<string, unknown>) {
+    return this.db.transaction(async (client) => {
+      const contractNumber = body.contract_number ? String(body.contract_number) : await this.nextEmployeeContractNumber(client);
+      const salaryAmount = Number(body.salary_amount ?? body.monthly_salary ?? 0);
+      const row = await this.insertInTransaction(client, 'employee_contracts', {
+        ...body,
+        contract_number: contractNumber,
+        salary_amount: salaryAmount,
+        currency: body.currency ?? 'USD',
+        status: body.status ?? 'ACTIVE',
+      }, [
+        'employee_id', 'contract_number', 'contract_type', 'start_date', 'end_date', 'salary_amount', 'currency',
+        'job_title', 'department', 'contract_file_name', 'contract_file_url', 'observations', 'status', 'created_by',
+      ]);
+      await client.query(
+        `UPDATE employees
+         SET contract_type = COALESCE($2, contract_type),
+             monthly_salary = COALESCE(NULLIF($3::NUMERIC, 0), monthly_salary),
+             job_title = COALESCE($4, job_title),
+             department = COALESCE($5, department),
+             signed_contract_attachment_name = COALESCE($6, signed_contract_attachment_name),
+             updated_at = NOW()
+         WHERE id = $1 AND organization_id = $7 AND deleted_at IS NULL`,
+        [
+          row.employee_id,
+          row.contract_type ?? null,
+          salaryAmount,
+          row.job_title ?? null,
+          row.department ?? null,
+          row.contract_file_name ?? null,
+          this.context.organizationId(),
+        ],
+      );
+      return row;
+    });
+  }
+
+  async employeeAttendance() {
+    const { rows } = await this.db.query(
+      `SELECT ea.*,
+              CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS employee_name,
+              e.department,
+              e.job_title
+       FROM employee_attendance ea
+       JOIN employees e ON e.id = ea.employee_id
+       WHERE ea.organization_id = $1 AND ea.deleted_at IS NULL
+       ORDER BY ea.attendance_date DESC, ea.id DESC`,
+      [this.context.organizationId()],
+    );
+    return rows;
+  }
+
+  async createEmployeeAttendance(body: Record<string, unknown>) {
+    const workedHours = Number(body.worked_hours ?? 0);
+    const lateMinutes = Number(body.late_minutes ?? 0);
+    return this.insert('employee_attendance', {
+      ...body,
+      worked_hours: workedHours,
+      late_minutes: lateMinutes,
+      absence: body.absence === true || body.absence === 'true',
+      status: body.status ?? (body.absence === true || body.absence === 'true' ? 'ABSENT' : 'PRESENT'),
+      created_by: this.context.userId() ?? 1,
+    }, [
+      'employee_id', 'attendance_date', 'check_in_time', 'check_out_time', 'late_minutes',
+      'absence', 'worked_hours', 'status', 'notes', 'created_by',
+    ]);
+  }
+
+  async hrReport(month?: number, year?: number) {
+    const employees = await this.employees();
+    const contracts = await this.employeeContracts();
+    const advances = await this.salaryAdvances();
+    const leaves = await this.leaves();
+    const payrolls = await this.payrolls(month, year);
+    const attendance = await this.employeeAttendance();
+    const monthFilter = month ?? new Date().getMonth() + 1;
+    const yearFilter = year ?? new Date().getFullYear();
+    const expiringContracts = contracts.filter((row) => row.end_date && new Date(row.end_date).getTime() <= Date.now() + 1000 * 60 * 60 * 24 * 45);
+    const monthlyPayroll = payrolls.filter((row) => Number(row.month) === monthFilter && Number(row.year) === yearFilter);
+    const monthlyAttendance = attendance.filter((row) => String(row.attendance_date).slice(0, 7) === `${yearFilter}-${String(monthFilter).padStart(2, '0')}`);
+    const byDepartmentMap = new Map<string, number>();
+    for (const employee of employees) {
+      const key = String(employee.department ?? 'Non renseigné');
+      byDepartmentMap.set(key, (byDepartmentMap.get(key) ?? 0) + 1);
+    }
+    return {
+      summary: {
+        total_employees: employees.length,
+        active_employees: employees.filter((row) => row.status === 'ACTIVE').length,
+        monthly_payroll: monthlyPayroll.reduce((sum, row) => sum + Number(row.net_salary ?? 0), 0),
+        advances_open: advances.filter((row) => row.status !== 'PAID' && row.status !== 'REJECTED').length,
+        contracts_expiring: expiringContracts.length,
+        absences: monthlyAttendance.filter((row) => row.absence || row.status === 'ABSENT').length,
+        delays: monthlyAttendance.filter((row) => Number(row.late_minutes ?? 0) > 0).length,
+      },
+      employees,
+      contracts,
+      advances,
+      leaves,
+      attendance,
+      payrolls,
+      by_department: Array.from(byDepartmentMap.entries()).map(([department, count]) => ({ department, count })),
+      expiring_contracts: expiringContracts,
+      current_month: `${yearFilter}-${String(monthFilter).padStart(2, '0')}`,
+    };
   }
 
   async stockPurchases() {
@@ -3822,5 +4058,40 @@ export class SaasService {
       [this.context.organizationId(), `${prefix}-%`],
     );
     return `${prefix}-${String(rows[0]?.value ?? 1).padStart(4, '0')}`;
+  }
+
+  private async insertInTransaction(client: PoolClient, table: string, body: Record<string, unknown>, allowed: string[]) {
+    const payload: Record<string, unknown> = { ...body, organization_id: this.context.organizationId() };
+    const keys = [...allowed, 'organization_id'].filter((key, index, arr) => arr.indexOf(key) === index && payload[key] !== undefined);
+    if (!keys.length) throw new BadRequestException('No data provided');
+    const values = keys.map((key) => payload[key]);
+    const placeholders = keys.map((_, index) => `$${index + 1}`);
+    const { rows } = await client.query(
+      `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`,
+      values,
+    );
+    return rows[0];
+  }
+
+  private async nextEmployeeNumber(client: PoolClient) {
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`employee-number-${this.context.organizationId()}`]);
+    const { rows } = await client.query(
+      `SELECT COALESCE(MAX(NULLIF(regexp_replace(employee_number, '[^0-9]', '', 'g'), '')::INT), 0) + 1 AS value
+       FROM employees
+       WHERE organization_id = $1`,
+      [this.context.organizationId()],
+    );
+    return `EMP-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
+  }
+
+  private async nextEmployeeContractNumber(client: PoolClient) {
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`employee-contract-${this.context.organizationId()}`]);
+    const { rows } = await client.query(
+      `SELECT COALESCE(MAX(NULLIF(regexp_replace(contract_number, '[^0-9]', '', 'g'), '')::INT), 0) + 1 AS value
+       FROM employee_contracts
+       WHERE organization_id = $1`,
+      [this.context.organizationId()],
+    );
+    return `CTR-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
   }
 }

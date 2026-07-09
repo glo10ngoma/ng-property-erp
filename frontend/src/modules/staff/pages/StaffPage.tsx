@@ -1,1 +1,11 @@
-export { StaffPage } from '../../../pages/SaasPages';
+export {
+  AdvancesPage,
+  AttendancePage,
+  ContractsPage,
+  EmployeeDetailPage,
+  EmployeesPage,
+  HrReportsPage,
+  LeavesPage,
+  PayrollPage,
+  StaffPage,
+} from './StaffPages';

@@ -1,4 +1,4 @@
-import { Activity, Building2, Boxes, BriefcaseBusiness, ChevronDown, ChevronRight, CreditCard, FileText, FolderOpen, Gauge, Home, Layers, MessageSquare, ScrollText, Settings, ShieldCheck, Users, WalletCards, Workflow, Wrench, type LucideIcon } from 'lucide-react';
+import { Activity, Building2, Boxes, BriefcaseBusiness, ChevronDown, ChevronRight, CreditCard, FileText, FolderOpen, Gauge, Home, Layers, MessageSquare, ReceiptText, ScrollText, Settings, ShieldCheck, Users, WalletCards, Workflow, Wrench, type LucideIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { appConfig } from '../../app/config';
@@ -23,7 +23,7 @@ const navGroups: NavGroup[] = [
     label: 'Tableau de bord',
     icon: Gauge,
     items: [
-      { to: '/activity', label: 'Centre d’activité', icon: Activity, permission: 'activity.read' },
+      { to: '/activity', label: "Centre d'activité", icon: Activity, permission: 'activity.read' },
       { to: '/dashboard', label: 'Dashboard BI', icon: Gauge, permission: 'dashboard.read' },
       { to: '/reports', label: 'Rapports', icon: FileText, permission: 'reports.read' },
     ],
@@ -60,11 +60,13 @@ const navGroups: NavGroup[] = [
     label: 'Ressources humaines',
     icon: BriefcaseBusiness,
     items: [
-      { to: '/staff', label: 'Personnel', icon: BriefcaseBusiness, permission: 'staff.read' },
-      { label: 'Pointage', icon: Gauge, permission: 'staff.read', soon: true },
-      { label: 'Paie', icon: CreditCard, permission: 'staff.read', soon: true },
-      { label: 'Avances', icon: WalletCards, permission: 'staff.read', soon: true },
-      { label: 'Congés', icon: ScrollText, permission: 'staff.read', soon: true },
+      { to: '/personnel/employees', label: 'Employés', icon: BriefcaseBusiness, permission: 'staff.read' },
+      { to: '/personnel/contracts', label: 'Contrats', icon: ScrollText, permission: 'staff.read' },
+      { to: '/personnel/attendance', label: 'Pointage', icon: Gauge, permission: 'staff.read' },
+      { to: '/personnel/advances', label: 'Avances', icon: WalletCards, permission: 'staff.read' },
+      { to: '/personnel/leaves', label: 'Congés', icon: ReceiptText, permission: 'staff.read' },
+      { to: '/personnel/payroll', label: 'Paie', icon: CreditCard, permission: 'staff.read' },
+      { to: '/personnel/reports', label: 'Rapports', icon: FileText, permission: 'staff.read' },
     ],
   },
   {
@@ -84,7 +86,7 @@ const navGroups: NavGroup[] = [
 
 export function Sidebar() {
   const { can } = useAuth();
-  const [openGroups, setOpenGroups] = useState<string[]>(['Tableau de bord', 'Gestion immobilière', 'Finance']);
+  const [openGroups, setOpenGroups] = useState<string[]>(['Tableau de bord', 'Gestion immobilière', 'Finance', 'Ressources humaines']);
 
   const visibleGroups = useMemo(
     () =>
@@ -126,7 +128,7 @@ export function Sidebar() {
                     const ItemIcon = item.icon;
                     if (item.to) {
                       return (
-                        <NavLink key={item.to} to={item.to} end={item.to === '/dashboard'} className="sidebar-subitem">
+                        <NavLink key={item.to} to={item.to} end={item.to === '/dashboard' || item.to === '/stock' || item.to === '/personnel/employees'} className="sidebar-subitem">
                           <ItemIcon size={16} />
                           {item.label}
                         </NavLink>

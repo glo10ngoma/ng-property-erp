@@ -208,7 +208,7 @@ export class EmployeesController {
 
   @Get()
   employees() {
-    return this.service.findAll('employees', 'created_at DESC');
+    return this.service.employees();
   }
 
   @Get(':id')
@@ -218,12 +218,12 @@ export class EmployeesController {
 
   @Post()
   createEmployee(@Body() body: Record<string, unknown>) {
-    return this.service.insert('employees', body, ['first_name', 'last_name', 'phone', 'email', 'job_title', 'monthly_salary', 'hire_date', 'status']);
+    return this.service.createEmployee(body);
   }
 
   @Put(':id')
   updateEmployee(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
-    return this.service.updateById('employees', id, body, ['first_name', 'last_name', 'phone', 'email', 'job_title', 'monthly_salary', 'hire_date', 'status']);
+    return this.service.updateEmployee(id, body);
   }
 
   @Post(':id/deactivate')
@@ -234,6 +234,36 @@ export class EmployeesController {
   @Delete(':id')
   deleteEmployee(@Param('id', ParseIntPipe) id: number) {
     return this.service.deactivateEmployee(id);
+  }
+}
+
+@Controller('employee-contracts')
+export class EmployeeContractsController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get()
+  contracts() {
+    return this.service.employeeContracts();
+  }
+
+  @Post()
+  create(@Body() body: Record<string, unknown>) {
+    return this.service.createEmployeeContract(body);
+  }
+}
+
+@Controller('employee-attendance')
+export class EmployeeAttendanceController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get()
+  attendance() {
+    return this.service.employeeAttendance();
+  }
+
+  @Post()
+  create(@Body() body: Record<string, unknown>) {
+    return this.service.createEmployeeAttendance(body);
   }
 }
 
@@ -324,6 +354,16 @@ export class PayrollsController {
   @Post(':id/pay')
   pay(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
     return this.service.payPayroll(id, body.reference ? String(body.reference) : undefined);
+  }
+}
+
+@Controller('hr')
+export class HrController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get('report')
+  report(@Query('month') month?: string, @Query('year') year?: string) {
+    return this.service.hrReport(month ? Number(month) : undefined, year ? Number(year) : undefined);
   }
 }
 

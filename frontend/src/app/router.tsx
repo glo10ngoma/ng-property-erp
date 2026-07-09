@@ -2,43 +2,43 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from '../core/layout/AppLayout';
 import { PermissionGuard } from '../core/auth/PermissionGuard';
 import { ProtectedRoute } from '../core/auth/ProtectedRoute';
-import { Login } from '../pages/Login';
-import { BuildingReport } from '../pages/BuildingReport';
-import { TenantSituation } from '../pages/TenantSituation';
-import { LeaseNew } from '../pages/LeaseNew';
-import { LeaseDetail } from '../pages/LeaseDetail';
-import { UnitDetail } from '../pages/UnitDetail';
-import { DashboardPage } from '../modules/dashboard/pages/DashboardPage';
 import { ActivityPage } from '../modules/activity/pages/ActivityPage';
 import { BuildingsPage } from '../modules/buildings/pages/BuildingsPage';
-import { RentalUnitsPage } from '../modules/rental-units/pages/RentalUnitsPage';
-import { TenantsPage } from '../modules/tenants/pages/TenantsPage';
-import { LeasesPage } from '../modules/leases/pages/LeasesPage';
+import { CashPage } from '../modules/cash/pages/CashPage';
+import { CommunicationsPage } from '../modules/communications/pages/CommunicationsPage';
+import { DashboardPage } from '../modules/dashboard/pages/DashboardPage';
+import { DocumentsPage } from '../modules/documents/pages/DocumentsPage';
 import { InvoicesPage } from '../modules/invoices/pages/InvoicesPage';
+import { LeasesPage } from '../modules/leases/pages/LeasesPage';
+import { MaintenanceDetailPage, MaintenancePage } from '../modules/maintenance/pages/MaintenancePage';
+import { PaymentsPage } from '../modules/payments/pages/PaymentsPage';
+import { RentalUnitsPage } from '../modules/rental-units/pages/RentalUnitsPage';
+import { ReportsPage } from '../modules/reports/pages/ReportsPage';
+import { ModulePlaceholder } from '../modules/shared/ModulePlaceholder';
+import { SettingsPage } from '../modules/settings/pages/SettingsPage';
+import { AdvancesPage, AttendancePage, ContractsPage, EmployeeDetailPage, EmployeesPage, HrReportsPage, LeavesPage, PayrollPage, StaffPage } from '../modules/staff/pages/StaffPage';
+import { StockArticlesPage } from '../modules/stock/pages/StockArticlesPage';
+import { StockInventoriesPage, StockInventoryDetailPage } from '../modules/stock/pages/StockInventoriesPage';
+import { StockMovementDetailPage } from '../modules/stock/pages/StockMovementDetailPage';
+import { StockMovementsPage } from '../modules/stock/pages/StockMovementsPage';
+import { StockPage } from '../modules/stock/pages/StockPage';
+import { StockPurchaseDetailPage } from '../modules/stock/pages/StockPurchaseDetailPage';
+import { StockPurchasesPage } from '../modules/stock/pages/StockPurchasesPage';
+import { StockReportPage } from '../modules/stock/pages/StockReportPage';
+import { TenantsPage } from '../modules/tenants/pages/TenantsPage';
+import { UsersPage } from '../modules/users/pages/UsersPage';
+import { WorkflowsPage } from '../modules/workflows/pages/WorkflowsPage';
+import { BuildingReport } from '../pages/BuildingReport';
+import { CashDetailPage } from '../pages/CashEnterprise';
+import { LeaseDetail } from '../pages/LeaseDetail';
+import { LeaseNew } from '../pages/LeaseNew';
+import { Login } from '../pages/Login';
+import { PaymentDetail } from '../pages/PaymentDetail';
+import { StockDetailPage } from '../pages/StockDetailPage';
+import { TenantSituation } from '../pages/TenantSituation';
+import { UnitDetail } from '../pages/UnitDetail';
 import { InvoiceDetailPage } from '../modules/invoices/pages/InvoiceDetailPage';
 import { InvoicePrintPage } from '../modules/invoices/pages/InvoicePrintPage';
-import { PaymentsPage } from '../modules/payments/pages/PaymentsPage';
-import { CashPage } from '../modules/cash/pages/CashPage';
-import { StaffPage } from '../modules/staff/pages/StaffPage';
-import { StockPage } from '../modules/stock/pages/StockPage';
-import { StockArticlesPage } from '../modules/stock/pages/StockArticlesPage';
-import { StockMovementsPage } from '../modules/stock/pages/StockMovementsPage';
-import { StockInventoriesPage, StockInventoryDetailPage } from '../modules/stock/pages/StockInventoriesPage';
-import { StockReportPage } from '../modules/stock/pages/StockReportPage';
-import { StockMovementDetailPage } from '../modules/stock/pages/StockMovementDetailPage';
-import { StockPurchasesPage } from '../modules/stock/pages/StockPurchasesPage';
-import { StockPurchaseDetailPage } from '../modules/stock/pages/StockPurchaseDetailPage';
-import { StockDetailPage } from '../pages/StockDetailPage';
-import { ReportsPage } from '../modules/reports/pages/ReportsPage';
-import { UsersPage } from '../modules/users/pages/UsersPage';
-import { MaintenanceDetailPage, MaintenancePage } from '../modules/maintenance/pages/MaintenancePage';
-import { DocumentsPage } from '../modules/documents/pages/DocumentsPage';
-import { CommunicationsPage } from '../modules/communications/pages/CommunicationsPage';
-import { WorkflowsPage } from '../modules/workflows/pages/WorkflowsPage';
-import { SettingsPage } from '../modules/settings/pages/SettingsPage';
-import { ModulePlaceholder } from '../modules/shared/ModulePlaceholder';
-import { PaymentDetail } from '../pages/PaymentDetail';
-import { CashDetailPage } from '../pages/CashEnterprise';
 
 const guarded = (permission: string, element: JSX.Element) => (
   <PermissionGuard permission={permission}>{element}</PermissionGuard>
@@ -74,7 +74,16 @@ export function AppRouter() {
           <Route path="/cash" element={guarded('cash.read', <CashPage />)} />
           <Route path="/cash/:id" element={guarded('cash.read', <CashDetailPage />)} />
           <Route path="/staff" element={guarded('staff.read', <StaffPage />)} />
-          <Route path="/staff/:id" element={guarded('staff.read', <ModulePlaceholder title="Détail employé" />)} />
+          <Route path="/staff/:id" element={guarded('staff.read', <Navigate to="/personnel/employees" replace />)} />
+          <Route path="/personnel" element={guarded('staff.read', <Navigate to="/personnel/employees" replace />)} />
+          <Route path="/personnel/employees" element={guarded('staff.read', <EmployeesPage />)} />
+          <Route path="/personnel/employees/:id" element={guarded('staff.read', <EmployeeDetailPage />)} />
+          <Route path="/personnel/contracts" element={guarded('staff.read', <ContractsPage />)} />
+          <Route path="/personnel/attendance" element={guarded('staff.read', <AttendancePage />)} />
+          <Route path="/personnel/advances" element={guarded('staff.read', <AdvancesPage />)} />
+          <Route path="/personnel/leaves" element={guarded('staff.read', <LeavesPage />)} />
+          <Route path="/personnel/payroll" element={guarded('staff.read', <PayrollPage />)} />
+          <Route path="/personnel/reports" element={guarded('staff.read', <HrReportsPage />)} />
           <Route path="/stock" element={guarded('stock.read', <StockPage />)} />
           <Route path="/stock/articles" element={guarded('stock.read', <StockArticlesPage />)} />
           <Route path="/stock/movements" element={guarded('stock.read', <StockMovementsPage />)} />
