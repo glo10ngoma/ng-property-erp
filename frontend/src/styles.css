@@ -35,10 +35,17 @@ button, .icon-btn {
 .sidebar-group { display: grid; gap: 4px; }
 .sidebar-group-toggle { width: 100%; min-height: 36px; background: transparent; color: #e8f0f4; border: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 6px; font-weight: 800; text-align: left; }
 .sidebar-group-toggle span { display: inline-flex; align-items: center; gap: 8px; }
+.sidebar-group-toggle.active { color: #ffffff; }
 .sidebar-group-items { display: grid; gap: 4px; padding-left: 4px; }
+.sidebar-nested-group { display: grid; gap: 4px; }
+.sidebar-nested-toggle { width: 100%; min-height: 34px; background: transparent; color: #d6e3e8; border: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; text-align: left; font-weight: 700; border-radius: 6px; }
+.sidebar-nested-toggle span { display: inline-flex; align-items: center; gap: 8px; }
+.sidebar-nested-toggle:hover, .sidebar-nested-toggle.active { background: #203845; color: #ffffff; }
+.sidebar-nested-items { display: grid; gap: 4px; padding-left: 12px; }
 .sidebar a, .sidebar-subitem { color: #c8d8df; text-decoration: none; display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 6px; }
 .sidebar a.active, .sidebar a:hover, .sidebar-subitem:hover { background: #24404d; color: white; }
 .sidebar-subitem { min-height: 34px; }
+.sidebar-subitem-nested { padding-left: 13px; }
 .sidebar-subitem-soon { opacity: .72; justify-content: space-between; }
 .sidebar-subitem-soon small { margin-left: auto; color: #8fb0bf; font-size: 11px; text-transform: uppercase; }
 .main { padding: 18px 24px 28px; min-width: 0; }

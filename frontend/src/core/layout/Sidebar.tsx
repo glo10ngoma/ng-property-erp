@@ -22,12 +22,13 @@ import {
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { appConfig } from '../../app/config';
 import { useAuth } from '../auth/AuthContext';
 
-type NavItem = {
+type NavLinkItem = {
+  type?: 'link';
   to?: string;
   label: string;
   icon: LucideIcon;
@@ -35,26 +36,46 @@ type NavItem = {
   soon?: boolean;
 };
 
+type NavSubgroup = {
+  type: 'subgroup';
+  label: string;
+  icon: LucideIcon;
+  items: NavLinkItem[];
+};
+
+type NavEntry = NavLinkItem | NavSubgroup;
+
 type NavGroup = {
   label: string;
   icon: LucideIcon;
-  items: NavItem[];
+  items: NavEntry[];
 };
 
 const STORAGE_KEY = 'ng-property-erp.sidebar.open-groups';
+const STOCK_GROUP_KEY = 'Stock';
+const OPERATIONS_GROUP_KEY = 'OpÃ©rations';
+
+const stockItems: NavLinkItem[] = [
+  { to: '/stock/articles', label: 'Articles', icon: Boxes, permission: 'stock.read' },
+  { to: '/stock', label: 'Stock', icon: Boxes, permission: 'stock.read' },
+  { to: '/stock/movements', label: 'Mouvements', icon: Boxes, permission: 'stock.read' },
+  { to: '/stock/inventories', label: 'Inventaires', icon: Boxes, permission: 'stock.read' },
+  { to: '/stock/purchases', label: 'Achats fournisseurs', icon: Boxes, permission: 'stock.read' },
+  { to: '/stock/report', label: 'Rapports', icon: FileText, permission: 'reports.read' },
+];
 
 const navGroups: NavGroup[] = [
   {
     label: 'Tableau de bord',
     icon: Gauge,
     items: [
-      { to: '/activity', label: "Centre d'activité", icon: Activity, permission: 'activity.read' },
+      { to: '/activity', label: "Centre d'activitÃ©", icon: Activity, permission: 'activity.read' },
       { to: '/dashboard', label: 'Dashboard BI', icon: Gauge, permission: 'dashboard.read' },
       { to: '/reports', label: 'Rapports', icon: FileText, permission: 'reports.read' },
     ],
   },
   {
-    label: 'Gestion immobilière',
+    label: 'Gestion immobiliÃ¨re',
     icon: Building2,
     items: [
       { to: '/buildings', label: 'Immeubles', icon: Building2, permission: 'buildings.read' },
@@ -70,25 +91,25 @@ const navGroups: NavGroup[] = [
       { to: '/invoices', label: 'Factures', icon: FileText, permission: 'invoices.read' },
       { to: '/payments', label: 'Paiements', icon: CreditCard, permission: 'payments.read' },
       { to: '/cash', label: 'Caisse', icon: WalletCards, permission: 'cash.read' },
-      { label: 'Dépenses', icon: WalletCards, permission: 'cash.read', soon: true },
+      { label: 'DÃ©penses', icon: WalletCards, permission: 'cash.read', soon: true },
     ],
   },
   {
-    label: 'Opérations',
+    label: OPERATIONS_GROUP_KEY,
     icon: Wrench,
     items: [
-      { to: '/stock', label: 'Stock', icon: Boxes, permission: 'stock.read' },
+      { type: 'subgroup', label: STOCK_GROUP_KEY, icon: Boxes, items: stockItems },
     ],
   },
   {
     label: 'Ressources humaines',
     icon: BriefcaseBusiness,
     items: [
-      { to: '/personnel/employees', label: 'Employés', icon: BriefcaseBusiness, permission: 'staff.read' },
+      { to: '/personnel/employees', label: 'EmployÃ©s', icon: BriefcaseBusiness, permission: 'staff.read' },
       { to: '/personnel/contracts', label: 'Contrats', icon: ScrollText, permission: 'staff.read' },
       { to: '/personnel/attendance', label: 'Pointage', icon: Gauge, permission: 'staff.read' },
       { to: '/personnel/advances', label: 'Avances', icon: WalletCards, permission: 'staff.read' },
-      { to: '/personnel/leaves', label: 'Congés', icon: ReceiptText, permission: 'staff.read' },
+      { to: '/personnel/leaves', label: 'CongÃ©s', icon: ReceiptText, permission: 'staff.read' },
       { to: '/personnel/payroll', label: 'Paie', icon: CreditCard, permission: 'staff.read' },
       { to: '/personnel/reports', label: 'Rapports', icon: FileText, permission: 'staff.read' },
     ],
@@ -98,21 +119,22 @@ const navGroups: NavGroup[] = [
     icon: Settings,
     items: [
       { to: '/users', label: 'Utilisateurs', icon: ShieldCheck, permission: 'users.read' },
-      { label: 'Rôles & permissions', icon: ShieldCheck, permission: 'users.read', soon: true },
+      { label: 'RÃ´les & permissions', icon: ShieldCheck, permission: 'users.read', soon: true },
       { to: '/communications', label: 'Communications', icon: MessageSquare, permission: 'communication.read' },
       { label: 'Notifications', icon: MessageSquare, permission: 'communication.read', soon: true },
-      { to: '/settings', label: 'Paramètres', icon: Settings, permission: 'settings.read' },
+      { to: '/settings', label: 'ParamÃ¨tres', icon: Settings, permission: 'settings.read' },
       { to: '/documents', label: 'Documents', icon: FolderOpen, permission: 'documents.read' },
       { to: '/workflows', label: 'Workflows', icon: Workflow, permission: 'workflow.read' },
     ],
   },
 ];
 
-const defaultOpenGroups = ['Tableau de bord', 'Gestion immobilière', 'Finance', 'Ressources humaines'];
+const defaultOpenGroups = ['Tableau de bord', 'Gestion immobiliÃ¨re', 'Finance', 'Ressources humaines'];
 
 export function Sidebar() {
   const { can } = useAuth();
   const location = useLocation();
+  const hasPermission = (permission?: string) => !permission || can(permission);
   const [openGroups, setOpenGroups] = useState<string[]>(() => {
     if (typeof window === 'undefined') return defaultOpenGroups;
     try {
@@ -130,19 +152,29 @@ export function Sidebar() {
       navGroups
         .map((group) => ({
           ...group,
-          items: group.items.filter((item) => !item.permission || can(item.permission)),
+          items: filterEntries(group.items, hasPermission),
         }))
         .filter((group) => group.items.length > 0),
     [can],
   );
 
+  const requiredOpenGroups = useMemo(
+    () => collectRequiredOpenGroups(location.pathname, visibleGroups),
+    [location.pathname, visibleGroups],
+  );
+
+  const effectiveOpenGroups = useMemo(
+    () => Array.from(new Set([...openGroups, ...requiredOpenGroups])),
+    [openGroups, requiredOpenGroups],
+  );
+
   useEffect(() => {
-    const activeGroup = visibleGroups.find((group) =>
-      group.items.some((item) => item.to && isRouteActive(location.pathname, item.to)),
-    );
-    if (!activeGroup) return;
-    setOpenGroups((current) => (current.includes(activeGroup.label) ? current : [...current, activeGroup.label]));
-  }, [location.pathname, visibleGroups]);
+    if (!requiredOpenGroups.length) return;
+    setOpenGroups((current) => {
+      const next = Array.from(new Set([...current, ...requiredOpenGroups]));
+      return next.length === current.length && next.every((value, index) => value === current[index]) ? current : next;
+    });
+  }, [requiredOpenGroups]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -161,41 +193,34 @@ export function Sidebar() {
       <nav className="sidebar-groups">
         {visibleGroups.map((group) => {
           const Icon = group.icon;
-          const isOpen = openGroups.includes(group.label);
+          const isOpen = effectiveOpenGroups.includes(group.label);
+          const groupActive = entryListHasActiveRoute(location.pathname, group.items);
+
           return (
             <div className="sidebar-group" key={group.label}>
               <button
                 type="button"
-                className="sidebar-group-toggle"
-                onClick={() =>
-                  setOpenGroups((current) =>
-                    current.includes(group.label) ? current.filter((item) => item !== group.label) : [...current, group.label],
-                  )
-                }
+                className={`sidebar-group-toggle${groupActive ? ' active' : ''}`}
+                onClick={() => toggleOpenKey(group.label, setOpenGroups)}
               >
                 <span><Icon size={16} />{group.label}</span>
                 {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
               </button>
               {isOpen && (
                 <div className="sidebar-group-items">
-                  {group.items.map((item) => {
-                    const ItemIcon = item.icon;
-                    if (item.to) {
-                      return (
-                        <NavLink key={item.to} to={item.to} end={isEndRoute(item.to)} className="sidebar-subitem">
-                          <ItemIcon size={16} />
-                          {item.label}
-                        </NavLink>
-                      );
-                    }
-                    return (
-                      <span key={item.label} className="sidebar-subitem sidebar-subitem-soon">
-                        <ItemIcon size={16} />
-                        {item.label}
-                        <small>Bientôt</small>
-                      </span>
-                    );
-                  })}
+                  {group.items.map((entry) =>
+                    entry.type === 'subgroup' ? (
+                      <SidebarSubgroup
+                        key={entry.label}
+                        entry={entry}
+                        pathname={location.pathname}
+                        openKeys={effectiveOpenGroups}
+                        setOpenKeys={setOpenGroups}
+                      />
+                    ) : (
+                      <SidebarLink key={entry.to ?? entry.label} item={entry} pathname={location.pathname} />
+                    ),
+                  )}
                 </div>
               )}
             </div>
@@ -203,6 +228,114 @@ export function Sidebar() {
         })}
       </nav>
     </aside>
+  );
+}
+
+function SidebarSubgroup({
+  entry,
+  pathname,
+  openKeys,
+  setOpenKeys,
+}: {
+  entry: NavSubgroup;
+  pathname: string;
+  openKeys: string[];
+  setOpenKeys: Dispatch<SetStateAction<string[]>>;
+}) {
+  const Icon = entry.icon;
+  const isOpen = openKeys.includes(entry.label);
+  const isActive = entry.items.some((item) => item.to && isRouteActive(pathname, item.to));
+
+  return (
+    <div className="sidebar-nested-group">
+      <button
+        type="button"
+        className={`sidebar-nested-toggle${isActive ? ' active' : ''}`}
+        onClick={() => toggleOpenKey(entry.label, setOpenKeys)}
+      >
+        <span><Icon size={15} />{entry.label}</span>
+        {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+      </button>
+      {isOpen && (
+        <div className="sidebar-nested-items">
+          {entry.items.map((item) => <SidebarLink key={item.to ?? item.label} item={item} pathname={pathname} nested />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SidebarLink({ item, pathname, nested = false }: { item: NavLinkItem; pathname: string; nested?: boolean }) {
+  const ItemIcon = item.icon;
+  const className = nested ? 'sidebar-subitem sidebar-subitem-nested' : 'sidebar-subitem';
+  const isActive = Boolean(item.to && isRouteActive(pathname, item.to));
+
+  if (item.to) {
+    return (
+      <NavLink
+        to={item.to}
+        end={isEndRoute(item.to)}
+        className={() => (isActive ? `${className} active` : className)}
+      >
+        <ItemIcon size={16} />
+        {item.label}
+      </NavLink>
+    );
+  }
+
+  return (
+    <span className={`${className} sidebar-subitem-soon`}>
+      <ItemIcon size={16} />
+      {item.label}
+      <small>BientÃ´t</small>
+    </span>
+  );
+}
+
+function filterEntries(entries: NavEntry[], can: (permission?: string) => boolean): NavEntry[] {
+  return entries
+    .map((entry) => {
+      if (entry.type === 'subgroup') {
+        const items = entry.items.filter((item) => !item.permission || can(item.permission));
+        return { ...entry, items };
+      }
+      return entry;
+    })
+    .filter((entry) => (entry.type === 'subgroup' ? entry.items.length > 0 : !entry.permission || can(entry.permission)));
+}
+
+function collectRequiredOpenGroups(pathname: string, groups: NavGroup[]) {
+  const required = new Set<string>();
+
+  for (const group of groups) {
+    if (!entryListHasActiveRoute(pathname, group.items)) continue;
+    required.add(group.label);
+    for (const entry of group.items) {
+      if (entry.type === 'subgroup' && entry.items.some((item) => item.to && isRouteActive(pathname, item.to))) {
+        required.add(entry.label);
+      }
+    }
+  }
+
+  if (pathname.startsWith('/stock')) {
+    required.add(OPERATIONS_GROUP_KEY);
+    required.add(STOCK_GROUP_KEY);
+  }
+
+  return Array.from(required);
+}
+
+function entryListHasActiveRoute(pathname: string, entries: NavEntry[]) {
+  return entries.some((entry) =>
+    entry.type === 'subgroup'
+      ? entry.items.some((item) => item.to && isRouteActive(pathname, item.to))
+      : Boolean(entry.to && isRouteActive(pathname, entry.to)),
+  );
+}
+
+function toggleOpenKey(label: string, setOpenKeys: Dispatch<SetStateAction<string[]>>) {
+  setOpenKeys((current) =>
+    current.includes(label) ? current.filter((item) => item !== label) : [...current, label],
   );
 }
 
