@@ -19,6 +19,8 @@ export function StockArticlesPage() {
   const [status, setStatus] = useState('');
   const [editing, setEditing] = useState<StockItem | null | undefined>(undefined);
   const [success, setSuccess] = useState('');
+  const [removingId, setRemovingId] = useState<number | null>(null);
+  const [error, setError] = useState('');
 
   const filtered = useMemo(
     () => list.data.filter((item) => includesText(item, query) && (!status || item.status === status)),
@@ -61,6 +63,7 @@ export function StockArticlesPage() {
       setSuccess('Article cree.');
     }
 
+    setError('');
     setEditing(undefined);
     await list.reload();
   }
@@ -68,20 +71,31 @@ export function StockArticlesPage() {
   async function deactivate(item: StockItem) {
     await api.post(`/stock/items/${item.id}/deactivate`, {});
     setSuccess('Article desactive.');
+    setError('');
     await list.reload();
   }
 
   async function reactivate(item: StockItem) {
     await api.post(`/stock/items/${item.id}/reactivate`, {});
     setSuccess('Article reactive.');
+    setError('');
     await list.reload();
   }
 
   async function remove(item: StockItem) {
     if (!window.confirm(`Supprimer definitivement l'article ${item.name} ?`)) return;
-    await api.delete(`/stock/items/${item.id}`);
-    setSuccess('Article supprime.');
-    await list.reload();
+    setRemovingId(item.id);
+    setError('');
+    try {
+      await api.delete(`/stock/items/${item.id}`);
+      setSuccess('Article supprime.');
+      await list.reload();
+    } catch (err: any) {
+      const message = err?.response?.data?.message;
+      setError(Array.isArray(message) ? message.join(' | ') : message || "Impossible de supprimer l'article.");
+    } finally {
+      setRemovingId(null);
+    }
   }
 
   return (
@@ -89,6 +103,7 @@ export function StockArticlesPage() {
       <PageHeader title="Articles" />
       <StockNav />
       <SuccessMessage message={success} />
+      {error && <div className="error-banner">{error}</div>}
       <div className="maintenance-filter-bar stock-filter-bar">
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un article" />
         <select value={status} onChange={(event) => setStatus(event.target.value)}>
@@ -132,7 +147,7 @@ export function StockArticlesPage() {
                   {can('stock.update') && <button className="icon-btn" title="Modifier" onClick={() => setEditing(item)}><Pencil size={16} /></button>}
                   {can('stock.update') && item.status === 'ACTIVE' && <button className="icon-btn" title="Desactiver" onClick={() => void deactivate(item)}><Power size={16} /></button>}
                   {can('stock.update') && item.status === 'INACTIVE' && <button className="icon-btn" title="Reactiver" onClick={() => void reactivate(item)}><Power size={16} /></button>}
-                  {can('stock.delete') && <button className="icon-btn danger" title="Supprimer" onClick={() => void remove(item)}><Trash2 size={16} /></button>}
+                  {can('stock.delete') && <button className="icon-btn danger" title="Supprimer définitivement" onClick={() => void remove(item)} disabled={removingId === item.id}>{removingId === item.id ? '...' : <Trash2 size={16} />}</button>}
                 </td>
               </tr>
             ))}

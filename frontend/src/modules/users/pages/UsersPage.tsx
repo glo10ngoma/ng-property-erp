@@ -182,14 +182,35 @@ export function UsersPage() {
       </div>
 
       {creating && (
-        <Modal title="Créer utilisateur" onClose={() => { setCreating(false); setError(''); }}>
-          <CreateUserForm organizationName={user?.organization_name ?? `Organisation ${user?.organization_id ?? 1}`} error={error} onSubmit={create} />
+        <Modal
+          title="Créer utilisateur"
+          className="user-modal"
+          onClose={() => {
+            setCreating(false);
+            setError('');
+          }}
+        >
+          <CreateUserForm
+            organizationName={user?.organization_name ?? `Organisation ${user?.organization_id ?? 1}`}
+            error={error}
+            onCancel={() => {
+              setCreating(false);
+              setError('');
+            }}
+            onSubmit={create}
+          />
         </Modal>
       )}
 
       {editing && (
         <Modal title="Modifier utilisateur" onClose={() => { setEditing(null); setError(''); }}>
-          <form className="form-grid" onSubmit={(event) => { event.preventDefault(); update(new FormData(event.currentTarget)); }}>
+          <form
+            className="form-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              update(new FormData(event.currentTarget));
+            }}
+          >
             <label>Prénom<input name="first_name" defaultValue={editing.first_name} required /></label>
             <label>Nom<input name="last_name" defaultValue={editing.last_name} required /></label>
             <label>Adresse e-mail<input name="email" type="email" defaultValue={editing.email} required /></label>
@@ -230,26 +251,44 @@ export function UsersPage() {
 function CreateUserForm({
   organizationName,
   error,
+  onCancel,
   onSubmit,
 }: {
   organizationName: string;
   error: string;
+  onCancel: () => void;
   onSubmit: (form: FormData) => Promise<void>;
 }) {
+  const [submitting, setSubmitting] = useState(false);
+
   return (
     <form
-      className="form-grid"
+      id="create-user-form"
+      className="user-form"
       onSubmit={async (event) => {
         event.preventDefault();
-        await onSubmit(new FormData(event.currentTarget));
+        setSubmitting(true);
+        try {
+          await onSubmit(new FormData(event.currentTarget));
+        } finally {
+          setSubmitting(false);
+        }
       }}
     >
-      <div className="detail-section" style={{ gridColumn: '1 / -1' }}>
+      {error ? <div className="error-message user-form-error">{error}</div> : null}
+
+      <div className="detail-section user-form-section">
         <h4>Identité</h4>
-        <div className="form-grid">
-          <label>Nom complet *<input name="full_name" placeholder="Nom complet" required /></label>
-          <label>Adresse e-mail *<input name="email" type="email" placeholder="Adresse e-mail" required /></label>
-          <label>Téléphone<input value="Bientôt" disabled /></label>
+        <div className="user-form-grid">
+          <label className="user-form-wide">Nom complet *<input name="full_name" placeholder="Nom complet" required autoComplete="name" /></label>
+          <label className="user-form-wide">Adresse e-mail *<input name="email" type="email" placeholder="Adresse e-mail" required autoComplete="email" /></label>
+          <label>Rôle *
+            <select name="role" defaultValue="EDITOR" required>
+              <option value="ADMIN">Administrateur</option>
+              <option value="EDITOR">Utilisateur en écriture</option>
+              <option value="VIEWER">Lecture seule</option>
+            </select>
+          </label>
           <label>Statut
             <select name="status" defaultValue="ACTIVE">
               <option value="ACTIVE">Actif</option>
@@ -259,28 +298,33 @@ function CreateUserForm({
         </div>
       </div>
 
-      <div className="detail-section" style={{ gridColumn: '1 / -1' }}>
+      <div className="detail-section user-form-section">
         <h4>Accès</h4>
-        <div className="form-grid">
-          <label>Rôle *<select name="role" defaultValue="EDITOR"><option value="ADMIN">Administrateur</option><option value="EDITOR">Utilisateur en écriture</option><option value="VIEWER">Lecture seule</option></select></label>
-          <label>Organisation *<input value={organizationName} disabled /></label>
-          <label>Site<input value="Bientôt" disabled /></label>
-          <label>Permissions spécifiques<input value="Bientôt" disabled /></label>
+        <div className="user-form-grid">
+          <label className="user-form-wide">Organisation *<input value={organizationName} disabled /></label>
+          <div className="user-form-hint user-form-wide">
+            <span>Fonction activée</span>
+            <strong>Les identifiants sont gérés à la création.</strong>
+          </div>
         </div>
       </div>
 
-      <div className="detail-section" style={{ gridColumn: '1 / -1' }}>
+      <div className="detail-section user-form-section">
         <h4>Sécurité</h4>
-        <div className="form-grid">
-          <label>Mot de passe temporaire *<input name="password" type="password" minLength={4} required /></label>
-          <label>Confirmer mot de passe *<input name="confirm_password" type="password" minLength={4} required /></label>
-          <label>Changement à la première connexion<input value="Bientôt" disabled /></label>
-          <label>Envoyer les identifiants<input value="Simulation bientôt disponible" disabled /></label>
+        <div className="user-form-grid">
+          <label>Mot de passe temporaire *<input name="password" type="password" minLength={4} required autoComplete="new-password" /></label>
+          <label>Confirmer mot de passe *<input name="confirm_password" type="password" minLength={4} required autoComplete="new-password" /></label>
         </div>
       </div>
 
-      {error ? <div className="error-message" style={{ gridColumn: '1 / -1' }}>{error}</div> : null}
-      <button>Enregistrer</button>
+      <div className="modal-footer modal-footer-sticky user-form-footer">
+        <button className="secondary" type="button" onClick={onCancel} disabled={submitting}>
+          Annuler
+        </button>
+        <button type="submit" disabled={submitting}>
+          {submitting ? 'Enregistrement…' : 'Enregistrer'}
+        </button>
+      </div>
     </form>
   );
 }
@@ -314,6 +358,9 @@ function buildCreatePayload(form: FormData): CreateUserPayload {
   if (!fullName || !email || !password) {
     return { error: 'Les champs Nom complet, Adresse e-mail et Mot de passe sont obligatoires.' };
   }
+  if (!role) {
+    return { error: 'Le rôle est obligatoire.' };
+  }
   if (password.length < 4) {
     return { error: 'Le mot de passe temporaire doit contenir au moins 4 caractères.' };
   }
@@ -343,18 +390,20 @@ function extractApiError(error: unknown) {
 }
 
 function roleLabel(role: string) {
-  return ({
-    ADMIN: 'Administrateur',
-    EDITOR: 'Utilisateur en écriture',
-    VIEWER: 'Lecture seule',
-    ACCOUNTANT: 'Utilisateur en écriture',
-    STAFF: 'Utilisateur en écriture',
-    AGENT: 'Utilisateur en écriture',
-    GESTIONNAIRE: 'Utilisateur en écriture',
-    DIRECTOR: 'Lecture seule',
-    DIRECTEUR: 'Lecture seule',
-    COMPTABLE: 'Utilisateur en écriture',
-  })[normalizeRole(role)] ?? role;
+  return (
+    {
+      ADMIN: 'Administrateur',
+      EDITOR: 'Utilisateur en écriture',
+      VIEWER: 'Lecture seule',
+      ACCOUNTANT: 'Utilisateur en écriture',
+      STAFF: 'Utilisateur en écriture',
+      AGENT: 'Utilisateur en écriture',
+      GESTIONNAIRE: 'Utilisateur en écriture',
+      DIRECTOR: 'Lecture seule',
+      DIRECTEUR: 'Lecture seule',
+      COMPTABLE: 'Utilisateur en écriture',
+    }[normalizeRole(role)] ?? role
+  );
 }
 
 function normalizeRole(role: string) {

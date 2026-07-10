@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { RequestContext } from '../auth/request-context';
 import { hashPassword } from '../auth/password';
@@ -1657,7 +1657,7 @@ export class SaasService {
       );
       const row = history.rows[0] ?? {};
       if (row.has_movements || row.has_inventory || row.has_purchases || row.has_documents) {
-        throw new BadRequestException("Cet article possède un historique et ne peut pas être supprimé. Vous pouvez le désactiver.");
+        throw new ConflictException("Cet article possède un historique et ne peut pas être supprimé. Vous pouvez le désactiver.");
       }
 
       await client.query(`DELETE FROM stock_items WHERE id = $1 AND organization_id = $2`, [id, this.context.organizationId()]);
