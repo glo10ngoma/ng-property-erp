@@ -1,4 +1,4 @@
-import {
+﻿import {
   Activity,
   Boxes,
   BriefcaseBusiness,
@@ -53,7 +53,7 @@ type NavGroup = {
 
 const STORAGE_KEY = 'ng-property-erp.sidebar.open-groups';
 const STOCK_GROUP_KEY = 'Stock';
-const OPERATIONS_GROUP_KEY = 'OpÃ©rations';
+const OPERATIONS_GROUP_KEY = 'Opérations';
 
 const stockItems: NavLinkItem[] = [
   { to: '/stock/articles', label: 'Articles', icon: Boxes, permission: 'stock.read' },
@@ -69,13 +69,13 @@ const navGroups: NavGroup[] = [
     label: 'Tableau de bord',
     icon: Gauge,
     items: [
-      { to: '/activity', label: "Centre d'activitÃ©", icon: Activity, permission: 'activity.read' },
+      { to: '/activity', label: "Centre d’activité", icon: Activity, permission: 'activity.read' },
       { to: '/dashboard', label: 'Dashboard BI', icon: Gauge, permission: 'dashboard.read' },
       { to: '/reports', label: 'Rapports', icon: FileText, permission: 'reports.read' },
     ],
   },
   {
-    label: 'Gestion immobiliÃ¨re',
+    label: 'Gestion immobilière',
     icon: Building2,
     items: [
       { to: '/buildings', label: 'Immeubles', icon: Building2, permission: 'buildings.read' },
@@ -91,7 +91,7 @@ const navGroups: NavGroup[] = [
       { to: '/invoices', label: 'Factures', icon: FileText, permission: 'invoices.read' },
       { to: '/payments', label: 'Paiements', icon: CreditCard, permission: 'payments.read' },
       { to: '/cash', label: 'Caisse', icon: WalletCards, permission: 'cash.read' },
-      { label: 'DÃ©penses', icon: WalletCards, permission: 'cash.read', soon: true },
+      { label: 'Dépenses', icon: WalletCards, permission: 'cash.read', soon: true },
     ],
   },
   {
@@ -105,11 +105,11 @@ const navGroups: NavGroup[] = [
     label: 'Ressources humaines',
     icon: BriefcaseBusiness,
     items: [
-      { to: '/personnel/employees', label: 'EmployÃ©s', icon: BriefcaseBusiness, permission: 'staff.read' },
+      { to: '/personnel/employees', label: 'Employés', icon: BriefcaseBusiness, permission: 'staff.read' },
       { to: '/personnel/contracts', label: 'Contrats', icon: ScrollText, permission: 'staff.read' },
       { to: '/personnel/attendance', label: 'Pointage', icon: Gauge, permission: 'staff.read' },
       { to: '/personnel/advances', label: 'Avances', icon: WalletCards, permission: 'staff.read' },
-      { to: '/personnel/leaves', label: 'CongÃ©s', icon: ReceiptText, permission: 'staff.read' },
+      { to: '/personnel/leaves', label: 'Congés', icon: ReceiptText, permission: 'staff.read' },
       { to: '/personnel/payroll', label: 'Paie', icon: CreditCard, permission: 'staff.read' },
       { to: '/personnel/reports', label: 'Rapports', icon: FileText, permission: 'staff.read' },
     ],
@@ -119,17 +119,17 @@ const navGroups: NavGroup[] = [
     icon: Settings,
     items: [
       { to: '/users', label: 'Utilisateurs', icon: ShieldCheck, permission: 'users.read' },
-      { label: 'RÃ´les & permissions', icon: ShieldCheck, permission: 'users.read', soon: true },
+      { label: 'Rôles & permissions', icon: ShieldCheck, permission: 'users.read', soon: true },
       { to: '/communications', label: 'Communications', icon: MessageSquare, permission: 'communication.read' },
       { label: 'Notifications', icon: MessageSquare, permission: 'communication.read', soon: true },
-      { to: '/settings', label: 'ParamÃ¨tres', icon: Settings, permission: 'settings.read' },
+      { to: '/settings', label: 'Paramètres', icon: Settings, permission: 'settings.read' },
       { to: '/documents', label: 'Documents', icon: FolderOpen, permission: 'documents.read' },
       { to: '/workflows', label: 'Workflows', icon: Workflow, permission: 'workflow.read' },
     ],
   },
 ];
 
-const defaultOpenGroups = ['Tableau de bord', 'Gestion immobiliÃ¨re', 'Finance', 'Ressources humaines'];
+const defaultOpenGroups = ['Tableau de bord', 'Gestion immobilière', 'Finance', 'Ressources humaines'];
 
 export function Sidebar() {
   const { can } = useAuth();
@@ -287,7 +287,7 @@ function SidebarLink({ item, pathname, nested = false }: { item: NavLinkItem; pa
     <span className={`${className} sidebar-subitem-soon`}>
       <ItemIcon size={16} />
       {item.label}
-      <small>BientÃ´t</small>
+      <small>Bientôt</small>
     </span>
   );
 }
@@ -346,3 +346,4 @@ function isEndRoute(route: string) {
 function isRouteActive(pathname: string, route: string) {
   return pathname === route || pathname.startsWith(`${route}/`);
 }
+
