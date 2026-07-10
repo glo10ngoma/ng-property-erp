@@ -1,133 +1,88 @@
-# Pré-production QA — NG Property ERP
+# Pre-production QA - NG Property ERP
 
 ## Date QA
-- 2026-07-09
+- 2026-07-10 12:50 (Africa/Kinshasa)
 
-## Environnement testé
+## Environnement teste
 - Workspace local Windows
-- Backend NestJS
-- Frontend React/Vite
-- Vérifications techniques exécutées localement
-- Revue statique des routes frontend principales
-- Revue de configuration cloud à partir du repo et des `.env` locaux
+- Frontend local: `http://127.0.0.1:5173`
+- Backend local: source rebuild testee sur `dist/main.js`
+- Base de donnees attendue: Supabase PostgreSQL via `DATABASE_URL`
+- Verification cloud publique: non finalisable depuis ce repo seul
 
-## Résumé
-- Builds backend, frontend et racine : OK
-- `git diff --check` : OK
-- Routage frontend principal : cohérent côté code
-- Régression RH récente : corrigée sur la navigation et la saisie mensuelle dédiée
-- Vérification cloud complète : non finalisable depuis le repo seul
+## URLs / environnement reel disponibles
+- Frontend Vercel public: non fourni dans le repo
+- Backend Railway public: non fourni dans le repo
+- URL Supabase: presente en configuration locale backend
 
-## Checklist modules
+## Resume
+- Build backend: OK
+- Build frontend: OK
+- Build racine: OK
+- `git diff --check`: OK hors warnings CRLF
+- Bug reel reproduit et corrige: CORS local entre `127.0.0.1:5173` et le backend
+- QA cloud complete: bloquee par absence d'URLs publiques et par l'impossibilite de valider les appels BD distants depuis cet environnement
 
-| Module / contrôle | Statut | Notes |
+## Parcours testes reellement
+
+| Parcours | Statut | Resultat |
 |---|---|---|
-| Build backend | OK | `npm run build --prefix backend` |
-| Build frontend | OK | `npm run build --prefix frontend` |
-| Build racine | OK | `npm run build` |
-| `git diff --check` | OK | warnings CRLF uniquement |
-| Routes frontend principales | OK | présentes dans `frontend/src/app/router.tsx` |
-| TypeScript bloquant | OK | aucun blocage après build |
-| Navigation RH | OK | libellés RH visibles corrigés |
-| Pointage mensuel RH | OK | route dédiée présente et compile |
-| Paie RH | OK | compile, branchement présent |
-| Vérification cloud Railway/Vercel | BLOQUÉ | aucune URL publique réelle dans le repo |
-| Vérification login cloud | BLOQUÉ | non testable sans URL + environnement déployé |
-| Vérification Supabase migrations appliquées | PARTIEL | scripts présents, état réel cloud non vérifiable depuis le repo |
-| Vérification CORS cloud | BLOQUÉ | environnement cloud non visible ; `.env` local backend reste sur `http://localhost:5173` |
-| Parcours admin complet en navigateur | PARTIEL | non finalisé en session QA, serveurs non maintenus en sandbox |
-| Permissions multi-rôles en exécution | PARTIEL | logique présente côté code, QA runtime non complète |
-| Exports / impressions | PARTIEL | surfaces présentes, non rejouées toutes en session navigateur |
+| Frontend local accessible | OK | `http://127.0.0.1:5173` repond |
+| Login UI local | BUG REPRODUIT | echec CORS sur `POST /api/auth/login` depuis `127.0.0.1:5173` |
+| Hotfix CORS local | CORRIGE | backend accepte maintenant automatiquement les alias `localhost` / `127.0.0.1` |
+| Retest login apres hotfix | PARTIEL | le CORS est corrige dans le code compile, mais la validation complete reste bloquee par l'acces BD distant durant cette session |
+| Fiche employe en erreur de chargement | CORRIGE | retour utilisateur explicite au lieu d'un ecran vide / chargeur bloquant |
+| Libelle contrat employe auto | CORRIGE | suppression de `Automatique (...)` dans l'affichage verrouille |
 
-## Bugs trouvés
+## Bugs reproduits
 
-### Corrigés
-1. Libellés cassés dans la navigation RH
-   - `Employés`
-   - `Congés`
+1. Login local bloque par CORS
+   - Reproduction:
+     - frontend sur `http://127.0.0.1:5173`
+     - appel `POST http://127.0.0.1:3000/api/auth/login`
+   - Erreur navigateur:
+     - `No 'Access-Control-Allow-Origin' header is present on the requested resource`
+   - Cause:
+     - configuration backend limitee a `localhost` alors que le frontend tourne sur `127.0.0.1`
+   - Correction:
+     - ajout automatique des alias loopback dans [backend/src/main.ts](</C:/Users/Esther/Documents/ERP IMMO PROTO/backend/src/main.ts>)
 
-### Restants bloquants
-1. Vérification cloud impossible à clôturer
-   - aucune URL publique Railway/Vercel réelle trouvée dans le repo
-   - impossible de confirmer backend online, frontend online, login cloud, CORS réel, ou variables Railway/Vercel actives
+## Bugs corriges pendant cette QA
 
-2. Validation fonctionnelle pré-production incomplète en exécution réelle
-   - le parcours admin complet demandé n’a pas pu être rejoué de bout en bout dans cette session
-   - conséquence : absence de preuve QA réelle sur certains workflows critiques en UI
+1. CORS local `localhost` / `127.0.0.1`
+   - Fichier: [backend/src/main.ts](</C:/Users/Esther/Documents/ERP IMMO PROTO/backend/src/main.ts>)
 
-### Restants non bloquants
-1. Plusieurs chaînes mal encodées subsistent côté backend
-   - exemples dans `backend/src/saas/saas.service.ts`
-   - impact probable sur certains messages d’erreur ou libellés secondaires
+2. Fiche employe sans message exploitable si chargement impossible
+   - Fichier: [frontend/src/modules/staff/pages/StaffPages.tsx](</C:/Users/Esther/Documents/ERP IMMO PROTO/frontend/src/modules/staff/pages/StaffPages.tsx>)
 
-2. Bundle frontend volumineux
-   - warning Vite > 500 kB après minification
-   - non bloquant pour la mise en ligne immédiate, mais à surveiller
+3. Affichage contrat employe auto trop verbeux
+   - Fichier: [frontend/src/modules/staff/pages/StaffPages.tsx](</C:/Users/Esther/Documents/ERP IMMO PROTO/frontend/src/modules/staff/pages/StaffPages.tsx>)
 
-## Bugs corrigés pendant cette QA
-- `frontend/src/modules/staff/StaffNav.tsx`
-  - correction des libellés RH mal encodés
+## Bugs restants bloquants
 
-## Vérifications techniques exécutées
+1. URLs cloud publiques absentes
+   - impossible de tester Railway / Vercel reels
+   - impossible de confirmer refresh profond Vercel, CORS cloud, login cloud, ou navigation cloud
+
+2. Verification fonctionnelle complete bloquee par l'acces runtime a la base distante
+   - le backend local demarre et expose ses routes
+   - les parcours metier dependants de la base distante ne sont pas prouvables de bout en bout dans cette session
+   - symptome observe pendant le retest login: `500 Internal Server Error` avec `AggregateError` cote backend lors de l'appel authentification
+
+## Bugs restants non bloquants
+
+1. Warning bundle frontend > 500 kB apres minification
+2. Warnings CRLF dans `git diff --check`
+
+## Commandes executees
 - `npm run build --prefix backend`
 - `npm run build --prefix frontend`
 - `npm run build`
 - `git diff --check`
 
-## Vérifications de code / configuration
-- Routes principales présentes :
-  - `/activity`
-  - `/dashboard`
-  - `/buildings`
-  - `/buildings/:id/report`
-  - `/rental-units`
-  - `/tenants`
-  - `/tenants/:id/situation`
-  - `/leases`
-  - `/invoices`
-  - `/payments`
-  - `/cash`
-  - `/maintenance`
-  - `/stock`
-  - `/personnel/employees`
-  - `/personnel/attendance`
-  - `/personnel/attendance/monthly-entry`
-  - `/personnel/payroll`
-- Config cloud présente :
-  - `railway.json`
-  - `vercel.json`
-  - `database/supabase_schema.sql`
-  - `database/supabase_seed.sql`
-- Limite relevée :
-  - `.env` backend local observé avec `CORS_ORIGIN=http://localhost:5173`
-  - `frontend/.env` et `frontend/.env.local` pointent encore vers des URLs locales
+## Statut final
+- **NO GO**
 
-## Recommandation finale
-- **Statut : NO GO**
-
-## Motif du statut
-- Les builds sont verts et la base code est globalement cohérente.
-- En revanche, la QA pré-production demandée n’est pas complètement prouvée sur :
-  - le cloud réel Railway / Vercel / Supabase,
-  - le login cloud,
-  - le parcours utilisateur admin complet en exécution réelle,
-  - certains workflows critiques métiers en UI.
-
-## Conditions pour passer en GO
-1. Fournir les URLs publiques Railway et Vercel réelles.
-2. Vérifier `/api/health`, login cloud, CORS réel et liaison frontend/backend cloud.
-3. Rejouer au minimum en navigateur :
-   - login
-   - Activity Center
-   - Dashboard
-   - Immeubles / Rapport immeuble
-   - Appartements / fiche appartement
-   - Locataires / situation locataire
-   - Baux / nouveau bail
-   - Factures / nouvelle facture / détail facture
-   - Paiements
-   - Caisse
-   - Maintenance
-   - Stock / achats fournisseurs
-   - Personnel / pointage mensuel / paie
-4. Nettoyer les messages mal encodés encore présents côté backend.
+## Motif
+- Le correctif CORS local est en place et les builds sont verts.
+- En revanche, la QA manuelle ciblee demandee n'est pas completement prouvee sur l'environnement reel Vercel + Railway + Supabase, faute d'URLs publiques disponibles et de validation runtime complete des flux bases sur la base distante.

@@ -308,7 +308,7 @@ export function EmployeesPage() {
       <table>
         <thead><tr><th>Matricule</th><th>Nom complet</th><th>Téléphone</th><th>Service</th><th>Fonction</th><th>Type contrat</th><th className="right">Salaire</th><th>Devise</th><th>Statut</th><th>Actions</th></tr></thead>
         <tbody>{filtered.map((row) => <tr key={row.id} className="clickable-row" onClick={() => navigate(`/personnel/employees/${row.id}`)}>
-          <td>{row.employee_number ?? `EMP-${String(row.id).padStart(6, '0')}`}</td>
+          <td>{employeeCode(row.employee_number, row.id)}</td>
           <td>{employeeName(row)}</td>
           <td>{row.phone ?? '—'}</td>
           <td>{row.department ?? '—'}</td>
@@ -344,6 +344,7 @@ export function EmployeeDetailPage() {
   const { can } = useAuth();
   const [detail, setDetail] = useState<EmployeeDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [contractOpen, setContractOpen] = useState(false);
   const [advanceOpen, setAdvanceOpen] = useState(false);
@@ -352,11 +353,24 @@ export function EmployeeDetailPage() {
   const employees = useApiList<Employee>('/employees');
 
   async function load() {
-    if (!id) return;
+    if (!id) {
+      setError("Identifiant employe introuvable.");
+      setDetail(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    const response = await api.get<EmployeeDetail>(`/employees/${id}`);
-    setDetail(response.data);
-    setLoading(false);
+    setError('');
+    try {
+      const response = await api.get<EmployeeDetail>(`/employees/${id}`);
+      setDetail(response.data);
+    } catch (err: any) {
+      const message = err?.response?.data?.message;
+      setDetail(null);
+      setError(Array.isArray(message) ? message.join(' | ') : message || "Impossible de charger la fiche employe.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => { void load(); }, [id]);
@@ -386,7 +400,14 @@ export function EmployeeDetailPage() {
   }
 
   if (loading) return <section><PageHeader title="Fiche employé" /><StaffNav /><LoadingState /></section>;
-  if (!detail) return <section><PageHeader title="Fiche employé" /><StaffNav /><EmptyState message="Employé introuvable." /></section>;
+  if (!detail) return <section>
+    <PageHeader title="Fiche employé" />
+    <StaffNav />
+    <div className="actions-row">
+      <button className="secondary" onClick={() => navigate('/personnel/employees')}><ArrowLeft size={16} />Retour</button>
+    </div>
+    <EmptyState message={error || "Employé introuvable."} />
+  </section>;
 
   return <section>
     <PageHeader title={`Fiche employé - ${employeeName(detail)}`} />
@@ -398,10 +419,10 @@ export function EmployeeDetailPage() {
       {can('payroll.create') && <button className="secondary" onClick={() => setAdvanceOpen(true)}><WalletCards size={15} />Avance</button>}
       {can('payroll.create') && <button className="secondary" onClick={() => setLeaveOpen(true)}><ReceiptText size={15} />Congé</button>}
       <button className="secondary" onClick={() => window.print()}><Printer size={15} />Imprimer fiche</button>
-      <button className="secondary" onClick={() => exportXlsxWorkbook(`Employe_${detail.employee_number ?? detail.id}.xlsx`, employeeWorkbook(detail))}><FileSpreadsheet size={15} />Excel</button>
+      <button className="secondary" onClick={() => exportXlsxWorkbook(`Employe_${employeeCode(detail.employee_number, detail.id)}.xlsx`, employeeWorkbook(detail))}><FileSpreadsheet size={15} />Excel</button>
     </div>
     <div className="summary-band">
-      <div className="summary-item"><span>Matricule</span><strong>{detail.employee_number ?? `EMP-${String(detail.id).padStart(6, '0')}`}</strong></div>
+      <div className="summary-item"><span>Matricule</span><strong>{employeeCode(detail.employee_number, detail.id)}</strong></div>
       <div className="summary-item"><span>Nom</span><strong>{employeeName(detail)}</strong></div>
       <div className="summary-item"><span>Service</span><strong>{detail.department ?? '—'}</strong></div>
       <div className="summary-item"><span>Fonction</span><strong>{detail.job_title}</strong></div>
@@ -783,7 +804,7 @@ function EmployeeModal({ title, employee, onClose, onSubmit }: { title: string; 
   return <Modal title={title} onClose={onClose}>
     <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}>
       <div className="modal-section"><h3>Identité</h3><div className="maintenance-grid hr-form-grid">
-        <label className="locked-field">Matricule auto<input name="employee_number" defaultValue={employee?.employee_number ?? 'EMP-000001'} readOnly /></label>
+        <label className="locked-field">Matricule auto<input name="employee_number" defaultValue={employeeCode(employee?.employee_number, employee?.id ?? 1)} readOnly /></label>
         <label>Prénom *<input name="first_name" defaultValue={employee?.first_name} required /></label>
         <label>Nom *<input name="last_name" defaultValue={employee?.last_name} required /></label>
         <label>Post-nom<input name="post_name" defaultValue={employee?.post_name} /></label>
@@ -838,7 +859,7 @@ function ContractModal({ employees, employeeId, onClose, onSubmit }: { employees
   return <Modal title="Créer contrat employé" onClose={onClose}>
     <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); if (selectedEmployee) { const form = new FormData(event.currentTarget); form.set('employee_id', String(selectedEmployee)); onSubmit(form, selectedEmployee); } }}>
       <div className="modal-section"><h3>Contrat</h3><div className="maintenance-grid hr-form-grid">
-        <label className="locked-field">N° contrat auto<input readOnly value="Automatique (CTR-000001)" /></label>
+        <label className="locked-field">N° contrat auto<input readOnly value="CTR-000001" /></label>
         <label>Employé *<SearchableSelect options={options} value={selectedEmployee} onChange={(value) => setSelectedEmployee(value ? Number(value) : null)} placeholder="Choisir employé" emptyMessage="Aucun employé" /></label>
         <label>Type contrat<select name="contract_type" defaultValue="CDD">{contractTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
         <label>Date début<input type="date" name="start_date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
@@ -1075,8 +1096,8 @@ function syncFileName(event: React.ChangeEvent<HTMLInputElement>, hiddenField: s
 function employeeOptions(rows: Employee[]): SearchableSelectOption<number>[] {
   return rows.map((row) => ({
     value: row.id,
-    label: `${row.employee_number ?? `EMP-${String(row.id).padStart(6, '0')}`} - ${employeeName(row)}`,
-    meta: [row.department, row.job_title].filter(Boolean).join(' - '),
+    label: `${employeeCode(row.employee_number, row.id)} - ${employeeName(row)}`,
+    meta: [`Service : ${row.department ?? '-'}`, `Fonction : ${row.job_title ?? '-'}`, row.phone ? `Telephone : ${row.phone}` : ''].filter(Boolean).join(' | '),
   }));
 }
 
@@ -1096,7 +1117,7 @@ function employeeWorkbook(detail: EmployeeDetail) {
 
 function exportEmployeeRow(row: Employee) {
   return {
-    matricule: row.employee_number ?? `EMP-${String(row.id).padStart(6, '0')}`,
+    matricule: employeeCode(row.employee_number, row.id),
     nom_complet: employeeName(row),
     telephone: row.phone ?? '',
     service: row.department ?? '',
@@ -1106,6 +1127,13 @@ function exportEmployeeRow(row: Employee) {
     devise: 'USD',
     statut: employeeStatusLabel(row.status),
   };
+}
+
+function employeeCode(value: string | undefined, id: number) {
+  const normalized = String(value ?? '').trim();
+  const match = normalized.match(/(EMP-\d{6})/i);
+  if (match) return match[1].toUpperCase();
+  return `EMP-${String(id).padStart(6, '0')}`;
 }
 
 function exportContractRow(row: EmployeeContract) {

@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Post, Req, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { IsString } from 'class-validator';
 import { createHmac } from 'crypto';
 import { DatabaseService } from '../database/database.service';
@@ -16,7 +17,18 @@ class LoginDto {
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly db: DatabaseService) {}
+  private readonly jwtSecret: string;
+
+  constructor(
+    private readonly db: DatabaseService,
+    config: ConfigService,
+  ) {
+    const jwtSecret = config.get<string>('JWT_SECRET');
+    if (!jwtSecret) {
+      throw new Error('Missing required environment variable JWT_SECRET');
+    }
+    this.jwtSecret = jwtSecret;
+  }
 
   @Post('login')
   async login(@Body() dto: LoginDto) {
@@ -37,7 +49,7 @@ export class AuthController {
       permissions: ROLE_PERMISSIONS[user.role] ?? [],
     };
     const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-    const signature = createHmac('sha256', process.env.JWT_SECRET ?? 'local-demo-secret').update(body).digest('base64url');
+    const signature = createHmac('sha256', this.jwtSecret).update(body).digest('base64url');
     return {
       token: `${body}.${signature}`,
       user: {

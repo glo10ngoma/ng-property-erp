@@ -1,6 +1,29 @@
-import { Activity, Building2, Boxes, BriefcaseBusiness, ChevronDown, ChevronRight, CreditCard, FileText, FolderOpen, Gauge, Home, Layers, MessageSquare, ReceiptText, ScrollText, Settings, ShieldCheck, Users, WalletCards, Workflow, Wrench, type LucideIcon } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import {
+  Activity,
+  Boxes,
+  BriefcaseBusiness,
+  Building2,
+  ChevronDown,
+  ChevronRight,
+  CreditCard,
+  FileText,
+  FolderOpen,
+  Gauge,
+  Home,
+  Layers,
+  MessageSquare,
+  ReceiptText,
+  ScrollText,
+  Settings,
+  ShieldCheck,
+  Users,
+  WalletCards,
+  Workflow,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { appConfig } from '../../app/config';
 import { useAuth } from '../auth/AuthContext';
 
@@ -17,6 +40,8 @@ type NavGroup = {
   icon: LucideIcon;
   items: NavItem[];
 };
+
+const STORAGE_KEY = 'ng-property-erp.sidebar.open-groups';
 
 const navGroups: NavGroup[] = [
   {
@@ -83,9 +108,22 @@ const navGroups: NavGroup[] = [
   },
 ];
 
+const defaultOpenGroups = ['Tableau de bord', 'Gestion immobilière', 'Finance', 'Ressources humaines'];
+
 export function Sidebar() {
   const { can } = useAuth();
-  const [openGroups, setOpenGroups] = useState<string[]>(['Tableau de bord', 'Gestion immobilière', 'Finance', 'Ressources humaines']);
+  const location = useLocation();
+  const [openGroups, setOpenGroups] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return defaultOpenGroups;
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) return defaultOpenGroups;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : defaultOpenGroups;
+    } catch {
+      return defaultOpenGroups;
+    }
+  });
 
   const visibleGroups = useMemo(
     () =>
@@ -97,6 +135,19 @@ export function Sidebar() {
         .filter((group) => group.items.length > 0),
     [can],
   );
+
+  useEffect(() => {
+    const activeGroup = visibleGroups.find((group) =>
+      group.items.some((item) => item.to && isRouteActive(location.pathname, item.to)),
+    );
+    if (!activeGroup) return;
+    setOpenGroups((current) => (current.includes(activeGroup.label) ? current : [...current, activeGroup.label]));
+  }, [location.pathname, visibleGroups]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(openGroups));
+  }, [openGroups]);
 
   return (
     <aside className="sidebar">
@@ -116,7 +167,11 @@ export function Sidebar() {
               <button
                 type="button"
                 className="sidebar-group-toggle"
-                onClick={() => setOpenGroups((current) => current.includes(group.label) ? current.filter((item) => item !== group.label) : [...current, group.label])}
+                onClick={() =>
+                  setOpenGroups((current) =>
+                    current.includes(group.label) ? current.filter((item) => item !== group.label) : [...current, group.label],
+                  )
+                }
               >
                 <span><Icon size={16} />{group.label}</span>
                 {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
@@ -127,7 +182,7 @@ export function Sidebar() {
                     const ItemIcon = item.icon;
                     if (item.to) {
                       return (
-                        <NavLink key={item.to} to={item.to} end={item.to === '/dashboard' || item.to === '/stock' || item.to === '/personnel/employees'} className="sidebar-subitem">
+                        <NavLink key={item.to} to={item.to} end={isEndRoute(item.to)} className="sidebar-subitem">
                           <ItemIcon size={16} />
                           {item.label}
                         </NavLink>
@@ -149,4 +204,12 @@ export function Sidebar() {
       </nav>
     </aside>
   );
+}
+
+function isEndRoute(route: string) {
+  return route === '/dashboard' || route === '/stock' || route === '/personnel/employees';
+}
+
+function isRouteActive(pathname: string, route: string) {
+  return pathname === route || pathname.startsWith(`${route}/`);
 }

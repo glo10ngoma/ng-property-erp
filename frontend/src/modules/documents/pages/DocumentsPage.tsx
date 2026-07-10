@@ -1,9 +1,19 @@
 import { Download, FileText } from 'lucide-react';
 import { useMemo } from 'react';
-import { PageHeader, EmptyState } from '../../../components';
 import { shortDate } from '../../../api';
-import { useApiList } from '../../../hooks';
+import { EmptyState, PageHeader } from '../../../components';
 import { openOrDownloadDocument } from '../../../core/utils/documentActions';
+import { useApiList } from '../../../hooks';
+
+type DocumentRow = {
+  id: string;
+  module: string;
+  type: string;
+  name: string;
+  fileUrl: string;
+  context: string;
+  date: string;
+};
 
 export function DocumentsPage() {
   const leases = useApiList<Record<string, unknown>>('/leases');
@@ -11,30 +21,32 @@ export function DocumentsPage() {
   const employees = useApiList<Record<string, unknown>>('/employees');
   const items = useApiList<Record<string, unknown>>('/stock/items');
 
-  const rows = useMemo(() => {
-    const leaseRows = leases.data
+  const rows = useMemo<DocumentRow[]>(() => {
+    const leaseRows: DocumentRow[] = leases.data
       .filter((row) => row.contract_file_name)
       .map((row) => ({
         id: `lease-${row.id}`,
         module: 'Baux',
         type: 'Contrat',
         name: String(row.contract_file_name),
+        fileUrl: String(row.contract_file_url ?? ''),
         context: `Bail ${row.contract_number ?? `#${row.id}`}`,
         date: row.start_date ? shortDate(String(row.start_date)) : '-',
       }));
 
-    const invoiceRows = invoices.data
+    const invoiceRows: DocumentRow[] = invoices.data
       .filter((row) => row.attachment_file_name)
       .map((row) => ({
         id: `invoice-${row.id}`,
         module: 'Factures',
         type: 'Pièce jointe',
         name: String(row.attachment_file_name),
+        fileUrl: String(row.attachment_file_url ?? ''),
         context: `Facture ${row.invoice_number ?? `#${row.id}`}`,
         date: row.issue_date ? shortDate(String(row.issue_date)) : '-',
       }));
 
-    const employeeRows = employees.data.flatMap((row) => {
+    const employeeRows: DocumentRow[] = employees.data.flatMap((row) => {
       const employeeName = [row.first_name, row.last_name].filter(Boolean).join(' ') || `#${row.id}`;
       return [
         row.identity_attachment_name ? { key: 'identity', type: "Pièce d'identité", name: String(row.identity_attachment_name) } : null,
@@ -47,18 +59,20 @@ export function DocumentsPage() {
           module: 'Personnel',
           type: doc!.type,
           name: doc!.name,
+          fileUrl: '',
           context: `Employé ${employeeName}`,
           date: row.hire_date ? shortDate(String(row.hire_date)) : '-',
         }));
     });
 
-    const stockRows = items.data
+    const stockRows: DocumentRow[] = items.data
       .filter((row) => row.attachment_file_name)
       .map((row) => ({
         id: `stock-${row.id}`,
         module: 'Stock',
         type: 'Pièce jointe',
         name: String(row.attachment_file_name),
+        fileUrl: String(row.attachment_file_url ?? ''),
         context: `Article ${row.name ?? `#${row.id}`}`,
         date: '-',
       }));
@@ -92,7 +106,13 @@ export function DocumentsPage() {
                   <td>{row.context}</td>
                   <td>{row.date}</td>
                   <td className="actions actions-compact">
-                    <button type="button" className="icon-btn" title="Télécharger" onClick={() => openOrDownloadDocument({ fileName: row.name, title: row.type, context: row.context })}>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title={row.fileUrl ? 'Ouvrir / télécharger' : 'Document indisponible'}
+                      disabled={!row.fileUrl}
+                      onClick={() => openOrDownloadDocument({ fileName: row.name, fileUrl: row.fileUrl, title: row.type, context: row.context })}
+                    >
                       <Download size={16} />
                     </button>
                   </td>
@@ -105,7 +125,7 @@ export function DocumentsPage() {
       </div>
       {!!rows.length && (
         <div className="compact-empty" style={{ marginTop: 12 }}>
-          <FileText size={16} /> Les documents enregistrés uniquement par nom de fichier restent téléchargeables sous forme de référence locale.
+          <FileText size={16} /> Seuls les documents réellement téléversés avec une URL peuvent être ouverts ou téléchargés.
         </div>
       )}
     </section>

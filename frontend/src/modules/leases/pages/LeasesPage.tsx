@@ -1,9 +1,9 @@
 import { Download, Eye, FileDown, FilePlus, Pencil, Receipt, ScrollText, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, includesText, shortDate, statusLabel } from '../../../api';
 import { useAuth } from '../../../auth';
-import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage } from '../../../components';
+import { EmptyState, Modal, PageHeader, SearchableSelect, StatusBadge, SuccessMessage, TenantSearchSelect } from '../../../components';
 import { useApiList } from '../../../hooks';
 import { openOrDownloadDocument } from '../../../core/utils/documentActions';
 
@@ -19,14 +19,24 @@ type Lease = {
   monthly_rent: number;
   rental_guarantee_amount: number;
   rental_guarantee_paid: number;
+  rental_guarantee_payment_date?: string;
   rental_guarantee_status: string;
   guarantee_amount?: number;
   guarantee_paid?: number;
   guarantee_status?: string;
   contract_file_name?: string;
   contract_file_url?: string;
+  notes?: string;
   status: string;
 };
+
+type LeaseDetail = Lease & {
+  guarantee?: { amount?: number; paid_amount?: number; payment_date?: string; status?: string } | null;
+};
+
+type Building = { id: number; name: string; city?: string; building_type?: string };
+type Unit = { id: number; building_id: number; building_name: string; number: string; monthly_rent: number; status: string };
+type Tenant = { id: number; first_name: string; last_name: string; phone?: string; building_name?: string; unit_number?: string; company_name?: string; tenant_type?: string };
 
 const emptyFilters = { building: '', unit: '', tenant: '', status: '', guarantee: '', start: '', end: '', contract: '', expiring: '' };
 
@@ -34,9 +44,12 @@ export function LeasesPage() {
   const { can } = useAuth();
   const navigate = useNavigate();
   const { data, reload } = useApiList<Lease>('/leases');
+  const buildings = useApiList<Building>('/buildings');
+  const units = useApiList<Unit>('/units');
+  const tenants = useApiList<Tenant>('/tenants');
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState(emptyFilters);
-  const [editing, setEditing] = useState<Lease | null>(null);
+  const [editing, setEditing] = useState<LeaseDetail | null>(null);
   const [success, setSuccess] = useState('');
 
   const buildingOptions = useMemo(() => Array.from(new Set(data.map((lease) => lease.building_name).filter(Boolean))).sort(), [data]);
@@ -62,28 +75,22 @@ export function LeasesPage() {
     missingContracts: data.filter((lease) => !lease.contract_file_name).length,
   };
 
-  async function saveEdit(form: FormData) {
-    if (!editing) return;
-    await api.put(`/leases/${editing.id}`, {
-      start_date: form.get('start_date'),
-      end_date: form.get('end_date') || null,
-      monthly_rent: Number(form.get('monthly_rent')),
-      rental_guarantee_amount: Number(form.get('rental_guarantee_amount')),
-      rental_guarantee_paid: Number(form.get('rental_guarantee_paid')),
-      rental_guarantee_status: form.get('rental_guarantee_status'),
-      contract_file_name: form.get('contract_file_name') || null,
-      status: form.get('status') || 'DRAFT',
+  async function openEdit(leaseId: number) {
+    const response = await api.get<LeaseDetail>(`/leases/${leaseId}`);
+    setEditing({
+      ...response.data,
+      rental_guarantee_amount: Number(response.data.guarantee?.amount ?? response.data.rental_guarantee_amount ?? 0),
+      rental_guarantee_paid: Number(response.data.guarantee?.paid_amount ?? response.data.rental_guarantee_paid ?? 0),
+      rental_guarantee_payment_date: response.data.guarantee?.payment_date ?? response.data.rental_guarantee_payment_date,
+      rental_guarantee_status: String(response.data.guarantee?.status ?? response.data.rental_guarantee_status ?? 'NOT_PAID'),
     });
-    setSuccess('Bail modifie avec succes.');
-    setEditing(null);
-    reload();
   }
 
   async function terminate(id: number) {
     if (!window.confirm('Resilier ce bail ?')) return;
     await api.post(`/leases/${id}/terminate`, { reason: 'Resiliation depuis interface' });
     setSuccess('Bail resilie avec succes.');
-    reload();
+    await reload();
   }
 
   async function invoice(id: number) {
@@ -129,7 +136,7 @@ export function LeasesPage() {
         <select value={filters.expiring} onChange={(event) => setFilters({ ...filters, expiring: event.target.value })}><option value="">Echeance</option><option value="SOON">Expire bientot</option></select>
         <div className="filter-actions">
           <button type="button" className="secondary" onClick={() => { setQuery(''); setFilters(emptyFilters); }}>Reinitialiser</button>
-          <button type="button" className="secondary" onClick={() => exportCsv('baux.csv', filtered)}><Download size={16} />CSV</button>
+          <button type="button" className="secondary" onClick={() => exportCsv('baux.csv', filtered.map(leaseExportRow))}><Download size={16} />CSV</button>
           <button type="button" className="secondary" onClick={exportExcel}><FileDown size={16} />Exporter</button>
         </div>
       </div>
@@ -158,9 +165,9 @@ export function LeasesPage() {
                 <td><StatusBadge value={leaseDeadlineStatus(lease)} /></td>
                 <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}>
                   <button className="icon-btn" title="Voir" onClick={() => navigate(`/leases/${lease.id}`)}><Eye size={16} /></button>
-                  {can('documents.upload') && <button className="icon-btn" title="Modifier" onClick={() => setEditing(lease)}><Pencil size={16} /></button>}
-                  {can('documents.upload') && lease.status === 'ACTIVE' && <button className="icon-btn danger" title="Resilier" onClick={() => terminate(lease.id)}><Trash2 size={16} /></button>}
-                  {can('invoices.create') && <button className="icon-btn" title="Facturer" onClick={() => invoice(lease.id)}><Receipt size={16} /></button>}
+                  {can('documents.upload') && <button className="icon-btn" title="Modifier" onClick={() => void openEdit(lease.id)}><Pencil size={16} /></button>}
+                  {can('documents.upload') && lease.status === 'ACTIVE' && <button className="icon-btn danger" title="Resilier" onClick={() => void terminate(lease.id)}><Trash2 size={16} /></button>}
+                  {can('invoices.create') && <button className="icon-btn" title="Facturer" onClick={() => void invoice(lease.id)}><Receipt size={16} /></button>}
                   {lease.contract_file_name && <button className="icon-btn" title="Telecharger contrat" onClick={() => downloadContract(lease)}><ScrollText size={16} /></button>}
                 </td>
               </tr>
@@ -171,21 +178,195 @@ export function LeasesPage() {
       </div>
 
       {editing && (
-        <Modal title="Modifier bail" onClose={() => setEditing(null)}>
-          <form className="form-grid" onSubmit={(event) => { event.preventDefault(); saveEdit(new FormData(event.currentTarget)); }}>
-            <input name="start_date" type="date" required defaultValue={editing.start_date?.slice(0, 10)} />
-            <input name="end_date" type="date" defaultValue={editing.end_date?.slice(0, 10)} />
-            <input name="monthly_rent" type="number" placeholder="Loyer mensuel" required defaultValue={editing.monthly_rent} />
-            <input name="rental_guarantee_amount" type="number" placeholder="Garantie locative" defaultValue={guaranteeAmount(editing)} />
-            <input name="rental_guarantee_paid" type="number" placeholder="Garantie payee" defaultValue={guaranteePaid(editing)} />
-            <select name="rental_guarantee_status" defaultValue={guaranteeStatus(editing)}><option value="NOT_PAID">Non payee</option><option value="PARTIAL">Paiement partiel</option><option value="PAID">Payee</option></select>
-            <input name="contract_file_name" placeholder="Nom document contrat" defaultValue={editing.contract_file_name ?? ''} />
-            <select name="status" defaultValue={editing.status ?? 'DRAFT'}><option value="DRAFT">Brouillon</option><option value="ACTIVE">Actif</option><option value="TERMINATED">Resilie</option></select>
-            <button>Enregistrer</button>
-          </form>
-        </Modal>
+        <LeaseEditModal
+          lease={editing}
+          buildings={buildings.data}
+          units={units.data}
+          tenants={tenants.data}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null);
+            setSuccess('Bail modifie avec succes.');
+            await reload();
+          }}
+        />
       )}
     </section>
+  );
+}
+
+function LeaseEditModal({
+  lease,
+  buildings,
+  units,
+  tenants,
+  onClose,
+  onSaved,
+}: {
+  lease: LeaseDetail;
+  buildings: Building[];
+  units: Unit[];
+  tenants: Tenant[];
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [buildingId, setBuildingId] = useState('');
+  const [unitId, setUnitId] = useState(String(lease.unit_id));
+  const [tenantId, setTenantId] = useState<number | null>(lease.tenant_id);
+  const [startDate, setStartDate] = useState(lease.start_date?.slice(0, 10) ?? '');
+  const [endDate, setEndDate] = useState(lease.end_date?.slice(0, 10) ?? '');
+  const [durationMonths, setDurationMonths] = useState(leaseDurationNumber(lease));
+  const [rent, setRent] = useState(Number(lease.monthly_rent ?? 0));
+  const [guaranteeAmountValue, setGuaranteeAmountValue] = useState(String(guaranteeAmount(lease)));
+  const [guaranteePaidValue, setGuaranteePaidValue] = useState(String(guaranteePaid(lease)));
+  const [guaranteeStatusValue, setGuaranteeStatusValue] = useState(guaranteeStatus(lease));
+  const [guaranteePaymentDate, setGuaranteePaymentDate] = useState(lease.rental_guarantee_payment_date?.slice(0, 10) ?? '');
+  const [contractName, setContractName] = useState(lease.contract_file_name ?? '');
+  const [notes, setNotes] = useState(lease.notes ?? '');
+  const [leaseStatus, setLeaseStatus] = useState(lease.status ?? 'DRAFT');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const building = buildings.find((entry) => entry.name === lease.building_name);
+    if (building) setBuildingId(String(building.id));
+  }, [buildings, lease.building_name]);
+
+  const availableUnits = useMemo(
+    () => units.filter((unit) => !buildingId || Number(unit.building_id) === Number(buildingId)),
+    [units, buildingId],
+  );
+  const selectedUnit = availableUnits.find((unit) => Number(unit.id) === Number(unitId));
+  const buildingOptions = buildings.map((building) => ({
+    value: building.id,
+    label: building.name,
+    meta: [building.city, building.building_type].filter(Boolean).join(' - '),
+  }));
+  const unitOptions = availableUnits.map((unit) => ({
+    value: unit.id,
+    label: unit.number,
+    meta: `${unit.building_name} - ${amount(unit.monthly_rent)} USD - ${statusLabel(unit.status)}`,
+  }));
+
+  useEffect(() => {
+    if (selectedUnit) {
+      setRent(Number(selectedUnit.monthly_rent ?? 0));
+    }
+  }, [selectedUnit?.id]);
+
+  useEffect(() => {
+    const amountValue = Number(guaranteeAmountValue || 0);
+    const paidValue = Number(guaranteePaidValue || 0);
+    if (paidValue <= 0) setGuaranteeStatusValue('NOT_PAID');
+    else if (paidValue >= amountValue && amountValue > 0) setGuaranteeStatusValue('PAID');
+    else setGuaranteeStatusValue('PARTIAL');
+  }, [guaranteeAmountValue, guaranteePaidValue]);
+
+  function updateStartDate(value: string) {
+    setStartDate(value);
+    if (value && durationMonths) setEndDate(addMonths(value, Number(durationMonths)));
+    else if (value && endDate) setDurationMonths(String(monthDiff(value, endDate)));
+  }
+
+  function updateEndDate(value: string) {
+    setEndDate(value);
+    if (startDate && value) setDurationMonths(String(monthDiff(startDate, value)));
+  }
+
+  function updateDuration(value: string) {
+    setDurationMonths(value);
+    if (startDate && Number(value) > 0) setEndDate(addMonths(startDate, Number(value)));
+  }
+
+  async function submit() {
+    if (!tenantId) return setError('Selectionnez un locataire.');
+    if (!unitId) return setError('Selectionnez une unite.');
+    setSubmitting(true);
+    setError('');
+    try {
+      await api.put(`/leases/${lease.id}`, {
+        tenant_id: tenantId,
+        unit_id: Number(unitId),
+        start_date: startDate,
+        end_date: endDate || null,
+        monthly_rent: rent,
+        rental_guarantee_amount: Number(guaranteeAmountValue ?? 0),
+        rental_guarantee_paid: Number(guaranteePaidValue ?? 0),
+        rental_guarantee_payment_date: guaranteePaymentDate || null,
+        rental_guarantee_status: guaranteeStatusValue,
+        contract_file_name: contractName || null,
+        contract_file_url: lease.contract_file_url ?? null,
+        status: leaseStatus,
+        notes: notes || null,
+      });
+      await onSaved();
+    } catch (err: any) {
+      const message = err?.response?.data?.message;
+      setError(Array.isArray(message) ? message.join(' | ') : message || 'Impossible de modifier le bail.');
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <Modal title="Modifier bail" onClose={onClose}>
+      <form className="lease-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        <div className="detail-section report-section">
+          <h4>Parties concernees</h4>
+          <div className="lease-section-grid">
+            <label className="lease-field-wide">Immeuble<SearchableSelect options={buildingOptions} value={buildingId ? Number(buildingId) : null} onChange={(value) => { setBuildingId(value ? String(value) : ''); setUnitId(''); }} placeholder="Rechercher un immeuble" emptyMessage="Aucun immeuble trouve" /></label>
+            <label className="lease-field-wide">Unite / Appartement<SearchableSelect options={unitOptions} value={unitId ? Number(unitId) : null} onChange={(value) => setUnitId(value ? String(value) : '')} placeholder="Rechercher une unite" emptyMessage="Aucune unite trouvee" /></label>
+            <label className="lease-field-wide">Locataire<TenantSearchSelect tenants={tenants} value={tenantId} onChange={setTenantId} required /></label>
+          </div>
+        </div>
+
+        <div className="detail-section report-section">
+          <h4>Informations du bail</h4>
+          <div className="lease-section-grid">
+            <label>Date debut<input type="date" value={startDate} onChange={(event) => updateStartDate(event.target.value)} required /></label>
+            <label>Date fin<input type="date" value={endDate} onChange={(event) => updateEndDate(event.target.value)} /></label>
+            <label>Duree du bail (mois)<input type="number" min="1" value={durationMonths} onChange={(event) => updateDuration(event.target.value)} placeholder="12" /></label>
+            <label>Jour limite paiement<input type="number" min="1" max="31" defaultValue="5" /></label>
+            <label>Loyer<input type="number" value={rent} onChange={(event) => setRent(Number(event.target.value))} required /></label>
+            <label>Devise<input className="locked-field" value="USD" readOnly /></label>
+            <label>Statut<select value={leaseStatus} onChange={(event) => setLeaseStatus(event.target.value)}><option value="DRAFT">Brouillon</option><option value="ACTIVE">Actif</option><option value="TERMINATED">Resilie</option></select></label>
+          </div>
+        </div>
+
+        <div className="detail-section report-section">
+          <h4>Garantie locative</h4>
+          <div className="lease-section-grid">
+            <label>Montant garantie<input type="number" value={guaranteeAmountValue} onChange={(event) => setGuaranteeAmountValue(event.target.value)} /></label>
+            <label>Devise<input className="locked-field" value="USD" readOnly /></label>
+            <label>Montant paye<input type="number" value={guaranteePaidValue} onChange={(event) => setGuaranteePaidValue(event.target.value)} /></label>
+            <label>Statut garantie<select value={guaranteeStatusValue} onChange={(event) => setGuaranteeStatusValue(event.target.value)}><option value="NOT_PAID">Non payee</option><option value="PARTIAL">Partielle</option><option value="PAID">Payee</option></select></label>
+            <label>Date paiement<input type="date" value={guaranteePaymentDate} onChange={(event) => setGuaranteePaymentDate(event.target.value)} /></label>
+          </div>
+        </div>
+
+        <div className="detail-section report-section">
+          <h4>Contrat scanne</h4>
+          <div className="lease-section-grid">
+            <label className="lease-field-wide">Piece jointe contrat<input type="file" accept="application/pdf,image/*" onChange={(event) => setContractName(event.target.files?.[0]?.name ?? lease.contract_file_name ?? '')} /></label>
+            <label className="lease-field-wide">Nom du fichier<input className="locked-field" value={contractName || 'Aucun fichier'} readOnly /></label>
+          </div>
+        </div>
+
+        <div className="detail-section report-section">
+          <h4>Observations</h4>
+          <div className="lease-section-grid">
+            <label className="lease-field-full">Notes<textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observations internes" /></label>
+          </div>
+        </div>
+
+        {error && <div className="error-banner">{error}</div>}
+        <div className="actions">
+          <button disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer le bail'}</button>
+          <button type="button" className="secondary" onClick={onClose}>Annuler</button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -193,16 +374,19 @@ function leaseReference(lease: Lease) {
   return `B-${String(lease.id).padStart(4, '0')}`;
 }
 
-function guaranteeStatus(lease: Lease) {
-  return String(lease.guarantee_status ?? lease.rental_guarantee_status ?? 'NOT_PAID');
+function guaranteeStatus(lease: Lease | LeaseDetail) {
+  const detailGuarantee = 'guarantee' in lease ? lease.guarantee : undefined;
+  return String(lease.guarantee_status ?? lease.rental_guarantee_status ?? detailGuarantee?.status ?? 'NOT_PAID');
 }
 
-function guaranteeAmount(lease: Lease) {
-  return Number(lease.guarantee_amount ?? lease.rental_guarantee_amount ?? 0);
+function guaranteeAmount(lease: Lease | LeaseDetail) {
+  const detailGuarantee = 'guarantee' in lease ? lease.guarantee : undefined;
+  return Number(lease.guarantee_amount ?? lease.rental_guarantee_amount ?? detailGuarantee?.amount ?? 0);
 }
 
-function guaranteePaid(lease: Lease) {
-  return Number(lease.guarantee_paid ?? lease.rental_guarantee_paid ?? 0);
+function guaranteePaid(lease: Lease | LeaseDetail) {
+  const detailGuarantee = 'guarantee' in lease ? lease.guarantee : undefined;
+  return Number(lease.guarantee_paid ?? lease.rental_guarantee_paid ?? detailGuarantee?.paid_amount ?? 0);
 }
 
 function amount(value: unknown) {
@@ -232,6 +416,13 @@ function leaseDurationLabel(lease: Lease) {
   const end = new Date(lease.end_date);
   const months = Math.max(0, (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth());
   return `${months} mois`;
+}
+
+function leaseDurationNumber(lease: Lease) {
+  if (!lease.start_date || !lease.end_date) return '';
+  const start = new Date(lease.start_date);
+  const end = new Date(lease.end_date);
+  return String(Math.max(0, (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth()));
 }
 
 function daysUntil(value: string) {
@@ -269,4 +460,17 @@ function downloadContract(lease: Lease) {
     title: 'Contrat de bail',
     context: `Bail ${leaseReference(lease)}`,
   });
+}
+
+function addMonths(dateValue: string, months: number) {
+  const date = new Date(dateValue);
+  date.setMonth(date.getMonth() + months);
+  return date.toISOString().slice(0, 10);
+}
+
+function monthDiff(startValue: string, endValue: string) {
+  const start = new Date(startValue);
+  const end = new Date(endValue);
+  const diff = (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth();
+  return Math.max(diff, 0);
 }

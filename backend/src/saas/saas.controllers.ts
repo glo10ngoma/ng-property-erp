@@ -502,9 +502,19 @@ export class StockController {
     return this.service.updateStockItem(id, body);
   }
 
+  @Post('items/:id/deactivate')
+  deactivateItem(@Param('id', ParseIntPipe) id: number) {
+    return this.service.deactivateStockItem(id);
+  }
+
+  @Post('items/:id/reactivate')
+  reactivateItem(@Param('id', ParseIntPipe) id: number) {
+    return this.service.reactivateStockItem(id);
+  }
+
   @Delete('items/:id')
   deleteItem(@Param('id', ParseIntPipe) id: number) {
-    return this.service.deactivateStockItem(id);
+    return this.service.deleteStockItem(id);
   }
 
   @Get('movements')

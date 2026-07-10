@@ -36,6 +36,7 @@ type Invoice = {
   public_notes?: string;
   internal_notes?: string;
   attachment_file_name?: string;
+  attachment_file_url?: string;
   items: { id: number; description: string; amount: number }[];
   payments: { id: number; payment_date: string; amount: number; payment_method: string; receipt_number?: string; reference?: string; notes?: string; created_by?: number }[];
   reminders: { id: number; channel: string; message: string; status: string; reminded_at: string; reminded_by?: number }[];
@@ -409,7 +410,7 @@ function reminderSchedule(invoice: Invoice) {
 function invoiceDocuments(invoice: Invoice) {
   return [
     { name: 'Facture PDF', exists: true, detail: `Facture_${invoice.invoice_number}.pdf`, fileName: `Facture_${invoice.invoice_number}.pdf`, fileUrl: '' },
-    { name: 'Piece jointe', exists: Boolean(invoice.attachment_file_name), detail: invoice.attachment_file_name ?? 'Non disponible', fileName: invoice.attachment_file_name ?? '', fileUrl: '' },
+    { name: 'Piece jointe', exists: Boolean(invoice.attachment_file_name && invoice.attachment_file_url), detail: invoice.attachment_file_name ?? 'Non disponible', fileName: invoice.attachment_file_name ?? '', fileUrl: invoice.attachment_file_url ?? '' },
     { name: 'Contrat lie', exists: Boolean(invoice.lease_id), detail: invoice.lease_id ? `B-${invoice.lease_id}` : 'Non disponible', fileName: invoice.lease_id ? `B-${invoice.lease_id}` : '', fileUrl: '' },
     { name: 'Documents bail', exists: Boolean(invoice.lease_id), detail: invoice.lease_id ? 'Voir bail lie' : 'Non disponible', fileName: invoice.lease_id ? `Documents_bail_B-${invoice.lease_id}` : '', fileUrl: '' },
   ];

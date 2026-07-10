@@ -49,25 +49,25 @@ export function StockPurchasesPage() {
   async function createPurchase(payload: Record<string, unknown>) {
     await api.post('/stock/purchases', payload);
     setCreateOpen(false);
-    setSuccess('Achat fournisseur enregistré.');
-    purchases.reload();
+    setSuccess('Achat fournisseur enregistre.');
+    await purchases.reload();
   }
 
   async function receivePurchase(payload: Record<string, unknown>) {
     if (!receiveTarget) return;
     await api.post(`/stock/purchases/${receiveTarget.id}/receive`, payload);
     setReceiveTarget(null);
-    setSuccess('Réception enregistrée.');
-    purchases.reload();
-    items.reload();
+    setSuccess('Reception enregistree.');
+    await purchases.reload();
+    await items.reload();
   }
 
   async function registerPayment(payload: Record<string, unknown>) {
     if (!paymentTarget) return;
     await api.post(`/stock/purchases/${paymentTarget.id}/pay`, payload);
     setPaymentTarget(null);
-    setSuccess('Paiement fournisseur enregistré.');
-    purchases.reload();
+    setSuccess('Paiement fournisseur enregistre.');
+    await purchases.reload();
   }
 
   function exportWorkbook() {
@@ -89,22 +89,22 @@ export function StockPurchasesPage() {
       <Kpi label="Montant achats" value={`${money(totalAmount)} USD`} />
       <Kpi label="Montant paye" value={`${money(totalPaid)} USD`} />
       <Kpi label="Dette fournisseurs" value={`${money(totalOutstanding)} USD`} />
-      <Kpi label="Non réceptionnés" value={filtered.filter((purchase) => purchase.reception_status !== 'RECEIVED').length} />
+      <Kpi label="Non receptionnes" value={filtered.filter((purchase) => purchase.reception_status !== 'RECEIVED').length} />
     </div>
     <div className="maintenance-filter-bar stock-filter-bar stock-purchase-filter-bar">
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Recherche" />
       <input type="month" value={period} onChange={(event) => setPeriod(event.target.value)} title="Periode" />
       <select value={supplier} onChange={(event) => setSupplier(event.target.value)}><option value="">Fournisseur</option>{supplierOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-      <select value={receptionStatus} onChange={(event) => setReceptionStatus(event.target.value)}><option value="">Réception</option><option value="PENDING">En attente</option><option value="PARTIAL">Partielle</option><option value="RECEIVED">Réceptionnée</option></select>
-      <select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)}><option value="">Paiement</option><option value="UNPAID">Non payé</option><option value="PARTIAL">Partiel</option><option value="PAID">Payé</option></select>
-      <button className="secondary" onClick={() => { setQuery(''); setPeriod(''); setSupplier(''); setReceptionStatus(''); setPaymentStatus(''); }}><RotateCcw size={15} />Réinitialiser</button>
+      <select value={receptionStatus} onChange={(event) => setReceptionStatus(event.target.value)}><option value="">Reception</option><option value="PENDING">En attente</option><option value="PARTIAL">Partielle</option><option value="RECEIVED">Receptionnee</option></select>
+      <select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)}><option value="">Paiement</option><option value="UNPAID">Non paye</option><option value="PARTIAL">Partiel</option><option value="PAID">Paye</option></select>
+      <button className="secondary" onClick={() => { setQuery(''); setPeriod(''); setSupplier(''); setReceptionStatus(''); setPaymentStatus(''); }}><RotateCcw size={15} />Reinitialiser</button>
       <button className="secondary" onClick={() => exportCsv('achats-fournisseurs.csv', filtered.map(exportPurchaseRow))}>CSV</button>
       <button className="secondary" onClick={exportWorkbook}><FileSpreadsheet size={15} />Excel</button>
     </div>
     <div className="table-wrap"><table>
-      <thead><tr><th>N° achat</th><th>Date</th><th>Fournisseur</th><th className="right">Montant</th><th className="right">Payé</th><th className="right">Reste</th><th>Statut achat</th><th>Statut réception</th><th>Statut paiement</th><th>Utilisateur</th><th>Actions</th></tr></thead>
+      <thead><tr><th>N° achat</th><th>Date</th><th>Fournisseur</th><th className="right">Montant</th><th className="right">Paye</th><th className="right">Reste</th><th>Statut achat</th><th>Statut reception</th><th>Statut paiement</th><th>Utilisateur</th><th>Actions</th></tr></thead>
       <tbody>{filtered.map((purchase) => <tr key={purchase.id} className="clickable-row" onClick={() => navigate(`/stock/purchases/${purchase.id}`)}>
-        <td><strong>{purchase.purchase_number}</strong></td>
+        <td><strong>{normalizeDisplayCode(purchase.purchase_number, 'PO', purchase.id, 6)}</strong></td>
         <td>{shortDate(purchase.purchase_date)}</td>
         <td>{purchase.supplier_name}</td>
         <td className="right">{money(purchase.total_amount)}</td>
@@ -121,21 +121,32 @@ export function StockPurchasesPage() {
         </td>
       </tr>)}</tbody>
     </table>{!filtered.length && <EmptyState message="Aucun achat fournisseur." />}</div>
-    {createOpen && <PurchaseCreateModal items={items.data.filter((item) => item.status === 'ACTIVE')} onClose={() => setCreateOpen(false)} onSubmit={createPurchase} />}
+    {createOpen && <PurchaseCreateModal purchases={purchases.data} items={items.data.filter((item) => item.status === 'ACTIVE')} onClose={() => setCreateOpen(false)} onSubmit={createPurchase} />}
     {receiveTarget && <PurchaseReceiveModal purchase={receiveTarget} onClose={() => setReceiveTarget(null)} onSubmit={receivePurchase} />}
     {paymentTarget && <PurchasePaymentModal purchase={paymentTarget} onClose={() => setPaymentTarget(null)} onSubmit={registerPayment} />}
   </section>;
 }
 
-export function PurchaseCreateModal({ items, onClose, onSubmit }: { items: StockItem[]; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
+export function PurchaseCreateModal({
+  purchases,
+  items,
+  onClose,
+  onSubmit,
+}: {
+  purchases: StockPurchase[];
+  items: StockItem[];
+  onClose: () => void;
+  onSubmit: (payload: Record<string, unknown>) => Promise<void>;
+}) {
   const [lines, setLines] = useState<DraftLine[]>([{ rowId: 1, stock_item_id: null, quantity: '1', unit_price: '0' }]);
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [paymentType, setPaymentType] = useState<'CASH' | 'PARTIAL' | 'DEFERRED'>('DEFERRED');
 
   const itemOptions = items.map((item) => ({
     value: item.id,
-    label: `${item.code ?? '-'} - ${item.name}`,
-    meta: `Stock: ${Number(item.current_quantity ?? 0)} | Coût moyen: ${money(Number(item.average_purchase_price ?? item.purchase_price ?? 0))} USD`,
+    label: `${normalizeDisplayCode(item.code, 'ART', item.id, 5)} - ${item.name}`,
+    meta: `Stock: ${Number(item.current_quantity ?? 0)} | Cout moyen: ${money(Number(item.average_purchase_price ?? item.purchase_price ?? 0))} USD`,
   }));
   const totals = lines.reduce((acc, line) => {
     const total = Number(line.quantity || 0) * Number(line.unit_price || 0);
@@ -144,6 +155,7 @@ export function PurchaseCreateModal({ items, onClose, onSubmit }: { items: Stock
 
   async function submit(form: FormData) {
     setError('');
+    setSubmitting(true);
     const payload = {
       purchase_date: String(form.get('purchase_date') ?? ''),
       supplier_name: String(form.get('supplier_name') ?? '').trim(),
@@ -160,25 +172,55 @@ export function PurchaseCreateModal({ items, onClose, onSubmit }: { items: Stock
         unit_price: Number(line.unit_price),
       })),
     };
-    if (!payload.supplier_name) return setError('Renseignez le fournisseur.');
-    if (!payload.lines.length) return setError('Ajoutez au moins un article.');
-    if (payload.lines.some((line) => !line.stock_item_id)) return setError('Chaque ligne doit contenir un article sélectionné.');
-    if (payload.lines.some((line) => line.quantity <= 0)) return setError('Chaque ligne doit contenir une quantité strictement positive.');
-    await onSubmit(payload);
+
+    if (!payload.supplier_name) {
+      setSubmitting(false);
+      return setError('Renseignez le fournisseur.');
+    }
+    if (!payload.lines.length) {
+      setSubmitting(false);
+      return setError('Ajoutez au moins un article.');
+    }
+    if (payload.lines.some((line) => !line.stock_item_id)) {
+      setSubmitting(false);
+      return setError('Chaque ligne doit contenir un article selectionne.');
+    }
+    if (payload.lines.some((line) => line.quantity <= 0)) {
+      setSubmitting(false);
+      return setError('Chaque ligne doit contenir une quantite strictement positive.');
+    }
+    if (payload.lines.some((line) => line.unit_price < 0)) {
+      setSubmitting(false);
+      return setError('Le cout unitaire doit etre superieur ou egal a 0.');
+    }
+    if (paymentType !== 'DEFERRED' && !payload.payment_method) {
+      setSubmitting(false);
+      return setError('Selectionnez un mode de paiement.');
+    }
+
+    try {
+      await onSubmit(payload);
+    } catch (err: any) {
+      const message = err?.response?.data?.message;
+      setError(Array.isArray(message) ? message.join(' | ') : message || "Impossible d'enregistrer l'achat fournisseur.");
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
   }
 
   return <Modal title="Nouvel achat fournisseur" onClose={onClose}>
     <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); void submit(new FormData(event.currentTarget)); }}>
       <div className="modal-section">
-        <h3>Informations générales</h3>
+        <h3>Informations generales</h3>
         <div className="form-grid stock-purchase-grid">
-          <label className="locked-field">N° achat<input value="Automatique (PO-000001)" readOnly /></label>
+          <label className="locked-field">N° achat<input value={previewNextPurchaseNumber(purchases)} readOnly /></label>
           <label>Date<input name="purchase_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
           <label>Fournisseur *<input name="supplier_name" required /></label>
-          <label>Référence fournisseur<input name="supplier_reference" /></label>
+          <label>Reference fournisseur<input name="supplier_reference" /></label>
           <label>Conditions de paiement<input name="payment_terms" /></label>
-          <label>Mode paiement<select name="payment_method" defaultValue="" disabled={paymentType === 'DEFERRED'} required={paymentType !== 'DEFERRED'}><option value="">Sélectionner</option><option value="CASH">Espèces</option><option value="BANK">Banque</option><option value="MOBILE_MONEY">Mobile Money</option><option value="OTHER">Autre</option></select></label>
-          <label>Paiement<select name="payment_type" value={paymentType} onChange={(event) => setPaymentType(event.target.value as 'CASH' | 'PARTIAL' | 'DEFERRED')}><option value="CASH">Comptant</option><option value="PARTIAL">Partiel</option><option value="DEFERRED">Différé</option></select></label>
+          <label>Mode paiement<select name="payment_method" defaultValue="" disabled={paymentType === 'DEFERRED'} required={paymentType !== 'DEFERRED'}><option value="">Selectionner</option><option value="CASH">Especes</option><option value="BANK">Banque</option><option value="MOBILE_MONEY">Mobile Money</option><option value="OTHER">Autre</option></select></label>
+          <label>Paiement<select name="payment_type" value={paymentType} onChange={(event) => setPaymentType(event.target.value as 'CASH' | 'PARTIAL' | 'DEFERRED')}><option value="CASH">Comptant</option><option value="PARTIAL">Partiel</option><option value="DEFERRED">Differe</option></select></label>
           <label className="wide-field">Observations<textarea name="observations" rows={3} /></label>
         </div>
       </div>
@@ -194,7 +236,7 @@ export function PurchaseCreateModal({ items, onClose, onSubmit }: { items: Stock
                   options={itemOptions}
                   value={line.stock_item_id}
                   onChange={(value) => setLines((current) => current.map((entry) => entry.rowId === line.rowId ? { ...entry, stock_item_id: value ? Number(value) : null, unit_price: value ? String(Number(items.find((item) => item.id === value)?.average_purchase_price ?? items.find((item) => item.id === value)?.purchase_price ?? 0)) : entry.unit_price } : entry))}
-                  placeholder="Sélectionner un article"
+                  placeholder="Selectionner un article"
                   emptyMessage="Aucun article"
                 />
               </td>
@@ -213,7 +255,7 @@ export function PurchaseCreateModal({ items, onClose, onSubmit }: { items: Stock
         </div>
         {error && <div className="error-banner">{error}</div>}
       </div>
-      <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose}>Annuler</button><button type="submit">Enregistrer</button></div>
+      <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose}>Annuler</button><button type="submit" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer'}</button></div>
     </form>
   </Modal>;
 }
@@ -234,8 +276,8 @@ export function PurchaseReceiveModal({ purchase, onClose, onSubmit }: { purchase
       stock_purchase_line_id: row.stock_purchase_line_id,
       quantity_received: Number(row.quantity_to_receive),
     }));
-    if (!lines.length) return setError('Aucune ligne de réception saisie.');
-    if (lines.some((line, index) => Number(line.quantity_received) > rows[index].remaining)) return setError('Une quantité reçue dépasse le reste à recevoir.');
+    if (!lines.length) return setError('Aucune ligne de reception saisie.');
+    if (lines.some((line, index) => Number(line.quantity_received) > rows[index].remaining)) return setError('Une quantite recue depasse le reste a recevoir.');
     await onSubmit({
       receipt_date: String(form.get('receipt_date') ?? ''),
       receiver_name: String(form.get('receiver_name') ?? ''),
@@ -248,11 +290,11 @@ export function PurchaseReceiveModal({ purchase, onClose, onSubmit }: { purchase
   return <Modal title={`Recevoir marchandises - ${purchase.purchase_number}`} onClose={onClose}>
     <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); void submit(new FormData(event.currentTarget)); }}>
       <div className="modal-section">
-        <h3>Réception</h3>
+        <h3>Reception</h3>
         <div className="form-grid stock-purchase-grid">
-          <label className="locked-field">N° réception<input value="Automatique (BR-000001)" readOnly /></label>
+          <label className="locked-field">N° reception<input value="BR-000001" readOnly /></label>
           <label>Date<input name="receipt_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
-          <label>Réceptionnaire<input name="receiver_name" /></label>
+          <label>Receptionnaire<input name="receiver_name" /></label>
           <label>Magasin<input name="store" defaultValue={purchase.store ?? ''} /></label>
           <label className="wide-field">Notes<textarea name="notes" rows={3} /></label>
         </div>
@@ -272,7 +314,7 @@ export function PurchaseReceiveModal({ purchase, onClose, onSubmit }: { purchase
         </div>
         {error && <div className="error-banner">{error}</div>}
       </div>
-      <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose}>Annuler</button><button type="submit">Valider la réception</button></div>
+      <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose}>Annuler</button><button type="submit">Valider la reception</button></div>
     </form>
   </Modal>;
 }
@@ -285,7 +327,7 @@ export function PurchasePaymentModal({ purchase, onClose, onSubmit }: { purchase
       const form = new FormData(event.currentTarget);
       const amount = Number(form.get('amount') ?? 0);
       if (amount <= 0 || amount > Number(purchase.outstanding_amount ?? 0)) {
-        setError(`Le montant doit être compris entre 0 et ${money(Number(purchase.outstanding_amount ?? 0))} USD.`);
+        setError(`Le montant doit etre compris entre 0 et ${money(Number(purchase.outstanding_amount ?? 0))} USD.`);
         return;
       }
       void onSubmit({
@@ -300,14 +342,14 @@ export function PurchasePaymentModal({ purchase, onClose, onSubmit }: { purchase
         <h3>Dette fournisseur</h3>
         <div className="mini-stats">
           <Kpi label="Montant achat" value={`${money(purchase.total_amount)} USD`} />
-          <Kpi label="Payé" value={`${money(purchase.paid_amount)} USD`} />
-          <Kpi label="Reste à payer" value={`${money(purchase.outstanding_amount)} USD`} />
+          <Kpi label="Paye" value={`${money(purchase.paid_amount)} USD`} />
+          <Kpi label="Reste a payer" value={`${money(purchase.outstanding_amount)} USD`} />
         </div>
         <div className="form-grid stock-purchase-grid">
           <label>Date<input name="payment_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
           <label>Montant *<input name="amount" type="number" min="0" step="0.01" defaultValue={purchase.outstanding_amount} required /></label>
-          <label>Mode paiement<select name="payment_method" defaultValue={purchase.payment_method ?? 'BANK'}><option value="CASH">Espèces</option><option value="BANK">Banque</option><option value="MOBILE_MONEY">Mobile Money</option><option value="OTHER">Autre</option></select></label>
-          <label>Référence<input name="reference" defaultValue={purchase.purchase_number} /></label>
+          <label>Mode paiement<select name="payment_method" defaultValue={purchase.payment_method ?? 'BANK'}><option value="CASH">Especes</option><option value="BANK">Banque</option><option value="MOBILE_MONEY">Mobile Money</option><option value="OTHER">Autre</option></select></label>
+          <label>Reference<input name="reference" defaultValue={purchase.purchase_number} /></label>
           <label className="wide-field">Notes<textarea name="notes" rows={3} /></label>
         </div>
         {error && <div className="error-banner">{error}</div>}
@@ -319,7 +361,7 @@ export function PurchasePaymentModal({ purchase, onClose, onSubmit }: { purchase
 
 function exportPurchaseRow(purchase: StockPurchase) {
   return {
-    numero: purchase.purchase_number,
+    numero: normalizeDisplayCode(purchase.purchase_number, 'PO', purchase.id, 6),
     date: shortDate(purchase.purchase_date),
     fournisseur: purchase.supplier_name,
     montant: Number(purchase.total_amount ?? 0),
@@ -334,4 +376,19 @@ function exportPurchaseRow(purchase: StockPurchase) {
 
 function Kpi({ label, value }: { label: string; value: string | number }) {
   return <div className="mini-stat"><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function normalizeDisplayCode(value: string | undefined, prefix: string, id: number, width: number) {
+  const code = String(value ?? '').trim();
+  const match = code.match(/([A-Z]+-\d+)/i);
+  if (match) return match[1].toUpperCase();
+  return `${prefix}-${String(id).padStart(width, '0')}`;
+}
+
+function previewNextPurchaseNumber(purchases: StockPurchase[]) {
+  const next = purchases.reduce((max, purchase) => {
+    const match = String(purchase.purchase_number ?? '').match(/(\d+)$/);
+    return Math.max(max, match ? Number(match[1]) : 0);
+  }, 0) + 1;
+  return `PO-${String(next).padStart(6, '0')}`;
 }

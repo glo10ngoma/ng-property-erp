@@ -344,7 +344,10 @@ export class SaasService {
 
   async createEmployee(body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
-      const employeeNumber = body.employee_number ? String(body.employee_number) : await this.nextEmployeeNumber(client);
+      const providedEmployeeNumber = String(body.employee_number ?? '').trim();
+      const employeeNumber = providedEmployeeNumber && !providedEmployeeNumber.toLowerCase().includes('automatique')
+        ? providedEmployeeNumber
+        : await this.nextEmployeeNumber(client);
       const payload = {
         ...body,
         employee_number: employeeNumber,
@@ -687,6 +690,12 @@ export class SaasService {
         }
 
         const gross = Number(entry.monthly_salary ?? 0);
+        if (Number(entry.working_days ?? 0) <= 0) {
+          throw new BadRequestException(`Jours ouvrables invalides pour ${entry.employee_name}.`);
+        }
+        if (gross <= 0) {
+          throw new BadRequestException(`Salaire mensuel manquant pour ${entry.employee_name}.`);
+        }
         const advancesTotal = await this.monthlyAdvanceTotal(client, Number(entry.employee_id), month, year);
         const metrics = this.calculateMonthlyAttendanceMetrics(
           gross,
@@ -1536,9 +1545,19 @@ export class SaasService {
 
   async createStockItem(body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`stock-item-code-${this.context.organizationId()}`]);
       const nextId = await client.query(`SELECT nextval('stock_items_id_seq')::INT AS value`);
       const id = nextId.rows[0].value;
-      const code = body.code ?? `ART-${String(id).padStart(5, '0')}`;
+      const nextCode = await client.query(
+        `SELECT COALESCE(MAX(NULLIF(regexp_replace(code, '[^0-9]', '', 'g'), '')::INT), 0) + 1 AS value
+         FROM stock_items
+         WHERE organization_id = $1`,
+        [this.context.organizationId()],
+      );
+      const providedCode = String(body.code ?? '').trim();
+      const code = providedCode && !providedCode.toLowerCase().includes('automatique')
+        ? providedCode
+        : `ART-${String(nextCode.rows[0]?.value ?? 1).padStart(5, '0')}`;
       const initialQuantity = Number(body.current_quantity ?? 0);
       const { rows } = await client.query(
         `INSERT INTO stock_items
@@ -1608,6 +1627,41 @@ export class SaasService {
       [id, this.context.organizationId()],
     );
     return requireRow(rows[0], 'Stock item');
+  }
+
+  async reactivateStockItem(id: number) {
+    const { rows } = await this.db.query(
+      `UPDATE stock_items SET status = 'ACTIVE', updated_at = NOW()
+       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL RETURNING *`,
+      [id, this.context.organizationId()],
+    );
+    return requireRow(rows[0], 'Stock item');
+  }
+
+  async deleteStockItem(id: number) {
+    return this.db.transaction(async (client) => {
+      const item = await client.query(
+        `SELECT id FROM stock_items WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+        [id, this.context.organizationId()],
+      );
+      requireRow(item.rows[0], 'Stock item');
+
+      const history = await client.query(
+        `SELECT
+           EXISTS(SELECT 1 FROM stock_movements WHERE stock_item_id = $1 AND organization_id = $2 AND deleted_at IS NULL) AS has_movements,
+           EXISTS(SELECT 1 FROM inventory_count_lines WHERE stock_item_id = $1 AND organization_id = $2 AND deleted_at IS NULL) AS has_inventory,
+           EXISTS(SELECT 1 FROM stock_purchase_lines WHERE stock_item_id = $1 AND organization_id = $2 AND deleted_at IS NULL) AS has_purchases,
+           EXISTS(SELECT 1 FROM stock_document_lines WHERE stock_item_id = $1 AND organization_id = $2 AND deleted_at IS NULL) AS has_documents`,
+        [id, this.context.organizationId()],
+      );
+      const row = history.rows[0] ?? {};
+      if (row.has_movements || row.has_inventory || row.has_purchases || row.has_documents) {
+        throw new BadRequestException("Cet article possède un historique et ne peut pas être supprimé. Vous pouvez le désactiver.");
+      }
+
+      await client.query(`DELETE FROM stock_items WHERE id = $1 AND organization_id = $2`, [id, this.context.organizationId()]);
+      return { deleted: true };
+    });
   }
 
   createStockEntry(body: Record<string, unknown>) {
@@ -2484,15 +2538,22 @@ export class SaasService {
           [rows[0].id, 'CONTRACT', body.contract_file_name, body.contract_file_url ?? null, this.context.userId(), organizationId],
         );
       }
+      if (body.notes !== undefined) {
+        await client.query(
+          `UPDATE leases SET notes = $2, updated_at = NOW() WHERE id = $1 AND organization_id = $3`,
+          [rows[0].id, body.notes ?? null, organizationId],
+        );
+      }
       if (rows[0].status === 'ACTIVE') await this.activateLeaseInTransaction(client, rows[0].id);
-      return rows[0];
+      const refreshed = await client.query(`SELECT * FROM leases WHERE id = $1 AND organization_id = $2`, [rows[0].id, organizationId]);
+      return refreshed.rows[0];
     });
   }
 
   async updateLease(id: number, body: Record<string, unknown>) {
     await this.leaseDetail(id);
     return this.db.transaction(async (client) => {
-      const keys = ['tenant_id', 'unit_id', 'start_date', 'end_date', 'monthly_rent', 'contract_file_url', 'contract_file_name', 'status'].filter((key) => body[key] !== undefined);
+      const keys = ['tenant_id', 'unit_id', 'start_date', 'end_date', 'monthly_rent', 'contract_file_url', 'contract_file_name', 'status', 'notes'].filter((key) => body[key] !== undefined);
       let lease = null;
       if (keys.length) {
         const assignments = keys.map((key, index) => `${key} = $${index + 2}`);
@@ -2517,6 +2578,30 @@ export class SaasService {
           payment_date: body.rental_guarantee_payment_date ?? body.guarantee_payment_date ?? null,
           status: body.rental_guarantee_status ?? body.guarantee_status ?? 'NOT_PAID',
         });
+      }
+      if (body.contract_file_name !== undefined || body.contract_file_url !== undefined) {
+        const existingDocument = await client.query(
+          `SELECT id FROM lease_documents
+           WHERE lease_id = $1 AND organization_id = $2 AND document_type = 'CONTRACT' AND deleted_at IS NULL
+           ORDER BY uploaded_at DESC, id DESC
+           LIMIT 1`,
+          [id, this.context.organizationId()],
+        );
+        if (existingDocument.rows[0]) {
+          await client.query(
+            `UPDATE lease_documents
+             SET file_name = COALESCE($2, file_name),
+                 file_url = COALESCE($3, file_url)
+             WHERE id = $1`,
+            [existingDocument.rows[0].id, body.contract_file_name ?? null, body.contract_file_url ?? null],
+          );
+        } else if (body.contract_file_name) {
+          await client.query(
+            `INSERT INTO lease_documents (lease_id, document_type, file_name, file_url, uploaded_by, organization_id)
+             VALUES ($1, 'CONTRACT', $2, $3, $4, $5)`,
+            [id, body.contract_file_name, body.contract_file_url ?? null, this.context.userId() ?? 1, this.context.organizationId()],
+          );
+        }
       }
       return lease ?? this.leaseDetail(id);
     });
