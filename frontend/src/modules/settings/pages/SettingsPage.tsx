@@ -1,9 +1,8 @@
-import { ReactNode, useEffect, useState } from 'react';
-import { api, exportCsv, includesText } from '../../../api';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { api } from '../../../api';
 import { useAuth } from '../../../auth';
-import { EmptyState, PageHeader, SuccessMessage, TableToolbar } from '../../../components';
+import { EmptyState, PageHeader, SuccessMessage } from '../../../components';
 
-type Tab = 'company' | 'references' | 'printing' | 'services' | 'restricted';
 type CompanySettings = {
   logo_url?: string;
   invoice_logo_url?: string;
@@ -22,40 +21,39 @@ type CompanySettings = {
   paper_format: string;
   invoice_bottom_text?: string;
 };
-type ReferenceData = { id: number; type: string; code: string; label: string; description?: string; sort_order: number; status: string };
+
+type ReferenceData = {
+  id: number;
+  type: string;
+  code: string;
+  label: string;
+  description?: string;
+  sort_order: number;
+  status: string;
+};
+
 type PublisherService = { title: string; action: string };
 type RestrictedSetting = { label: string; status: string };
 
-const tabs: Array<{ key: Tab; label: string }> = [
-  { key: 'company', label: 'Entreprise' },
-  { key: 'references', label: 'Referentiels' },
-  { key: 'printing', label: 'Impression' },
-  { key: 'services', label: 'Services complementaires' },
-  { key: 'restricted', label: 'Reserve editeur' },
-];
-
-const referenceTypes = [
-  ['charge_types', 'Types de charges'],
-  ['expense_categories', 'Categories depenses'],
-  ['stock_categories', 'Categories stock'],
-  ['document_types', 'Types documents'],
-  ['staff_positions', 'Fonctions personnel'],
-  ['leave_types', 'Types conges'],
-  ['payment_methods', 'Modes paiement'],
-  ['banks', 'Banques'],
-  ['cities', 'Villes'],
-];
+const referenceTypeLabels: Record<string, string> = {
+  charge_types: 'Types de charges',
+  expense_categories: 'Catégories de dépenses',
+  stock_categories: 'Catégories stock',
+  document_types: 'Types de documents',
+  staff_positions: 'Fonctions du personnel',
+  leave_types: 'Types de congés',
+  payment_methods: 'Modes de paiement',
+  banks: 'Banques',
+  cities: 'Villes',
+};
 
 export function SettingsPage() {
   const { can } = useAuth();
-  const [active, setActive] = useState<Tab>('company');
   const [company, setCompany] = useState<CompanySettings | null>(null);
   const [references, setReferences] = useState<ReferenceData[]>([]);
   const [services, setServices] = useState<PublisherService[]>([]);
   const [restricted, setRestricted] = useState<RestrictedSetting[]>([]);
-  const [query, setQuery] = useState('');
   const [success, setSuccess] = useState('');
-  const [editingReference, setEditingReference] = useState<ReferenceData | null>(null);
 
   async function load() {
     const [companyResponse, referencesResponse, servicesResponse] = await Promise.all([
@@ -63,217 +61,259 @@ export function SettingsPage() {
       api.get<ReferenceData[]>('/reference-data'),
       api.get<PublisherService[]>('/settings/publisher-services'),
     ]);
+
     setCompany(companyResponse.data);
     setReferences(referencesResponse.data);
     setServices(servicesResponse.data);
   }
 
   async function loadRestricted() {
-    if (!can('publisher_settings.read') || restricted.length) return;
+    if (!can('publisher_settings.read')) return;
     const response = await api.get<RestrictedSetting[]>('/settings/restricted');
     setRestricted(response.data);
   }
 
   useEffect(() => {
     load();
+    loadRestricted();
   }, []);
-
-  useEffect(() => {
-    if (active === 'restricted') loadRestricted();
-  }, [active]);
-
-  const filteredReferences = references.filter((item) => includesText(item, query));
 
   async function updateCompany(form: FormData) {
     await api.patch('/settings/company', Object.fromEntries(form));
-    setSuccess('Parametres entreprise enregistres.');
+    setSuccess('Paramètres enregistrés.');
     load();
   }
 
-  async function saveReference(form: FormData) {
-    const payload = Object.fromEntries(form);
-    if (editingReference) {
-      await api.patch(`/reference-data/${editingReference.id}`, payload);
-      setSuccess('Referentiel modifie.');
-      setEditingReference(null);
-    } else {
-      await api.post('/reference-data', payload);
-      setSuccess('Referentiel ajoute.');
-    }
-    load();
-  }
-
-  async function deactivateReference(id: number) {
-    await api.delete(`/reference-data/${id}`);
-    setSuccess('Referentiel desactive.');
-    load();
-  }
+  const groupedReferences = useMemo(() => {
+    return references.reduce<Record<string, ReferenceData[]>>((accumulator, item) => {
+      const key = referenceTypeLabels[item.type] ?? item.type;
+      accumulator[key] = [...(accumulator[key] ?? []), item];
+      return accumulator;
+    }, {});
+  }, [references]);
 
   return (
     <section>
-      <PageHeader title="Parametres" />
+      <PageHeader title="Paramètres" />
       <SuccessMessage message={success} />
 
-      <div className="table-toolbar">
-        <div className="actions">
-          {tabs.map((tab) => (
-            <button key={tab.key} className={active === tab.key ? '' : 'secondary'} onClick={() => setActive(tab.key)}>
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {active === 'company' && company && (
-        <SettingsSection title="Entreprise">
-          <CompanyForm company={company} canUpdate={can('settings.update')} onSubmit={updateCompany} mode="company" />
-        </SettingsSection>
-      )}
-
-      {active === 'printing' && company && (
-        <SettingsSection title="Impression">
-          <CompanyForm company={company} canUpdate={can('settings.update')} onSubmit={updateCompany} mode="printing" />
-        </SettingsSection>
-      )}
-
-      {active === 'references' && (
-        <SettingsSection title="Referentiels simples">
-          {(can('reference_data.create') || editingReference) && (
-            <form className="quick-form" onSubmit={(event) => { event.preventDefault(); saveReference(new FormData(event.currentTarget)); event.currentTarget.reset(); }}>
-              <select name="type" defaultValue={editingReference?.type ?? 'charge_types'}>
-                {referenceTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-              <input name="code" placeholder="Code" defaultValue={editingReference?.code ?? ''} required />
-              <input name="label" placeholder="Libelle" defaultValue={editingReference?.label ?? ''} required />
-              <input name="description" placeholder="Description" defaultValue={editingReference?.description ?? ''} />
-              <input name="sort_order" type="number" placeholder="Ordre" defaultValue={editingReference?.sort_order ?? 0} />
-              <select name="status" defaultValue={editingReference?.status ?? 'ACTIVE'}>
-                <option value="ACTIVE">Actif</option>
-                <option value="INACTIVE">Inactif</option>
-              </select>
-              <button>{editingReference ? 'Enregistrer' : 'Ajouter'}</button>
-              {editingReference && <button type="button" className="secondary" onClick={() => setEditingReference(null)}>Annuler</button>}
+      {company && (
+        <>
+          <SettingsSection title="Entreprise" hint="Informations générales visibles sur les documents et impressions.">
+            <form className="form-grid" onSubmit={(event) => { event.preventDefault(); updateCompany(new FormData(event.currentTarget)); }}>
+              <Field label="Nom entreprise">
+                <input name="company_name" defaultValue={company.company_name} disabled={!can('settings.update')} required />
+              </Field>
+              <Field label="Raison sociale">
+                <input name="legal_name" defaultValue={company.legal_name ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Téléphone">
+                <input name="phone" defaultValue={company.phone ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Adresse e-mail">
+                <input name="email" defaultValue={company.email ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Adresse">
+                <input name="address" defaultValue={company.address ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Site web">
+                <input name="website" defaultValue={company.website ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="RCCM">
+                <input value="Bientôt" disabled />
+              </Field>
+              <Field label="NIF">
+                <input value="Bientôt" disabled />
+              </Field>
+              <Field label="Logo">
+                <input name="logo_url" defaultValue={company.logo_url ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              {can('settings.update') && <div className="form-actions"><button>Enregistrer</button></div>}
             </form>
-          )}
-          <TableToolbar query={query} onQueryChange={setQuery} onExport={() => exportCsv('referentiels.csv', filteredReferences)} />
-          <DataTable
-            headers={['Type', 'Code', 'Libelle', 'Statut', 'Actions']}
-            empty="Aucun referentiel."
-            rows={filteredReferences.map((item) => [
-              referenceTypeLabel(item.type),
-              item.code,
-              item.label,
-              <Badge key="status" value={item.status} />,
-              <span className="actions" key="actions">
-                {can('reference_data.update') && <button className="secondary" onClick={() => setEditingReference(item)}>Modifier</button>}
-                {can('reference_data.delete') && item.status !== 'INACTIVE' && <button className="secondary" onClick={() => deactivateReference(item.id)}>Desactiver</button>}
-              </span>,
-            ])}
-          />
-        </SettingsSection>
+          </SettingsSection>
+
+          <SettingsSection title="Facturation" hint="Réglages déjà persistés et champs avancés signalés sans fausse sauvegarde.">
+            <form className="form-grid" onSubmit={(event) => { event.preventDefault(); updateCompany(new FormData(event.currentTarget)); }}>
+              <Field label="Devise">
+                <input name="currency" defaultValue={company.currency} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Format papier">
+                <select name="paper_format" defaultValue={company.paper_format} disabled={!can('settings.update')}>
+                  <option value="A4">A4</option>
+                  <option value="A5">A5</option>
+                  <option value="LETTER">Letter</option>
+                </select>
+              </Field>
+              <Field label="Logo facture">
+                <input name="invoice_logo_url" defaultValue={company.invoice_logo_url ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Signature">
+                <input name="signature_url" defaultValue={company.signature_url ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Cachet">
+                <input name="stamp_url" defaultValue={company.stamp_url ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Pied de page facture">
+                <textarea name="invoice_footer" defaultValue={company.invoice_footer ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Texte bas de facture">
+                <textarea name="invoice_bottom_text" defaultValue={company.invoice_bottom_text ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Préfixe facture">
+                <input value="Bientôt" disabled />
+              </Field>
+              <Field label="Jour d’échéance par défaut">
+                <input value="Bientôt" disabled />
+              </Field>
+              <Field label="Coordonnées bancaires">
+                <input value="Bientôt" disabled />
+              </Field>
+              {can('settings.update') && <div className="form-actions"><button>Enregistrer</button></div>}
+            </form>
+          </SettingsSection>
+        </>
       )}
 
-      {active === 'services' && (
-        <SettingsSection title="Services complementaires">
+      <SettingsSection title="Immobilier">
+        <PlaceholderGrid
+          items={[
+            ['Ville par défaut', 'Bientôt'],
+            ['Types d’immeubles', summaryFromReferences(groupedReferences['Villes'])],
+            ['Types d’unités', 'Bientôt'],
+          ]}
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Stock">
+        <PlaceholderGrid
+          items={[
+            ['Seuil de sécurité par défaut', 'Bientôt'],
+            ['Responsable stock', 'Bientôt'],
+            ['Notification rupture', 'Bientôt'],
+            ['Notification sous seuil', 'Bientôt'],
+          ]}
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Ressources humaines">
+        <PlaceholderGrid
+          items={[
+            ['Jours ouvrables par défaut', 'Bientôt'],
+            ['Devise paie', company?.currency ?? 'USD'],
+            ['Méthode salaire journalier', 'Bientôt'],
+          ]}
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Notifications">
+        <PlaceholderGrid
+          items={[
+            ['Email', 'Simulation locale'],
+            ['WhatsApp', 'Simulation locale'],
+            ['SMS', 'Simulation locale'],
+            ['Préférences activation', 'Bientôt'],
+          ]}
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Sécurité">
+        <PlaceholderGrid
+          items={[
+            ['Durée session', 'Bientôt'],
+            ['Politique mot de passe', 'Bientôt'],
+            ['Audit', 'Actif'],
+          ]}
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Référentiels">
+        {!Object.keys(groupedReferences).length ? (
+          <EmptyState message="Aucun référentiel disponible." />
+        ) : (
           <div className="chart-grid">
-            {services.map((service) => (
-              <article className="chart-card" key={service.title}>
-                <h3>{service.title}</h3>
-                <button className="secondary">{service.action}</button>
+            {Object.entries(groupedReferences).map(([label, items]) => (
+              <article className="chart-card" key={label}>
+                <h3>{label}</h3>
+                <p>{items.slice(0, 4).map((item) => item.label).join(', ') || 'Aucune donnée'}</p>
+                <small>{items.length} valeur(s)</small>
               </article>
             ))}
           </div>
-        </SettingsSection>
-      )}
+        )}
+      </SettingsSection>
 
-      {active === 'restricted' && (
-        <SettingsSection title="Reserve editeur">
-          {!can('publisher_settings.read') ? (
-            <EmptyState message="Acces reserve." />
-          ) : (
-            <DataTable
-              headers={['Parametre avance', 'Statut']}
-              empty="Aucun parametre reserve."
-              rows={restricted.map((item) => [item.label, <Badge key="status" value={item.status} />])}
-            />
-          )}
-        </SettingsSection>
-      )}
+      <SettingsSection title="Services complémentaires">
+        <div className="chart-grid">
+          {services.map((service) => (
+            <article className="chart-card" key={service.title}>
+              <h3>{service.title}</h3>
+              <button className="secondary">{service.action}</button>
+            </article>
+          ))}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Réservé éditeur">
+        {!can('publisher_settings.read') ? (
+          <EmptyState message="Accès réservé." />
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Paramètre avancé</th>
+                  <th>Statut</th>
+                </tr>
+              </thead>
+              <tbody>
+                {restricted.map((item) => (
+                  <tr key={item.label}>
+                    <td>{item.label}</td>
+                    <td>{item.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SettingsSection>
     </section>
   );
 }
 
-function CompanyForm({ company, canUpdate, mode, onSubmit }: { company: CompanySettings; canUpdate: boolean; mode: 'company' | 'printing'; onSubmit: (form: FormData) => void }) {
-  return (
-    <form className="quick-form" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}>
-      {mode === 'company' ? (
-        <>
-          <input name="logo_url" placeholder="Logo" defaultValue={company.logo_url ?? ''} disabled={!canUpdate} />
-          <input name="company_name" placeholder="Nom entreprise" defaultValue={company.company_name} disabled={!canUpdate} required />
-          <input name="legal_name" placeholder="Raison sociale" defaultValue={company.legal_name ?? ''} disabled={!canUpdate} />
-          <input name="address" placeholder="Adresse" defaultValue={company.address ?? ''} disabled={!canUpdate} />
-          <input name="phone" placeholder="Telephone" defaultValue={company.phone ?? ''} disabled={!canUpdate} />
-          <input name="email" placeholder="Email" defaultValue={company.email ?? ''} disabled={!canUpdate} />
-          <input name="website" placeholder="Site web" defaultValue={company.website ?? ''} disabled={!canUpdate} />
-          <input name="currency" placeholder="Devise" defaultValue={company.currency} disabled={!canUpdate} />
-          <input name="language" placeholder="Langue" defaultValue={company.language} disabled={!canUpdate} />
-          <input name="timezone" placeholder="Fuseau horaire" defaultValue={company.timezone} disabled={!canUpdate} />
-          <textarea name="invoice_footer" placeholder="Pied de page facture" defaultValue={company.invoice_footer ?? ''} disabled={!canUpdate} />
-        </>
-      ) : (
-        <>
-          <input name="invoice_logo_url" placeholder="Logo facture" defaultValue={company.invoice_logo_url ?? ''} disabled={!canUpdate} />
-          <input name="signature_url" placeholder="Signature" defaultValue={company.signature_url ?? ''} disabled={!canUpdate} />
-          <input name="stamp_url" placeholder="Cachet" defaultValue={company.stamp_url ?? ''} disabled={!canUpdate} />
-          <select name="paper_format" defaultValue={company.paper_format} disabled={!canUpdate}>
-            <option value="A4">A4</option>
-            <option value="A5">A5</option>
-            <option value="LETTER">Letter</option>
-          </select>
-          <textarea name="invoice_bottom_text" placeholder="Texte bas de facture" defaultValue={company.invoice_bottom_text ?? ''} disabled={!canUpdate} />
-        </>
-      )}
-      {canUpdate && <button>Enregistrer</button>}
-    </form>
-  );
-}
-
-function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
+function SettingsSection({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
     <div className="detail-section">
       <h4>{title}</h4>
+      {hint ? <p className="muted-text">{hint}</p> : null}
       {children}
     </div>
   );
 }
 
-function DataTable({ headers, rows, empty }: { headers: string[]; rows: ReactNode[][]; empty: string }) {
-  if (!rows.length) return <EmptyState message={empty} />;
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="table-wrap">
-      <table>
-        <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
-        <tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
-      </table>
+    <label>
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function PlaceholderGrid({ items }: { items: Array<[string, string]> }) {
+  return (
+    <div className="detail-list">
+      {items.map(([label, value]) => (
+        <div key={label} style={{ display: 'contents' }}>
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>
+      ))}
     </div>
   );
 }
 
-function Badge({ value }: { value: string }) {
-  const normalized = value.toUpperCase();
-  const className = normalized.includes('RESERVE') || normalized === 'INACTIVE' ? 'partial' : 'paid';
-  return <span className={`badge ${className}`}>{label(value)}</span>;
-}
-
-function label(value: string) {
-  const labels: Record<string, string> = {
-    ACTIVE: 'Actif',
-    INACTIVE: 'Inactif',
-    'Reserve editeur': 'Reserve editeur',
-  };
-  return labels[value] ?? value;
-}
-
-function referenceTypeLabel(type: string) {
-  return Object.fromEntries(referenceTypes)[type] ?? type;
+function summaryFromReferences(items?: ReferenceData[]) {
+  if (!items?.length) return 'Bientôt';
+  return `${items.length} valeur(s) disponibles`;
 }

@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query } from '@nestjs/common';
-import { PERMISSIONS, ROLE_PERMISSIONS } from './permissions';
+import { PERMISSIONS, ROLE_LABELS, ROLE_PERMISSIONS } from './permissions';
 import { SaasService } from './saas.service';
 
 @Controller('users')
@@ -23,7 +23,14 @@ export class UsersController {
 
   @Get('roles')
   roles() {
-    return { roles: ROLE_PERMISSIONS, permissions: PERMISSIONS };
+    return {
+      roles: {
+        ADMIN: ROLE_LABELS.ADMIN,
+        EDITOR: ROLE_LABELS.EDITOR,
+        VIEWER: ROLE_LABELS.VIEWER,
+      },
+      permissions: PERMISSIONS,
+    };
   }
 }
 

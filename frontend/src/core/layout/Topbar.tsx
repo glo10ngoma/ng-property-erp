@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, LogOut, UserCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { appConfig } from '../../app/config';
 import { useAuth } from '../auth/AuthContext';
 
 export function Topbar() {
@@ -16,10 +15,7 @@ export function Topbar() {
 
   return (
     <header className="topbar">
-      <div>
-        <span className="eyebrow">{appConfig.businessLabel}</span>
-        <h1>NG ERP Property</h1>
-      </div>
+      <div />
       {user && (
         <div className="user-menu">
           <button className="operator" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu">
@@ -49,8 +45,14 @@ export function Topbar() {
 function roleLabel(role: string) {
   return ({
     ADMIN: 'Administrateur',
-    ACCOUNTANT: 'Comptable',
-    STAFF: 'Agent',
-    DIRECTOR: 'Directeur',
+    EDITOR: 'Utilisateur en écriture',
+    VIEWER: 'Lecture seule',
+    ACCOUNTANT: 'Utilisateur en écriture',
+    STAFF: 'Utilisateur en écriture',
+    DIRECTOR: 'Lecture seule',
+    DIRECTEUR: 'Lecture seule',
+    AGENT: 'Utilisateur en écriture',
+    GESTIONNAIRE: 'Utilisateur en écriture',
+    COMPTABLE: 'Utilisateur en écriture',
   })[role] ?? role;
 }

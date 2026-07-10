@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { RequestContext } from '../auth/request-context';
 import { DatabaseService } from '../database/database.service';
+import { normalizeRole } from '../saas/permissions';
 
 @Injectable()
 export class ActivityService {
@@ -38,9 +39,9 @@ export class ActivityService {
 
   async tasks() {
     const organizationId = this.context.organizationId();
-    const role = this.context.user()?.role ?? '';
+    const role = normalizeRole(this.context.user()?.role);
     const tasks = [];
-    if (this.canSee(['ADMIN', 'ACCOUNTANT'], role)) {
+    if (role === 'ADMIN' || role === 'EDITOR') {
       const invoices = await this.db.query(
         `SELECT id, invoice_number, due_date, status FROM invoices
          WHERE organization_id = $1 AND deleted_at IS NULL AND status IN ('DRAFT', 'UNPAID', 'PARTIAL')
@@ -54,7 +55,7 @@ export class ActivityService {
       );
       if (cash.rows[0]) tasks.push(this.task(`cash-${cash.rows[0].id}`, 'Caisse à fermer', 'Session ouverte', 'Caisse', cash.rows[0].opened_at, 'PENDING', '/cash', 'HIGH'));
     }
-    if (this.canSee(['ADMIN', 'STAFF'], role)) {
+    if (role === 'ADMIN' || role === 'EDITOR') {
       const maintenance = await this.db.query(
         `SELECT id, request_number, title, due_date, priority, status FROM maintenance_requests
          WHERE organization_id = $1 AND deleted_at IS NULL AND status IN ('ASSIGNED', 'IN_PROGRESS', 'ON_HOLD')
@@ -70,7 +71,7 @@ export class ActivityService {
       );
       tasks.push(...leases.rows.map((row) => this.task(`lease-${row.id}`, 'Contrat à renouveler', `Bail #${row.id}`, 'Baux', row.end_date, 'PENDING', '/leases')));
     }
-    if (this.canSee(['ADMIN'], role)) {
+    if (role === 'ADMIN') {
       const inventories = await this.db.query(
         `SELECT id, inventory_number, count_date, status FROM inventory_counts
          WHERE organization_id = $1 AND deleted_at IS NULL AND status = 'DRAFT'
@@ -151,7 +152,7 @@ export class ActivityService {
   }
 
   async kpis() {
-    const role = this.context.user()?.role ?? '';
+    const role = normalizeRole(this.context.user()?.role);
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(
       `SELECT
@@ -170,9 +171,8 @@ export class ActivityService {
       [organizationId],
     );
     const all = rows[0];
-    if (role === 'DIRECTOR') return this.pickKpis(all, ['unpaid_amount', 'cash_balance', 'occupancy_rate', 'stock_critical', 'maintenance_open']);
-    if (role === 'ACCOUNTANT') return this.pickKpis(all, ['payments_today', 'expenses_today', 'cash_balance', 'pending_invoices']);
-    if (role === 'STAFF') return this.pickKpis(all, ['new_leases_today', 'contracts_due', 'active_tenants', 'vacant_units']);
+    if (role === 'VIEWER') return this.pickKpis(all, ['unpaid_amount', 'cash_balance', 'occupancy_rate', 'stock_critical', 'maintenance_open']);
+    if (role === 'EDITOR') return this.pickKpis(all, ['payments_today', 'expenses_today', 'cash_balance', 'pending_invoices', 'new_leases_today', 'contracts_due', 'active_tenants', 'vacant_units']);
     return all;
   }
 

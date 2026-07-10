@@ -53,11 +53,10 @@ type NavGroup = {
 
 const STORAGE_KEY = 'ng-property-erp.sidebar.open-groups';
 const STOCK_GROUP_KEY = 'Stock';
-const OPERATIONS_GROUP_KEY = 'Opérations';
 
 const stockItems: NavLinkItem[] = [
   { to: '/stock/articles', label: 'Articles', icon: Boxes, permission: 'stock.read' },
-  { to: '/stock', label: 'Stock', icon: Boxes, permission: 'stock.read' },
+  { to: '/stock', label: 'État du stock', icon: Boxes, permission: 'stock.read' },
   { to: '/stock/movements', label: 'Mouvements', icon: Boxes, permission: 'stock.read' },
   { to: '/stock/inventories', label: 'Inventaires', icon: Boxes, permission: 'stock.read' },
   { to: '/stock/purchases', label: 'Achats fournisseurs', icon: Boxes, permission: 'stock.read' },
@@ -95,11 +94,9 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    label: OPERATIONS_GROUP_KEY,
+    label: STOCK_GROUP_KEY,
     icon: Wrench,
-    items: [
-      { type: 'subgroup', label: STOCK_GROUP_KEY, icon: Boxes, items: stockItems },
-    ],
+    items: stockItems,
   },
   {
     label: 'Ressources humaines',
@@ -318,7 +315,6 @@ function collectRequiredOpenGroups(pathname: string, groups: NavGroup[]) {
   }
 
   if (pathname.startsWith('/stock')) {
-    required.add(OPERATIONS_GROUP_KEY);
     required.add(STOCK_GROUP_KEY);
   }
 

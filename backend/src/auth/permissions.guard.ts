@@ -1,6 +1,6 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { createHmac } from 'crypto';
-import { ROLE_PERMISSIONS } from '../saas/permissions';
+import { ROLE_PERMISSIONS, normalizeRole } from '../saas/permissions';
 import { AuthPayload } from './request-context';
 
 type GuardRequest = {
@@ -57,6 +57,7 @@ export class PermissionsGuard implements CanActivate {
       .digest('base64url');
     if (signature !== expected) throw new UnauthorizedException('Invalid token');
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as AuthPayload;
+    payload.role = normalizeRole(payload.role);
     payload.permissions = ROLE_PERMISSIONS[payload.role] ?? [];
     payload.organization_id = payload.organization_id ?? 1;
     return payload;

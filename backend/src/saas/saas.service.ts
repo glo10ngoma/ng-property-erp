@@ -4,6 +4,7 @@ import { RequestContext } from '../auth/request-context';
 import { hashPassword } from '../auth/password';
 import { requireRow } from '../common/not-found';
 import { DatabaseService } from '../database/database.service';
+import { normalizeRole } from './permissions';
 
 @Injectable()
 export class SaasService {
@@ -190,7 +191,7 @@ export class SaasService {
 
   async createUser(body: Record<string, unknown>) {
     const password = String(body.password ?? body.password_hash ?? 'demo');
-    return this.insert('app_users', { status: 'ACTIVE', ...body, password_hash: await hashPassword(password) }, [
+    return this.insert('app_users', { status: 'ACTIVE', ...body, role: normalizeRole(String(body.role ?? 'EDITOR')), password_hash: await hashPassword(password) }, [
       'first_name',
       'last_name',
       'email',

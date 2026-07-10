@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { IsString } from 'class-validator';
 import { createHmac } from 'crypto';
 import { DatabaseService } from '../database/database.service';
-import { ROLE_PERMISSIONS } from '../saas/permissions';
+import { ROLE_PERMISSIONS, normalizeRole } from '../saas/permissions';
 import { verifyPassword } from './password';
 import { AuthPayload } from './request-context';
 
@@ -41,12 +41,13 @@ export class AuthController {
     if (!user || user.status !== 'ACTIVE' || !(await verifyPassword(dto.password, user.password_hash))) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    const normalizedRole = normalizeRole(user.role);
     const payload = {
       sub: user.id,
       email: user.email,
-      role: user.role,
+      role: normalizedRole,
       organization_id: user.organization_id ?? 1,
-      permissions: ROLE_PERMISSIONS[user.role] ?? [],
+      permissions: ROLE_PERMISSIONS[normalizedRole] ?? [],
     };
     const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
     const signature = createHmac('sha256', this.jwtSecret).update(body).digest('base64url');
@@ -56,7 +57,7 @@ export class AuthController {
         id: user.id,
         name: `${user.first_name} ${user.last_name}`,
         email: user.email,
-        role: user.role,
+        role: normalizedRole,
         organization_id: user.organization_id ?? 1,
         permissions: payload.permissions,
       },
