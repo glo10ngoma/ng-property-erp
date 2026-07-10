@@ -84,7 +84,7 @@ function ArticleModal({ item, onClose, onSubmit }: { item: StockItem | null; onC
   return <Modal title={item ? 'Modifier article' : 'Nouvel article'} onClose={onClose}>
     <form onSubmit={(event) => { event.preventDefault(); void onSubmit(new FormData(event.currentTarget)); }}>
       <div className="modal-section"><h3>Informations générales</h3><div className="form-grid">
-        <label className="locked-field">Code auto<input name="code" defaultValue={item?.code} readOnly placeholder="Automatique" /></label>
+        <label className="locked-field">Code auto<input name="code" defaultValue={item?.code ?? 'ART-00001'} readOnly placeholder="ART-00001" /></label>
         <label>Nom *<input name="name" defaultValue={item?.name} required /></label>
         <label>Catégorie *<select name="category" defaultValue={item?.category ?? 'Autres'}>{defaultCategories.map((value) => <option key={value}>{value}</option>)}</select></label>
         <label>Magasin<input name="store" defaultValue={item?.store} /></label>

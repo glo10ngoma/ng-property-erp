@@ -5,6 +5,7 @@ import { api, exportCsv, exportXlsxWorkbook, includesText, shortDate, statusLabe
 import { useAuth } from '../../../auth';
 import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage } from '../../../components';
 import { useApiList } from '../../../hooks';
+import { openOrDownloadDocument } from '../../../core/utils/documentActions';
 
 type Lease = {
   id: number;
@@ -262,9 +263,10 @@ function leaseExportRow(lease: Lease) {
 }
 
 function downloadContract(lease: Lease) {
-  if (lease.contract_file_url) {
-    window.open(lease.contract_file_url, '_blank');
-    return;
-  }
-  window.alert(`Contrat reference : ${lease.contract_file_name}`);
+  openOrDownloadDocument({
+    fileName: lease.contract_file_name,
+    fileUrl: lease.contract_file_url,
+    title: 'Contrat de bail',
+    context: `Bail ${leaseReference(lease)}`,
+  });
 }

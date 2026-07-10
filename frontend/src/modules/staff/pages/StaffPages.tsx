@@ -308,7 +308,7 @@ export function EmployeesPage() {
       <table>
         <thead><tr><th>Matricule</th><th>Nom complet</th><th>Téléphone</th><th>Service</th><th>Fonction</th><th>Type contrat</th><th className="right">Salaire</th><th>Devise</th><th>Statut</th><th>Actions</th></tr></thead>
         <tbody>{filtered.map((row) => <tr key={row.id} className="clickable-row" onClick={() => navigate(`/personnel/employees/${row.id}`)}>
-          <td>{row.employee_number ?? `EMP-${row.id}`}</td>
+          <td>{row.employee_number ?? `EMP-${String(row.id).padStart(6, '0')}`}</td>
           <td>{employeeName(row)}</td>
           <td>{row.phone ?? '—'}</td>
           <td>{row.department ?? '—'}</td>
@@ -401,7 +401,7 @@ export function EmployeeDetailPage() {
       <button className="secondary" onClick={() => exportXlsxWorkbook(`Employe_${detail.employee_number ?? detail.id}.xlsx`, employeeWorkbook(detail))}><FileSpreadsheet size={15} />Excel</button>
     </div>
     <div className="summary-band">
-      <div className="summary-item"><span>Matricule</span><strong>{detail.employee_number ?? `EMP-${detail.id}`}</strong></div>
+      <div className="summary-item"><span>Matricule</span><strong>{detail.employee_number ?? `EMP-${String(detail.id).padStart(6, '0')}`}</strong></div>
       <div className="summary-item"><span>Nom</span><strong>{employeeName(detail)}</strong></div>
       <div className="summary-item"><span>Service</span><strong>{detail.department ?? '—'}</strong></div>
       <div className="summary-item"><span>Fonction</span><strong>{detail.job_title}</strong></div>
@@ -783,7 +783,7 @@ function EmployeeModal({ title, employee, onClose, onSubmit }: { title: string; 
   return <Modal title={title} onClose={onClose}>
     <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}>
       <div className="modal-section"><h3>Identité</h3><div className="maintenance-grid hr-form-grid">
-        <label className="locked-field">Matricule auto<input name="employee_number" defaultValue={employee?.employee_number ?? 'Automatique (EMP-000001)'} readOnly /></label>
+        <label className="locked-field">Matricule auto<input name="employee_number" defaultValue={employee?.employee_number ?? 'EMP-000001'} readOnly /></label>
         <label>Prénom *<input name="first_name" defaultValue={employee?.first_name} required /></label>
         <label>Nom *<input name="last_name" defaultValue={employee?.last_name} required /></label>
         <label>Post-nom<input name="post_name" defaultValue={employee?.post_name} /></label>
@@ -1075,7 +1075,7 @@ function syncFileName(event: React.ChangeEvent<HTMLInputElement>, hiddenField: s
 function employeeOptions(rows: Employee[]): SearchableSelectOption<number>[] {
   return rows.map((row) => ({
     value: row.id,
-    label: `${row.employee_number ?? `EMP-${row.id}`} - ${employeeName(row)}`,
+    label: `${row.employee_number ?? `EMP-${String(row.id).padStart(6, '0')}`} - ${employeeName(row)}`,
     meta: [row.department, row.job_title].filter(Boolean).join(' - '),
   }));
 }
@@ -1096,7 +1096,7 @@ function employeeWorkbook(detail: EmployeeDetail) {
 
 function exportEmployeeRow(row: Employee) {
   return {
-    matricule: row.employee_number ?? `EMP-${row.id}`,
+    matricule: row.employee_number ?? `EMP-${String(row.id).padStart(6, '0')}`,
     nom_complet: employeeName(row),
     telephone: row.phone ?? '',
     service: row.department ?? '',

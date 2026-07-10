@@ -52,7 +52,6 @@ const navGroups: NavGroup[] = [
     label: 'Opérations',
     icon: Wrench,
     items: [
-      { to: '/maintenance', label: 'Maintenance', icon: Wrench, permission: 'maintenance.read' },
       { to: '/stock', label: 'Stock', icon: Boxes, permission: 'stock.read' },
     ],
   },

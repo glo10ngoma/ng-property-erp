@@ -79,7 +79,7 @@ export function StockPage() {
     <div className="table-wrap"><table>
       <thead><tr><th>Article</th><th>Catégorie</th><th>Magasin</th><th className="right">Stock actuel</th><th className="right">Seuil sécurité</th><th>Unité</th><th className="right">Coût moyen</th><th className="right">Valeur stock</th><th>Statut stock</th><th>Dernière entrée</th><th>Dernière sortie</th><th>Actions</th></tr></thead>
       <tbody>{filtered.map((item) => <tr key={item.id} className="clickable-row" onClick={() => navigate(`/stock/${item.id}`)}>
-        <td><strong>{item.name}</strong><small className="table-subline">{item.code}</small></td><td>{item.category ?? '—'}</td><td>{item.store ?? '—'}</td>
+        <td><strong>{item.name}</strong><small className="table-subline">{item.code ? `Code : ${item.code}` : '—'}</small></td><td>{item.category ?? '—'}</td><td>{item.store ?? '—'}</td>
         <td className="right">{item.current_quantity ?? 0}</td><td className="right">{item.minimum_quantity ?? 0}</td><td>{item.unit ?? '—'}</td>
         <td className="right">{money(price(item))}</td><td className="right">{money(itemValue(0, item))}</td><td>{stockStatusLabel(item)}</td>
         <td>{item.last_entry_date ? shortDate(item.last_entry_date) : '—'}</td><td>{item.last_exit_date ? shortDate(item.last_exit_date) : '—'}</td>

@@ -135,13 +135,41 @@ export class InvoicesService {
   }
 
   async validate(id: number) {
-    const { rows } = await this.db.query(
-      `UPDATE invoices SET status = 'UNPAID', validated_at = NOW()
-       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL AND status = 'DRAFT'
-       RETURNING *`,
-      [id, this.context.organizationId()],
-    );
-    return requireRow(rows[0], 'Invoice');
+    return this.db.transaction(async (client) => {
+      const { rows } = await client.query(
+        `UPDATE invoices SET status = 'UNPAID', validated_at = NOW()
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL AND status = 'DRAFT'
+         RETURNING *`,
+        [id, this.context.organizationId()],
+      );
+      const invoice = requireRow(rows[0], 'Invoice') as Record<string, unknown>;
+      const tenant = await client.query(
+        `SELECT first_name, last_name, email, phone
+         FROM tenants
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+        [invoice.tenant_id, this.context.organizationId()],
+      );
+      const tenantRow = tenant.rows[0];
+      if (tenantRow) {
+        const tenantName = [tenantRow.first_name, tenantRow.last_name].filter(Boolean).join(' ').trim();
+        const message = `Bonjour ${tenantName || 'client'}, votre facture ${invoice.invoice_number} a ete validee.`;
+        if (tenantRow.email) {
+          await client.query(
+            `INSERT INTO email_logs (recipient, subject, message, status, provider_response, related_entity_type, related_entity_id, sent_at, created_by, organization_id)
+             VALUES ($1, $2, $3, 'SIMULATED', $4, 'invoice', $5, NOW(), $6, $7)`,
+            [tenantRow.email, `Facture ${invoice.invoice_number}`, message, JSON.stringify({ provider: 'LOCAL_SIMULATOR', event: 'INVOICE_VALIDATED' }), id, this.context.userId() ?? 1, this.context.organizationId()],
+          );
+        }
+        if (tenantRow.phone) {
+          await client.query(
+            `INSERT INTO whatsapp_logs (recipient, message, status, provider_response, related_entity_type, related_entity_id, sent_at, created_by, organization_id)
+             VALUES ($1, $2, 'SIMULATED', $3, 'invoice', $4, NOW(), $5, $6)`,
+            [tenantRow.phone, message, JSON.stringify({ provider: 'LOCAL_SIMULATOR', event: 'INVOICE_VALIDATED' }), id, this.context.userId() ?? 1, this.context.organizationId()],
+          );
+        }
+      }
+      return invoice;
+    });
   }
 
   async cancel(id: number, reason: string) {

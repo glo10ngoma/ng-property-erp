@@ -1,7 +1,7 @@
-import { Eye, FileSpreadsheet, FileText, Pencil, Plus, Printer } from 'lucide-react';
+import { AlertTriangle, Eye, FileSpreadsheet, FileText, Pencil, Plus, Printer } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, exportCsv, exportExcel, includesText, money, shortDate } from '../api';
+import { api, exportCsv, exportExcel, includesText, shortDate } from '../api';
 import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage } from '../components';
 import { useApiList } from '../hooks';
@@ -34,6 +34,7 @@ type Unit = {
   description?: string;
   observations?: string;
 };
+
 type Building = { id: number; name: string };
 
 const UNIT_TYPES = [
@@ -75,6 +76,11 @@ export function Units() {
   const [filters, setFilters] = useState({ building_id: '', type: '', status: '', availability: '', rent_range: '' });
   const [success, setSuccess] = useState('');
 
+  const buildingOptions = useMemo(() => {
+    const merged = [...buildings.data, ...data.map((unit) => ({ id: unit.building_id, name: unit.building_name }))];
+    return Array.from(new Map(merged.map((building) => [building.id, building])).values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [buildings.data, data]);
+
   const filtered = data
     .filter((unit) => includesText(unit, query))
     .filter((unit) => !filters.building_id || Number(unit.building_id) === Number(filters.building_id))
@@ -86,14 +92,13 @@ export function Units() {
   const occupied = data.filter((unit) => unit.status === 'OCCUPIED').length;
   const vacant = data.filter((unit) => unit.status === 'VACANT').length;
   const occupancyRate = data.length ? Math.round((occupied / data.length) * 100) : 0;
-  const averageRent = useMemo(() => {
-    if (!data.length) return 0;
-    return data.reduce((sum, unit) => sum + Number(unit.monthly_rent ?? 0), 0) / data.length;
-  }, [data]);
+  const averageRent = useMemo(() => data.length ? data.reduce((sum, unit) => sum + Number(unit.monthly_rent ?? 0), 0) / data.length : 0, [data]);
 
   async function save(form: FormData) {
+    const buildingId = Number(form.get('building_id'));
+    const createMultiple = form.get('create_multiple') === 'on';
     const payload = {
-      building_id: Number(form.get('building_id')),
+      building_id: buildingId,
       number: String(form.get('number') ?? ''),
       floor: Number(form.get('floor') ?? 0),
       type: String(form.get('type') ?? 'Studio'),
@@ -115,9 +120,27 @@ export function Units() {
       description: optionalText(form.get('description')),
       observations: optionalText(form.get('observations')),
     };
-    if (editing?.id) await api.put(`/units/${editing.id}`, payload);
-    else await api.post('/units', payload);
-    setSuccess(editing?.id ? 'Appartement modifié avec succès.' : 'Appartement créé avec succès.');
+
+    if (editing?.id) {
+      await api.put(`/units/${editing.id}`, payload);
+      setSuccess('Appartement modifié avec succès.');
+    } else if (createMultiple) {
+      const start = String(form.get('range_start') ?? '').trim();
+      const end = String(form.get('range_end') ?? '').trim();
+      const generated = generateUnitNumbers(start, end);
+      if (!generated.length) throw new Error('La plage de numéros est invalide.');
+      const existing = new Set(data.filter((unit) => Number(unit.building_id) === buildingId).map((unit) => unit.number.toLowerCase()));
+      const duplicates = generated.filter((value) => existing.has(value.toLowerCase()));
+      if (duplicates.length) throw new Error(`Numéros déjà existants : ${duplicates.join(', ')}`);
+      for (const number of generated) {
+        await api.post('/units', { ...payload, number });
+      }
+      setSuccess(`${generated.length} appartements créés avec succès.`);
+    } else {
+      await api.post('/units', payload);
+      setSuccess('Appartement créé avec succès.');
+    }
+
     setEditing(null);
     reload();
   }
@@ -157,7 +180,7 @@ export function Units() {
         </div>
       </div>
       <div className="quick-form">
-        <select value={filters.building_id} onChange={(event) => setFilters({ ...filters, building_id: event.target.value })}><option value="">Tous les immeubles</option>{buildings.data.map((building) => <option key={building.id} value={building.id}>{building.name}</option>)}</select>
+        <select value={filters.building_id} onChange={(event) => setFilters({ ...filters, building_id: event.target.value })}><option value="">Tous les immeubles</option>{buildingOptions.map((building) => <option key={building.id} value={building.id}>{building.name}</option>)}</select>
         <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}><option value="">Tous les types</option>{UNIT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select>
         <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Tous les statuts</option>{UNIT_STATUSES.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select>
         <select value={filters.availability} onChange={(event) => setFilters({ ...filters, availability: event.target.value })}><option value="">Occupation</option><option value="OCCUPIED">Occupé</option><option value="VACANT">Libre</option></select>
@@ -192,7 +215,7 @@ export function Units() {
       </div>
       {editing && (
         <Modal title={editing.id ? "Modifier l'appartement" : 'Nouvel appartement'} onClose={() => setEditing(null)}>
-          <UnitForm editing={editing} buildings={buildings.data} onSubmit={save} />
+          <UnitForm editing={editing} buildings={buildingOptions} onSubmit={save} />
         </Modal>
       )}
     </section>
@@ -200,10 +223,25 @@ export function Units() {
 }
 
 function UnitForm({ editing, buildings, onSubmit }: { editing: Partial<Unit>; buildings: Building[]; onSubmit: (form: FormData) => void }) {
+  const [createMultiple, setCreateMultiple] = useState(false);
+
   return (
     <form className="form-grid unit-form" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}>
       <label>Immeuble<select name="building_id" required defaultValue={editing.building_id ?? ''}><option value="" disabled>Choisir</option>{buildings.map((building) => <option key={building.id} value={building.id}>{building.name}</option>)}</select></label>
       <label>Numéro<input name="number" placeholder="A-01" defaultValue={editing.number ?? ''} required /></label>
+      {!editing.id && (
+        <label className="check-line form-field-full">
+          <input type="checkbox" name="create_multiple" checked={createMultiple} onChange={(event) => setCreateMultiple(event.target.checked)} />
+          Créer plusieurs appartements
+        </label>
+      )}
+      {!editing.id && createMultiple && (
+        <>
+          <label>Début<input name="range_start" placeholder="A-01" required={createMultiple} /></label>
+          <label>Fin<input name="range_end" placeholder="A-20" required={createMultiple} /></label>
+          <div className="compact-empty form-field-full"><AlertTriangle size={15} /> La plage sera générée automatiquement à partir du préfixe et du numéro final.</div>
+        </>
+      )}
       <label>Type<select name="type" defaultValue={editing.type ?? 'Studio'}>{UNIT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
       <label>Étage<input name="floor" type="number" defaultValue={editing.floor ?? 0} required /></label>
       <label>Surface (m²)<input name="surface_area" type="number" step="0.01" defaultValue={editing.surface_area ?? ''} /></label>
@@ -260,4 +298,16 @@ function optionalText(value: FormDataEntryValue | null) {
 
 function amount(value: unknown) {
   return Number(value ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+}
+
+function generateUnitNumbers(start: string, end: string) {
+  const startMatch = start.match(/^(.*?)(\d+)$/);
+  const endMatch = end.match(/^(.*?)(\d+)$/);
+  if (!startMatch || !endMatch || startMatch[1] !== endMatch[1]) return [];
+  const prefix = startMatch[1];
+  const startValue = Number(startMatch[2]);
+  const endValue = Number(endMatch[2]);
+  const width = Math.max(startMatch[2].length, endMatch[2].length);
+  if (!Number.isFinite(startValue) || !Number.isFinite(endValue) || endValue < startValue) return [];
+  return Array.from({ length: endValue - startValue + 1 }, (_, index) => `${prefix}${String(startValue + index).padStart(width, '0')}`);
 }

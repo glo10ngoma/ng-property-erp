@@ -148,12 +148,11 @@ export function PurchaseCreateModal({ items, onClose, onSubmit }: { items: Stock
       purchase_date: String(form.get('purchase_date') ?? ''),
       supplier_name: String(form.get('supplier_name') ?? '').trim(),
       supplier_reference: String(form.get('supplier_reference') ?? ''),
-      store: String(form.get('store') ?? ''),
       payment_terms: String(form.get('payment_terms') ?? ''),
       payment_method: paymentType === 'DEFERRED' ? '' : String(form.get('payment_method') ?? ''),
       payment_type: paymentType,
-      due_date: String(form.get('due_date') ?? ''),
-      initial_payment_amount: paymentType === 'DEFERRED' ? 0 : Number(form.get('initial_payment_amount') ?? 0),
+      due_date: '',
+      initial_payment_amount: 0,
       observations: String(form.get('observations') ?? ''),
       lines: lines.map((line) => ({
         stock_item_id: line.stock_item_id,
@@ -165,7 +164,6 @@ export function PurchaseCreateModal({ items, onClose, onSubmit }: { items: Stock
     if (!payload.lines.length) return setError('Ajoutez au moins un article.');
     if (payload.lines.some((line) => !line.stock_item_id)) return setError('Chaque ligne doit contenir un article sélectionné.');
     if (payload.lines.some((line) => line.quantity <= 0)) return setError('Chaque ligne doit contenir une quantité strictement positive.');
-    if ((paymentType === 'PARTIAL' || paymentType === 'DEFERRED') && !payload.due_date) return setError('La date d\'échéance est obligatoire pour un paiement partiel ou différé.');
     await onSubmit(payload);
   }
 
@@ -177,13 +175,10 @@ export function PurchaseCreateModal({ items, onClose, onSubmit }: { items: Stock
           <label className="locked-field">N° achat<input value="Automatique (PO-000001)" readOnly /></label>
           <label>Date<input name="purchase_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
           <label>Fournisseur *<input name="supplier_name" required /></label>
-          <label>Magasin destination<input name="store" /></label>
           <label>Référence fournisseur<input name="supplier_reference" /></label>
           <label>Conditions de paiement<input name="payment_terms" /></label>
           <label>Mode paiement<select name="payment_method" defaultValue="" disabled={paymentType === 'DEFERRED'} required={paymentType !== 'DEFERRED'}><option value="">Sélectionner</option><option value="CASH">Espèces</option><option value="BANK">Banque</option><option value="MOBILE_MONEY">Mobile Money</option><option value="OTHER">Autre</option></select></label>
           <label>Paiement<select name="payment_type" value={paymentType} onChange={(event) => setPaymentType(event.target.value as 'CASH' | 'PARTIAL' | 'DEFERRED')}><option value="CASH">Comptant</option><option value="PARTIAL">Partiel</option><option value="DEFERRED">Différé</option></select></label>
-          <label>Montant payé initial<input name="initial_payment_amount" type="number" min="0" step="0.01" defaultValue="0" disabled={paymentType === 'DEFERRED'} /></label>
-          <label>Date échéance<input name="due_date" type="date" required={paymentType !== 'CASH'} /></label>
           <label className="wide-field">Observations<textarea name="observations" rows={3} /></label>
         </div>
       </div>

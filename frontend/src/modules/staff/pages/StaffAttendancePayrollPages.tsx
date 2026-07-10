@@ -172,7 +172,7 @@ export function AttendancePage() {
         <thead><tr><th>Employe</th><th>Matricule</th><th>Service</th><th>Fonction</th><th className="right">Salaire mensuel</th><th className="right">Jours ouvrables</th><th className="right">Presents</th><th className="right">Conges payes</th><th className="right">Maladie</th><th className="right">Absences</th><th className="right">Retards</th><th className="right">Heures sup.</th><th className="right">Retenue abs.</th><th className="right">Net estime</th><th>Statut</th><th>Observations</th><th>Actions</th></tr></thead>
         <tbody>{filtered.map((row) => <tr key={row.id}>
           <td>{row.employee_name}</td>
-          <td>{row.employee_number ?? `EMP-${row.employee_id}`}</td>
+          <td>{row.employee_number ?? `EMP-${String(row.employee_id).padStart(6, '0')}`}</td>
           <td>{row.department ?? '—'}</td>
           <td>{row.job_title ?? '—'}</td>
           <td className="right">{money(row.monthly_salary ?? 0)}</td>
@@ -248,10 +248,15 @@ export function PayrollPage() {
   );
 
   async function generatePayroll(form: FormData) {
-    await api.post('/payrolls/generate', payrollPayload(form));
-    setSuccess('Paie du mois generee.');
-    setGenerateOpen(false);
-    await loadRows();
+    try {
+      await api.post('/payrolls/generate', payrollPayload(form));
+      setSuccess('Paie du mois generee.');
+      setGenerateOpen(false);
+      await loadRows();
+    } catch (error: any) {
+      const message = error?.response?.data?.message;
+      setSuccess(Array.isArray(message) ? message.join(' | ') : message || 'Generation de la paie impossible.');
+    }
   }
 
   async function payrollAction(id: number, action: 'validate' | 'pay') {
@@ -296,7 +301,7 @@ export function PayrollPage() {
       <table>
         <thead><tr><th>Matricule</th><th>Employe</th><th>Service</th><th>Fonction</th><th className="right">Salaire mensuel</th><th className="right">Retenues</th><th className="right">Avances</th><th className="right">Primes</th><th className="right">Net a payer</th><th>Statut</th><th>Actions</th></tr></thead>
         <tbody>{filtered.map((row) => <tr key={row.id}>
-          <td>{row.employee_number ?? `EMP-${row.employee_id}`}</td>
+          <td>{row.employee_number ?? `EMP-${String(row.employee_id).padStart(6, '0')}`}</td>
           <td>{row.employee_name}</td>
           <td>{row.department ?? '—'}</td>
           <td>{row.job_title ?? '—'}</td>
@@ -499,7 +504,7 @@ function AttendanceBulkEditor({ employees, onCancel, onSaved, defaultMonth, defa
             <tbody>{rows.map((row) => {
               const error = attendanceRowError(row);
               return <tr key={row.employee_id}>
-                <td>{row.employee_number ?? `EMP-${row.employee_id}`}</td>
+                <td>{row.employee_number ?? `EMP-${String(row.employee_id).padStart(6, '0')}`}</td>
                 <td>{row.employee_name}</td>
                 <td>{row.department ?? '—'}</td>
                 <td>{row.job_title ?? '—'}</td>
@@ -561,7 +566,7 @@ function PayrollDetailModal({ payroll, onClose, onPay }: { payroll: Payroll; onC
       </div>
       <div className="summary-band">
         <div className="summary-item"><span>Employe</span><strong>{payroll.employee_name}</strong></div>
-        <div className="summary-item"><span>Matricule</span><strong>{payroll.employee_number ?? `EMP-${payroll.employee_id}`}</strong></div>
+        <div className="summary-item"><span>Matricule</span><strong>{payroll.employee_number ?? `EMP-${String(payroll.employee_id).padStart(6, '0')}`}</strong></div>
         <div className="summary-item"><span>Service</span><strong>{payroll.department ?? '—'}</strong></div>
         <div className="summary-item"><span>Fonction</span><strong>{payroll.job_title ?? '—'}</strong></div>
         <div className="summary-item"><span>Periode</span><strong>{monthLabel(payroll.month)} {payroll.year}</strong></div>
@@ -684,7 +689,7 @@ function exportAttendanceRow(row: AttendanceRow) {
   return {
     periode: `${monthLabel(row.month)} ${row.year}`,
     employe: row.employee_name,
-    matricule: row.employee_number ?? `EMP-${row.employee_id}`,
+    matricule: row.employee_number ?? `EMP-${String(row.employee_id).padStart(6, '0')}`,
     service: row.department ?? '',
     fonction: row.job_title ?? '',
     salaire_mensuel: money(row.monthly_salary ?? 0),
@@ -705,7 +710,7 @@ function exportAttendanceRow(row: AttendanceRow) {
 function exportPayrollRow(row: Payroll) {
   return {
     periode: `${monthLabel(row.month)} ${row.year}`,
-    matricule: row.employee_number ?? `EMP-${row.employee_id}`,
+    matricule: row.employee_number ?? `EMP-${String(row.employee_id).padStart(6, '0')}`,
     employe: row.employee_name,
     service: row.department ?? '',
     fonction: row.job_title ?? '',

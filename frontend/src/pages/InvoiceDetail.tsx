@@ -4,6 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, invoiceDisplayStatus, itemLabel, money, paymentMethodLabel, shortDate } from '../api';
 import { useAuth } from '../auth';
 import { Modal, SuccessMessage } from '../components';
+import { openOrDownloadDocument } from '../core/utils/documentActions';
 
 type Invoice = {
   id: number;
@@ -68,10 +69,15 @@ export function InvoiceDetail() {
   }, [invoice?.id, searchParams]);
 
   async function pay(form: FormData) {
+    const amount = Number(form.get('amount'));
+    if (amount <= 0 || amount > Number(invoice?.remaining_amount ?? 0)) {
+      setSuccess(`Le montant doit être compris entre 0 et ${money(invoice?.remaining_amount ?? 0)}.`);
+      return;
+    }
     await api.post('/payments', {
       invoice_id: Number(id),
       payment_date: form.get('payment_date'),
-      amount: Number(form.get('amount')),
+      amount,
       payment_method: form.get('payment_method'),
       reference: form.get('reference'),
       notes: form.get('notes'),
@@ -199,22 +205,9 @@ export function InvoiceDetail() {
           </tfoot>
         </table>
 
-        <div className="invoice-amount-cards">
-          <div className="invoice-amount-card">
-            <span>Total</span>
-            <strong>{amount(invoice.total)}</strong>
-            <em>USD</em>
-          </div>
-          <div className="invoice-amount-card">
-            <span>Paye</span>
-            <strong>{amount(invoice.paid_amount)}</strong>
-            <em>USD</em>
-          </div>
-          <div className="invoice-amount-card due">
-            <span>Restant du</span>
-            <strong>{amount(invoice.remaining_amount)}</strong>
-            <em>USD</em>
-          </div>
+        <div className="invoice-balance-line">
+          <span>Paye : <strong>{amount(invoice.paid_amount)} USD</strong></span>
+          <span>Restant du : <strong>{amount(invoice.remaining_amount)} USD</strong></span>
         </div>
         {invoice.public_notes && <p className="thanks">{invoice.public_notes}</p>}
         <p className="thanks">Merci pour votre confiance.</p>
@@ -253,7 +246,7 @@ export function InvoiceDetail() {
               {documents.map((document) => (
                 <div className="compact-item" key={document.name}>
                   <span>{document.name}</span>
-                  <strong>{document.exists ? document.detail : 'Non disponible'}</strong>
+                  <strong>{document.exists ? <button type="button" className="link-button" onClick={() => openOrDownloadDocument({ fileName: document.fileName, fileUrl: document.fileUrl, title: document.name, context: `Facture ${invoice.invoice_number}` })}>{document.detail}</button> : 'Non disponible'}</strong>
                 </div>
               ))}
               {invoice.internal_notes && <div className="compact-item"><span>Notes internes</span><strong>{invoice.internal_notes}</strong></div>}
@@ -311,18 +304,42 @@ export function InvoiceDetail() {
 
       {paymentOpen && (
         <Modal title="Enregistrer un paiement" onClose={() => setPaymentOpen(false)}>
-          <form
-            className="form-grid"
-            onSubmit={(event) => {
-              event.preventDefault();
-              pay(new FormData(event.currentTarget));
-            }}
-          >
-            <input name="payment_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} />
-            <input name="amount" type="number" step="0.01" required defaultValue={invoice.remaining_amount} />
-            <select name="payment_method"><option value="CASH">{paymentMethodLabel('CASH')}</option><option value="BANK">{paymentMethodLabel('BANK')}</option><option value="MOBILE_MONEY">{paymentMethodLabel('MOBILE_MONEY')}</option></select>
-            <input name="reference" placeholder="Reference" />
-            <textarea name="notes" placeholder="Notes" />
+          <form className="form-grid payment-modal" onSubmit={(event) => { event.preventDefault(); pay(new FormData(event.currentTarget)); }}>
+            <div className="detail-section compact-modal-section">
+              <summary>Informations paiement</summary>
+              <div className="lease-section-grid">
+                <label>Facture<input readOnly className="locked-field" value={`${invoice.invoice_number} | ${invoice.tenant_name || `${invoice.first_name} ${invoice.last_name}`} | ${invoice.unit_number ?? '-'} | Facture: ${money(invoice.total)} | Paye: ${money(invoice.paid_amount)} | Reste: ${money(invoice.remaining_amount)}`} /></label>
+                <label>Locataire<input readOnly className="locked-field" value={invoice.tenant_name || `${invoice.first_name} ${invoice.last_name}`} /></label>
+                <label>Bail<input readOnly className="locked-field" value={invoice.lease_id ? `B-${invoice.lease_id}` : '-'} /></label>
+                <label>Appartement<input readOnly className="locked-field" value={invoice.unit_number ?? '-'} /></label>
+              </div>
+              <div className="payment-summary-strip">
+                <span>{invoice.invoice_number}</span>
+                <span>{invoice.tenant_name || `${invoice.first_name} ${invoice.last_name}`}</span>
+                <span>{invoice.unit_number ?? '-'}</span>
+                <span>Facture : <strong>{money(invoice.total)}</strong></span>
+                <span>Paye : <strong>{money(invoice.paid_amount)}</strong></span>
+                <span>Reste : <strong>{money(invoice.remaining_amount)}</strong></span>
+              </div>
+            </div>
+            <div className="detail-section compact-modal-section">
+              <summary>Paiement</summary>
+              <div className="lease-section-grid">
+                <label>Date<input name="payment_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></label>
+                <label>Montant<input name="amount" type="number" step="0.01" max={Number(invoice.remaining_amount)} required defaultValue={invoice.remaining_amount} /></label>
+                <label>Mode de paiement<select name="payment_method"><option value="CASH">{paymentMethodLabel('CASH')}</option><option value="BANK">{paymentMethodLabel('BANK')}</option><option value="MOBILE_MONEY">{paymentMethodLabel('MOBILE_MONEY')}</option></select></label>
+                <label>Reference<input name="reference" placeholder="Reference" /></label>
+              </div>
+            </div>
+            <div className="detail-section compact-modal-section">
+              <summary>Informations complementaires</summary>
+              <div className="lease-section-grid">
+                <label>Banque / payeur<input name="payer_name" placeholder="Banque / payeur" /></label>
+                <label>Numero transaction<input name="transaction_number" placeholder="Numero transaction" /></label>
+                <label>Cheque<input name="check_number" placeholder="Cheque" /></label>
+                <label>Observations<textarea name="notes" rows={2} placeholder="Observations" /></label>
+              </div>
+            </div>
             <button>Enregistrer le paiement</button>
           </form>
         </Modal>
@@ -391,10 +408,10 @@ function reminderSchedule(invoice: Invoice) {
 
 function invoiceDocuments(invoice: Invoice) {
   return [
-    { name: 'Facture PDF', exists: true, detail: `Facture_${invoice.invoice_number}.pdf` },
-    { name: 'Piece jointe', exists: Boolean(invoice.attachment_file_name), detail: invoice.attachment_file_name ?? 'Non disponible' },
-    { name: 'Contrat lie', exists: Boolean(invoice.lease_id), detail: invoice.lease_id ? `B-${invoice.lease_id}` : 'Non disponible' },
-    { name: 'Documents bail', exists: Boolean(invoice.lease_id), detail: invoice.lease_id ? 'Voir bail lie' : 'Non disponible' },
+    { name: 'Facture PDF', exists: true, detail: `Facture_${invoice.invoice_number}.pdf`, fileName: `Facture_${invoice.invoice_number}.pdf`, fileUrl: '' },
+    { name: 'Piece jointe', exists: Boolean(invoice.attachment_file_name), detail: invoice.attachment_file_name ?? 'Non disponible', fileName: invoice.attachment_file_name ?? '', fileUrl: '' },
+    { name: 'Contrat lie', exists: Boolean(invoice.lease_id), detail: invoice.lease_id ? `B-${invoice.lease_id}` : 'Non disponible', fileName: invoice.lease_id ? `B-${invoice.lease_id}` : '', fileUrl: '' },
+    { name: 'Documents bail', exists: Boolean(invoice.lease_id), detail: invoice.lease_id ? 'Voir bail lie' : 'Non disponible', fileName: invoice.lease_id ? `Documents_bail_B-${invoice.lease_id}` : '', fileUrl: '' },
   ];
 }
 
