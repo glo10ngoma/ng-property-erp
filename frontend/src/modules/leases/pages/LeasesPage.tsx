@@ -17,6 +17,7 @@ type Lease = {
   start_date: string;
   end_date?: string;
   monthly_rent: number;
+  monthly_syndic_amount?: number;
   rental_guarantee_amount: number;
   rental_guarantee_paid: number;
   rental_guarantee_payment_date?: string;
@@ -35,7 +36,7 @@ type LeaseDetail = Lease & {
 };
 
 type Building = { id: number; name: string; city?: string; building_type?: string };
-type Unit = { id: number; building_id: number; building_name: string; number: string; monthly_rent: number; status: string };
+type Unit = { id: number; building_id: number; building_name: string; number: string; monthly_rent: number; monthly_syndic_amount?: number; status: string };
 type Tenant = { id: number; first_name: string; last_name: string; phone?: string; building_name?: string; unit_number?: string; company_name?: string; tenant_type?: string };
 
 const emptyFilters = { building: '', unit: '', tenant: '', status: '', guarantee: '', start: '', end: '', contract: '', expiring: '' };
@@ -217,6 +218,7 @@ function LeaseEditModal({
   const [endDate, setEndDate] = useState(lease.end_date?.slice(0, 10) ?? '');
   const [durationMonths, setDurationMonths] = useState(leaseDurationNumber(lease));
   const [rent, setRent] = useState(Number(lease.monthly_rent ?? 0));
+  const [syndicAmount, setSyndicAmount] = useState(Number(lease.monthly_syndic_amount ?? 0));
   const [guaranteeAmountValue, setGuaranteeAmountValue] = useState(String(guaranteeAmount(lease)));
   const [guaranteePaidValue, setGuaranteePaidValue] = useState(String(guaranteePaid(lease)));
   const [guaranteeStatusValue, setGuaranteeStatusValue] = useState(guaranteeStatus(lease));
@@ -245,14 +247,15 @@ function LeaseEditModal({
   const unitOptions = availableUnits.map((unit) => ({
     value: unit.id,
     label: unit.number,
-    meta: `${unit.building_name} - ${amount(unit.monthly_rent)} USD - ${statusLabel(unit.status)}`,
+    meta: `${unit.building_name} - Loyer ${amount(unit.monthly_rent)} USD - Syndic ${amount(unit.monthly_syndic_amount)} USD - ${statusLabel(unit.status)}`,
   }));
 
   useEffect(() => {
     if (selectedUnit) {
       setRent(Number(selectedUnit.monthly_rent ?? 0));
+      if (lease.unit_id !== selectedUnit.id) setSyndicAmount(Number(selectedUnit.monthly_syndic_amount ?? 0));
     }
-  }, [selectedUnit?.id]);
+  }, [selectedUnit?.id, lease.unit_id]);
 
   useEffect(() => {
     const amountValue = Number(guaranteeAmountValue || 0);
@@ -290,6 +293,7 @@ function LeaseEditModal({
         start_date: startDate,
         end_date: endDate || null,
         monthly_rent: rent,
+        monthly_syndic_amount: syndicAmount,
         rental_guarantee_amount: Number(guaranteeAmountValue ?? 0),
         rental_guarantee_paid: Number(guaranteePaidValue ?? 0),
         rental_guarantee_payment_date: guaranteePaymentDate || null,
@@ -329,6 +333,8 @@ function LeaseEditModal({
             <label>Duree du bail (mois)<input type="number" min="1" value={durationMonths} onChange={(event) => updateDuration(event.target.value)} placeholder="12" /></label>
             <label>Jour limite paiement<input type="number" min="1" max="31" defaultValue="5" /></label>
             <label>Loyer<input type="number" value={rent} onChange={(event) => setRent(Number(event.target.value))} required /></label>
+            <label>Montant syndic<input type="number" min="0" value={syndicAmount} onChange={(event) => setSyndicAmount(Number(event.target.value))} /></label>
+            <label>Total mensuel<input className="locked-field" value={`${amount(Number(rent ?? 0) + Number(syndicAmount ?? 0))} USD`} readOnly /></label>
             <label>Devise<input className="locked-field" value="USD" readOnly /></label>
             <label>Statut<select value={leaseStatus} onChange={(event) => setLeaseStatus(event.target.value)}><option value="DRAFT">Brouillon</option><option value="ACTIVE">Actif</option><option value="TERMINATED">Resilie</option></select></label>
           </div>
@@ -445,6 +451,8 @@ function leaseExportRow(lease: Lease) {
     fin: lease.end_date ? shortDate(lease.end_date) : '',
     duree: leaseDurationLabel(lease),
     loyer: amount(lease.monthly_rent),
+    syndic: amount(lease.monthly_syndic_amount),
+    total_mensuel: amount(Number(lease.monthly_rent ?? 0) + Number(lease.monthly_syndic_amount ?? 0)),
     devise: 'USD',
     garantie: amount(guaranteeAmount(lease)),
     paye: amount(guaranteePaid(lease)),

@@ -1,6 +1,6 @@
 import { Download, Eye, FileSpreadsheet, Pencil, Plus, Printer, Trash2, X } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, exportCsv, exportXlsxWorkbook, includesText, invoiceDisplayStatus, itemLabel, money, shortDate, statusLabel } from '../api';
 import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, SearchableSelect, StatusBadge, SuccessMessage, TenantSearchSelect } from '../components';
@@ -8,7 +8,7 @@ import { useApiList } from '../hooks';
 
 type Invoice = { id: number; invoice_number: string; tenant_name?: string; first_name: string; last_name: string; building_name: string; unit_number: string; lease_number?: number; issue_date: string; due_date: string; month: number; year: number; total: number; paid_amount: number; remaining_amount: number; discount_amount?: number; attachment_file_name?: string; public_notes?: string; internal_notes?: string; status: string };
 type Tenant = { id: number; tenant_type?: string; company_name?: string; first_name: string; last_name: string; post_name?: string; phone?: string; monthly_rent: number; building_name: string; unit_number: string };
-type Lease = { id: number; tenant_id: number; tenant_name: string; building_name: string; unit_number: string; monthly_rent: number; status: string };
+type Lease = { id: number; tenant_id: number; tenant_name: string; building_name: string; unit_number: string; monthly_rent: number; monthly_syndic_amount?: number; status: string };
 
 const lineTypes = ['Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Penalty', 'Other'];
 const emptyFilters = { month: '', year: '', status: '', building: '', tenant: '' };
@@ -22,6 +22,7 @@ export function Invoices() {
   const [tenantId, setTenantId] = useState<number | null>(null);
   const [leaseId, setLeaseId] = useState<number | null>(null);
   const [rent, setRent] = useState(0);
+  const [syndicAmount, setSyndicAmount] = useState(0);
   const now = new Date();
   const [invoiceForm, setInvoiceForm] = useState({
     issue_date: now.toISOString().slice(0, 10),
@@ -29,7 +30,7 @@ export function Invoices() {
     month: String(now.getMonth() + 1),
     year: String(now.getFullYear()),
   });
-  const [extraLines, setExtraLines] = useState([{ description: 'Water', amount: 0 }]);
+  const [extraLines, setExtraLines] = useState([{ item_type: 'Water', amount: 0 }]);
   const [discount, setDiscount] = useState(0);
   const [publicNotes, setPublicNotes] = useState('');
   const [internalNotes, setInternalNotes] = useState('');
@@ -44,12 +45,21 @@ export function Invoices() {
   const selectedTenantId = tenantId ?? tenant?.id ?? null;
   const tenantLeases = leases.data.filter((lease) => Number(lease.tenant_id) === Number(selectedTenantId) && lease.status === 'ACTIVE');
   const selectedLease = tenantLeases.find((lease) => lease.id === leaseId) ?? tenantLeases[0];
-  const invoiceRent = rent || Number(selectedLease?.monthly_rent ?? tenant?.monthly_rent ?? 0);
-  const subtotal = Number(invoiceRent ?? 0) + extraLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+  const invoiceRent = Number(rent ?? 0);
+  const invoiceSyndic = Number(syndicAmount ?? 0);
+  const subtotal = Number(invoiceRent ?? 0) + Number(invoiceSyndic ?? 0) + extraLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
   const total = Math.max(0, subtotal - Number(discount || 0));
-  const leaseOptions = tenantLeases.map((lease) => ({ value: lease.id, label: `Bail #${lease.id}`, meta: `${lease.building_name} - ${lease.unit_number} - ${money(lease.monthly_rent)}` }));
+  const leaseOptions = tenantLeases.map((lease) => ({ value: lease.id, label: `Bail #${lease.id}`, meta: `${lease.building_name} - ${lease.unit_number} - Loyer ${money(lease.monthly_rent)} - Syndic ${money(lease.monthly_syndic_amount ?? 0)}` }));
   const buildingOptions = Array.from(new Set(data.map((invoice) => invoice.building_name).filter(Boolean)));
   const tenantOptions = Array.from(new Set(data.map(invoiceTenantName).filter(Boolean)));
+
+  useEffect(() => {
+    if (selectedLease) {
+      setRent(Number(selectedLease.monthly_rent ?? 0));
+      setSyndicAmount(Number(selectedLease.monthly_syndic_amount ?? 0));
+      if (!leaseId) setLeaseId(selectedLease.id);
+    }
+  }, [selectedLease?.id]);
 
   const filtered = data.filter((invoice) => {
     const displayStatus = invoiceDisplayStatus(invoice.status, invoice.due_date);
@@ -93,10 +103,7 @@ export function Invoices() {
       internal_notes: internalNotes || null,
       attachment_file_name: attachmentName || null,
       attachment_file_url: null,
-      items: [
-        { description: 'Monthly rent', amount: Number(invoiceRent) },
-        ...extraLines.filter((line) => Number(line.amount) > 0),
-      ],
+      items: buildInvoiceItems(invoiceForm.month, invoiceForm.year, invoiceRent, invoiceSyndic, extraLines),
     });
     navigate(`/invoices/${response.data.id}`);
   }
@@ -175,9 +182,9 @@ export function Invoices() {
         <Modal title="Nouvelle facture" onClose={() => setOpen(false)}>
           <div className="invoice-modal-body">
             <div className="form-grid invoice-form-grid">
-              <label className="invoice-field-full">Locataire<TenantSearchSelect tenants={tenants.data} value={selectedTenantId} onChange={(value) => { setTenantId(value); setLeaseId(null); setRent(0); }} required /></label>
-              <label className="invoice-field-full">Bail actif<SearchableSelect options={leaseOptions} value={selectedLease?.id ?? null} onChange={(value) => { setLeaseId(value ? Number(value) : null); const lease = leases.data.find((item) => item.id === value); if (lease) setRent(Number(lease.monthly_rent)); }} placeholder="Rechercher un bail" emptyMessage="Aucun bail actif trouve" /></label>
-              {selectedLease && <div className="summary-band invoice-field-full"><div className="summary-item"><span>Immeuble</span><strong>{selectedLease.building_name}</strong></div><div className="summary-item"><span>Unite</span><strong>{selectedLease.unit_number}</strong></div><div className="summary-item"><span>Loyer bail</span><strong>{money(selectedLease.monthly_rent)}</strong></div></div>}
+              <label className="invoice-field-full">Locataire<TenantSearchSelect tenants={tenants.data} value={selectedTenantId} onChange={(value) => { setTenantId(value); setLeaseId(null); setRent(0); setSyndicAmount(0); }} required /></label>
+              <label className="invoice-field-full">Bail actif<SearchableSelect options={leaseOptions} value={selectedLease?.id ?? null} onChange={(value) => { setLeaseId(value ? Number(value) : null); const lease = leases.data.find((item) => item.id === value); if (lease) { setRent(Number(lease.monthly_rent)); setSyndicAmount(Number(lease.monthly_syndic_amount ?? 0)); } }} placeholder="Rechercher un bail" emptyMessage="Aucun bail actif trouve" /></label>
+              {selectedLease && <div className="summary-band invoice-field-full"><div className="summary-item"><span>Immeuble</span><strong>{selectedLease.building_name}</strong></div><div className="summary-item"><span>Unite</span><strong>{selectedLease.unit_number}</strong></div><div className="summary-item"><span>Loyer bail</span><strong>{money(selectedLease.monthly_rent)}</strong></div><div className="summary-item"><span>Syndic bail</span><strong>{money(selectedLease.monthly_syndic_amount ?? 0)}</strong></div><div className="summary-item"><span>Total mensuel</span><strong>{money(Number(selectedLease.monthly_rent ?? 0) + Number(selectedLease.monthly_syndic_amount ?? 0))}</strong></div></div>}
               <div className="invoice-compact-grid invoice-field-full">
                 <label>Date de facture<input type="date" value={invoiceForm.issue_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, issue_date: event.target.value })} required /></label>
                 <label>Date d'echeance<input type="date" value={invoiceForm.due_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, due_date: event.target.value })} required /></label>
@@ -186,18 +193,20 @@ export function Invoices() {
                 <label>Periode debut<input className="locked-field" type="date" value={periodStart(invoiceForm.month, invoiceForm.year)} readOnly /></label>
                 <label>Periode fin<input className="locked-field" type="date" value={periodEnd(invoiceForm.month, invoiceForm.year)} readOnly /></label>
                 <label>Loyer contractuel<input type="number" value={invoiceRent} onChange={(event) => setRent(Number(event.target.value))} /></label>
+                <label>Syndic mensuel<input type="number" min="0" value={invoiceSyndic} onChange={(event) => setSyndicAmount(Number(event.target.value))} /></label>
+                <label>Total mensuel<input className="locked-field" value={money(Number(invoiceRent ?? 0) + Number(invoiceSyndic ?? 0))} readOnly /></label>
                 <label>Remise<input type="number" min="0" value={discount} onChange={(event) => setDiscount(Number(event.target.value))} /></label>
               </div>
               <div className="invoice-lines invoice-field-full">
                 {extraLines.map((line, index) => (
                   <div className="invoice-line" key={index}>
-                    <select aria-label="Description charge" value={line.description} onChange={(event) => setExtraLines((lines) => lines.map((item, i) => i === index ? { ...item, description: event.target.value } : item))}>{lineTypes.map((type) => <option key={type} value={type}>{itemLabel(type)}</option>)}</select>
+                    <select aria-label="Description charge" value={line.item_type} onChange={(event) => setExtraLines((lines) => lines.map((item, i) => i === index ? { ...item, item_type: event.target.value } : item))}>{lineTypes.map((type) => <option key={type} value={type}>{itemLabel(type)}</option>)}</select>
                     <input aria-label="Montant charge" type="number" value={line.amount} onChange={(event) => setExtraLines((lines) => lines.map((item, i) => i === index ? { ...item, amount: Number(event.target.value) } : item))} />
                     <button type="button" className="icon-btn danger" aria-label="Supprimer la charge" onClick={() => setExtraLines((lines) => lines.filter((_, i) => i !== index))}><X size={16} /></button>
                   </div>
                 ))}
               </div>
-              <button type="button" className="secondary invoice-add-line" onClick={() => setExtraLines([...extraLines, { description: 'Other', amount: 0 }])}>Ajouter une charge</button>
+              <button type="button" className="secondary invoice-add-line" onClick={() => setExtraLines([...extraLines, { item_type: 'Other', amount: 0 }])}>Ajouter une charge</button>
               <details className="invoice-advanced invoice-field-full">
                 <summary>Options avancees</summary>
                 <div className="invoice-two-col">
@@ -276,4 +285,25 @@ function periodEnd(month: string, year: string) {
   if (!month || !year) return '';
   const date = new Date(Number(year), Number(month), 0);
   return date.toISOString().slice(0, 10);
+}
+
+function buildInvoiceItems(
+  month: string,
+  year: string,
+  rentAmount: number,
+  syndicAmount: number,
+  extraLines: Array<{ item_type: string; amount: number }>,
+) {
+  const period = periodDescription(month, year);
+  return [
+    ...(Number(rentAmount) > 0 ? [{ item_type: 'Monthly rent', description: `Loyer ${period}`, amount: Number(rentAmount) }] : []),
+    ...(Number(syndicAmount) > 0 ? [{ item_type: 'Syndic', description: `Syndic ${period}`, amount: Number(syndicAmount) }] : []),
+    ...extraLines
+      .filter((line) => Number(line.amount) > 0)
+      .map((line) => ({ item_type: line.item_type, description: itemLabel(line.item_type), amount: Number(line.amount) })),
+  ];
+}
+
+function periodDescription(month: string, year: string) {
+  return `${monthName(Number(month)).toLowerCase()} ${year}`;
 }

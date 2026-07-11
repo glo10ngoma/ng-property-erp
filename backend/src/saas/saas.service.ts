@@ -2586,9 +2586,9 @@ export class SaasService {
       }
       const { rows } = await client.query(
         `INSERT INTO leases
-         (tenant_id, unit_id, start_date, end_date, monthly_rent, rental_guarantee_amount, rental_guarantee_paid,
+         (tenant_id, unit_id, start_date, end_date, monthly_rent, monthly_syndic_amount, rental_guarantee_amount, rental_guarantee_paid,
           rental_guarantee_payment_date, rental_guarantee_status, contract_file_url, contract_file_name, status, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          RETURNING *`,
         [
           body.tenant_id,
@@ -2596,6 +2596,7 @@ export class SaasService {
           body.start_date,
           body.end_date ?? null,
           Number(body.monthly_rent ?? 0),
+          Number(body.monthly_syndic_amount ?? 0),
           Number(body.rental_guarantee_amount ?? body.guarantee_amount ?? 0),
           Number(body.rental_guarantee_paid ?? body.guarantee_paid ?? 0),
           body.rental_guarantee_payment_date ?? body.guarantee_payment_date ?? null,
@@ -2634,7 +2635,7 @@ export class SaasService {
   async updateLease(id: number, body: Record<string, unknown>) {
     await this.leaseDetail(id);
     return this.db.transaction(async (client) => {
-      const keys = ['tenant_id', 'unit_id', 'start_date', 'end_date', 'monthly_rent', 'contract_file_url', 'contract_file_name', 'status', 'notes'].filter((key) => body[key] !== undefined);
+      const keys = ['tenant_id', 'unit_id', 'start_date', 'end_date', 'monthly_rent', 'monthly_syndic_amount', 'contract_file_url', 'contract_file_name', 'status', 'notes'].filter((key) => body[key] !== undefined);
       let lease = null;
       if (keys.length) {
         const assignments = keys.map((key, index) => `${key} = $${index + 2}`);
@@ -3151,19 +3152,58 @@ export class SaasService {
       const number = `INV-${new Date().getFullYear()}-${String(sequence.rows[0].value).padStart(4, '0')}`;
       const today = new Date();
       const due = new Date(today.getFullYear(), today.getMonth(), 10);
+      const rentAmount = Number(row.monthly_rent ?? 0);
+      const syndicAmount = Number(row.monthly_syndic_amount ?? 0);
+      const totalAmount = rentAmount + syndicAmount;
       const invoice = await client.query(
         `INSERT INTO invoices (id, tenant_id, lease_id, unit_id, building_id, invoice_number, month, year, issue_date, due_date, status, total, organization_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_DATE, $9, 'UNPAID', $10, $11) RETURNING *`,
-        [nextId.rows[0].value, row.tenant_id, row.id, row.unit_id, row.building_id, number, today.getMonth() + 1, today.getFullYear(), due.toISOString().slice(0, 10), row.monthly_rent, this.context.organizationId()],
+        [nextId.rows[0].value, row.tenant_id, row.id, row.unit_id, row.building_id, number, today.getMonth() + 1, today.getFullYear(), due.toISOString().slice(0, 10), totalAmount, this.context.organizationId()],
       );
-      await client.query('INSERT INTO invoice_items (invoice_id, description, amount, organization_id) VALUES ($1, $2, $3, $4)', [
-        invoice.rows[0].id,
-        'Monthly rent',
-        row.monthly_rent,
-        this.context.organizationId(),
-      ]);
+      if (rentAmount > 0) {
+        await client.query(
+          'INSERT INTO invoice_items (invoice_id, item_type, description, amount, organization_id) VALUES ($1, $2, $3, $4, $5)',
+          [invoice.rows[0].id, 'Monthly rent', this.invoicePeriodDescription('Loyer', today.getMonth() + 1, today.getFullYear()), rentAmount, this.context.organizationId()],
+        );
+      }
+      if (syndicAmount > 0) {
+        await client.query(
+          'INSERT INTO invoice_items (invoice_id, item_type, description, amount, organization_id) VALUES ($1, $2, $3, $4, $5)',
+          [invoice.rows[0].id, 'Syndic', this.invoicePeriodDescription('Syndic', today.getMonth() + 1, today.getFullYear()), syndicAmount, this.context.organizationId()],
+        );
+      }
       return invoice.rows[0];
     });
+  }
+
+  private async appendInvoiceItemSummaries(rows: Record<string, any>[]): Promise<Record<string, any>[]> {
+    const invoiceIds = rows.map((row) => Number(row.id)).filter(Number.isFinite);
+    if (!invoiceIds.length) return rows;
+    const summaries = await this.db.query(
+      `SELECT invoice_id,
+              COALESCE(SUM(CASE WHEN item_type = 'Monthly rent' OR description = 'Monthly rent' OR description ILIKE 'Loyer %' THEN amount ELSE 0 END), 0)::FLOAT AS rent_amount,
+              COALESCE(SUM(CASE WHEN item_type = 'Syndic' OR description = 'Syndic' OR description ILIKE 'Syndic %' THEN amount ELSE 0 END), 0)::FLOAT AS syndic_amount
+       FROM invoice_items
+       WHERE organization_id = $1
+         AND deleted_at IS NULL
+         AND invoice_id = ANY($2::INT[])
+       GROUP BY invoice_id`,
+      [this.context.organizationId(), invoiceIds],
+    );
+    const summaryMap = new Map<number, Record<string, any>>(summaries.rows.map((row) => [Number(row.invoice_id), row as Record<string, any>]));
+    return rows.map((row) => {
+      const summary = summaryMap.get(Number(row.id));
+      return {
+        ...row,
+        rent_amount: Number(summary?.rent_amount ?? 0),
+        syndic_amount: Number(summary?.syndic_amount ?? 0),
+      };
+    });
+  }
+
+  private invoicePeriodDescription(prefix: string, month: number, year: number) {
+    const monthLabel = ['janvier', 'fevrier', 'mars', 'avril', 'mai', 'juin', 'juillet', 'aout', 'septembre', 'octobre', 'novembre', 'decembre'][month - 1] ?? String(month);
+    return `${prefix} ${monthLabel} ${year}`;
   }
 
   async reportsDashboard() {
@@ -3276,7 +3316,7 @@ export class SaasService {
     const tenants = await this.db.query(
       `SELECT DISTINCT ON (t.id)
               t.id, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone, t.email,
-              u.number AS unit_number, l.id AS lease_id, l.status AS lease_status, l.monthly_rent
+              u.number AS unit_number, l.id AS lease_id, l.status AS lease_status, l.monthly_rent, l.monthly_syndic_amount
        FROM tenants t
        JOIN leases l ON l.tenant_id = t.id AND l.deleted_at IS NULL
        JOIN units u ON u.id = l.unit_id
@@ -3285,29 +3325,6 @@ export class SaasService {
          AND ($4::INT IS NULL OR u.id = $4)
        ORDER BY t.id, l.status = 'ACTIVE' DESC, l.start_date DESC`,
       [id, organizationId, filters.tenantId ?? null, filters.unitId ?? null],
-    );
-    const finances = await this.db.query(
-      `SELECT
-         COUNT(i.id)::INT AS invoices,
-         COUNT(*) FILTER (WHERE i.status = 'PAID')::INT AS paid_invoices,
-         COUNT(*) FILTER (WHERE i.status = 'PARTIAL')::INT AS partial_invoices,
-         COUNT(*) FILTER (WHERE i.status NOT IN ('PAID', 'CANCELLED'))::INT AS unpaid_invoices,
-         COUNT(*) FILTER (WHERE i.status <> 'PAID' AND i.due_date < CURRENT_DATE)::INT AS overdue_invoices,
-         COALESCE(SUM(i.total), 0)::FLOAT AS total_invoiced,
-         COALESCE(SUM(s.paid_amount), 0)::FLOAT AS total_paid,
-         COALESCE(SUM(s.remaining_amount), 0)::FLOAT AS remaining
-       FROM invoices i
-       LEFT JOIN leases l ON l.id = i.lease_id
-       LEFT JOIN tenants t ON t.id = i.tenant_id
-       LEFT JOIN units iu ON iu.id = i.unit_id
-       LEFT JOIN units lu ON lu.id = l.unit_id
-       LEFT JOIN units tu ON tu.id = t.unit_id
-       LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
-       WHERE COALESCE(i.building_id, iu.building_id, lu.building_id, tu.building_id) = $1 AND i.issue_date BETWEEN $2 AND $3 AND i.organization_id = $4 AND i.deleted_at IS NULL
-         AND ($5::INT IS NULL OR i.tenant_id = $5)
-         AND ($6::INT IS NULL OR COALESCE(i.unit_id, l.unit_id, t.unit_id) = $6)
-         AND ${this.invoiceStatusClause('i', 7)}`,
-      params,
     );
     const invoices = await this.db.query(
       `SELECT i.id, i.tenant_id, i.invoice_number, i.month, i.year, i.issue_date, i.due_date, i.status, i.total,
@@ -3331,6 +3348,7 @@ export class SaasService {
        ORDER BY i.issue_date DESC, i.invoice_number`,
       params,
     );
+    const invoiceRows = await this.appendInvoiceItemSummaries(invoices.rows);
     const payments = await this.db.query(
       `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference,
               i.invoice_number, i.tenant_id,
@@ -3364,7 +3382,7 @@ export class SaasService {
     );
     const tenantsUnpaid = Array.from(
       new Map(
-        invoices.rows
+        invoiceRows
           .filter((row) => row.tenant_id && !paidTenantIds.has(row.tenant_id) && row.status !== 'PAID')
           .map((row) => [
             row.tenant_id,
@@ -3384,10 +3402,12 @@ export class SaasService {
       ).values(),
     );
     const tenantSituations = tenants.rows.map((tenant) => {
-      const tenantInvoices = invoices.rows.filter((invoice) => Number(invoice.tenant_id) === Number(tenant.id));
+      const tenantInvoices = invoiceRows.filter((invoice) => Number(invoice.tenant_id) === Number(tenant.id));
       const totalInvoiced = tenantInvoices.reduce((sum, invoice) => sum + Number(invoice.total), 0);
       const totalPaid = tenantInvoices.reduce((sum, invoice) => sum + Number(invoice.paid_amount), 0);
       const remaining = tenantInvoices.reduce((sum, invoice) => sum + Number(invoice.remaining_amount), 0);
+      const totalRentInvoiced = tenantInvoices.reduce((sum, invoice) => sum + Number(invoice.rent_amount ?? 0), 0);
+      const totalSyndicInvoiced = tenantInvoices.reduce((sum, invoice) => sum + Number(invoice.syndic_amount ?? 0), 0);
       const paidCount = tenantInvoices.filter((invoice) => invoice.status === 'PAID').length;
       const partialCount = tenantInvoices.filter((invoice) => invoice.status === 'PARTIAL').length;
       const unpaidCount = tenantInvoices.filter((invoice) => invoice.status === 'UNPAID').length;
@@ -3396,6 +3416,8 @@ export class SaasService {
         ...tenant,
         payment_status: tenantInvoices.length === 0 ? 'NOT_INVOICED' : overdueCount > 0 && remaining > 0 ? 'OVERDUE' : remaining <= 0 ? 'PAID' : totalPaid > 0 ? 'PARTIAL' : 'UNPAID',
         total_invoiced: totalInvoiced,
+        total_rent_invoiced: totalRentInvoiced,
+        total_syndic_invoiced: totalSyndicInvoiced,
         total_paid: totalPaid,
         remaining_amount: remaining,
         paid_invoices: paidCount,
@@ -3410,6 +3432,18 @@ export class SaasService {
     const displayUnitsTotal = realUnitsTotal > 0 ? realUnitsTotal : fallbackUnitsTotal;
     const occupied = units.rows.filter((unit) => unit.status === 'OCCUPIED').length;
     const vacant = realUnitsTotal > 0 ? realUnitsTotal - occupied : fallbackUnitsTotal;
+    const financeSummary = {
+      invoices: invoiceRows.length,
+      paid_invoices: invoiceRows.filter((row) => row.status === 'PAID').length,
+      partial_invoices: invoiceRows.filter((row) => row.status === 'PARTIAL').length,
+      unpaid_invoices: invoiceRows.filter((row) => row.status !== 'PAID' && row.status !== 'CANCELLED').length,
+      overdue_invoices: invoiceRows.filter((row) => row.status !== 'PAID' && new Date(row.due_date) < new Date()).length,
+      total_invoiced: invoiceRows.reduce((sum, row) => sum + Number(row.total ?? 0), 0),
+      total_rent_invoiced: invoiceRows.reduce((sum, row) => sum + Number(row.rent_amount ?? 0), 0),
+      total_syndic_invoiced: invoiceRows.reduce((sum, row) => sum + Number(row.syndic_amount ?? 0), 0),
+      total_paid: invoiceRows.reduce((sum, row) => sum + Number(row.paid_amount ?? 0), 0),
+      remaining: invoiceRows.reduce((sum, row) => sum + Number(row.remaining_amount ?? 0), 0),
+    };
     return {
       building: buildingRow,
       period,
@@ -3420,15 +3454,15 @@ export class SaasService {
       occupancy_rate: displayUnitsTotal ? Math.round((occupied / displayUnitsTotal) * 100) : 0,
       tenants: tenants.rows,
       tenant_situations: tenantSituations,
-      finances: finances.rows[0],
+      finances: financeSummary,
       units: units.rows,
       payments: payments.rows,
       tenants_paid: tenantsPaid,
       tenants_unpaid: tenantsUnpaid,
-      paid_invoices: invoices.rows.filter((row) => row.status === 'PAID'),
-      partial_invoices: invoices.rows.filter((row) => row.status === 'PARTIAL'),
-      unpaid_invoices: invoices.rows.filter((row) => row.status === 'UNPAID'),
-      overdue_invoices: invoices.rows.filter((row) => row.status !== 'PAID' && new Date(row.due_date) < new Date()),
+      paid_invoices: invoiceRows.filter((row) => row.status === 'PAID'),
+      partial_invoices: invoiceRows.filter((row) => row.status === 'PARTIAL'),
+      unpaid_invoices: invoiceRows.filter((row) => row.status === 'UNPAID'),
+      overdue_invoices: invoiceRows.filter((row) => row.status !== 'PAID' && new Date(row.due_date) < new Date()),
     };
   }
 
@@ -3527,6 +3561,7 @@ export class SaasService {
        ORDER BY i.issue_date DESC, i.invoice_number`,
       [id, organizationId, period.start, period.end, filters.buildingId ?? null, filters.unitId ?? null, filters.leaseId ?? null, filters.invoiceStatus || null],
     );
+    const invoiceRows = await this.appendInvoiceItemSummaries(invoices.rows);
     const payments = await this.db.query(
       `SELECT p.*, i.tenant_id, i.invoice_number, i.status AS invoice_status, b.name AS building_name, u.number AS unit_number
        FROM payments p
@@ -3557,8 +3592,10 @@ export class SaasService {
        ORDER BY ld.uploaded_at DESC, ld.id DESC`,
       [id, organizationId, filters.buildingId ?? null, filters.unitId ?? null, filters.leaseId ?? null],
     );
-    const rows = invoices.rows;
+    const rows = invoiceRows;
     const totalInvoiced = rows.reduce((sum, row) => sum + Number(row.total), 0);
+    const totalRentInvoiced = rows.reduce((sum, row) => sum + Number(row.rent_amount ?? 0), 0);
+    const totalSyndicInvoiced = rows.reduce((sum, row) => sum + Number(row.syndic_amount ?? 0), 0);
     const totalPaid = rows.reduce((sum, row) => sum + Number(row.paid_amount), 0);
     const remaining = rows.reduce((sum, row) => sum + Number(row.remaining_amount), 0);
     return {
@@ -3581,6 +3618,8 @@ export class SaasService {
       payments_received: payments.rows,
       invoices: rows,
       total_invoiced: totalInvoiced,
+      total_rent_invoiced: totalRentInvoiced,
+      total_syndic_invoiced: totalSyndicInvoiced,
       total_paid: totalPaid,
       remaining,
       tenants_paid: totalPaid > 0 ? [{ tenant_id: id, tenant_name: `${tenant.rows[0]?.first_name ?? ''} ${tenant.rows[0]?.last_name ?? ''}`.trim() }] : [],

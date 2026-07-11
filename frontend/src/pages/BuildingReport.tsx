@@ -16,6 +16,8 @@ type BuildingReportData = {
     unpaid_invoices: number;
     overdue_invoices: number;
     total_invoiced: number;
+    total_rent_invoiced: number;
+    total_syndic_invoiced: number;
     total_paid: number;
     remaining: number;
   };
@@ -98,7 +100,7 @@ export function BuildingReport() {
     const label = channel === 'EMAIL' ? 'Email' : channel === 'SMS' ? 'SMS' : 'WhatsApp';
     if (!window.confirm(`Envoyer une relance ${label} pour la facture ${text(row.invoice_number)} ?`)) return;
     await api.post(`/reports/invoices/${invoiceId}/remind`, { channel });
-    setSuccess(`Relance ${label} envoyée.`);
+    setSuccess(`Relance ${label} envoyee.`);
     await loadReport();
   }
 
@@ -147,55 +149,57 @@ export function BuildingReport() {
 
       <section className="detail-section report-section">
         <h4>Filtres</h4>
-      <div className="quick-form">
-        <select value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })}>
-          <option value="">Mois</option>
-          {months.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
-        <input type="number" min="2000" max="2100" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} placeholder="Annee" />
-        <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, month: '', start: event.target.value })} />
-        <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, month: '', end: event.target.value })} />
-        <select value={filters.paymentStatus} onChange={(event) => setFilters({ ...filters, paymentStatus: event.target.value })}>
-          <option value="">Statut paiement</option>
-          <option value="PAID">Payee</option>
-          <option value="PARTIAL">Paiement partiel</option>
-          <option value="UNPAID">Non payee</option>
-          <option value="OVERDUE">En retard</option>
-        </select>
-        <select value={filters.tenantId} onChange={(event) => setFilters({ ...filters, tenantId: event.target.value })}>
-          <option value="">Tous les locataires</option>
-          {tenants.map((tenant) => <option key={String(tenant.id)} value={String(tenant.id)}>{String(tenant.tenant_name ?? '-')}</option>)}
-        </select>
-        <select value={filters.unitId} onChange={(event) => setFilters({ ...filters, unitId: event.target.value })}>
-          <option value="">Toutes les unites</option>
-          {units.map((unit) => <option key={String(unit.id)} value={String(unit.id)}>{String(unit.number ?? '-')}</option>)}
-        </select>
-        <button type="button" onClick={loadReport}><RefreshCw size={16} />Actualiser</button>
-      </div>
+        <div className="quick-form">
+          <select value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })}>
+            <option value="">Mois</option>
+            {months.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <input type="number" min="2000" max="2100" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} placeholder="Annee" />
+          <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, month: '', start: event.target.value })} />
+          <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, month: '', end: event.target.value })} />
+          <select value={filters.paymentStatus} onChange={(event) => setFilters({ ...filters, paymentStatus: event.target.value })}>
+            <option value="">Statut paiement</option>
+            <option value="PAID">Payee</option>
+            <option value="PARTIAL">Paiement partiel</option>
+            <option value="UNPAID">Non payee</option>
+            <option value="OVERDUE">En retard</option>
+          </select>
+          <select value={filters.tenantId} onChange={(event) => setFilters({ ...filters, tenantId: event.target.value })}>
+            <option value="">Tous les locataires</option>
+            {tenants.map((tenant) => <option key={String(tenant.id)} value={String(tenant.id)}>{String(tenant.tenant_name ?? '-')}</option>)}
+          </select>
+          <select value={filters.unitId} onChange={(event) => setFilters({ ...filters, unitId: event.target.value })}>
+            <option value="">Toutes les unites</option>
+            {units.map((unit) => <option key={String(unit.id)} value={String(unit.id)}>{String(unit.number ?? '-')}</option>)}
+          </select>
+          <button type="button" onClick={loadReport}><RefreshCw size={16} />Actualiser</button>
+        </div>
       </section>
 
       {!report && <EmptyState message={loading ? 'Chargement...' : 'Aucune donnee.'} />}
       {report && (
         <>
           <section className="detail-section report-section">
-          <h4>Resume financier</h4>
-          <div className="mini-stats">
-            <div className="mini-stat"><span>Locataires ayant paye</span><strong>{report.tenants_paid.length}</strong></div>
-            <div className="mini-stat"><span>Locataires non payeurs</span><strong>{report.tenants_unpaid.length}</strong></div>
-            <div className="mini-stat"><span>Factures payees</span><strong>{report.paid_invoices.length}</strong></div>
-            <div className="mini-stat"><span>Factures partielles</span><strong>{report.partial_invoices.length}</strong></div>
-            <div className="mini-stat"><span>Factures en retard</span><strong>{report.overdue_invoices.length}</strong></div>
-            <div className="mini-stat"><span>Total facture</span><strong>{money(report.finances.total_invoiced)}</strong></div>
-            <div className="mini-stat"><span>Total encaisse</span><strong>{money(report.finances.total_paid)}</strong></div>
-            <div className="mini-stat"><span>Reste a encaisser</span><strong>{money(report.finances.remaining)}</strong></div>
-          </div>
+            <h4>Resume financier</h4>
+            <div className="mini-stats">
+              <div className="mini-stat"><span>Locataires ayant paye</span><strong>{report.tenants_paid.length}</strong></div>
+              <div className="mini-stat"><span>Locataires non payeurs</span><strong>{report.tenants_unpaid.length}</strong></div>
+              <div className="mini-stat"><span>Factures payees</span><strong>{report.paid_invoices.length}</strong></div>
+              <div className="mini-stat"><span>Factures partielles</span><strong>{report.partial_invoices.length}</strong></div>
+              <div className="mini-stat"><span>Factures en retard</span><strong>{report.overdue_invoices.length}</strong></div>
+              <div className="mini-stat"><span>Total loyers factures</span><strong>{money(report.finances.total_rent_invoiced)}</strong></div>
+              <div className="mini-stat"><span>Total syndic facture</span><strong>{money(report.finances.total_syndic_invoiced)}</strong></div>
+              <div className="mini-stat"><span>Total facture</span><strong>{money(report.finances.total_invoiced)}</strong></div>
+              <div className="mini-stat"><span>Total encaisse</span><strong>{money(report.finances.total_paid)}</strong></div>
+              <div className="mini-stat"><span>Reste a encaisser</span><strong>{money(report.finances.remaining)}</strong></div>
+            </div>
           </section>
 
           <TenantTable rows={tenants} />
           <UnitTable title="Unites / appartements occupes" rows={occupiedUnits} />
           <InvoiceTable title="Factures de la periode" rows={invoices} />
-          <TenantContactTable title="Locataires ayant payé" rows={report.tenants_paid} />
-          <TenantContactTable title="Locataires n'ayant pas payé" rows={report.tenants_unpaid} onRemind={sendReminder} />
+          <TenantContactTable title="Locataires ayant paye" rows={report.tenants_paid} />
+          <TenantContactTable title="Locataires n'ayant pas paye" rows={report.tenants_unpaid} onRemind={sendReminder} />
           <InvoiceTable title="Factures en retard" rows={report.overdue_invoices} onRemind={sendReminder} />
         </>
       )}
@@ -213,7 +217,7 @@ function TenantTable({ rows }: { rows: ReportRow[] }) {
       <h4>Locataires de cet immeuble</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Locataire</th><th>Telephone</th><th>Unite</th><th>Bail actif</th><th className="right">Loyer</th><th>Statut paiement</th><th className="right">Total facture</th><th className="right">Total paye</th><th className="right">Reste</th><th>Devise</th></tr></thead>
+          <thead><tr><th>Locataire</th><th>Telephone</th><th>Unite</th><th>Bail actif</th><th className="right">Loyer</th><th className="right">Syndic</th><th>Statut paiement</th><th className="right">Total facture</th><th className="right">Total paye</th><th className="right">Reste</th><th>Devise</th></tr></thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
@@ -222,6 +226,7 @@ function TenantTable({ rows }: { rows: ReportRow[] }) {
                 <td>{text(row.unit_number)}</td>
                 <td>{text(row.lease_status)}</td>
                 <td className="right">{amount(row.monthly_rent)}</td>
+                <td className="right">{amount(row.monthly_syndic_amount)}</td>
                 <td><StatusBadge value={String(row.payment_status ?? 'UNPAID')} /></td>
                 <td className="right">{amount(row.total_invoiced)}</td>
                 <td className="right">{amount(row.total_paid)}</td>
@@ -243,8 +248,8 @@ function UnitTable({ title, rows }: { title: string; rows: ReportRow[] }) {
       <h4>{title}</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Unite</th><th>Type</th><th>Statut</th><th className="right">Montant</th><th>Devise</th></tr></thead>
-          <tbody>{rows.map((row, index) => <tr key={index}><td>{text(row.number)}</td><td>{text(row.type)}</td><td><StatusBadge value={text(row.status)} /></td><AmountCell value={row.monthly_rent} /></tr>)}</tbody>
+          <thead><tr><th>Unite</th><th>Type</th><th>Statut</th><th className="right">Loyer</th><th className="right">Syndic</th><th className="right">Total mensuel</th><th>Devise</th></tr></thead>
+          <tbody>{rows.map((row, index) => <tr key={index}><td>{text(row.number)}</td><td>{text(row.type)}</td><td><StatusBadge value={text(row.status)} /></td><td className="right">{amount(row.monthly_rent)}</td><td className="right">{amount(row.monthly_syndic_amount)}</td><td className="right">{amount(Number(row.monthly_rent ?? 0) + Number(row.monthly_syndic_amount ?? 0))}</td><td>USD</td></tr>)}</tbody>
         </table>
         {!rows.length && <EmptyState />}
       </div>
@@ -258,7 +263,7 @@ function InvoiceTable({ title, rows, onRemind }: { title: string; rows: ReportRo
       <h4>{title}</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Facture</th><th>Locataire</th><th>Téléphone</th><th>Email</th><th>Unite</th><th>Periode</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Montant</th><th className="right">Paye</th><th className="right">Reste</th><th>Devise</th><th>Dernière relance</th><th className="right">Relances</th>{onRemind && <th>Action</th>}</tr></thead>
+          <thead><tr><th>Facture</th><th>Locataire</th><th>Telephone</th><th>Email</th><th>Unite</th><th>Periode</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Loyer</th><th className="right">Syndic</th><th className="right">Montant</th><th className="right">Paye</th><th className="right">Reste</th><th>Devise</th><th>Derniere relance</th><th className="right">Relances</th>{onRemind && <th>Action</th>}</tr></thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
@@ -271,6 +276,8 @@ function InvoiceTable({ title, rows, onRemind }: { title: string; rows: ReportRo
                 <td>{date(row.issue_date)}</td>
                 <td>{date(row.due_date)}</td>
                 <td><StatusBadge value={invoiceDisplayStatus(String(row.status ?? ''), String(row.due_date ?? ''))} /></td>
+                <td className="right">{amount(row.rent_amount)}</td>
+                <td className="right">{amount(row.syndic_amount)}</td>
                 <td className="right">{amount(row.total)}</td>
                 <td className="right">{amount(row.paid_amount)}</td>
                 <td className="right">{amount(row.remaining_amount)}</td>
@@ -294,7 +301,7 @@ function TenantContactTable({ title, rows, onRemind }: { title: string; rows: Re
       <h4>{title}</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Locataire</th><th>Téléphone</th><th>Email</th><th>Unité</th><th>Facture</th><th className="right">Reste</th><th>Devise</th><th>Dernière relance</th><th className="right">Relances</th>{onRemind && <th>Action</th>}</tr></thead>
+          <thead><tr><th>Locataire</th><th>Telephone</th><th>Email</th><th>Unite</th><th>Facture</th><th className="right">Reste</th><th>Devise</th><th>Derniere relance</th><th className="right">Relances</th>{onRemind && <th>Action</th>}</tr></thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
@@ -328,38 +335,36 @@ function ReminderActions({ row, onRemind }: { row: ReportRow; onRemind: (row: Re
   );
 }
 
-function AmountCell({ value }: { value: unknown }) {
-  return <><td className="right">{amount(value)}</td><td>USD</td></>;
-}
-
 type ExportSheet = { name: string; rows: ReportRow[] };
 
 function buildReportExport(report: BuildingReportData, tenants: ReportRow[], occupiedUnits: ReportRow[], invoices: ReportRow[]): ExportSheet[] {
   return [
     {
-      name: 'Résumé financier',
+      name: 'Resume financier',
       rows: [
-        { indicateur: 'Période', valeur: `${date(report.period.start)} - ${date(report.period.end)}` },
+        { indicateur: 'Periode', valeur: `${date(report.period.start)} - ${date(report.period.end)}` },
         { indicateur: 'Immeuble', valeur: text(report.building.name) },
-        { indicateur: 'Unités totales', valeur: report.units_total },
-        { indicateur: 'Unités occupées', valeur: report.occupied_units },
-        { indicateur: 'Unités libres', valeur: report.vacant_units },
+        { indicateur: 'Unites totales', valeur: report.units_total },
+        { indicateur: 'Unites occupees', valeur: report.occupied_units },
+        { indicateur: 'Unites libres', valeur: report.vacant_units },
         { indicateur: 'Taux occupation', valeur: `${report.occupancy_rate}%` },
-        { indicateur: 'Factures période', valeur: report.finances.invoices },
-        { indicateur: 'Factures payées', valeur: report.finances.paid_invoices },
+        { indicateur: 'Factures periode', valeur: report.finances.invoices },
+        { indicateur: 'Factures payees', valeur: report.finances.paid_invoices },
         { indicateur: 'Factures partielles', valeur: report.finances.partial_invoices },
-        { indicateur: 'Factures non payées', valeur: report.finances.unpaid_invoices },
+        { indicateur: 'Factures non payees', valeur: report.finances.unpaid_invoices },
         { indicateur: 'Factures en retard', valeur: report.finances.overdue_invoices },
-        { indicateur: 'Total facturé', montant: report.finances.total_invoiced, devise: 'USD' },
-        { indicateur: 'Total encaissé', montant: report.finances.total_paid, devise: 'USD' },
-        { indicateur: 'Reste à encaisser', montant: report.finances.remaining, devise: 'USD' },
+        { indicateur: 'Total loyers factures', montant: report.finances.total_rent_invoiced, devise: 'USD' },
+        { indicateur: 'Total syndic facture', montant: report.finances.total_syndic_invoiced, devise: 'USD' },
+        { indicateur: 'Total facture', montant: report.finances.total_invoiced, devise: 'USD' },
+        { indicateur: 'Total encaisse', montant: report.finances.total_paid, devise: 'USD' },
+        { indicateur: 'Reste a encaisser', montant: report.finances.remaining, devise: 'USD' },
       ],
     },
     { name: 'Locataires', rows: tenants.map(tenantExportRow) },
-    { name: 'Unités occupées', rows: occupiedUnits.map(unitExportRow) },
-    { name: 'Factures période', rows: invoices.map(invoiceExportRow) },
-    { name: 'Locataires payés', rows: report.tenants_paid.map(simpleTenantExportRow) },
-    { name: 'Locataires non payés', rows: report.tenants_unpaid.map(simpleTenantExportRow) },
+    { name: 'Unites occupees', rows: occupiedUnits.map(unitExportRow) },
+    { name: 'Factures periode', rows: invoices.map(invoiceExportRow) },
+    { name: 'Locataires payes', rows: report.tenants_paid.map(simpleTenantExportRow) },
+    { name: 'Locataires non payes', rows: report.tenants_unpaid.map(simpleTenantExportRow) },
     { name: 'Factures en retard', rows: report.overdue_invoices.map(invoiceExportRow) },
   ];
 }
@@ -371,6 +376,7 @@ function tenantExportRow(row: ReportRow) {
     unite: text(row.unit_number),
     bail_actif: text(row.lease_status),
     loyer: amount(row.monthly_rent),
+    syndic: amount(row.monthly_syndic_amount),
     statut_paiement: text(row.payment_status),
     total_facture: amount(row.total_invoiced),
     total_paye: amount(row.total_paid),
@@ -384,7 +390,9 @@ function unitExportRow(row: ReportRow) {
     unite: text(row.number),
     type: text(row.type),
     statut: text(row.status),
-    montant: amount(row.monthly_rent),
+    loyer: amount(row.monthly_rent),
+    syndic: amount(row.monthly_syndic_amount),
+    total_mensuel: amount(Number(row.monthly_rent ?? 0) + Number(row.monthly_syndic_amount ?? 0)),
     devise: 'USD',
   };
 }
@@ -400,6 +408,8 @@ function invoiceExportRow(row: ReportRow) {
     date_facture: date(row.issue_date),
     echeance: date(row.due_date),
     statut: invoiceDisplayStatus(String(row.status ?? ''), String(row.due_date ?? '')),
+    loyer: amount(row.rent_amount),
+    syndic: amount(row.syndic_amount),
     montant: amount(row.total),
     paye: amount(row.paid_amount),
     reste: amount(row.remaining_amount),
@@ -436,7 +446,7 @@ function exportReportExcel(filename: string, sheets: ExportSheet[]) {
 }
 
 function sheetToXml(sheet: ExportSheet) {
-  const rows = sheet.rows.length ? sheet.rows : [{ Information: 'Aucune donnée' }];
+  const rows = sheet.rows.length ? sheet.rows : [{ Information: 'Aucune donnee' }];
   const headers = Array.from(rows.reduce((set, row) => {
     Object.keys(row).forEach((key) => set.add(key));
     return set;
@@ -450,7 +460,7 @@ function sheetToXml(sheet: ExportSheet) {
 function exportReportCsv(filename: string, sheets: ExportSheet[]) {
   const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
   const lines = sheets.flatMap((sheet) => {
-    const rows = sheet.rows.length ? sheet.rows : [{ Information: 'Aucune donnée' }];
+    const rows = sheet.rows.length ? sheet.rows : [{ Information: 'Aucune donnee' }];
     const headers = Array.from(rows.reduce((set, row) => {
       Object.keys(row).forEach((key) => set.add(key));
       return set;
@@ -487,7 +497,7 @@ function date(value: unknown) {
 }
 
 function reminderDate(value: unknown) {
-  return value ? shortDate(String(value)) : 'Jamais relancé';
+  return value ? shortDate(String(value)) : 'Jamais relance';
 }
 
 function periodText(month: unknown, year: unknown) {

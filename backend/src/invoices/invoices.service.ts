@@ -40,9 +40,9 @@ export class InvoicesService {
                    ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
               END AS tenant_name,
               t.phone, t.email,
-              u.number AS unit_number, u.monthly_rent,
+              u.number AS unit_number, u.monthly_rent, u.monthly_syndic_amount AS unit_monthly_syndic_amount,
               b.name AS building_name, b.address AS building_address, b.city AS building_city,
-              l.start_date AS lease_start_date, l.end_date AS lease_end_date,
+              l.start_date AS lease_start_date, l.end_date AS lease_end_date, l.monthly_syndic_amount,
               COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
               COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
        FROM invoices i
@@ -253,6 +253,6 @@ export class InvoicesService {
        WHERE l.id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL`,
       [leaseId, this.context.organizationId()],
     );
-    return requireRow(rows[0], 'Lease') as { tenant_id: number; unit_id: number; building_id: number };
+    return requireRow(rows[0], 'Lease') as { tenant_id: number; unit_id: number; building_id: number; monthly_syndic_amount?: number };
   }
 }

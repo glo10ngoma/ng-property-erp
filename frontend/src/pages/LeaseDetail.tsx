@@ -39,7 +39,7 @@ export function LeaseDetail() {
   if (!lease) return <EmptyState message="Chargement..." />;
 
   const exportRows = [
-    { section: 'Bail', reference: leaseReference(lease), locataire: lease.tenant_name, immeuble: lease.building_name, unite: lease.unit_number, loyer: money(lease.monthly_rent), statut: statusLabel(lease.status) },
+    { section: 'Bail', reference: leaseReference(lease), locataire: lease.tenant_name, immeuble: lease.building_name, unite: lease.unit_number, loyer: money(lease.monthly_rent), syndic: money(lease.monthly_syndic_amount), total_mensuel: money(Number(lease.monthly_rent ?? 0) + Number(lease.monthly_syndic_amount ?? 0)), statut: statusLabel(lease.status) },
     ...lease.history.map((row) => ({ section: 'Historique occupation', reference: leaseReference(row), locataire: row.tenant_name, debut: shortDate(row.start_date), fin: row.end_date ? shortDate(row.end_date) : '', statut: statusLabel(row.status) })),
     ...lease.documents.map((document) => ({ section: 'Document', type: document.document_type, fichier: document.file_name, date: document.uploaded_at ? shortDate(document.uploaded_at) : '' })),
   ];
@@ -65,6 +65,8 @@ export function LeaseDetail() {
         <SummaryItem label="Immeuble" value={lease.building_name} />
         <SummaryItem label="Unite" value={lease.unit_number} />
         <SummaryItem label="Loyer" value={money(lease.monthly_rent)} />
+        <SummaryItem label="Syndic" value={money(lease.monthly_syndic_amount)} />
+        <SummaryItem label="Total mensuel" value={money(Number(lease.monthly_rent ?? 0) + Number(lease.monthly_syndic_amount ?? 0))} />
         <SummaryItem label="Garantie" value={`${money(lease.guarantee?.paid_amount ?? lease.rental_guarantee_paid)} / ${money(lease.guarantee?.amount ?? lease.rental_guarantee_amount)}`} />
         <SummaryItem label="Contrat" value={lease.contract_file_name ? 'Present' : 'Absent'} />
         <SummaryItem label="Statut" value={statusLabel(lease.status)} />
@@ -74,8 +76,8 @@ export function LeaseDetail() {
         <h4>Informations bail</h4>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Reference</th><th>Debut</th><th>Fin</th><th className="right">Loyer</th><th>Devise</th><th>Statut</th></tr></thead>
-            <tbody><tr><td>{leaseReference(lease)}</td><td>{shortDate(lease.start_date)}</td><td>{lease.end_date ? shortDate(lease.end_date) : 'En cours'}</td><td className="right">{amount(lease.monthly_rent)}</td><td>USD</td><td><StatusBadge value={lease.status} /></td></tr></tbody>
+            <thead><tr><th>Reference</th><th>Debut</th><th>Fin</th><th className="right">Loyer</th><th className="right">Syndic</th><th className="right">Total mensuel</th><th>Devise</th><th>Statut</th></tr></thead>
+            <tbody><tr><td>{leaseReference(lease)}</td><td>{shortDate(lease.start_date)}</td><td>{lease.end_date ? shortDate(lease.end_date) : 'En cours'}</td><td className="right">{amount(lease.monthly_rent)}</td><td className="right">{amount(lease.monthly_syndic_amount)}</td><td className="right">{amount(Number(lease.monthly_rent ?? 0) + Number(lease.monthly_syndic_amount ?? 0))}</td><td>USD</td><td><StatusBadge value={lease.status} /></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -126,7 +128,7 @@ function amount(value: unknown) {
 
 function exportLeaseDetail(lease: LeaseDetailData) {
   exportXlsxWorkbook(`Bail_${leaseReference(lease)}.xlsx`, [
-    { name: 'Informations', rows: [{ reference: leaseReference(lease), locataire: lease.tenant_name, immeuble: lease.building_name, unite: lease.unit_number, loyer: amount(lease.monthly_rent), devise: 'USD', statut: statusLabel(lease.status) }] },
+    { name: 'Informations', rows: [{ reference: leaseReference(lease), locataire: lease.tenant_name, immeuble: lease.building_name, unite: lease.unit_number, loyer: amount(lease.monthly_rent), syndic: amount(lease.monthly_syndic_amount), total_mensuel: amount(Number(lease.monthly_rent ?? 0) + Number(lease.monthly_syndic_amount ?? 0)), devise: 'USD', statut: statusLabel(lease.status) }] },
     { name: 'Garanties', rows: [{ montant: amount(lease.guarantee?.amount ?? lease.rental_guarantee_amount), paye: amount(lease.guarantee?.paid_amount ?? lease.rental_guarantee_paid), devise: 'USD', statut: statusLabel(lease.guarantee?.status ?? lease.rental_guarantee_status) }] },
     { name: 'Documents', rows: lease.documents },
     { name: 'Historique', rows: lease.history },

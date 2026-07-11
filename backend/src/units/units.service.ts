@@ -58,6 +58,18 @@ export class UnitsService {
        ORDER BY i.due_date DESC`,
       [id, organizationId],
     );
+    const invoiceSummaries = await this.db.query(
+      `SELECT invoice_id,
+              COALESCE(SUM(CASE WHEN item_type = 'Monthly rent' OR description = 'Monthly rent' OR description ILIKE 'Loyer %' THEN amount ELSE 0 END), 0)::FLOAT AS rent_amount,
+              COALESCE(SUM(CASE WHEN item_type = 'Syndic' OR description = 'Syndic' OR description ILIKE 'Syndic %' THEN amount ELSE 0 END), 0)::FLOAT AS syndic_amount
+       FROM invoice_items
+       WHERE organization_id = $1
+         AND deleted_at IS NULL
+         AND invoice_id = ANY($2::INT[])
+       GROUP BY invoice_id`,
+      [organizationId, invoices.rows.length ? invoices.rows.map((invoice) => Number(invoice.id)) : [0]],
+    );
+    const invoiceSummaryMap = new Map(invoiceSummaries.rows.map((row) => [Number(row.invoice_id), row]));
     const payments = await this.db.query(
       `SELECT p.*, i.invoice_number, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name
        FROM payments p
@@ -106,13 +118,21 @@ export class UnitsService {
       ...unit,
       tenants: tenants.rows,
       leases: leases.rows,
-      invoices: invoices.rows,
+      invoices: invoices.rows.map((invoice) => {
+        const summary = invoiceSummaryMap.get(Number(invoice.id));
+        return {
+          ...invoice,
+          rent_amount: Number(summary?.rent_amount ?? 0),
+          syndic_amount: Number(summary?.syndic_amount ?? 0),
+        };
+      }),
       payments: payments.rows,
       rent_history: leases.rows.map((lease) => ({
         id: lease.id,
         start_date: lease.start_date,
         end_date: lease.end_date,
         monthly_rent: lease.monthly_rent,
+        monthly_syndic_amount: lease.monthly_syndic_amount,
         tenant_name: lease.tenant_name,
       })),
       maintenance: maintenance.rows,
@@ -127,12 +147,12 @@ export class UnitsService {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(
       `INSERT INTO units (
-         building_id, number, floor, type, monthly_rent, status, organization_id,
+         building_id, number, floor, type, monthly_rent, monthly_syndic_amount, syndic_currency, status, organization_id,
          surface_area, bedrooms_count, bathrooms_count, has_balcony, has_parking, is_furnished,
          has_air_conditioning, has_equipped_kitchen, has_internet, has_water_meter, water_meter_number,
          has_electricity_meter, electricity_meter_number, description, observations
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
        RETURNING *`,
       [
         dto.building_id,
@@ -140,6 +160,8 @@ export class UnitsService {
         dto.floor,
         dto.type,
         dto.monthly_rent,
+        Number(dto.monthly_syndic_amount ?? 0),
+        dto.syndic_currency ?? 'USD',
         dto.status,
         organizationId,
         dto.surface_area ?? null,
@@ -171,23 +193,25 @@ export class UnitsService {
            floor = COALESCE($4, floor),
            type = COALESCE($5, type),
            monthly_rent = COALESCE($6, monthly_rent),
-           status = COALESCE($7, status),
-           surface_area = COALESCE($8, surface_area),
-           bedrooms_count = COALESCE($9, bedrooms_count),
-           bathrooms_count = COALESCE($10, bathrooms_count),
-           has_balcony = COALESCE($11, has_balcony),
-           has_parking = COALESCE($12, has_parking),
-           is_furnished = COALESCE($13, is_furnished),
-           has_air_conditioning = COALESCE($14, has_air_conditioning),
-           has_equipped_kitchen = COALESCE($15, has_equipped_kitchen),
-           has_internet = COALESCE($16, has_internet),
-           has_water_meter = COALESCE($17, has_water_meter),
-           water_meter_number = COALESCE($18, water_meter_number),
-           has_electricity_meter = COALESCE($19, has_electricity_meter),
-           electricity_meter_number = COALESCE($20, electricity_meter_number),
-           description = COALESCE($21, description),
-           observations = COALESCE($22, observations)
-       WHERE id = $1 AND organization_id = $23 AND deleted_at IS NULL RETURNING *`,
+           monthly_syndic_amount = COALESCE($7, monthly_syndic_amount),
+           syndic_currency = COALESCE($8, syndic_currency),
+           status = COALESCE($9, status),
+           surface_area = COALESCE($10, surface_area),
+           bedrooms_count = COALESCE($11, bedrooms_count),
+           bathrooms_count = COALESCE($12, bathrooms_count),
+           has_balcony = COALESCE($13, has_balcony),
+           has_parking = COALESCE($14, has_parking),
+           is_furnished = COALESCE($15, is_furnished),
+           has_air_conditioning = COALESCE($16, has_air_conditioning),
+           has_equipped_kitchen = COALESCE($17, has_equipped_kitchen),
+           has_internet = COALESCE($18, has_internet),
+           has_water_meter = COALESCE($19, has_water_meter),
+           water_meter_number = COALESCE($20, water_meter_number),
+           has_electricity_meter = COALESCE($21, has_electricity_meter),
+           electricity_meter_number = COALESCE($22, electricity_meter_number),
+           description = COALESCE($23, description),
+           observations = COALESCE($24, observations)
+       WHERE id = $1 AND organization_id = $25 AND deleted_at IS NULL RETURNING *`,
       [
         id,
         dto.building_id,
@@ -195,6 +219,8 @@ export class UnitsService {
         dto.floor,
         dto.type,
         dto.monthly_rent,
+        dto.monthly_syndic_amount,
+        dto.syndic_currency,
         dto.status,
         dto.surface_area,
         dto.bedrooms_count,

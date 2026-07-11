@@ -6,7 +6,7 @@ import { PageHeader, SearchableSelect, SuccessMessage, TenantSearchSelect } from
 import { useApiList } from '../hooks';
 
 type Building = { id: number; name: string; city?: string; building_type?: string };
-type Unit = { id: number; building_id: number; building_name: string; number: string; monthly_rent: number; status: string };
+type Unit = { id: number; building_id: number; building_name: string; number: string; monthly_rent: number; monthly_syndic_amount?: number; status: string };
 type Tenant = { id: number; first_name: string; last_name: string; phone?: string; building_name?: string; unit_number?: string };
 
 export function LeaseNew() {
@@ -22,6 +22,7 @@ export function LeaseNew() {
   const [endDate, setEndDate] = useState('');
   const [durationMonths, setDurationMonths] = useState('');
   const [rent, setRent] = useState(0);
+  const [syndicAmount, setSyndicAmount] = useState(0);
   const [message, setMessage] = useState('');
   const [contractName, setContractName] = useState('');
   const [guaranteeAmount, setGuaranteeAmount] = useState('0');
@@ -41,11 +42,14 @@ export function LeaseNew() {
   const unitOptions = availableUnits.map((unit) => ({
     value: unit.id,
     label: unit.number,
-    meta: `${unit.building_name} - ${money(unit.monthly_rent)} - ${statusLabel(unit.status)}`,
+    meta: `${unit.building_name} - Loyer ${money(unit.monthly_rent)} - Syndic ${money(unit.monthly_syndic_amount ?? 0)} - ${statusLabel(unit.status)}`,
   }));
 
   useEffect(() => {
-    if (selectedUnit) setRent(Number(selectedUnit.monthly_rent ?? 0));
+    if (selectedUnit) {
+      setRent(Number(selectedUnit.monthly_rent ?? 0));
+      setSyndicAmount(Number(selectedUnit.monthly_syndic_amount ?? 0));
+    }
   }, [selectedUnit?.id]);
 
   useEffect(() => {
@@ -93,6 +97,7 @@ export function LeaseNew() {
       start_date: form.get('start_date'),
       end_date: form.get('end_date') || null,
       monthly_rent: rent,
+      monthly_syndic_amount: syndicAmount,
       rental_guarantee_amount: Number(form.get('rental_guarantee_amount') ?? 0),
       rental_guarantee_paid: Number(form.get('rental_guarantee_paid') ?? 0),
       rental_guarantee_payment_date: form.get('rental_guarantee_payment_date') || null,
@@ -129,6 +134,8 @@ export function LeaseNew() {
             <label>Duree du bail (mois)<input name="duration" type="number" min="1" value={durationMonths} onChange={(event) => updateDuration(event.target.value)} placeholder="12" /></label>
             <label>Jour limite paiement<input name="due_day" type="number" min="1" max="31" defaultValue="5" /></label>
             <label>Loyer<input name="monthly_rent" type="number" required value={rent} onChange={(event) => setRent(Number(event.target.value))} /></label>
+            <label>Montant syndic<input name="monthly_syndic_amount" type="number" min="0" value={syndicAmount} onChange={(event) => setSyndicAmount(Number(event.target.value))} /></label>
+            <label>Total mensuel<input className="locked-field" value={money(Number(rent ?? 0) + Number(syndicAmount ?? 0))} readOnly /></label>
             <label>Devise<input className="locked-field" name="currency" value="USD" readOnly /></label>
             <label>Statut<select name="status" defaultValue="DRAFT"><option value="DRAFT">Brouillon</option><option value="ACTIVE">Actif</option><option value="TERMINATED">Resilie</option></select></label>
           </div>

@@ -20,6 +20,15 @@ export class CreateUnitDto {
   @Min(0)
   monthly_rent: number;
 
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  monthly_syndic_amount?: number;
+
+  @IsOptional()
+  @IsString()
+  syndic_currency?: string;
+
   @IsIn(UNIT_STATUSES)
   status: string;
 

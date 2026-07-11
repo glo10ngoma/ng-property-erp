@@ -30,6 +30,7 @@ type Invoice = {
   building_city: string;
   unit_number: string;
   monthly_rent?: number;
+  monthly_syndic_amount?: number;
   paid_amount: number;
   remaining_amount: number;
   discount_amount?: number;
@@ -37,12 +38,12 @@ type Invoice = {
   internal_notes?: string;
   attachment_file_name?: string;
   attachment_file_url?: string;
-  items: { id: number; description: string; amount: number }[];
+  items: { id: number; item_type?: string; description: string; amount: number }[];
   payments: { id: number; payment_date: string; amount: number; payment_method: string; receipt_number?: string; reference?: string; notes?: string; created_by?: number }[];
   reminders: { id: number; channel: string; message: string; status: string; reminded_at: string; reminded_by?: number }[];
 };
 
-const lineTypes = ['Monthly rent', 'Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Penalty', 'Other'];
+const lineTypes = ['Monthly rent', 'Syndic', 'Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Penalty', 'Other'];
 
 export function InvoiceDetail() {
   const { can } = useAuth();
@@ -52,7 +53,7 @@ export function InvoiceDetail() {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [editLines, setEditLines] = useState<Array<{ description: string; amount: number }>>([]);
+  const [editLines, setEditLines] = useState<Array<{ item_type: string; description: string; amount: number }>>([]);
   const [editDiscount, setEditDiscount] = useState(0);
   const [editPublicNotes, setEditPublicNotes] = useState('');
   const [editInternalNotes, setEditInternalNotes] = useState('');
@@ -99,7 +100,13 @@ export function InvoiceDetail() {
       internal_notes: editInternalNotes || null,
       attachment_file_name: editAttachmentName || null,
       attachment_file_url: null,
-      items: editLines.filter((line) => line.description && Number(line.amount) >= 0),
+      items: editLines
+        .filter((line) => line.item_type && Number(line.amount) >= 0)
+        .map((line) => ({
+          item_type: line.item_type,
+          description: buildInvoiceLineDescription(line.item_type, Number(form.get('month')), Number(form.get('year'))),
+          amount: Number(line.amount),
+        })),
     });
     setSuccess('Facture modifiee avec succes.');
     setEditOpen(false);
@@ -117,7 +124,7 @@ export function InvoiceDetail() {
 
   function openEdit() {
     if (!invoice) return;
-    setEditLines(invoice.items.map((item) => ({ description: item.description, amount: Number(item.amount) })));
+    setEditLines(invoice.items.map((item) => ({ item_type: item.item_type ?? inferInvoiceItemType(item.description), description: item.description, amount: Number(item.amount) })));
     setEditDiscount(Number(invoice.discount_amount ?? 0));
     setEditPublicNotes(invoice.public_notes ?? '');
     setEditInternalNotes(invoice.internal_notes ?? '');
@@ -194,6 +201,7 @@ export function InvoiceDetail() {
             <p>Appartement: {invoice.unit_number}</p>
             <p>Adresse: {invoice.building_address}, {invoice.building_city}</p>
             <p>Loyer contractuel: {invoice.monthly_rent ? money(invoice.monthly_rent) : '-'}</p>
+            <p>Syndic contractuel: {invoice.monthly_syndic_amount ? money(invoice.monthly_syndic_amount) : money(0)}</p>
           </div>
         </div>
 
@@ -286,12 +294,12 @@ export function InvoiceDetail() {
             </div>
             {editLines.map((item, index) => (
               <div className="invoice-line" key={index}>
-                <select value={item.description} onChange={(event) => setEditLines((lines) => lines.map((line, i) => i === index ? { ...line, description: event.target.value } : line))}>{lineTypes.map((type) => <option key={type} value={type}>{itemLabel(type)}</option>)}</select>
+                <select value={item.item_type} onChange={(event) => setEditLines((lines) => lines.map((line, i) => i === index ? { ...line, item_type: event.target.value } : line))}>{lineTypes.map((type) => <option key={type} value={type}>{itemLabel(type)}</option>)}</select>
                 <input type="number" step="0.01" value={item.amount} onChange={(event) => setEditLines((lines) => lines.map((line, i) => i === index ? { ...line, amount: Number(event.target.value) } : line))} required />
                 <button type="button" className="icon-btn danger" onClick={() => setEditLines((lines) => lines.filter((_, i) => i !== index))}><X size={16} /></button>
               </div>
             ))}
-            <button type="button" className="secondary" onClick={() => setEditLines([...editLines, { description: 'Other', amount: 0 }])}><Plus size={16} />Ajouter un item</button>
+            <button type="button" className="secondary" onClick={() => setEditLines([...editLines, { item_type: 'Other', description: 'Other', amount: 0 }])}><Plus size={16} />Ajouter un item</button>
             <label>Remise<input type="number" min="0" value={editDiscount} onChange={(event) => setEditDiscount(Number(event.target.value))} /></label>
             <label>Notes visibles<textarea rows={2} value={editPublicNotes} onChange={(event) => setEditPublicNotes(event.target.value)} /></label>
             <label>Notes internes<textarea rows={2} value={editInternalNotes} onChange={(event) => setEditInternalNotes(event.target.value)} /></label>
@@ -479,4 +487,17 @@ function periodStart(month: string, year: string) {
 function periodEnd(month: string, year: string) {
   if (!month || !year) return '';
   return new Date(Number(year), Number(month), 0).toISOString().slice(0, 10);
+}
+
+function inferInvoiceItemType(description: string) {
+  if (!description) return 'Other';
+  if (description === 'Monthly rent' || description.startsWith('Loyer ')) return 'Monthly rent';
+  if (description === 'Syndic' || description.startsWith('Syndic ')) return 'Syndic';
+  return lineTypes.find((type) => type === description) ?? 'Other';
+}
+
+function buildInvoiceLineDescription(itemType: string, month: number, year: number) {
+  if (itemType === 'Monthly rent') return `Loyer ${monthLabel(month).toLowerCase()} ${year}`;
+  if (itemType === 'Syndic') return `Syndic ${monthLabel(month).toLowerCase()} ${year}`;
+  return itemLabel(itemType);
 }

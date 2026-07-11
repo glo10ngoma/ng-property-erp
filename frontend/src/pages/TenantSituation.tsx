@@ -22,6 +22,8 @@ type TenantReportData = {
   payments: ReportRow[];
   documents: ReportRow[];
   total_invoiced: number;
+  total_rent_invoiced: number;
+  total_syndic_invoiced: number;
   total_paid: number;
   remaining: number;
 };
@@ -263,7 +265,7 @@ function LeaseTable({ rows }: { rows: ReportRow[] }) {
       <h4>Appartements / unites loues</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Immeuble</th><th>Unite</th><th>Bail</th><th>Date debut</th><th>Date fin</th><th className="right">Loyer</th><th>Devise</th><th>Statut bail</th><th className="right">Garantie</th><th>Devise</th></tr></thead>
+          <thead><tr><th>Immeuble</th><th>Unite</th><th>Bail</th><th>Date debut</th><th>Date fin</th><th className="right">Loyer</th><th className="right">Syndic</th><th className="right">Total mensuel</th><th>Devise</th><th>Statut bail</th><th className="right">Garantie</th><th>Devise</th></tr></thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
@@ -272,7 +274,10 @@ function LeaseTable({ rows }: { rows: ReportRow[] }) {
                 <td>#{text(row.id)}</td>
                 <td>{date(row.start_date)}</td>
                 <td>{date(row.end_date)}</td>
-                <AmountCell value={row.monthly_rent} />
+                <td className="right">{amount(row.monthly_rent)}</td>
+                <td className="right">{amount(row.monthly_syndic_amount)}</td>
+                <td className="right">{amount(Number(row.monthly_rent ?? 0) + Number(row.monthly_syndic_amount ?? 0))}</td>
+                <td>USD</td>
                 <td><StatusBadge value={text(row.status)} /></td>
                 <AmountCell value={row.guarantee_amount} />
               </tr>
@@ -307,7 +312,7 @@ function InvoiceTable({ title, rows, navigate, onRemind }: { title: string; rows
       <h4>{title}</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Facture</th><th>Immeuble</th><th>Unite</th><th>Periode</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Montant</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th className="right">Reste</th><th>Devise</th>{showReminders && <th>Derniere relance</th>}{showReminders && <th className="right">Relances</th>}<th>Actions</th></tr></thead>
+          <thead><tr><th>Facture</th><th>Immeuble</th><th>Unite</th><th>Periode</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Loyer</th><th className="right">Syndic</th><th className="right">Montant</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th className="right">Reste</th><th>Devise</th>{showReminders && <th>Derniere relance</th>}{showReminders && <th className="right">Relances</th>}<th>Actions</th></tr></thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
@@ -318,6 +323,8 @@ function InvoiceTable({ title, rows, navigate, onRemind }: { title: string; rows
                 <td>{date(row.issue_date)}</td>
                 <td>{date(row.due_date)}</td>
                 <td><StatusBadge value={invoiceDisplayStatus(String(row.status ?? ''), String(row.due_date ?? ''))} /></td>
+                <td className="right">{amount(row.rent_amount)}</td>
+                <td className="right">{amount(row.syndic_amount)}</td>
                 <AmountCell value={row.total} />
                 <AmountCell value={row.paid_amount} />
                 <AmountCell value={row.remaining_amount} />
@@ -504,7 +511,7 @@ function exportTenantSituationWorkbook(report: TenantReportData) {
     { name: 'Relances', rows: reminderRows },
     { name: 'Documents', rows: report.documents },
     { name: 'Timeline', rows: timeline },
-    { name: 'Rentabilite', rows: [{ 'Total loyers factures': amount(report.total_invoiced), 'Total encaisse': amount(report.total_paid), 'Total impayes': amount(report.remaining), 'Nombre de baux': report.leases.length, 'Nombre de relances': reminderRows.reduce((sum, row) => sum + Number(row['Nombre relances'] ?? 0), 0), 'Date dernier paiement': latestDate(report.payments.map((payment) => String(payment.payment_date ?? ''))), 'Solde restant': amount(report.remaining) }] },
+    { name: 'Rentabilite', rows: [{ 'Total loyers factures': amount(report.total_rent_invoiced), 'Total syndic facture': amount(report.total_syndic_invoiced), 'Total facture': amount(report.total_invoiced), 'Total encaisse': amount(report.total_paid), 'Total impayes': amount(report.remaining), 'Nombre de baux': report.leases.length, 'Nombre de relances': reminderRows.reduce((sum, row) => sum + Number(row['Nombre relances'] ?? 0), 0), 'Date dernier paiement': latestDate(report.payments.map((payment) => String(payment.payment_date ?? ''))), 'Solde restant': amount(report.remaining) }] },
   ]);
 }
 

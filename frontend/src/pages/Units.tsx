@@ -14,6 +14,8 @@ type Unit = {
   floor: number;
   type: string;
   monthly_rent: number;
+  monthly_syndic_amount?: number;
+  syndic_currency?: string;
   status: string;
   tenant_name?: string;
   tenant_phone?: string;
@@ -53,10 +55,10 @@ const UNIT_TYPES = [
 
 const UNIT_STATUSES = [
   { value: 'VACANT', label: 'Libre' },
-  { value: 'OCCUPIED', label: 'Occupé' },
-  { value: 'RESERVED', label: 'Réservé' },
+  { value: 'OCCUPIED', label: 'Occupe' },
+  { value: 'RESERVED', label: 'Reserve' },
   { value: 'MAINTENANCE', label: 'Maintenance' },
-  { value: 'BLOCKED', label: 'Bloqué' },
+  { value: 'BLOCKED', label: 'Bloque' },
 ];
 
 const RENT_RANGES = [
@@ -103,6 +105,8 @@ export function Units() {
       floor: Number(form.get('floor') ?? 0),
       type: String(form.get('type') ?? 'Studio'),
       monthly_rent: Number(form.get('monthly_rent') ?? 0),
+      monthly_syndic_amount: Number(form.get('monthly_syndic_amount') ?? 0),
+      syndic_currency: 'USD',
       status: String(form.get('status') ?? 'VACANT'),
       surface_area: optionalNumber(form.get('surface_area')),
       bedrooms_count: optionalNumber(form.get('bedrooms_count')),
@@ -123,22 +127,22 @@ export function Units() {
 
     if (editing?.id) {
       await api.put(`/units/${editing.id}`, payload);
-      setSuccess('Appartement modifié avec succès.');
+      setSuccess('Appartement modifie avec succes.');
     } else if (createMultiple) {
       const start = String(form.get('range_start') ?? '').trim();
       const end = String(form.get('range_end') ?? '').trim();
       const generated = generateUnitNumbers(start, end);
-      if (!generated.length) throw new Error('La plage de numéros est invalide.');
+      if (!generated.length) throw new Error('La plage de numeros est invalide.');
       const existing = new Set(data.filter((unit) => Number(unit.building_id) === buildingId).map((unit) => unit.number.toLowerCase()));
       const duplicates = generated.filter((value) => existing.has(value.toLowerCase()));
-      if (duplicates.length) throw new Error(`Numéros déjà existants : ${duplicates.join(', ')}`);
+      if (duplicates.length) throw new Error(`Numeros deja existants : ${duplicates.join(', ')}`);
       for (const number of generated) {
         await api.post('/units', { ...payload, number });
       }
-      setSuccess(`${generated.length} appartements créés avec succès.`);
+      setSuccess(`${generated.length} appartements crees avec succes.`);
     } else {
       await api.post('/units', payload);
-      setSuccess('Appartement créé avec succès.');
+      setSuccess('Appartement cree avec succes.');
     }
 
     setEditing(null);
@@ -152,10 +156,11 @@ export function Units() {
       etage: unit.floor,
       type: unit.type,
       loyer: unit.monthly_rent,
+      syndic: Number(unit.monthly_syndic_amount ?? 0),
       devise: 'USD',
       statut: unit.status,
       locataire: unit.tenant_name ?? '',
-      telephone: unit.tenant_phone ?? 'Non occupé',
+      telephone: unit.tenant_phone ?? 'Non occupe',
       fin_bail: unit.active_lease_end_date ? shortDate(unit.active_lease_end_date) : '',
     }));
   }
@@ -166,7 +171,7 @@ export function Units() {
       <SuccessMessage message={success} />
       <div className="mini-stats">
         <div className="mini-stat"><span>Total</span><strong>{data.length}</strong></div>
-        <div className="mini-stat"><span>Occupés</span><strong>{occupied}</strong></div>
+        <div className="mini-stat"><span>Occupes</span><strong>{occupied}</strong></div>
         <div className="mini-stat"><span>Libres</span><strong>{vacant}</strong></div>
         <div className="mini-stat"><span>Taux d'occupation</span><strong>{occupancyRate}%</strong></div>
         <div className="mini-stat"><span>Loyer moyen</span><strong>{amount(averageRent)} USD</strong></div>
@@ -183,13 +188,13 @@ export function Units() {
         <select value={filters.building_id} onChange={(event) => setFilters({ ...filters, building_id: event.target.value })}><option value="">Tous les immeubles</option>{buildingOptions.map((building) => <option key={building.id} value={building.id}>{building.name}</option>)}</select>
         <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}><option value="">Tous les types</option>{UNIT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select>
         <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Tous les statuts</option>{UNIT_STATUSES.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select>
-        <select value={filters.availability} onChange={(event) => setFilters({ ...filters, availability: event.target.value })}><option value="">Occupation</option><option value="OCCUPIED">Occupé</option><option value="VACANT">Libre</option></select>
+        <select value={filters.availability} onChange={(event) => setFilters({ ...filters, availability: event.target.value })}><option value="">Occupation</option><option value="OCCUPIED">Occupe</option><option value="VACANT">Libre</option></select>
         <select value={filters.rent_range} onChange={(event) => setFilters({ ...filters, rent_range: event.target.value })}><option value="">Tranche de loyer</option>{RENT_RANGES.map((range) => <option key={range.value} value={range.value}>{range.label}</option>)}</select>
-        <button type="button" className="secondary" onClick={() => setFilters({ building_id: '', type: '', status: '', availability: '', rent_range: '' })}>Réinitialiser filtres</button>
+        <button type="button" className="secondary" onClick={() => setFilters({ building_id: '', type: '', status: '', availability: '', rent_range: '' })}>Reinitialiser filtres</button>
       </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Immeuble</th><th>Numéro</th><th>Étage</th><th>Type</th><th className="right">Loyer</th><th>Devise</th><th>Statut</th><th>Locataire actuel</th><th>Téléphone</th><th>Fin du bail</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Immeuble</th><th>Numero</th><th>Etage</th><th>Type</th><th className="right">Loyer</th><th className="right">Syndic</th><th>Devise</th><th>Statut</th><th>Locataire actuel</th><th>Telephone</th><th>Fin du bail</th><th>Actions</th></tr></thead>
           <tbody>
             {filtered.map((unit) => (
               <tr key={unit.id} className="clickable-row" onClick={() => navigate(`/rental-units/${unit.id}`)}>
@@ -198,10 +203,11 @@ export function Units() {
                 <td>{unit.floor}</td>
                 <td>{unit.type}</td>
                 <td className="right">{amount(unit.monthly_rent)}</td>
+                <td className="right">{amount(unit.monthly_syndic_amount)}</td>
                 <td>USD</td>
                 <td><StatusBadge value={unit.status} /></td>
                 <td>{unit.tenant_name || '-'}</td>
-                <td>{unit.tenant_phone || 'Non occupé'}</td>
+                <td>{unit.tenant_phone || 'Non occupe'}</td>
                 <td><LeaseEndBadge date={unit.active_lease_end_date} /></td>
                 <td className="actions" onClick={(event) => event.stopPropagation()}>
                   <button className="icon-btn" title="Voir" onClick={() => navigate(`/rental-units/${unit.id}`)}><Eye size={16} /></button>
@@ -228,25 +234,26 @@ function UnitForm({ editing, buildings, onSubmit }: { editing: Partial<Unit>; bu
   return (
     <form className="form-grid unit-form" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}>
       <label>Immeuble<select name="building_id" required defaultValue={editing.building_id ?? ''}><option value="" disabled>Choisir</option>{buildings.map((building) => <option key={building.id} value={building.id}>{building.name}</option>)}</select></label>
-      <label>Numéro<input name="number" placeholder="A-01" defaultValue={editing.number ?? ''} required /></label>
+      <label>Numero<input name="number" placeholder="A-01" defaultValue={editing.number ?? ''} required /></label>
       {!editing.id && (
         <label className="check-line form-field-full">
           <input type="checkbox" name="create_multiple" checked={createMultiple} onChange={(event) => setCreateMultiple(event.target.checked)} />
-          Créer plusieurs appartements
+          Creer plusieurs appartements
         </label>
       )}
       {!editing.id && createMultiple && (
         <>
-          <label>Début<input name="range_start" placeholder="A-01" required={createMultiple} /></label>
+          <label>Debut<input name="range_start" placeholder="A-01" required={createMultiple} /></label>
           <label>Fin<input name="range_end" placeholder="A-20" required={createMultiple} /></label>
-          <div className="compact-empty form-field-full"><AlertTriangle size={15} /> La plage sera générée automatiquement à partir du préfixe et du numéro final.</div>
+          <div className="compact-empty form-field-full"><AlertTriangle size={15} /> La plage sera generee automatiquement a partir du prefixe et du numero final.</div>
         </>
       )}
       <label>Type<select name="type" defaultValue={editing.type ?? 'Studio'}>{UNIT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-      <label>Étage<input name="floor" type="number" defaultValue={editing.floor ?? 0} required /></label>
-      <label>Surface (m²)<input name="surface_area" type="number" step="0.01" defaultValue={editing.surface_area ?? ''} /></label>
+      <label>Etage<input name="floor" type="number" defaultValue={editing.floor ?? 0} required /></label>
+      <label>Surface (m2)<input name="surface_area" type="number" step="0.01" defaultValue={editing.surface_area ?? ''} /></label>
       <label>Nombre de chambres<input name="bedrooms_count" type="number" min="0" defaultValue={editing.bedrooms_count ?? ''} /></label>
       <label>Loyer<input name="monthly_rent" type="number" min="0" step="0.01" defaultValue={editing.monthly_rent ?? ''} required /></label>
+      <label>Syndic<input name="monthly_syndic_amount" type="number" min="0" step="0.01" defaultValue={editing.monthly_syndic_amount ?? 0} /></label>
       <label>Devise<input className="locked-field" value="USD" readOnly /></label>
       <label>Nombre de salles de bain<input name="bathrooms_count" type="number" min="0" defaultValue={editing.bathrooms_count ?? ''} /></label>
       <label>Statut<select name="status" defaultValue={editing.status ?? 'VACANT'}>{UNIT_STATUSES.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label>
@@ -254,16 +261,16 @@ function UnitForm({ editing, buildings, onSubmit }: { editing: Partial<Unit>; bu
         {[
           ['has_balcony', 'Balcon', editing.has_balcony],
           ['has_parking', 'Parking', editing.has_parking],
-          ['is_furnished', 'Meublé', editing.is_furnished],
+          ['is_furnished', 'Meuble', editing.is_furnished],
           ['has_air_conditioning', 'Climatisation', editing.has_air_conditioning],
-          ['has_equipped_kitchen', 'Cuisine équipée', editing.has_equipped_kitchen],
+          ['has_equipped_kitchen', 'Cuisine equipee', editing.has_equipped_kitchen],
           ['has_internet', 'Internet', editing.has_internet],
           ['has_water_meter', 'Compteur eau', editing.has_water_meter],
-          ['has_electricity_meter', 'Compteur électricité', editing.has_electricity_meter],
+          ['has_electricity_meter', 'Compteur electricite', editing.has_electricity_meter],
         ].map(([name, label, checked]) => <label className="check-line" key={String(name)}><input type="checkbox" name={String(name)} defaultChecked={Boolean(checked)} />{label}</label>)}
       </div>
-      <label>Numéro compteur eau<input name="water_meter_number" defaultValue={editing.water_meter_number ?? ''} /></label>
-      <label>Numéro compteur électricité<input name="electricity_meter_number" defaultValue={editing.electricity_meter_number ?? ''} /></label>
+      <label>Numero compteur eau<input name="water_meter_number" defaultValue={editing.water_meter_number ?? ''} /></label>
+      <label>Numero compteur electricite<input name="electricity_meter_number" defaultValue={editing.electricity_meter_number ?? ''} /></label>
       <label className="form-field-full">Description<textarea name="description" defaultValue={editing.description ?? ''} /></label>
       <label className="form-field-full">Observations<textarea name="observations" defaultValue={editing.observations ?? ''} /></label>
       <button>Enregistrer</button>
@@ -272,7 +279,7 @@ function UnitForm({ editing, buildings, onSubmit }: { editing: Partial<Unit>; bu
 }
 
 export function LeaseEndBadge({ date }: { date?: string }) {
-  if (!date) return <span>—</span>;
+  if (!date) return <span>-</span>;
   const today = new Date();
   const end = new Date(`${date.slice(0, 10)}T00:00:00`);
   const days = Math.ceil((end.getTime() - today.getTime()) / 86400000);

@@ -47,6 +47,7 @@ export const paymentMethodLabel = (value: string) =>
 export const itemLabel = (value: string) =>
   ({
     'Monthly rent': 'Loyer mensuel',
+    Syndic: 'Syndic',
     Water: 'Eau',
     Electricity: 'Électricité',
     Maintenance: 'Maintenance',
