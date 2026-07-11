@@ -1,11 +1,11 @@
-import { ArrowLeft, Eye, FileSpreadsheet, Plus, Printer, RotateCcw, WalletCards } from 'lucide-react';
+﻿import { ArrowLeft, Eye, FileSpreadsheet, Plus, Printer, RotateCcw, WalletCards } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { api, exportXlsxWorkbook, includesText, money } from '../../../api';
 import { useAuth } from '../../../auth';
 import { EmptyState, LoadingState, Modal, PageHeader, SuccessMessage } from '../../../components';
 import { useApiList } from '../../../hooks';
 import { StaffNav } from '../StaffNav';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
 type Employee = {
   id: number;
@@ -173,8 +173,8 @@ export function AttendancePage() {
         <tbody>{filtered.map((row) => <tr key={row.id}>
           <td>{row.employee_name}</td>
           <td>{employeeCode(row.employee_number, row.employee_id)}</td>
-          <td>{row.department ?? '—'}</td>
-          <td>{row.job_title ?? '—'}</td>
+          <td>{row.department ?? 'â€”'}</td>
+          <td>{row.job_title ?? 'â€”'}</td>
           <td className="right">{money(row.monthly_salary ?? 0)}</td>
           <td className="right">{row.working_days}</td>
           <td className="right">{row.present_days}</td>
@@ -186,7 +186,7 @@ export function AttendancePage() {
           <td className="right">{money(row.absence_deduction ?? 0)}</td>
           <td className="right">{money(row.estimated_net_salary ?? 0)}</td>
           <td>{attendanceStatusLabel(row.status)}</td>
-          <td>{row.observations ?? '—'}</td>
+          <td>{row.observations ?? 'â€”'}</td>
           <td className="actions actions-compact">{can('staff.update') && row.status !== 'VALIDATED' && <IconAction title="Valider" icon={<Eye size={15} />} onClick={() => void validateAttendance(row.id)} />}</td>
         </tr>)}</tbody>
       </table>
@@ -197,6 +197,7 @@ export function AttendancePage() {
 
 export function PayrollPage() {
   const { can } = useAuth();
+  const navigate = useNavigate();
   const employees = useApiList<Employee>('/employees');
   const [rows, setRows] = useState<Payroll[]>([]);
   const [loading, setLoading] = useState(true);
@@ -208,7 +209,6 @@ export function PayrollPage() {
   const [employeeId, setEmployeeId] = useState('');
   const [status, setStatus] = useState('');
   const [generateOpen, setGenerateOpen] = useState(false);
-  const [selectedPayroll, setSelectedPayroll] = useState<Payroll | null>(null);
   const [success, setSuccess] = useState('');
 
   async function loadRows() {
@@ -268,15 +268,6 @@ export function PayrollPage() {
     await api.post(`/payrolls/${id}/${action}`, {});
     setSuccess(action === 'pay' ? 'Paie marquee comme payee.' : 'Paie validee.');
     await loadRows();
-    if (selectedPayroll?.id === id) {
-      const response = await api.get<Payroll>(`/payrolls/${id}`);
-      setSelectedPayroll(response.data);
-    }
-  }
-
-  async function openPayroll(id: number) {
-    const response = await api.get<Payroll>(`/payrolls/${id}`);
-    setSelectedPayroll(response.data);
   }
 
   return <section>
@@ -308,8 +299,8 @@ export function PayrollPage() {
         <tbody>{filtered.map((row) => <tr key={row.id}>
           <td>{employeeCode(row.employee_number, row.employee_id)}</td>
           <td>{row.employee_name}</td>
-          <td>{row.department ?? '—'}</td>
-          <td>{row.job_title ?? '—'}</td>
+          <td>{row.department ?? 'â€”'}</td>
+          <td>{row.job_title ?? 'â€”'}</td>
           <td className="right">{money(row.gross_salary)}</td>
           <td className="right">{money(row.deductions_total)}</td>
           <td className="right">{money(row.advances_total)}</td>
@@ -317,7 +308,7 @@ export function PayrollPage() {
           <td className="right">{money(row.net_salary)}</td>
           <td>{payrollStatusLabel(row.status)}</td>
           <td className="actions actions-compact">
-            <IconAction title="Voir fiche" icon={<Eye size={15} />} onClick={() => void openPayroll(row.id)} />
+            <IconAction title="Voir fiche" icon={<Eye size={15} />} onClick={() => navigate(`/personnel/payroll/${row.id}`)} />
             {can('payroll.update') && row.status === 'DRAFT' && <IconAction title="Valider" icon={<FileSpreadsheet size={15} />} onClick={() => void payrollAction(row.id, 'validate')} />}
             {can('payroll.update') && row.status !== 'PAID' && <IconAction title="Marquer payee" icon={<WalletCards size={15} />} onClick={() => void payrollAction(row.id, 'pay')} />}
           </td>
@@ -326,7 +317,6 @@ export function PayrollPage() {
       {!filtered.length && <EmptyState message="Aucune fiche de paie trouvee." />}
     </div>}
     {generateOpen && <PayrollModal employees={employees.data} loading={generating} onClose={() => setGenerateOpen(false)} onSubmit={generatePayroll} defaultMonth={month} defaultYear={year} />}
-    {selectedPayroll && <PayrollDetailModal payroll={selectedPayroll} onClose={() => setSelectedPayroll(null)} onPay={() => void payrollAction(selectedPayroll.id, 'pay')} />}
   </section>;
 }
 
@@ -366,7 +356,7 @@ export function HrReportsPage() {
       <SimpleTable headers={['Employe', 'Periode', 'Presence', 'Absences', 'Retenue', 'Net estime', 'Statut']} rows={report.attendance.map((row) => [row.employee_name, `${monthLabel(row.month)} ${row.year}`, `${row.present_days}/${row.working_days}`, row.unjustified_absence_days, `${money(row.absence_deduction ?? 0)} USD`, `${money(row.estimated_net_salary ?? 0)} USD`, attendanceStatusLabel(row.status)])} />
     </Section>
     <Section title="Retards et absences">
-      <SimpleTable headers={['Employe', 'Service', 'Retards', 'Maladie', 'Conges payes', 'Absences']} rows={report.attendance.map((row) => [row.employee_name, row.department ?? '—', row.late_count ?? 0, row.sick_days, row.paid_leave_days, row.unjustified_absence_days])} />
+      <SimpleTable headers={['Employe', 'Service', 'Retards', 'Maladie', 'Conges payes', 'Absences']} rows={report.attendance.map((row) => [row.employee_name, row.department ?? 'â€”', row.late_count ?? 0, row.sick_days, row.paid_leave_days, row.unjustified_absence_days])} />
     </Section>
     <Section title="Paie du mois">
       <SimpleTable headers={['Employe', 'Periode', 'Brut', 'Retenues', 'Avances', 'Net', 'Statut']} rows={report.payrolls.map((row) => [row.employee_name, `${monthLabel(row.month)} ${row.year}`, `${money(row.gross_salary)} USD`, `${money(row.deductions_total)} USD`, `${money(row.advances_total)} USD`, `${money(row.net_salary)} USD`, payrollStatusLabel(row.status)])} />
@@ -481,7 +471,7 @@ function AttendanceBulkEditor({ employees, onCancel, onSaved, defaultMonth, defa
       });
     }
     setSubmitting(false);
-    await onSaved(validateAfterSave ? 'Pointage mensuel collectif validé.' : 'Pointage mensuel collectif enregistré.');
+    await onSaved(validateAfterSave ? 'Pointage mensuel collectif validÃ©.' : 'Pointage mensuel collectif enregistrÃ©.');
   }
 
   const content = <div className="stock-purchase-modal">
@@ -511,8 +501,8 @@ function AttendanceBulkEditor({ employees, onCancel, onSaved, defaultMonth, defa
               return <tr key={row.employee_id}>
                 <td>{employeeCode(row.employee_number, row.employee_id)}</td>
                 <td>{row.employee_name}</td>
-                <td>{row.department ?? '—'}</td>
-                <td>{row.job_title ?? '—'}</td>
+                <td>{row.department ?? 'â€”'}</td>
+                <td>{row.job_title ?? 'â€”'}</td>
                 <td className="right">{money(row.monthly_salary ?? 0)}</td>
                 <td><input type="number" min="0" value={row.paid_leave_days} disabled={row.locked} onChange={(event) => updateRow(row.employee_id, 'paid_leave_days', event.target.value)} /></td>
                 <td><input type="number" min="0" value={row.sick_days} disabled={row.locked} onChange={(event) => updateRow(row.employee_id, 'sick_days', event.target.value)} /></td>
@@ -556,42 +546,114 @@ function PayrollModal({ employees, loading, onClose, onSubmit, defaultMonth, def
         <label>Employe<select value={selectedEmployee} onChange={(event) => setSelectedEmployee(event.target.value)}><option value="all">Tous les employes valides</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)}</option>)}</select></label>
         <label>Statut<select name="status" defaultValue="DRAFT"><option value="DRAFT">Brouillon</option><option value="VALIDATED">Validee</option></select></label>
       </div></div>
-      <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose} disabled={loading}>Annuler</button><button type="submit" disabled={loading}>{loading ? 'Generation…' : 'Generer'}</button></div>
+      <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose} disabled={loading}>Annuler</button><button type="submit" disabled={loading}>{loading ? 'Generationâ€¦' : 'Generer'}</button></div>
     </form>
   </Modal>;
 }
 
 function PayrollDetailModal({ payroll, onClose, onPay }: { payroll: Payroll; onClose: () => void; onPay: () => void }) {
   return <Modal title={`Fiche de paie - ${payroll.employee_name}`} onClose={onClose}>
-    <div className="detail-section report-section">
-      <div className="actions-row">
-        <button className="secondary" onClick={() => window.print()}><Printer size={15} />Imprimer</button>
-        <button className="secondary" onClick={() => exportXlsxWorkbook(`Paie_${employeeCode(payroll.employee_number, payroll.employee_id)}_${payroll.month}_${payroll.year}.xlsx`, payrollWorkbook([payroll]))}><FileSpreadsheet size={15} />Excel</button>
-        {payroll.status !== 'PAID' && <button onClick={onPay}><WalletCards size={15} />Marquer payee</button>}
-      </div>
-      <div className="summary-band">
-        <div className="summary-item"><span>Employe</span><strong>{payroll.employee_name}</strong></div>
-        <div className="summary-item"><span>Matricule</span><strong>{employeeCode(payroll.employee_number, payroll.employee_id)}</strong></div>
-        <div className="summary-item"><span>Service</span><strong>{payroll.department ?? '—'}</strong></div>
-        <div className="summary-item"><span>Fonction</span><strong>{payroll.job_title ?? '—'}</strong></div>
-        <div className="summary-item"><span>Periode</span><strong>{monthLabel(payroll.month)} {payroll.year}</strong></div>
-        <div className="summary-item"><span>Statut</span><strong>{payrollStatusLabel(payroll.status)}</strong></div>
-      </div>
-      <SimpleTable headers={['Salaire mensuel', 'Salaire journalier', 'Jours ouvrables', 'Jours presents', 'Conges payes', 'Maladie', 'Absences non justifiees', 'Retenue absences', 'Avances', 'Primes', 'Net a payer']} rows={[[
-        `${money(payroll.gross_salary)} USD`,
-        `${money(payroll.daily_salary ?? 0)} USD`,
-        payroll.working_days ?? 0,
-        payroll.present_days ?? 0,
-        payroll.paid_leave_days ?? 0,
-        payroll.sick_days ?? 0,
-        payroll.unjustified_absence_days ?? 0,
-        `${money(payroll.absence_deduction ?? payroll.deductions_total ?? 0)} USD`,
-        `${money(payroll.advances_total ?? 0)} USD`,
-        `${money(payroll.bonus_amount ?? 0)} USD`,
-        `${money(payroll.net_salary)} USD`,
-      ]]} />
-    </div>
+    <PayrollDetailContent payroll={payroll} onPay={onPay} />
   </Modal>;
+}
+
+export function PayrollDetailPage() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [payroll, setPayroll] = useState<Payroll | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+
+  async function load() {
+    const payrollId = Number(id);
+    if (!id || Number.isNaN(payrollId)) {
+      setPayroll(null);
+      setMessage('Fiche de paie introuvable.');
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setMessage('');
+    try {
+      const response = await api.get<Payroll>(`/payrolls/${payrollId}`);
+      setPayroll(response.data);
+    } catch (error: any) {
+      setPayroll(null);
+      setMessage(error?.response?.data?.message || 'Impossible de charger la fiche de paie.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+  }, [id]);
+
+  async function pay() {
+    if (!payroll) return;
+    await api.post(`/payrolls/${payroll.id}/pay`, {});
+    setMessage('Paie marquee comme payee.');
+    await load();
+  }
+
+  if (loading) {
+    return <section><PageHeader title="Fiche de paie" /><StaffNav /><LoadingState /></section>;
+  }
+
+  if (!payroll) {
+    return <section>
+      <PageHeader title="Fiche de paie" />
+      <StaffNav />
+      <div className="actions-row">
+        <button className="secondary" onClick={() => navigate('/personnel/payroll')}><ArrowLeft size={16} />Retour</button>
+      </div>
+      <EmptyState message={message} />
+    </section>;
+  }
+
+  return <section>
+    <PageHeader title={`Fiche de paie - ${payroll.employee_name}`} />
+    <StaffNav />
+    {message && <SuccessMessage message={message} />}
+    <div className="actions-row">
+      <button className="secondary" onClick={() => navigate('/personnel/payroll')}><ArrowLeft size={16} />Retour</button>
+      <button className="secondary" onClick={() => window.print()}><Printer size={15} />Imprimer</button>
+      <button className="secondary" onClick={() => exportXlsxWorkbook(`Paie_${employeeCode(payroll.employee_number, payroll.employee_id)}_${payroll.month}_${payroll.year}.xlsx`, payrollWorkbook([payroll]))}><FileSpreadsheet size={15} />Excel</button>
+      {payroll.status !== 'PAID' && <button onClick={() => void pay()}><WalletCards size={15} />Marquer payee</button>}
+    </div>
+    <PayrollDetailContent payroll={payroll} />
+  </section>;
+}
+
+function PayrollDetailContent({ payroll, onPay }: { payroll: Payroll; onPay?: () => void }) {
+  return <div className="detail-section report-section">
+    {onPay && <div className="actions-row">
+      <button className="secondary" onClick={() => window.print()}><Printer size={15} />Imprimer</button>
+      <button className="secondary" onClick={() => exportXlsxWorkbook(`Paie_${employeeCode(payroll.employee_number, payroll.employee_id)}_${payroll.month}_${payroll.year}.xlsx`, payrollWorkbook([payroll]))}><FileSpreadsheet size={15} />Excel</button>
+      {payroll.status !== 'PAID' && <button onClick={onPay}><WalletCards size={15} />Marquer payee</button>}
+    </div>}
+    <div className="summary-band">
+      <div className="summary-item"><span>Employe</span><strong>{payroll.employee_name}</strong></div>
+      <div className="summary-item"><span>Matricule</span><strong>{employeeCode(payroll.employee_number, payroll.employee_id)}</strong></div>
+      <div className="summary-item"><span>Service</span><strong>{payroll.department ?? '—'}</strong></div>
+      <div className="summary-item"><span>Fonction</span><strong>{payroll.job_title ?? '—'}</strong></div>
+      <div className="summary-item"><span>Periode</span><strong>{monthLabel(payroll.month)} {payroll.year}</strong></div>
+      <div className="summary-item"><span>Statut</span><strong>{payrollStatusLabel(payroll.status)}</strong></div>
+    </div>
+    <SimpleTable headers={['Salaire mensuel', 'Salaire journalier', 'Jours ouvrables', 'Jours presents', 'Conges payes', 'Maladie', 'Absences non justifiees', 'Retenue absences', 'Avances', 'Primes', 'Net a payer']} rows={[[
+      `${money(payroll.gross_salary)} USD`,
+      `${money(payroll.daily_salary ?? 0)} USD`,
+      payroll.working_days ?? 0,
+      payroll.present_days ?? 0,
+      payroll.paid_leave_days ?? 0,
+      payroll.sick_days ?? 0,
+      payroll.unjustified_absence_days ?? 0,
+      `${money(payroll.absence_deduction ?? payroll.deductions_total ?? 0)} USD`,
+      `${money(payroll.advances_total ?? 0)} USD`,
+      `${money(payroll.bonus_amount ?? 0)} USD`,
+      `${money(payroll.net_salary)} USD`,
+    ]]} />
+  </div>;
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {

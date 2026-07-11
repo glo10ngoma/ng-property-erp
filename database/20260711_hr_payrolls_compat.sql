@@ -30,6 +30,46 @@ CREATE UNIQUE INDEX IF NOT EXISTS employee_monthly_attendance_unique
   ON employee_monthly_attendance (organization_id, employee_id, year, month)
   WHERE deleted_at IS NULL;
 
+ALTER TABLE salary_advances
+  ADD COLUMN IF NOT EXISTS organization_id INTEGER;
+
+ALTER TABLE salary_advances
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
+
+ALTER TABLE salary_advances
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP;
+
+UPDATE salary_advances
+SET organization_id = COALESCE(organization_id, 1),
+    updated_at = COALESCE(updated_at, created_at, NOW())
+WHERE organization_id IS NULL OR updated_at IS NULL;
+
+ALTER TABLE salary_advances
+  ALTER COLUMN organization_id SET DEFAULT 1,
+  ALTER COLUMN organization_id SET NOT NULL,
+  ALTER COLUMN updated_at SET DEFAULT NOW(),
+  ALTER COLUMN updated_at SET NOT NULL;
+
+ALTER TABLE leaves
+  ADD COLUMN IF NOT EXISTS organization_id INTEGER;
+
+ALTER TABLE leaves
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
+
+ALTER TABLE leaves
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP;
+
+UPDATE leaves
+SET organization_id = COALESCE(organization_id, 1),
+    updated_at = COALESCE(updated_at, created_at, NOW())
+WHERE organization_id IS NULL OR updated_at IS NULL;
+
+ALTER TABLE leaves
+  ALTER COLUMN organization_id SET DEFAULT 1,
+  ALTER COLUMN organization_id SET NOT NULL,
+  ALTER COLUMN updated_at SET DEFAULT NOW(),
+  ALTER COLUMN updated_at SET NOT NULL;
+
 ALTER TABLE payrolls
   ADD COLUMN IF NOT EXISTS organization_id INTEGER;
 

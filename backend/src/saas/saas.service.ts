@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+﻿import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { RequestContext } from '../auth/request-context';
 import { hashPassword } from '../auth/password';
@@ -52,7 +52,7 @@ export class SaasService {
   private normalizeYear(value: unknown, fallback = new Date().getFullYear()) {
     const year = Number(value ?? fallback);
     if (!Number.isFinite(year) || year < 2000) {
-      throw new BadRequestException('Année invalide');
+      throw new BadRequestException('AnnÃ©e invalide');
     }
     return year;
   }
@@ -99,10 +99,10 @@ export class SaasService {
       : Math.max(workingDays - paidLeaveDays - sickDays - unjustifiedAbsenceDays, 0);
     const totalDays = presentDays + paidLeaveDays + sickDays + unjustifiedAbsenceDays;
 
-    if (!employeeId) throw new BadRequestException('Employé requis');
-    if (workingDays <= 0) throw new BadRequestException('Le nombre de jours ouvrables doit être supérieur à 0.');
+    if (!employeeId) throw new BadRequestException('EmployÃ© requis');
+    if (workingDays <= 0) throw new BadRequestException('Le nombre de jours ouvrables doit Ãªtre supÃ©rieur Ã  0.');
     if (totalDays > workingDays) {
-      throw new BadRequestException('La somme présence + congés payés + maladie + absences non justifiées ne peut pas dépasser les jours ouvrables.');
+      throw new BadRequestException('La somme prÃ©sence + congÃ©s payÃ©s + maladie + absences non justifiÃ©es ne peut pas dÃ©passer les jours ouvrables.');
     }
 
     return {
@@ -121,6 +121,43 @@ export class SaasService {
     };
   }
 
+  private isOptionalSchemaError(error: any) {
+    return error?.code === '42P01' || error?.code === '42703';
+  }
+
+  private async queryOptionalRows<T extends Record<string, unknown>>(
+    sql: string,
+    params: unknown[] = [],
+    fallbackSql?: string,
+    fallbackParams: unknown[] = params,
+  ) {
+    try {
+      const { rows } = await this.db.query<T>(sql, params);
+      return rows;
+    } catch (error) {
+      if (fallbackSql && this.isOptionalSchemaError(error)) {
+        const { rows } = await this.db.query<T>(fallbackSql, fallbackParams);
+        return rows;
+      }
+      if (this.isOptionalSchemaError(error)) {
+        return [] as T[];
+      }
+      throw error;
+    }
+  }
+
+  private async tryPayrollDetailQuery(sql: string, params: unknown[]) {
+    try {
+      const { rows } = await this.db.query(sql, params);
+      return rows;
+    } catch (error) {
+      if (this.isOptionalSchemaError(error)) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
   private async upsertEmployeeMonthlyAttendance(client: PoolClient, payload: ReturnType<SaasService['normalizeAttendancePayload']>) {
     const employee = await client.query(
       `SELECT id, monthly_salary
@@ -136,7 +173,7 @@ export class SaasService {
       [this.context.organizationId(), payload.employeeId, payload.month, payload.year],
     );
     if (existing.rows[0] && existing.rows[0].status === 'VALIDATED') {
-      throw new BadRequestException('Ce pointage mensuel est déjà validé et ne peut plus être modifié.');
+      throw new BadRequestException('Ce pointage mensuel est dÃ©jÃ  validÃ© et ne peut plus Ãªtre modifiÃ©.');
     }
 
     const advancesTotal = await this.monthlyAdvanceTotal(client, payload.employeeId, payload.month, payload.year);
@@ -382,24 +419,53 @@ export class SaasService {
 
   async employeeDetail(id: number) {
     const organizationId = this.context.organizationId();
-    const employee = await this.db.query(
+    const employee = await this.queryOptionalRows(
       `SELECT e.*, CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS full_name
        FROM employees e
        WHERE e.id = $1 AND e.organization_id = $2 AND e.deleted_at IS NULL`,
       [id, organizationId],
+      `SELECT e.*, CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS full_name
+       FROM employees e
+       WHERE e.id = $1`,
+      [id],
     );
-    const advances = await this.db.query('SELECT * FROM salary_advances WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY advance_date DESC, id DESC', [id, organizationId]);
-    const leaves = await this.db.query('SELECT * FROM leaves WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY start_date DESC, id DESC', [id, organizationId]);
-    const payrolls = await this.db.query('SELECT * FROM payrolls WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY year DESC, month DESC', [id, organizationId]);
-    const contracts = await this.db.query('SELECT * FROM employee_contracts WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY start_date DESC, id DESC', [id, organizationId]);
-    const attendance = await this.db.query(
+    const advances = await this.queryOptionalRows(
+      'SELECT * FROM salary_advances WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY advance_date DESC, id DESC',
+      [id, organizationId],
+      'SELECT * FROM salary_advances WHERE employee_id = $1 ORDER BY advance_date DESC, id DESC',
+      [id],
+    );
+    const leaves = await this.queryOptionalRows(
+      'SELECT * FROM leaves WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY start_date DESC, id DESC',
+      [id, organizationId],
+      'SELECT * FROM leaves WHERE employee_id = $1 ORDER BY start_date DESC, id DESC',
+      [id],
+    );
+    const payrolls = await this.queryOptionalRows(
+      'SELECT * FROM payrolls WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY year DESC, month DESC',
+      [id, organizationId],
+      'SELECT * FROM payrolls WHERE employee_id = $1 ORDER BY year DESC, month DESC',
+      [id],
+    );
+    const contracts = await this.queryOptionalRows(
+      'SELECT * FROM employee_contracts WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY start_date DESC, id DESC',
+      [id, organizationId],
+      'SELECT * FROM employee_contracts WHERE employee_id = $1 ORDER BY start_date DESC, id DESC',
+      [id],
+    );
+    const attendance = await this.queryOptionalRows(
       `SELECT *
        FROM employee_monthly_attendance
        WHERE employee_id = $1 AND organization_id = $2 AND deleted_at IS NULL
        ORDER BY year DESC, month DESC, id DESC LIMIT 24`,
       [id, organizationId],
+      `SELECT *
+       FROM employee_monthly_attendance
+       WHERE employee_id = $1
+       ORDER BY year DESC, month DESC, id DESC LIMIT 24`,
+      [id],
     );
-    const audit = await this.db.query(
+    const audit = await this.queryOptionalRows(
       `SELECT action, resource, resource_id, status_code, metadata, created_at
        FROM audit_logs
        WHERE organization_id = $1
@@ -410,38 +476,37 @@ export class SaasService {
          )
        ORDER BY created_at DESC
        LIMIT 40`,
-      [organizationId, id, `%\"employee_id\":${id}%`],
+      [organizationId, id, `%"employee_id":${id}%`],
     );
-    const row = requireRow(employee.rows[0], 'Employee');
+    const row = requireRow(employee[0], 'Employee');
     const documents = [
       row.identity_attachment_name ? { type: 'Pièce identité', file_name: row.identity_attachment_name } : null,
       row.cv_attachment_name ? { type: 'CV', file_name: row.cv_attachment_name } : null,
       row.signed_contract_attachment_name ? { type: 'Contrat signé', file_name: row.signed_contract_attachment_name } : null,
-      ...contracts.rows.filter((contract) => contract.contract_file_name).map((contract) => ({ type: 'Contrat RH', file_name: contract.contract_file_name })),
+      ...contracts.filter((contract) => contract.contract_file_name).map((contract) => ({ type: 'Contrat RH', file_name: contract.contract_file_name })),
     ].filter(Boolean);
     const timeline = [
       { date: row.created_at, event: 'Création employé', description: row.full_name },
-      ...contracts.rows.map((contract) => ({ date: contract.start_date, event: 'Contrat', description: `${contract.contract_number} - ${contract.contract_type}` })),
-      ...advances.rows.map((advance) => ({ date: advance.advance_date, event: 'Avance', description: `Montant ${advance.amount}` })),
-      ...leaves.rows.map((leave) => ({ date: leave.start_date, event: 'Congé', description: `${leave.leave_type} - ${leave.status}` })),
-      ...attendance.rows.map((entry) => ({ date: `${entry.year}-${String(entry.month).padStart(2, '0')}-01`, event: 'Pointage mensuel', description: `${entry.month}/${entry.year} - ${entry.status}` })),
-      ...payrolls.rows.map((payroll) => ({ date: `${payroll.year}-${String(payroll.month).padStart(2, '0')}-01`, event: 'Paie', description: `${payroll.month}/${payroll.year} - ${payroll.status}` })),
+      ...contracts.map((contract) => ({ date: contract.start_date, event: 'Contrat', description: `${contract.contract_number} - ${contract.contract_type}` })),
+      ...advances.map((advance) => ({ date: advance.advance_date, event: 'Avance', description: `Montant ${advance.amount}` })),
+      ...leaves.map((leave) => ({ date: leave.start_date, event: 'Congé', description: `${leave.leave_type} - ${leave.status}` })),
+      ...attendance.map((entry) => ({ date: `${entry.year}-${String(entry.month).padStart(2, '0')}-01`, event: 'Pointage mensuel', description: `${entry.month}/${entry.year} - ${entry.status}` })),
+      ...payrolls.map((payroll) => ({ date: `${payroll.year}-${String(payroll.month).padStart(2, '0')}-01`, event: 'Paie', description: `${payroll.month}/${payroll.year} - ${payroll.status}` })),
     ].sort((a, b) => String(b.date).localeCompare(String(a.date)));
     return {
       ...row,
-      current_contract: contracts.rows[0] ?? null,
-      contracts: contracts.rows,
-      advances: advances.rows,
-      leaves: leaves.rows,
-      payrolls: payrolls.rows,
-      attendance: attendance.rows,
-      latest_monthly_attendance: attendance.rows[0] ?? null,
+      current_contract: contracts[0] ?? null,
+      contracts,
+      advances,
+      leaves,
+      payrolls,
+      attendance,
+      latest_monthly_attendance: attendance[0] ?? null,
       documents,
       timeline,
-      audit: audit.rows,
+      audit,
     };
   }
-
   async deactivateEmployee(id: number) {
     const { rows } = await this.db.query(
       `UPDATE employees
@@ -519,9 +584,9 @@ export class SaasService {
         [id, this.context.organizationId()],
       );
       const row = requireRow(advance.rows[0], 'Salary advance');
-      if (row.status === 'PAID') throw new BadRequestException('Cette avance est dÃ©jÃ  payÃ©e');
+      if (row.status === 'PAID') throw new BadRequestException('Cette avance est dÃƒÂ©jÃƒÂ  payÃƒÂ©e');
       await this.ensureWorkflowApproved(client, row.workflow_instance_id);
-      if (!['APPROVED', 'PENDING', 'DRAFT'].includes(row.status)) throw new BadRequestException('Cette avance ne peut pas Ãªtre payÃ©e');
+      if (!['APPROVED', 'PENDING', 'DRAFT'].includes(row.status)) throw new BadRequestException('Cette avance ne peut pas ÃƒÂªtre payÃƒÂ©e');
       const paid = await client.query(
         `UPDATE salary_advances SET status = 'PAID'
          WHERE id = $1 AND organization_id = $2 RETURNING *`,
@@ -576,7 +641,7 @@ export class SaasService {
           type: 'LEAVE_APPROVAL',
           entity_type: 'leaves',
           entity_id: rows[0].id,
-          title: `Demande congÃ© #${rows[0].id}`,
+          title: `Demande congÃƒÂ© #${rows[0].id}`,
           comment: body.reason ?? null,
         });
         await client.query('UPDATE leaves SET workflow_instance_id = $2 WHERE id = $1', [rows[0].id, workflow.id]);
@@ -634,7 +699,8 @@ export class SaasService {
   }
 
   async payrollDetail(id: number) {
-    const { rows } = await this.db.query(
+    const organizationId = this.context.organizationId();
+    const primary = await this.tryPayrollDetailQuery(
       `SELECT p.*,
               CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS employee_name,
               e.employee_number,
@@ -643,9 +709,23 @@ export class SaasService {
        FROM payrolls p
        JOIN employees e ON e.id = p.employee_id
        WHERE p.id = $1 AND p.organization_id = $2 AND p.deleted_at IS NULL`,
-      [id, this.context.organizationId()],
+      [id, organizationId],
     );
-    return requireRow(rows[0], 'Payroll');
+    if (primary.length) {
+      return requireRow(primary[0], 'Payroll');
+    }
+    const fallback = await this.tryPayrollDetailQuery(
+      `SELECT p.*,
+              CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS employee_name,
+              e.employee_number,
+              e.department,
+              e.job_title
+       FROM payrolls p
+       JOIN employees e ON e.id = p.employee_id
+       WHERE p.id = $1`,
+      [id],
+    );
+    return requireRow(fallback[0], 'Payroll');
   }
 
   async generatePayroll(body: Record<string, unknown>) {
@@ -674,7 +754,7 @@ export class SaasService {
         [organizationId, month, year, employeeId],
       );
       if (!attendance.rows.length) {
-        throw new BadRequestException('Aucun pointage mensuel validé pour cette période.');
+        throw new BadRequestException('Aucun pointage mensuel validÃ© pour cette pÃ©riode.');
       }
 
       const generated: Record<string, unknown>[] = [];
@@ -787,8 +867,8 @@ export class SaasService {
         [id, this.context.organizationId()],
       );
       const row = requireRow(payroll.rows[0], 'Payroll');
-      if (row.status === 'PAID') throw new BadRequestException('Cette paie est dÃ©jÃ  payÃ©e');
-      if (!['VALIDATED', 'DRAFT'].includes(row.status)) throw new BadRequestException('Cette paie ne peut pas Ãªtre payÃ©e');
+      if (row.status === 'PAID') throw new BadRequestException('Cette paie est dÃƒÂ©jÃƒÂ  payÃƒÂ©e');
+      if (!['VALIDATED', 'DRAFT'].includes(row.status)) throw new BadRequestException('Cette paie ne peut pas ÃƒÂªtre payÃƒÂ©e');
       const paid = await client.query(
         `UPDATE payrolls SET status = 'PAID', payment_date = CURRENT_DATE
          WHERE id = $1 AND organization_id = $2 RETURNING *`,
@@ -811,7 +891,7 @@ export class SaasService {
     const exists = await this.db.query(`SELECT id FROM cash_sessions WHERE status = 'OPEN' AND organization_id = $1 AND deleted_at IS NULL LIMIT 1`, [
       this.context.organizationId(),
     ]);
-    if (exists.rows[0]) throw new BadRequestException('Une caisse est dÃ©jÃ  ouverte');
+    if (exists.rows[0]) throw new BadRequestException('Une caisse est dÃƒÂ©jÃƒÂ  ouverte');
     return this.insert('cash_sessions', { opened_by: this.context.userId() ?? 1, opening_balance: 0, status: 'OPEN', ...body }, [
       'opened_by',
       'opening_balance',
@@ -848,7 +928,7 @@ export class SaasService {
           type: 'EXPENSE_APPROVAL',
           entity_type: 'cash_movements',
           entity_id: null,
-          title: `Demande dÃ©pense ${body.category ?? 'caisse'} - ${Number(body.amount ?? 0)}`,
+          title: `Demande dÃƒÂ©pense ${body.category ?? 'caisse'} - ${Number(body.amount ?? 0)}`,
           comment: body.description ?? body.notes ?? null,
         });
       }
@@ -919,8 +999,8 @@ export class SaasService {
       [this.context.organizationId(), String(id)],
     );
     const documents = [
-      { name: 'ReÃ§u PDF', exists: true, detail: `Mouvement_${movement.id}.pdf` },
-      { name: 'PiÃ¨ce jointe', exists: Boolean((movement as Record<string, unknown>).attachment_file_name), detail: String((movement as Record<string, unknown>).attachment_file_name ?? 'Non disponible') },
+      { name: 'ReÃƒÂ§u PDF', exists: true, detail: `Mouvement_${movement.id}.pdf` },
+      { name: 'PiÃƒÂ¨ce jointe', exists: Boolean((movement as Record<string, unknown>).attachment_file_name), detail: String((movement as Record<string, unknown>).attachment_file_name ?? 'Non disponible') },
       { name: 'QR Code', exists: true, detail: 'Placeholder' },
       { name: 'Code barre', exists: true, detail: 'Placeholder' },
     ];
@@ -1165,7 +1245,7 @@ export class SaasService {
 
   async createEmployeeAttendanceBulk(body: Record<string, unknown>) {
     const rows = Array.isArray(body.rows) ? body.rows : [];
-    if (!rows.length) throw new BadRequestException('Aucune ligne de pointage à enregistrer.');
+    if (!rows.length) throw new BadRequestException('Aucune ligne de pointage Ã  enregistrer.');
     return this.db.transaction(async (client) => {
       const saved = [];
       for (const row of rows) {
@@ -1234,7 +1314,7 @@ export class SaasService {
     const monthlyAttendance = attendance.filter((row) => Number(row.month) === monthFilter && Number(row.year) === yearFilter);
     const byDepartmentMap = new Map<string, number>();
     for (const employee of employees) {
-      const key = String(employee.department ?? 'Non renseigné');
+      const key = String(employee.department ?? 'Non renseignÃ©');
       byDepartmentMap.set(key, (byDepartmentMap.get(key) ?? 0) + 1);
     }
     return {
@@ -1657,7 +1737,7 @@ export class SaasService {
       );
       const row = history.rows[0] ?? {};
       if (row.has_movements || row.has_inventory || row.has_purchases || row.has_documents) {
-        throw new ConflictException("Cet article possède un historique et ne peut pas être supprimé. Vous pouvez le désactiver.");
+        throw new ConflictException("Cet article possÃ¨de un historique et ne peut pas Ãªtre supprimÃ©. Vous pouvez le dÃ©sactiver.");
       }
 
       await client.query(`DELETE FROM stock_items WHERE id = $1 AND organization_id = $2`, [id, this.context.organizationId()]);
@@ -1714,7 +1794,7 @@ export class SaasService {
       for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
         const quantity = Number(line.quantity ?? 0);
-        if (quantity <= 0) throw new BadRequestException(`Ligne ${index + 1}: la quantité doit être positive`);
+        if (quantity <= 0) throw new BadRequestException(`Ligne ${index + 1}: la quantitÃ© doit Ãªtre positive`);
         const item = await client.query(
           `SELECT id, name, current_quantity, status
            FROM stock_items
@@ -1778,7 +1858,7 @@ export class SaasService {
         }
         if (body.maintenance_request_id) {
           const totalCost = movements.reduce((sum, movement) => sum + Number((movement as Record<string, unknown>).quantity ?? 0) * Number((movement as Record<string, unknown>).unit_price ?? 0), 0);
-          await this.addMaintenanceTimeline(client, Number(body.maintenance_request_id), 'STOCK', 'Consommation de stock', `${movements.length} article(s) consommÃ©(s) pour ${totalCost.toFixed(2)} USD`);
+          await this.addMaintenanceTimeline(client, Number(body.maintenance_request_id), 'STOCK', 'Consommation de stock', `${movements.length} article(s) consommÃƒÂ©(s) pour ${totalCost.toFixed(2)} USD`);
         }
         return { lines: movements, total_cost: movements.reduce((sum, movement) => sum + Number((movement as Record<string, unknown>).quantity ?? 0) * Number((movement as Record<string, unknown>).unit_price ?? 0), 0) };
       });
@@ -1950,7 +2030,7 @@ export class SaasService {
           this.context.organizationId(),
         ],
       );
-      await this.addMaintenanceTimeline(client, rows[0].id, 'REPORT', 'Signalement', body.description ? String(body.description) : 'Signalement crÃ©Ã©');
+      await this.addMaintenanceTimeline(client, rows[0].id, 'REPORT', 'Signalement', body.description ? String(body.description) : 'Signalement crÃƒÂ©ÃƒÂ©');
       return rows[0];
     });
   }
@@ -1972,7 +2052,7 @@ export class SaasService {
       'attachment_file_url',
       'internal_notes',
     ]);
-    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'UPDATE', 'Modification', 'Demande mise Ã  jour'));
+    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'UPDATE', 'Modification', 'Demande mise ÃƒÂ  jour'));
     return updated;
   }
 
@@ -2015,7 +2095,7 @@ export class SaasService {
         await client.query('UPDATE maintenance_requests SET workflow_instance_id = $2 WHERE id = $1', [id, workflow.id]);
         rows[0].workflow_instance_id = workflow.id;
       }
-      await this.addMaintenanceTimeline(client, id, 'DIAGNOSIS', 'Diagnostic', body.diagnostic ? String(body.diagnostic) : 'Diagnostic enregistrÃ©');
+      await this.addMaintenanceTimeline(client, id, 'DIAGNOSIS', 'Diagnostic', body.diagnostic ? String(body.diagnostic) : 'Diagnostic enregistrÃƒÂ©');
       return requireRow(rows[0], 'Maintenance request');
     });
   }
@@ -2093,7 +2173,7 @@ export class SaasService {
         [id, body.employee_id ?? null, body.external_provider ?? null, this.context.userId() ?? 1, body.notes ?? null, body.planned_date ?? null, body.planned_time ?? null, this.context.organizationId()],
       );
       await this.createMaintenanceAssignmentCommunications(client, request, body);
-      await this.addMaintenanceTimeline(client, id, 'ASSIGNMENT', 'Assignation', body.notes ? String(body.notes) : 'Intervention affectÃ©e');
+      await this.addMaintenanceTimeline(client, id, 'ASSIGNMENT', 'Assignation', body.notes ? String(body.notes) : 'Intervention affectÃƒÂ©e');
       return request;
     });
   }
@@ -2106,7 +2186,7 @@ export class SaasService {
        WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL RETURNING *`,
       [id, this.context.organizationId(), body.started_at ?? null],
     );
-    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'INTERVENTION', 'Intervention', body.comments ? String(body.comments) : 'Intervention démarrée'));
+    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'INTERVENTION', 'Intervention', body.comments ? String(body.comments) : 'Intervention dÃ©marrÃ©e'));
     return requireRow(rows[0], 'Maintenance request');
   }
 
@@ -2123,8 +2203,8 @@ export class SaasService {
          WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL RETURNING *`,
         [id, this.context.organizationId(), body.resolved_at ?? null, Number(body.actual_hours ?? 0), body.resolution_comments ?? body.comments ?? null],
       );
-      await this.addMaintenanceTimeline(client, id, 'RESOLUTION', 'Résolution', body.resolution_comments ? String(body.resolution_comments) : 'Intervention résolue');
-      await this.notifyMaintenanceResolution(client, id, 'RESOLVED', String(body.resolution_comments ?? body.comments ?? 'Intervention résolue'));
+      await this.addMaintenanceTimeline(client, id, 'RESOLUTION', 'RÃ©solution', body.resolution_comments ? String(body.resolution_comments) : 'Intervention rÃ©solue');
+      await this.notifyMaintenanceResolution(client, id, 'RESOLVED', String(body.resolution_comments ?? body.comments ?? 'Intervention rÃ©solue'));
       return requireRow(rows[0], 'Maintenance request');
     });
   }
@@ -2142,7 +2222,7 @@ export class SaasService {
        WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL RETURNING *`,
       [id, this.context.organizationId(), this.context.userId() ?? 1, body.comments ?? null, body.technician_signature_name ?? null, body.client_signature_name ?? null],
     );
-    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'VALIDATION', 'Validation finale', body.comments ? String(body.comments) : 'Résolution validée'));
+    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'VALIDATION', 'Validation finale', body.comments ? String(body.comments) : 'RÃ©solution validÃ©e'));
     return requireRow(rows[0], 'Maintenance request');
   }
 
@@ -2155,8 +2235,8 @@ export class SaasService {
          WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL RETURNING *`,
         [id, this.context.organizationId(), this.context.userId() ?? 1],
       );
-      await this.addMaintenanceTimeline(client, id, 'CLOSURE', 'Clôture', 'Demande clôturée');
-      await this.notifyMaintenanceResolution(client, id, 'CLOSED', 'Intervention clôturée');
+      await this.addMaintenanceTimeline(client, id, 'CLOSURE', 'ClÃ´ture', 'Demande clÃ´turÃ©e');
+      await this.notifyMaintenanceResolution(client, id, 'CLOSED', 'Intervention clÃ´turÃ©e');
       return requireRow(rows[0], 'Maintenance request');
     });
   }
@@ -2165,7 +2245,7 @@ export class SaasService {
     return this.db.transaction(async (client) => {
       await this.assertMaintenanceStatus(client, id, ['IN_PROGRESS']);
       const lines = Array.isArray(body.lines) ? body.lines as Array<Record<string, unknown>> : [body];
-      if (!lines.length) throw new BadRequestException('Aucune ligne de dépense fournie');
+      if (!lines.length) throw new BadRequestException('Aucune ligne de dÃ©pense fournie');
       const created: Record<string, unknown>[] = [];
       for (const line of lines) {
         const amount = Number(line.amount ?? 0);
@@ -2178,12 +2258,12 @@ export class SaasService {
             category: 'MAINTENANCE_EXPENSE',
             amount,
             movement_date: line.expense_date ?? body.expense_date ?? new Date().toISOString().slice(0, 10),
-            description: line.description ?? line.label ?? body.description ?? 'Dépense maintenance',
+            description: line.description ?? line.label ?? body.description ?? 'DÃ©pense maintenance',
             reference: line.reference ?? body.reference ?? `MNT-EXP-${id}`,
             supplier: line.supplier ?? body.supplier ?? null,
             attachment_file_name: line.attachment_file_name ?? body.attachment_file_name ?? null,
             attachment_file_url: line.attachment_file_url ?? body.attachment_file_url ?? null,
-            label: line.label ?? line.description ?? body.description ?? 'Dépense maintenance',
+            label: line.label ?? line.description ?? body.description ?? 'DÃ©pense maintenance',
           });
           cashMovementId = movement.id;
         }
@@ -2213,7 +2293,7 @@ export class SaasService {
         );
         created.push(rows[0]);
       }
-      await this.addMaintenanceTimeline(client, id, 'EXPENSE', 'Dépense', `${created.length} ligne(s) de coût enregistrée(s)`);
+      await this.addMaintenanceTimeline(client, id, 'EXPENSE', 'DÃ©pense', `${created.length} ligne(s) de coÃ»t enregistrÃ©e(s)`);
       return created.length === 1 ? created[0] : { lines: created, total_amount: created.reduce((sum, row) => sum + Number((row as Record<string, unknown>).amount ?? 0), 0) };
     });
   }
@@ -2224,7 +2304,7 @@ export class SaasService {
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
       [id, body.document_type ?? 'OTHER', body.file_name, body.file_url ?? null, this.context.userId() ?? 1, this.context.organizationId()],
     );
-    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'DOCUMENT', 'Document', String(body.file_name ?? 'Document ajoutÃ©')));
+    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'DOCUMENT', 'Document', String(body.file_name ?? 'Document ajoutÃƒÂ©')));
     return rows[0];
   }
 
@@ -2374,7 +2454,7 @@ export class SaasService {
       );
       const row = requireRow(inventory.rows[0], 'Inventory');
       if (row.status === 'VALIDATED' || row.status === 'CANCELLED') {
-        throw new BadRequestException('Cet inventaire est verrouillé');
+        throw new BadRequestException('Cet inventaire est verrouillÃ©');
       }
       const lines = Array.isArray(body.lines) ? body.lines as Array<Record<string, unknown>> : [];
       let counted = 0;
@@ -2410,7 +2490,7 @@ export class SaasService {
         [id, this.context.organizationId()],
       );
       const inventoryRow = requireRow(inventory.rows[0], 'Inventory');
-      if (inventoryRow.status === 'VALIDATED') throw new BadRequestException('Inventaire dÃ©jÃ  validÃ©');
+      if (inventoryRow.status === 'VALIDATED') throw new BadRequestException('Inventaire dÃƒÂ©jÃƒÂ  validÃƒÂ©');
       const lines = await client.query(
         `SELECT * FROM inventory_count_lines WHERE inventory_count_id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
         [id, this.context.organizationId()],
@@ -2739,7 +2819,7 @@ export class SaasService {
     );
     const invoice = requireRow(rows[0], 'Invoice');
     const recipient = channel === 'EMAIL' ? invoice.email : invoice.phone;
-    if (!recipient) throw new BadRequestException(channel === 'EMAIL' ? 'Adresse email locataire absente' : 'TÃ©lÃ©phone locataire absent');
+    if (!recipient) throw new BadRequestException(channel === 'EMAIL' ? 'Adresse email locataire absente' : 'TÃƒÂ©lÃƒÂ©phone locataire absent');
 
     const message = body.message
       ? String(body.message)
@@ -2777,9 +2857,9 @@ export class SaasService {
 
   private defaultReminderMessage(channel: string, variables: Record<string, unknown>) {
     if (channel === 'EMAIL') {
-      return `Bonjour ${variables.tenant_name},\nSauf erreur de notre part, votre facture ${variables.invoice_number} d'un montant de ${variables.amount} ${variables.currency} reste impayÃ©e.\nMerci de rÃ©gulariser votre situation.`;
+      return `Bonjour ${variables.tenant_name},\nSauf erreur de notre part, votre facture ${variables.invoice_number} d'un montant de ${variables.amount} ${variables.currency} reste impayÃƒÂ©e.\nMerci de rÃƒÂ©gulariser votre situation.`;
     }
-    return `Bonjour ${variables.tenant_name}, votre facture ${variables.invoice_number} de ${variables.amount} ${variables.currency} reste impayÃ©e. Merci de rÃ©gulariser.`;
+    return `Bonjour ${variables.tenant_name}, votre facture ${variables.invoice_number} de ${variables.amount} ${variables.currency} reste impayÃƒÂ©e. Merci de rÃƒÂ©gulariser.`;
   }
 
   async notifications() {
@@ -3045,7 +3125,7 @@ export class SaasService {
   async rentalUnitsAvailability() {
     const { rows } = await this.db.query(
       `SELECT b.name AS building_name, u.id AS unit_id, u.number, u.status,
-              CASE WHEN l.id IS NULL THEN 'Libre' ELSE 'OccupÃ©e' END AS occupancy
+              CASE WHEN l.id IS NULL THEN 'Libre' ELSE 'OccupÃƒÂ©e' END AS occupancy
        FROM units u
        JOIN buildings b ON b.id = u.building_id
        LEFT JOIN leases l ON l.unit_id = u.id AND l.status = 'ACTIVE' AND l.deleted_at IS NULL
@@ -3616,14 +3696,14 @@ export class SaasService {
     const alerts = await this.stockAlerts();
     const purchases = await this.stockPurchases();
     const byCategory = Object.values(items.reduce((acc: Record<string, { category: string; quantity: number; value: number }>, item) => {
-      const key = String(item.category ?? 'Sans catégorie');
+      const key = String(item.category ?? 'Sans catÃ©gorie');
       acc[key] ??= { category: key, quantity: 0, value: 0 };
       acc[key].quantity += Number(item.current_quantity ?? 0);
       acc[key].value += Number(item.current_quantity ?? 0) * Number(item.average_purchase_price ?? item.purchase_price ?? 0);
       return acc;
     }, {}));
     const byStore = Object.values(items.reduce((acc: Record<string, { store: string; quantity: number; value: number }>, item) => {
-      const key = String(item.store ?? 'Non renseigné');
+      const key = String(item.store ?? 'Non renseignÃ©');
       acc[key] ??= { store: key, quantity: 0, value: 0 };
       acc[key].quantity += Number(item.current_quantity ?? 0);
       acc[key].value += Number(item.current_quantity ?? 0) * Number(item.average_purchase_price ?? item.purchase_price ?? 0);
@@ -3759,7 +3839,7 @@ export class SaasService {
     return {
       requests: rows,
       by_building: Object.values(rows.reduce<Record<string, { building_name: string; count: number; cost: number }>>((acc, row) => {
-        const key = row.building_name ?? 'Non liÃ©';
+        const key = row.building_name ?? 'Non liÃƒÂ©';
         acc[key] ??= { building_name: key, count: 0, cost: 0 };
         acc[key].count += 1;
         acc[key].cost += Number(row.expenses_total) + Number(row.stock_cost_total);
@@ -3773,7 +3853,7 @@ export class SaasService {
         return acc;
       }, {})),
       by_technician: Object.values(rows.reduce<Record<string, { technician_name: string; count: number; avg_hours: number }>>((acc, row) => {
-        const key = row.technician_name ?? row.external_provider ?? 'Non affectÃ©';
+        const key = row.technician_name ?? row.external_provider ?? 'Non affectÃƒÂ©';
         acc[key] ??= { technician_name: key, count: 0, avg_hours: 0 };
         acc[key].count += 1;
         acc[key].avg_hours += Number(row.resolution_hours ?? 0);
@@ -3781,7 +3861,7 @@ export class SaasService {
       }, {})).map((row) => ({
         ...row,
         avg_hours: row.count ? row.avg_hours / row.count : 0,
-        total_cost: rows.filter((current) => (current.technician_name ?? current.external_provider ?? 'Non affectÃ©') === row.technician_name).reduce((sum, current) => sum + Number(current.expenses_total) + Number(current.stock_cost_total), 0),
+        total_cost: rows.filter((current) => (current.technician_name ?? current.external_provider ?? 'Non affectÃƒÂ©') === row.technician_name).reduce((sum, current) => sum + Number(current.expenses_total) + Number(current.stock_cost_total), 0),
       })),
       by_category: Object.values(rows.reduce<Record<string, { category: string; count: number; cost: number }>>((acc, row) => {
         acc[row.category] ??= { category: row.category, count: 0, cost: 0 };
@@ -3793,7 +3873,7 @@ export class SaasService {
       overdue_requests: rows.filter((row) => row.is_overdue),
       stock_consumed: stockConsumed.rows,
       monthly_expenses: monthlyExpenses.rows,
-      resolution_times: rows.filter((row) => row.resolution_hours !== null).map((row) => ({ request_number: row.request_number, title: row.title, technician: row.technician_name ?? row.external_provider ?? 'Non affectÃ©', resolution_hours: Number(row.resolution_hours ?? 0) })),
+      resolution_times: rows.filter((row) => row.resolution_hours !== null).map((row) => ({ request_number: row.request_number, title: row.title, technician: row.technician_name ?? row.external_provider ?? 'Non affectÃƒÂ©', resolution_hours: Number(row.resolution_hours ?? 0) })),
       summary,
     };
   }
@@ -3810,7 +3890,7 @@ export class SaasService {
     if (itemRow.status !== 'ACTIVE') throw new BadRequestException('Article stock inactif');
     const type = String(body.type ?? 'OUT');
     const quantity = Number(body.quantity ?? 0);
-    if (quantity <= 0) throw new BadRequestException('La quantitÃ© doit Ãªtre positive');
+    if (quantity <= 0) throw new BadRequestException('La quantitÃƒÂ© doit ÃƒÂªtre positive');
     const before = Number(itemRow.current_quantity);
     const sign = ['IN', 'INVENTORY_GAIN', 'INVENTORY'].includes(type) ? 1 : -1;
     const after = before + sign * quantity;
@@ -3855,7 +3935,7 @@ export class SaasService {
       `INSERT INTO stock_movement_history
        (stock_movement_id, action, description, performed_by, organization_id)
        VALUES ($1, 'CREATED', $2, $3, $4)`,
-      [rows[0].id, `Mouvement créé depuis ${body.reference ?? movementNumber}`, this.context.userId() ?? 1, this.context.organizationId()],
+      [rows[0].id, `Mouvement crÃ©Ã© depuis ${body.reference ?? movementNumber}`, this.context.userId() ?? 1, this.context.organizationId()],
     );
     const averagePrice =
       sign > 0 && unitPrice > 0 && after > 0
@@ -3894,7 +3974,7 @@ export class SaasService {
     );
     const message = level === 'OUT_OF_STOCK'
       ? `L'article ${item.name} est en rupture de stock.`
-      : `L'article ${item.name} est sous le seuil de sécurité. Stock actuel : ${quantity} ${item.unit}. Seuil : ${minimum}.`;
+      : `L'article ${item.name} est sous le seuil de sÃ©curitÃ©. Stock actuel : ${quantity} ${item.unit}. Seuil : ${minimum}.`;
     const responsible = await client.query(
       `SELECT id, email FROM app_users
        WHERE organization_id = $1 AND deleted_at IS NULL AND status = 'ACTIVE'
@@ -4145,7 +4225,7 @@ export class SaasService {
         [rows[0].id, step.step_order, step.name, step.approver_role, step.approver_user_id, this.context.organizationId()],
       );
     }
-    await this.addWorkflowAction(client, rows[0].id, 'CREATED', body.comment ? String(body.comment) : 'Workflow crÃ©Ã©');
+    await this.addWorkflowAction(client, rows[0].id, 'CREATED', body.comment ? String(body.comment) : 'Workflow crÃƒÂ©ÃƒÂ©');
     return rows[0];
   }
 
@@ -4167,8 +4247,8 @@ export class SaasService {
       [workflowInstanceId, this.context.organizationId()],
     );
     const step = requireRow(rows[0], 'Workflow step');
-    if (step.approver_user_id && Number(step.approver_user_id) !== this.context.userId()) throw new BadRequestException('Vous ne pouvez pas valider cette Ã©tape');
-    if (step.approver_role && step.approver_role !== this.context.user()?.role) throw new BadRequestException('RÃ´le approbateur requis');
+    if (step.approver_user_id && Number(step.approver_user_id) !== this.context.userId()) throw new BadRequestException('Vous ne pouvez pas valider cette ÃƒÂ©tape');
+    if (step.approver_role && step.approver_role !== this.context.user()?.role) throw new BadRequestException('RÃƒÂ´le approbateur requis');
   }
 
   private async ensureWorkflowApproved(client: PoolClient, workflowInstanceId?: unknown) {
@@ -4178,8 +4258,8 @@ export class SaasService {
       [workflowInstanceId, this.context.organizationId()],
     );
     const workflow = requireRow(rows[0], 'Workflow');
-    if (workflow.status === 'REJECTED') throw new BadRequestException('Workflow rejetÃ©: action bloquÃ©e');
-    if (workflow.status !== 'APPROVED') throw new BadRequestException('Workflow en attente: action bloquÃ©e');
+    if (workflow.status === 'REJECTED') throw new BadRequestException('Workflow rejetÃƒÂ©: action bloquÃƒÂ©e');
+    if (workflow.status !== 'APPROVED') throw new BadRequestException('Workflow en attente: action bloquÃƒÂ©e');
   }
 
   private async addMaintenanceTimeline(client: PoolClient, maintenanceRequestId: number, eventType: string, title: string, details?: string) {
@@ -4211,7 +4291,7 @@ export class SaasService {
        LIMIT 1`,
       [unitId, this.context.organizationId(), startDate, endDate, ignoredLeaseId ?? null],
     );
-    if (rows[0]) throw new BadRequestException('Un bail actif existe dÃ©jÃ  sur cette unitÃ© pour cette pÃ©riode');
+    if (rows[0]) throw new BadRequestException('Un bail actif existe dÃƒÂ©jÃƒÂ  sur cette unitÃƒÂ© pour cette pÃƒÂ©riode');
   }
 
   private async activateLeaseInTransaction(client: PoolClient, id: number) {

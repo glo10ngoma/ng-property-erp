@@ -12,4 +12,5 @@ export {
   AttendanceMonthlyEntryPage,
   HrReportsPage,
   PayrollPage,
+  PayrollDetailPage,
 } from './StaffAttendancePayrollPages';
