@@ -94,6 +94,13 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: 'Opérations',
+    icon: Wrench,
+    items: [
+      { to: '/maintenance', label: 'Maintenance', icon: Wrench, permission: 'maintenance.read' },
+    ],
+  },
+  {
     label: STOCK_GROUP_KEY,
     icon: Wrench,
     items: stockItems,
@@ -126,7 +133,7 @@ const navGroups: NavGroup[] = [
   },
 ];
 
-const defaultOpenGroups = ['Tableau de bord', 'Gestion immobilière', 'Finance', 'Ressources humaines'];
+const defaultOpenGroups = ['Tableau de bord', 'Gestion immobilière', 'Finance', 'Opérations', 'Ressources humaines'];
 
 export function Sidebar() {
   const { can } = useAuth();
