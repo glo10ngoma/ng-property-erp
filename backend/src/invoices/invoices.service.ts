@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { RequestContext } from '../auth/request-context';
 import { requireRow } from '../common/not-found';
@@ -54,7 +54,8 @@ export class InvoicesService {
        WHERE i.id = $1 AND i.organization_id = $2 AND i.deleted_at IS NULL`,
       [id, organizationId],
     );
-    const invoice = requireRow(rows[0], 'Invoice');
+    const invoice = rows[0];
+    if (!invoice) throw new NotFoundException('Facture introuvable');
     const items = await this.db.query('SELECT * FROM invoice_items WHERE invoice_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY id', [id, organizationId]);
     const payments = await this.db.query('SELECT * FROM payments WHERE invoice_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY payment_date DESC', [id, organizationId]);
     const reminders = await this.db.query('SELECT * FROM invoice_reminders WHERE invoice_id = $1 AND organization_id = $2 ORDER BY reminded_at DESC', [id, organizationId]);

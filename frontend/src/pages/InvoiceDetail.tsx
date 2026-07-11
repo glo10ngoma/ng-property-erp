@@ -51,6 +51,8 @@ export function InvoiceDetail() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editLines, setEditLines] = useState<Array<{ item_type: string; description: string; amount: number }>>([]);
@@ -60,15 +62,28 @@ export function InvoiceDetail() {
   const [editAttachmentName, setEditAttachmentName] = useState('');
   const [success, setSuccess] = useState('');
 
-  const reload = () => api.get<Invoice>(`/invoices/${id}`).then((response) => setInvoice(response.data));
+  async function reload() {
+    if (!id) return;
+    setLoading(true);
+    setError('');
+    try {
+      const response = await api.get<Invoice>(`/invoices/${id}`);
+      setInvoice(response.data);
+    } catch (err) {
+      setInvoice(null);
+      setError(apiErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    reload();
+    void reload();
   }, [id]);
 
   useEffect(() => {
     if (invoice && searchParams.get('edit') === '1') openEdit();
-  }, [invoice?.id, searchParams]);
+  }, [invoice, searchParams]);
 
   async function pay(form: FormData) {
     const amount = Number(form.get('amount'));
@@ -132,7 +147,21 @@ export function InvoiceDetail() {
     setEditOpen(true);
   }
 
-  if (!invoice) return <div className="empty">Chargement de la facture...</div>;
+  if (loading) return <div className="empty">Chargement de la facture...</div>;
+  if (error) {
+    return (
+      <section>
+        <div className="page-header no-print">
+          <h2>Facture</h2>
+          <div className="actions invoice-detail-actions">
+            <button className="secondary" onClick={() => navigate('/invoices')}><ArrowLeft size={16} />Retour</button>
+          </div>
+        </div>
+        <div className="empty">{error}</div>
+      </section>
+    );
+  }
+  if (!invoice) return <div className="empty">Facture introuvable</div>;
 
   const displayStatus = invoiceDisplayStatus(invoice.status, invoice.due_date);
   const stats = invoiceStats(invoice);
@@ -355,6 +384,15 @@ export function InvoiceDetail() {
       )}
     </section>
   );
+}
+
+function apiErrorMessage(error: unknown) {
+  const response = (error as { response?: { data?: { message?: unknown } } })?.response;
+  const message = response?.data?.message;
+  if (Array.isArray(message)) return message.filter(Boolean).map(String).join(' ');
+  if (typeof message === 'string' && message.trim()) return message;
+  if (message != null) return String(message);
+  return 'Impossible de charger la facture.';
 }
 
 function monthLabel(month: number) {
