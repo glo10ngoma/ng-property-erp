@@ -200,6 +200,7 @@ export function PayrollPage() {
   const employees = useApiList<Employee>('/employees');
   const [rows, setRows] = useState<Payroll[]>([]);
   const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
   const [query, setQuery] = useState('');
   const [month, setMonth] = useState(String(new Date().getMonth() + 1));
   const [year, setYear] = useState(String(new Date().getFullYear()));
@@ -248,14 +249,18 @@ export function PayrollPage() {
   );
 
   async function generatePayroll(form: FormData) {
+    setGenerating(true);
     try {
-      await api.post('/payrolls/generate', payrollPayload(form));
-      setSuccess('Paie du mois generee.');
+      const response = await api.post('/payrolls/generate', payrollPayload(form));
+      const generatedCount = Array.isArray(response.data) ? response.data.length : response.data ? 1 : 0;
+      setSuccess(generatedCount > 0 ? `Paie du mois generee (${generatedCount} fiche${generatedCount > 1 ? 's' : ''}).` : 'Paie du mois generee.');
       setGenerateOpen(false);
       await loadRows();
     } catch (error: any) {
       const message = error?.response?.data?.message;
       setSuccess(Array.isArray(message) ? message.join(' | ') : message || 'Generation de la paie impossible.');
+    } finally {
+      setGenerating(false);
     }
   }
 
@@ -320,7 +325,7 @@ export function PayrollPage() {
       </table>
       {!filtered.length && <EmptyState message="Aucune fiche de paie trouvee." />}
     </div>}
-    {generateOpen && <PayrollModal employees={employees.data} onClose={() => setGenerateOpen(false)} onSubmit={generatePayroll} defaultMonth={month} defaultYear={year} />}
+    {generateOpen && <PayrollModal employees={employees.data} loading={generating} onClose={() => setGenerateOpen(false)} onSubmit={generatePayroll} defaultMonth={month} defaultYear={year} />}
     {selectedPayroll && <PayrollDetailModal payroll={selectedPayroll} onClose={() => setSelectedPayroll(null)} onPay={() => void payrollAction(selectedPayroll.id, 'pay')} />}
   </section>;
 }
@@ -541,7 +546,7 @@ function AttendanceBulkEditor({ employees, onCancel, onSaved, defaultMonth, defa
   return <Modal title="Saisir pointage mensuel" onClose={onCancel}>{content}</Modal>;
 }
 
-function PayrollModal({ employees, onClose, onSubmit, defaultMonth, defaultYear }: { employees: Employee[]; onClose: () => void; onSubmit: (form: FormData) => void; defaultMonth: string; defaultYear: string }) {
+function PayrollModal({ employees, loading, onClose, onSubmit, defaultMonth, defaultYear }: { employees: Employee[]; loading: boolean; onClose: () => void; onSubmit: (form: FormData) => void; defaultMonth: string; defaultYear: string }) {
   const [selectedEmployee, setSelectedEmployee] = useState<string>('all');
   return <Modal title="Generer paie du mois" onClose={onClose}>
     <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); if (selectedEmployee !== 'all') form.set('employee_id', selectedEmployee); onSubmit(form); }}>
@@ -551,7 +556,7 @@ function PayrollModal({ employees, onClose, onSubmit, defaultMonth, defaultYear 
         <label>Employe<select value={selectedEmployee} onChange={(event) => setSelectedEmployee(event.target.value)}><option value="all">Tous les employes valides</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)}</option>)}</select></label>
         <label>Statut<select name="status" defaultValue="DRAFT"><option value="DRAFT">Brouillon</option><option value="VALIDATED">Validee</option></select></label>
       </div></div>
-      <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose}>Annuler</button><button type="submit">Generer</button></div>
+      <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose} disabled={loading}>Annuler</button><button type="submit" disabled={loading}>{loading ? 'Generation…' : 'Generer'}</button></div>
     </form>
   </Modal>;
 }

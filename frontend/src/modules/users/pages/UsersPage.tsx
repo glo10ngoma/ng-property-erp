@@ -1,4 +1,4 @@
-import { Eye, KeyRound, Pencil, Power, RotateCcw, UserPlus, type LucideIcon } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, Pencil, Power, RotateCcw, UserPlus, type LucideIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { api, exportExcel, includesText, shortDate, statusLabel } from '../../../api';
 import { useAuth } from '../../../auth';
@@ -7,6 +7,8 @@ import { useApiList } from '../../../hooks';
 
 type UserRow = {
   id: number;
+  full_name?: string;
+  name?: string;
   first_name: string;
   last_name: string;
   email: string;
@@ -152,7 +154,7 @@ export function UsersPage() {
           <tbody>
             {filtered.map((row) => (
               <tr key={row.id} onClick={() => setViewing(row)} style={{ cursor: 'pointer' }}>
-                <td>{`${row.first_name} ${row.last_name}`.trim()}</td>
+                <td>{displayUserName(row)}</td>
                 <td>{row.email}</td>
                 <td>{roleLabel(row.role)}</td>
                 <td>{row.organization_name ?? `Organisation ${row.organization_id ?? user?.organization_id ?? 1}`}</td>
@@ -235,7 +237,7 @@ export function UsersPage() {
       {viewing && (
         <Modal title="Fiche utilisateur" onClose={() => setViewing(null)}>
           <div className="detail-list">
-            <span>Nom</span><strong>{`${viewing.first_name} ${viewing.last_name}`.trim()}</strong>
+            <span>Nom</span><strong>{displayUserName(viewing)}</strong>
             <span>Adresse e-mail</span><strong>{viewing.email}</strong>
             <span>Rôle</span><strong>{roleLabel(viewing.role)}</strong>
             <span>Organisation</span><strong>{viewing.organization_name ?? `Organisation ${viewing.organization_id ?? user?.organization_id ?? 1}`}</strong>
@@ -260,6 +262,8 @@ function CreateUserForm({
   onSubmit: (form: FormData) => Promise<void>;
 }) {
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   return (
     <form
@@ -312,8 +316,48 @@ function CreateUserForm({
       <div className="detail-section user-form-section">
         <h4>Sécurité</h4>
         <div className="user-form-grid">
-          <label>Mot de passe temporaire *<input name="password" type="password" minLength={4} required autoComplete="new-password" /></label>
-          <label>Confirmer mot de passe *<input name="confirm_password" type="password" minLength={4} required autoComplete="new-password" /></label>
+          <label>
+            Mot de passe temporaire *
+            <div className="password-input">
+              <input
+                name="password"
+                type={showPassword ? 'text' : 'password'}
+                minLength={4}
+                required
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword((value) => !value)}
+                aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                title={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </label>
+          <label>
+            Confirmer mot de passe *
+            <div className="password-input">
+              <input
+                name="confirm_password"
+                type={showConfirmPassword ? 'text' : 'password'}
+                minLength={4}
+                required
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowConfirmPassword((value) => !value)}
+                aria-label={showConfirmPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                title={showConfirmPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+              >
+                {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </label>
         </div>
       </div>
 
@@ -411,4 +455,19 @@ function normalizeRole(role: string) {
   if (value === 'ADMIN') return 'ADMIN';
   if (['EDITOR', 'ACCOUNTANT', 'STAFF', 'AGENT', 'GESTIONNAIRE', 'COMPTABLE'].includes(value)) return 'EDITOR';
   return 'VIEWER';
+}
+
+function displayUserName(user: Pick<UserRow, 'first_name' | 'last_name' | 'full_name' | 'name' | 'email'>) {
+  const fullName = user.full_name?.trim();
+  if (fullName) return fullName;
+
+  const fallbackName = user.name?.trim();
+  if (fallbackName) return fallbackName;
+
+  const firstName = user.first_name?.trim();
+  const lastName = user.last_name?.trim();
+  if (firstName && lastName && firstName !== lastName) return `${firstName} ${lastName}`;
+  if (firstName) return firstName;
+  if (lastName) return lastName;
+  return user.email;
 }
