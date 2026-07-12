@@ -28,6 +28,7 @@ type LeaseDetailData = Lease & {
   documents: Array<{ id: number; document_type: string; file_name: string; file_url?: string; uploaded_at?: string }>;
   history: Lease[];
   latest_contract?: LeaseContractGeneration | null;
+  active_contract_template_version?: number | null;
 };
 
 export function LeaseDetail() {
@@ -45,6 +46,9 @@ export function LeaseDetail() {
   const [signedFileName, setSignedFileName] = useState('');
 
   const previewRequested = useMemo(() => new URLSearchParams(location.search).get('previewContract') === '1', [location.search]);
+  const activeTemplateVersion = Number(lease?.active_contract_template_version ?? 0);
+  const currentContractVersion = Number(lease?.latest_contract?.template_version ?? 0);
+  const contractVersionOutdated = Boolean(lease?.latest_contract && activeTemplateVersion > 0 && currentContractVersion < activeTemplateVersion);
 
   async function load() {
     if (!id) return;
@@ -70,12 +74,12 @@ export function LeaseDetail() {
   useEffect(() => {
     if (!previewRequested || autoPreviewHandled || !lease) return;
     setAutoPreviewHandled(true);
-    if (lease.latest_contract) {
+    if (lease.latest_contract && !contractVersionOutdated) {
       setPreviewOpen(true);
       return;
     }
     void generateContract(true);
-  }, [previewRequested, autoPreviewHandled, lease?.id, lease?.latest_contract?.id]);
+  }, [previewRequested, autoPreviewHandled, lease?.id, lease?.latest_contract?.id, contractVersionOutdated]);
 
   async function invoice() {
     if (!lease) return;
@@ -186,9 +190,9 @@ export function LeaseDetail() {
           <div className="page-actions">
             <button className="secondary" onClick={() => navigate('/leases')}><ArrowLeft size={16} />Retour</button>
             {can('documents.upload') && (
-              <button className="secondary" onClick={() => { if (lease.latest_contract) setPreviewOpen(true); else void generateContract(true); }} disabled={contractBusy}>
+              <button className="secondary" onClick={() => { if (lease.latest_contract && !contractVersionOutdated) setPreviewOpen(true); else void generateContract(true); }} disabled={contractBusy}>
                 <ScrollText size={16} />
-                {lease.latest_contract ? 'Previsualiser contrat' : 'Generer le contrat'}
+                {lease.latest_contract && !contractVersionOutdated ? 'Previsualiser contrat' : 'Generer le contrat'}
               </button>
             )}
             {can('invoices.create') && <button className="secondary" onClick={invoice}><Receipt size={16} />Facturer</button>}
@@ -287,12 +291,12 @@ export function LeaseDetail() {
             </>
           }
         >
-          {!lease.latest_contract ? (
+          {!lease.latest_contract || contractVersionOutdated ? (
             <div className="compact-empty">Aucun brouillon genere pour ce bail.</div>
           ) : (
             <div className="lease-contract-preview-wrap">
               <div className="summary-band">
-                <SummaryItem label="Modele" value={`Residentiel v${lease.latest_contract.template_version ?? 1}`} />
+                <SummaryItem label="Modele" value={`Residentiel v${lease.latest_contract.template_version ?? 1}${contractVersionOutdated ? ' (obsolete)' : ''}`} />
                 <SummaryItem label="Genere le" value={dateText(lease.latest_contract.generated_at)} />
                 <SummaryItem label="Statut" value={contractStatusLabel(lease.latest_contract.status)} />
                 <SummaryItem label="PDF" value={lease.latest_contract.pdf_file_name ?? '-'} />

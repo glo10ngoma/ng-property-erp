@@ -2628,12 +2628,14 @@ export class SaasService {
       [id, this.context.organizationId()],
     );
     const row = requireRow(lease.rows[0], 'Lease');
+    const activeContractTemplateVersion = await this.activeLeaseContractTemplateVersion(row.contract_template_code ?? 'LEASE_RESIDENTIAL');
     return {
       ...row,
       guarantee: await this.leaseGuarantee(id),
       documents: await this.leaseDocuments(id),
       history: await this.unitOccupationHistory(lease.rows[0]?.unit_id ?? 0),
       latest_contract: await this.latestLeaseContract(id),
+      active_contract_template_version: activeContractTemplateVersion,
     };
   }
 
@@ -5448,6 +5450,21 @@ export class SaasService {
     return requireRow(rows[0], 'Lease contract template');
   }
 
+  private async activeLeaseContractTemplateVersion(code: string) {
+    const { rows } = await this.db.query(
+      `SELECT version
+       FROM lease_contract_templates
+       WHERE organization_id = $1
+         AND code = $2
+         AND is_active = TRUE
+         AND deleted_at IS NULL
+       ORDER BY version DESC, id DESC
+       LIMIT 1`,
+      [this.context.organizationId(), code],
+    );
+    return rows[0]?.version ?? null;
+  }
+
   private buildLeaseContractSnapshot(lease: Record<string, any>, company: Record<string, any>) {
     const totalMonthly = Number(lease.lease_total_amount ?? 0);
     const guaranteeMonths = Number(lease.guarantee_months ?? company.default_guarantee_months ?? 0);
@@ -5482,10 +5499,14 @@ export class SaasService {
       tenantRepresentative ? `representee par ${tenantRepresentative}` : null,
       lease.legal_representative_role ? `agissant en qualite de ${lease.legal_representative_role}` : null,
     ].filter(Boolean).join(', ');
-    const apartmentLabel = lease.is_furnished ? 'Appartement Meuble' : 'Appartement Non Meuble';
+    const apartmentLabel = lease.is_furnished ? 'Meublé' : 'Non Meublé';
+    const tenantPhysicalNote = isCompanyTenant
+      ? ''
+      : "Nom et numéro de pièce d'identité au cas où c'était une personne physique";
     const signatureDate = this.formatDate(lease.signature_date ?? new Date().toISOString().slice(0, 10));
     const leaseStartDate = this.formatDate(lease.start_date);
     const leaseEndDate = this.formatDate(lease.end_date) || this.formatDate(new Date().toISOString().slice(0, 10));
+    const otherChargesAmount = Number(lease.other_charges_amount ?? 0);
 
     return {
       LANDLORD_NAME: lessorName,
@@ -5520,6 +5541,7 @@ export class SaasService {
       TENANT_REPRESENTATIVE_NAME: tenantRepresentative,
       TENANT_REPRESENTATIVE_TITLE: lease.legal_representative_role ?? '',
       TENANT_PRESENTATION: isCompanyTenant ? companyPresentation : physicalPresentation,
+      TENANT_PHYSICAL_NOTE: tenantPhysicalNote,
       BUILDING_NAME: lease.building_name ?? '',
       BUILDING_ADDRESS: lease.building_address ?? '',
       BUILDING_COMMUNE: lease.building_commune ?? '',
@@ -5533,6 +5555,7 @@ export class SaasService {
       MAINTENANCE_AMOUNT: this.formatMoney(lease.maintenance_fee_amount),
       SYNDIC_AMOUNT: this.formatMoney(lease.monthly_syndic_amount),
       OTHER_CHARGES_AMOUNT: this.formatMoney(lease.other_charges_amount),
+      OTHER_CHARGES_LINE: otherChargesAmount > 0 ? `${this.formatMoney(otherChargesAmount)} USD autres charges` : '',
       MONTHLY_TOTAL: this.formatMoney(totalMonthly),
       GUARANTEE_MONTHS: String(guaranteeMonths),
       GUARANTEE_TOTAL: this.formatMoney(guaranteeAmount),

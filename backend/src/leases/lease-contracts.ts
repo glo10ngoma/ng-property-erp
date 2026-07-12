@@ -42,7 +42,12 @@ const winAnsiMap: Record<string, number> = {
 };
 
 function normalizeWhitespace(value: string) {
-  return value.replace(/\r/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return value
+    .replace(/\r/g, '')
+    .replace(/\u00a0|\u202f/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function flattenVariables(input: Record<string, unknown>, prefix = ''): Record<string, string> {
@@ -199,8 +204,8 @@ function buildPdfDocument(pages: PdfLine[][]) {
     return objects.length;
   };
 
-  const fontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
-  const boldFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
+  const fontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >>');
+  const boldFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold >>');
   const monoFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>');
   const contentObjectIds = pages.map((pageLines, index) => {
     const content = buildPdfPageStream(pageLines, index + 1, pages.length);
