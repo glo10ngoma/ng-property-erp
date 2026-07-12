@@ -1,7 +1,7 @@
 ﻿import { ArrowLeft, Eye, FileSpreadsheet, Pencil, Printer } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api, exportXlsxWorkbook, includesText, money, shortDate } from '../api';
+import { api, exportXlsxWorkbook, includesText, shortDate } from '../api';
 import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, SuccessMessage } from '../components';
 import { useApiList } from '../hooks';
@@ -56,6 +56,15 @@ type CashSession = {
   expected_balance?: number;
   difference_amount?: number;
 };
+
+function formatCashAmount(value: number | string | null | undefined, currency: string) {
+  const amount = Number(value ?? 0);
+  const formatted = new Intl.NumberFormat('fr-FR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0);
+  return `${formatted} ${String(currency ?? 'USD').toUpperCase() === 'CDF' ? 'CDF' : '$US'}`;
+}
 
 export function CashPage() {
   const { can } = useAuth();
@@ -133,10 +142,10 @@ export function CashPage() {
       type: movementTypeLabel(movement.type),
       libelle: movement.label ?? movement.reference ?? '-',
       categorie: cashCategoryLabel(movement.category),
-      montant: money(movement.amount),
+      montant: formatCashAmount(movement.amount, movement.currency ?? 'USD'),
       devise: movement.currency ?? 'USD',
       taux: movement.exchange_rate_used ?? '-',
-      equivalent_usd: money(movement.equivalent_usd ?? movement.amount),
+      equivalent_usd: formatCashAmount(movement.equivalent_usd ?? movement.amount, 'USD'),
       facture: movement.invoice_number ?? '-',
       locataire_ou_fournisseur: movement.tenant_name ?? movement.supplier ?? '-',
       reference: movement.reference ?? '-',
@@ -149,16 +158,16 @@ export function CashPage() {
       <PageHeader title="Caisse" />
       <SuccessMessage message={success} />
       <div className="mini-stats">
-        <div className="mini-stat"><span>Solde USD</span><strong>{money(stats.usd.balance)}</strong></div>
-        <div className="mini-stat"><span>Entrees USD aujourd'hui</span><strong>{money(stats.usd.todayIn)}</strong></div>
-        <div className="mini-stat"><span>Depenses USD aujourd'hui</span><strong>{money(stats.usd.todayOut)}</strong></div>
-        <div className="mini-stat"><span>Entrees USD du mois</span><strong>{money(stats.usd.monthIn)}</strong></div>
-        <div className="mini-stat"><span>Depenses USD du mois</span><strong>{money(stats.usd.monthOut)}</strong></div>
-        <div className="mini-stat"><span>Solde CDF</span><strong>{money(stats.cdf.balance)}</strong></div>
-        <div className="mini-stat"><span>Entrees CDF aujourd'hui</span><strong>{money(stats.cdf.todayIn)}</strong></div>
-        <div className="mini-stat"><span>Depenses CDF aujourd'hui</span><strong>{money(stats.cdf.todayOut)}</strong></div>
-        <div className="mini-stat"><span>Entrees CDF du mois</span><strong>{money(stats.cdf.monthIn)}</strong></div>
-        <div className="mini-stat"><span>Depenses CDF du mois</span><strong>{money(stats.cdf.monthOut)}</strong></div>
+        <div className="mini-stat"><span>Solde USD</span><strong>{formatCashAmount(stats.usd.balance, 'USD')}</strong></div>
+        <div className="mini-stat"><span>Entrees USD aujourd'hui</span><strong>{formatCashAmount(stats.usd.todayIn, 'USD')}</strong></div>
+        <div className="mini-stat"><span>Depenses USD aujourd'hui</span><strong>{formatCashAmount(stats.usd.todayOut, 'USD')}</strong></div>
+        <div className="mini-stat"><span>Entrees USD du mois</span><strong>{formatCashAmount(stats.usd.monthIn, 'USD')}</strong></div>
+        <div className="mini-stat"><span>Depenses USD du mois</span><strong>{formatCashAmount(stats.usd.monthOut, 'USD')}</strong></div>
+        <div className="mini-stat"><span>Solde CDF</span><strong>{formatCashAmount(stats.cdf.balance, 'CDF')}</strong></div>
+        <div className="mini-stat"><span>Entrees CDF aujourd'hui</span><strong>{formatCashAmount(stats.cdf.todayIn, 'CDF')}</strong></div>
+        <div className="mini-stat"><span>Depenses CDF aujourd'hui</span><strong>{formatCashAmount(stats.cdf.todayOut, 'CDF')}</strong></div>
+        <div className="mini-stat"><span>Entrees CDF du mois</span><strong>{formatCashAmount(stats.cdf.monthIn, 'CDF')}</strong></div>
+        <div className="mini-stat"><span>Depenses CDF du mois</span><strong>{formatCashAmount(stats.cdf.monthOut, 'CDF')}</strong></div>
         <div className="mini-stat"><span>Nombre de mouvements</span><strong>{stats.count}</strong></div>
       </div>
 
@@ -173,7 +182,7 @@ export function CashPage() {
             className="secondary"
             onClick={() =>
               exportXlsxWorkbook('Caisse.xlsx', [
-                { name: 'Resume', rows: [{ solde_usd: money(stats.usd.balance), entrees_usd_aujourdhui: money(stats.usd.todayIn), depenses_usd_aujourdhui: money(stats.usd.todayOut), entrees_usd_du_mois: money(stats.usd.monthIn), depenses_usd_du_mois: money(stats.usd.monthOut), solde_cdf: money(stats.cdf.balance), entrees_cdf_aujourdhui: money(stats.cdf.todayIn), depenses_cdf_aujourdhui: money(stats.cdf.todayOut), entrees_cdf_du_mois: money(stats.cdf.monthIn), depenses_cdf_du_mois: money(stats.cdf.monthOut), nombre_mouvements: stats.count }] },
+                { name: 'Resume', rows: [{ solde_usd: formatCashAmount(stats.usd.balance, 'USD'), entrees_usd_aujourdhui: formatCashAmount(stats.usd.todayIn, 'USD'), depenses_usd_aujourdhui: formatCashAmount(stats.usd.todayOut, 'USD'), entrees_usd_du_mois: formatCashAmount(stats.usd.monthIn, 'USD'), depenses_usd_du_mois: formatCashAmount(stats.usd.monthOut, 'USD'), solde_cdf: formatCashAmount(stats.cdf.balance, 'CDF'), entrees_cdf_aujourdhui: formatCashAmount(stats.cdf.todayIn, 'CDF'), depenses_cdf_aujourdhui: formatCashAmount(stats.cdf.todayOut, 'CDF'), entrees_cdf_du_mois: formatCashAmount(stats.cdf.monthIn, 'CDF'), depenses_cdf_du_mois: formatCashAmount(stats.cdf.monthOut, 'CDF'), nombre_mouvements: stats.count }] },
                 { name: 'Mouvements', rows: exportRows() },
                 { name: 'Entrees', rows: filtered.filter((movement) => movement.type === 'IN').map(cashExportRow) },
                 { name: 'Depenses', rows: filtered.filter((movement) => movement.type === 'OUT').map(cashExportRow) },
@@ -241,10 +250,10 @@ export function CashPage() {
                 <td>{movementTypeLabel(movement.type)}</td>
                 <td>{movement.label ?? movement.reference ?? '-'}</td>
                 <td>{cashCategoryLabel(movement.category)}</td>
-                <td className="right">{money(movement.amount)}</td>
+                <td className="right">{formatCashAmount(movement.amount, movement.currency ?? 'USD')}</td>
                 <td>{movement.currency ?? 'USD'}</td>
                 <td>{movement.exchange_rate_used ? movement.exchange_rate_used.toLocaleString('fr-FR') : '-'}</td>
-                <td className="right">{money(movement.equivalent_usd ?? movement.amount)}</td>
+                <td className="right">{formatCashAmount(movement.equivalent_usd ?? movement.amount, 'USD')}</td>
                 <td>{movement.invoice_number ?? '-'}</td>
                 <td>{movement.tenant_name ?? movement.supplier ?? '-'}</td>
                 <td>{movement.reference ?? '-'}</td>
@@ -295,10 +304,10 @@ export function CashDetailPage() {
       date: shortDate(movement.movement_date),
       type: movementTypeLabel(movement.type),
       category: cashCategoryLabel(movement.category),
-      amount: money(movement.amount),
+      amount: formatCashAmount(movement.amount, movement.currency ?? 'USD'),
       devise: movement.currency ?? 'USD',
       taux: movement.exchange_rate_used ?? '-',
-      equivalent_usd: money(movement.equivalent_usd ?? movement.amount),
+      equivalent_usd: formatCashAmount(movement.equivalent_usd ?? movement.amount, 'USD'),
       reference: movement.reference ?? '-',
       tenant: movement.tenant_name ?? '-',
       attachment: movement.attachment_file_name ?? '-',
@@ -350,32 +359,32 @@ export function CashDetailPage() {
           <div className="invoice-logo">PE</div>
           <div>
             <h2>NG Property ERP</h2>
-            <p>Recu de mouvement de caisse</p>
+            <p>Reçu de mouvement de caisse</p>
             <p>Merci pour votre confiance.</p>
           </div>
           <div className="invoice-meta">
             <strong>
-              {movement.type === 'IN' ? 'Entree' : 'Depense'} #{movement.id}
+              {movement.type === 'IN' ? 'Entrée' : 'Dépense'} #{movement.id}
             </strong>
-            <span>N° piece: {movement.piece_number ?? '-'}</span>
+            <span>N° pièce: {movement.piece_number ?? '-'}</span>
             <span>Date: {shortDate(movement.movement_date)}</span>
-            <span>Montant: {money(movement.amount)}</span>
-            <span>Reference: {movement.reference ?? '-'}</span>
+            <span>Montant: {formatCashAmount(movement.amount, movement.currency ?? 'USD')}</span>
+            <span>Référence: {movement.reference ?? '-'}</span>
           </div>
         </header>
 
         <div className="invoice-parties">
           <div>
-            <span>Informations generales</span>
+            <span>Informations générales</span>
             <strong>{cashCategoryLabel(movement.category)}</strong>
-            <p>Libelle: {movement.label ?? movement.description ?? '-'}</p>
+            <p>Libellé: {movement.label ?? movement.description ?? '-'}</p>
             <p>Facture: {movement.invoice_number ?? '-'}</p>
             <p>Locataire: {movement.tenant_name ?? '-'}</p>
-            <p>Telephone: {movement.tenant_phone ?? '-'}</p>
+            <p>Téléphone: {movement.tenant_phone ?? '-'}</p>
             <p>Email: {movement.tenant_email ?? '-'}</p>
           </div>
           <div>
-            <span>Details</span>
+            <span>Détails</span>
             <strong>{movement.building_name ?? '-'}</strong>
             <p>Appartement: {movement.unit_number ?? '-'}</p>
             <p>Utilisateur: {movement.user_name ?? movement.employee_name ?? '-'}</p>
@@ -390,12 +399,12 @@ export function CashDetailPage() {
                 <strong>{movementTypeLabel(movement.type)}</strong>
           </div>
           <div className="mini-stat">
-            <span>Categorie</span>
-            <strong>{cashCategoryLabel(movement.category)}</strong>
+                <span>Catégorie</span>
+                <strong>{cashCategoryLabel(movement.category)}</strong>
           </div>
           <div className="mini-stat">
             <span>Montant</span>
-            <strong>{money(movement.amount)}</strong>
+            <strong>{formatCashAmount(movement.amount, movement.currency ?? 'USD')}</strong>
           </div>
               <div className="mini-stat">
                 <span>Facture</span>
@@ -404,20 +413,20 @@ export function CashDetailPage() {
             </div>
 
             <div className="detail-section no-print">
-              <h4>PiÃ¨ce jointe</h4>
+              <h4>Pièce jointe</h4>
               {movement.attachment_file_name ? (
                 <div className="actions-row">
                   <span className="info-message">{movement.attachment_file_name}</span>
                   {movement.attachment_file_url ? (
                     <a className="secondary" href={movement.attachment_file_url} target="_blank" rel="noreferrer">
-                      Voir / TÃ©lÃ©charger
+                      Voir / Télécharger
                     </a>
                   ) : (
                     <span className="compact-empty">Aucune URL de fichier disponible.</span>
                   )}
                 </div>
               ) : (
-                <div className="compact-empty">Aucune piÃ¨ce jointe.</div>
+                <div className="compact-empty">Aucune pièce jointe.</div>
               )}
             </div>
           </article>
@@ -572,10 +581,10 @@ function cashExportRow(movement: CashMovement) {
     type: movementTypeLabel(movement.type),
     libelle: movement.label ?? movement.reference ?? '-',
     categorie: cashCategoryLabel(movement.category),
-    montant: money(movement.amount),
+    montant: formatCashAmount(movement.amount, movement.currency ?? 'USD'),
     devise: movement.currency ?? 'USD',
     taux: movement.exchange_rate_used ?? '-',
-    equivalent_usd: money(movement.equivalent_usd ?? movement.amount),
+    equivalent_usd: formatCashAmount(movement.equivalent_usd ?? movement.amount, 'USD'),
     facture: movement.invoice_number ?? '-',
     locataire_ou_fournisseur: movement.tenant_name ?? movement.supplier ?? '-',
     reference: movement.reference ?? '-',
