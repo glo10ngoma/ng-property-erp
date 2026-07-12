@@ -2693,7 +2693,7 @@ export class SaasService {
         );
       }
       if (rows[0].status === 'ACTIVE') await this.activateLeaseInTransaction(client, rows[0].id);
-      return this.leaseDetail(rows[0].id);
+      return rows[0];
     });
   }
 
