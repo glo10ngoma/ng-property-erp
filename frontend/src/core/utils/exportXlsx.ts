@@ -7,7 +7,7 @@ export function exportXlsxWorkbook(filename: string, sheets: XlsxSheet[]) {
   const safeSheets = sheets.map((sheet, index) => ({
     name: sanitizeSheetName(sheet.name || `Feuille ${index + 1}`),
     title: sheet.name || `Feuille ${index + 1}`,
-    rows: sheet.rows.length ? sheet.rows : [{ Information: 'Aucune donnee' }],
+    rows: sheet.rows.length ? sheet.rows : [{ Information: 'Aucune donnée' }],
   }));
   const files: Array<{ path: string; content: string | Uint8Array }> = [
     { path: '[Content_Types].xml', content: contentTypes(safeSheets.length) },
@@ -23,9 +23,9 @@ export function exportXlsxWorkbook(filename: string, sheets: XlsxSheet[]) {
 
 function worksheet(sheet: { title: string; rows: Array<Record<string, unknown>> }) {
   const rows = sheet.rows;
-  const headers = Object.keys(rows[0] ?? { Information: 'Aucune donnee' });
-  const dataRows = rows.map((row) => headers.map((header) => row[header]));
-  const allRows = [[sheet.title, ...Array(Math.max(headers.length - 1, 0)).fill('')], headers, ...dataRows];
+  const headers = Object.keys(rows[0] ?? { Information: 'Aucune donnée' });
+  const normalizedRows = rows.map((row) => headers.map((header) => sanitizeExcelValue(row[header])));
+  const allRows = [[sheet.title, ...Array(Math.max(headers.length - 1, 0)).fill('')], headers, ...normalizedRows];
   const filterRef = `A2:${cellRef(headers.length, allRows.length)}`;
   const cols = headers.map((header, index) => {
     const width = Math.min(42, Math.max(12, ...allRows.map((row) => String(row[index] ?? '').length + 2)));
@@ -34,7 +34,11 @@ function worksheet(sheet: { title: string; rows: Array<Record<string, unknown>> 
   const rowsXml = allRows.map((row, rowIndex) => {
     const cells = row.map((value, colIndex) => {
       const style = rowIndex === 0 ? ' s="2"' : rowIndex === 1 ? ' s="1"' : '';
-      return `<c r="${cellRef(colIndex + 1, rowIndex + 1)}" t="inlineStr"${style}><is><t>${xml(value)}</t></is></c>`;
+      const normalized = sanitizeExcelValue(value);
+      if (typeof normalized === 'number') {
+        return `<c r="${cellRef(colIndex + 1, rowIndex + 1)}"${style}><v>${normalized}</v></c>`;
+      }
+      return `<c r="${cellRef(colIndex + 1, rowIndex + 1)}" t="inlineStr"${style}><is><t>${xml(normalized)}</t></is></c>`;
     }).join('');
     return `<row r="${rowIndex + 1}">${cells}</row>`;
   }).join('');
@@ -168,11 +172,31 @@ function cellRef(column: number, row: number) {
 }
 
 function xml(value: unknown) {
-  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(value ?? '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 function sanitizeSheetName(name: string) {
   return name.replace(/[\\/*?:[\]]/g, ' ').slice(0, 31);
+}
+
+function sanitizeExcelValue(value: unknown): string | number {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'number') return Number.isFinite(value) ? value : '';
+  if (typeof value === 'boolean') return value ? 'Oui' : 'Non';
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? '' : value.toISOString();
+  if (Array.isArray(value)) return JSON.stringify(value.map((entry) => sanitizeExcelValue(entry)));
+  if (typeof value === 'object') return JSON.stringify(value);
+  const text = String(value).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim();
+  if (!text || text === 'NaN' || text === 'Infinity' || text === '-Infinity') return '';
+  const compact = text.replace(/\s/g, '');
+  const maybeNumber = Number(compact.replace(',', '.'));
+  return Number.isFinite(maybeNumber) && /^-?\d+([.,]\d+)?$/.test(compact) ? maybeNumber : text;
 }
 
 function downloadBlob(filename: string, blob: Blob) {

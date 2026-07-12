@@ -14,9 +14,6 @@ type StatementResponse = {
     entity_type: string;
     title: string;
     subtitle?: string | null;
-    tenant?: StatementRow;
-    unit?: StatementRow;
-    building?: StatementRow;
   };
   period: { start: string; end: string };
   currency: string;
@@ -116,22 +113,6 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
   const paymentRows = statement?.payments ?? [];
   const fileBase = `Releve_compte_${statementKindLabel(kind)}_${safePart(statement?.entity.title ?? kind)}_${statement?.period.start ?? '0000-00-00'}_${statement?.period.end ?? '0000-00-00'}`;
 
-  const summaryRows = statement
-    ? [{
-        releve: title,
-        entite: statement.entity.title,
-        sous_titre: statement.entity.subtitle ?? '',
-        periode: `${shortDate(statement.period.start)} - ${shortDate(statement.period.end)}`,
-        solde_ouverture: statement.opening_balance,
-        total_debits: statement.totals.debits,
-        total_credits: statement.totals.credits,
-        solde_cloture: statement.totals.closing_balance,
-        nombre_factures: statement.totals.invoices_count,
-        nombre_paiements: statement.totals.payments_count,
-        devise: statement.currency,
-      }]
-    : [];
-
   function backPath() {
     if (kind === 'tenant') return `/tenants/${id}/situation`;
     if (kind === 'unit') return `/rental-units/${id}`;
@@ -156,31 +137,31 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
 
   function invoiceExcelRows() {
     return invoiceRows.length ? invoiceRows.map((row) => ({
-      number: String(row.invoice_number ?? '—'),
+      invoice_number: String(row.invoice_number ?? '—'),
       period: `${String(row.month ?? '—')}/${String(row.year ?? '—')}`,
       issue_date: String(row.issue_date ?? '—'),
       due_date: String(row.due_date ?? '—'),
-      tenant: String(row.tenant_name ?? '—'),
-      unit: String(row.unit_number ?? '—'),
+      tenant_name: String(row.tenant_name ?? '—'),
+      unit_number: String(row.unit_number ?? '—'),
       total: Number(row.total ?? 0),
-      paid: Number(row.paid_amount ?? 0),
-      remaining: Number(row.remaining_amount ?? 0),
+      paid_amount: Number(row.paid_amount ?? 0),
+      remaining_amount: Number(row.remaining_amount ?? 0),
       currency: String(row.currency ?? statement?.currency ?? 'USD'),
       status: String(row.status ?? '—'),
-    })) : [{ information: 'Aucune facture sur la période' }];
+    })) : [{ information: 'Aucune donnée' }];
   }
 
   function paymentExcelRows() {
     return paymentRows.length ? paymentRows.map((row) => ({
-      date: String(row.payment_date ?? '—'),
-      receipt: String(row.receipt_number ?? row.reference ?? '—'),
-      invoice: String(row.invoice_number ?? '—'),
-      tenant: String(row.tenant_name ?? '—'),
-      unit: String(row.unit_number ?? '—'),
+      payment_date: String(row.payment_date ?? '—'),
+      receipt_number: String(row.receipt_number ?? row.reference ?? '—'),
+      invoice_number: String(row.invoice_number ?? '—'),
+      tenant_name: String(row.tenant_name ?? '—'),
+      unit_number: String(row.unit_number ?? '—'),
       amount: Number(row.amount ?? 0),
-      method: paymentMethodLabel(String(row.payment_method ?? '')),
+      payment_method: paymentMethodLabel(String(row.payment_method ?? '')),
       currency: String(row.currency ?? statement?.currency ?? 'USD'),
-    })) : [{ information: 'Aucun paiement sur la période' }];
+    })) : [{ information: 'Aucune donnée' }];
   }
 
   function byUnitRows() {
@@ -192,7 +173,7 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
       acc[key].solde += Number(invoice.remaining_amount ?? 0);
       return acc;
     }, {});
-    return Object.values(grouped).length ? Object.values(grouped) : [{ information: 'Aucune donnée par appartement' }];
+    return Object.values(grouped).length ? Object.values(grouped) : [{ information: 'Aucune donnée' }];
   }
 
   function byTenantRows() {
@@ -204,7 +185,7 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
       acc[key].solde += Number(invoice.remaining_amount ?? 0);
       return acc;
     }, {});
-    return Object.values(grouped).length ? Object.values(grouped) : [{ information: 'Aucune donnée par locataire' }];
+    return Object.values(grouped).length ? Object.values(grouped) : [{ information: 'Aucune donnée' }];
   }
 
   function exportWorkbook() {
@@ -214,24 +195,36 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
       exportXlsxWorkbook(
         `${fileBase}.xlsx`,
         [
-          { name: 'Releve', rows: statementExcelRows() },
-          { name: 'Resume', rows: summaryRows },
-          { name: 'Debits', rows: debitRows.length ? debitRows.map((row) => ({
+          { name: 'Relevé', rows: statementExcelRows() },
+          { name: 'Résumé', rows: [{
+            type_releve: title,
+            entite: statement.entity.title,
+            sous_titre: statement.entity.subtitle ?? '',
+            periode: `${shortDate(statement.period.start)} - ${shortDate(statement.period.end)}`,
+            solde_ouverture: statement.opening_balance,
+            total_debits: statement.totals.debits,
+            total_credits: statement.totals.credits,
+            solde_cloture: statement.totals.closing_balance,
+            nombre_factures: statement.totals.invoices_count,
+            nombre_paiements: statement.totals.payments_count,
+            devise: statement.currency,
+          }] },
+          { name: 'Débits', rows: debitRows.length ? debitRows.map((row) => ({
             date: formatDate(row.date),
             reference: String(row.reference ?? '—'),
             label: String(row.label ?? '—'),
             debit: Number(row.debit ?? 0),
             currency: String(row.currency ?? statement.currency),
             balance: Number(row.running_balance ?? 0),
-          })) : [{ information: 'Aucun débit sur la période' }] },
-          { name: 'Credits', rows: creditRows.length ? creditRows.map((row) => ({
+          })) : [{ information: 'Aucune donnée' }] },
+          { name: 'Crédits', rows: creditRows.length ? creditRows.map((row) => ({
             date: formatDate(row.date),
             reference: String(row.reference ?? '—'),
             label: String(row.label ?? '—'),
             credit: Number(row.credit ?? 0),
             currency: String(row.currency ?? statement.currency),
             balance: Number(row.running_balance ?? 0),
-          })) : [{ information: 'Aucun crédit sur la période' }] },
+          })) : [{ information: 'Aucune donnée' }] },
           { name: 'Factures', rows: invoiceExcelRows() },
           { name: 'Paiements', rows: paymentExcelRows() },
           ...(kind === 'building'
@@ -252,11 +245,13 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
     setExportingPdf(true);
     try {
       const [{ jsPDF }, autotableModule] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
-      const autoTable = (autotableModule as any).default ?? (autotableModule as any);
+      const autoTable = (autotableModule as any).autoTable ?? (autotableModule as any).default ?? autotableModule;
       const doc = new jsPDF({ orientation: movementRows.length > 8 ? 'landscape' : 'portrait', unit: 'pt', format: 'a4' });
       const margin = 36;
       const pageWidth = doc.internal.pageSize.getWidth();
+      const rightX = pageWidth - margin - 170;
 
+      doc.setCharSpace(0);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(16);
       doc.text('NG Property ERP', margin, 32);
@@ -270,11 +265,12 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
       if (statement.entity.subtitle) doc.text(`Complément : ${statement.entity.subtitle}`, margin, 98);
       doc.text(`Période : ${shortDate(statement.period.start)} - ${shortDate(statement.period.end)}`, margin, 112);
       doc.text(`Généré le : ${shortDate(new Date().toISOString())}`, margin, 126);
-      doc.text(`Devise : ${statement.currency}`, pageWidth - margin - 120, 70);
-      doc.text(`Solde d'ouverture : ${money(statement.opening_balance)}`, pageWidth - margin - 180, 84);
-      doc.text(`Total débit : ${money(statement.totals.debits)}`, pageWidth - margin - 180, 98);
-      doc.text(`Total crédit : ${money(statement.totals.credits)}`, pageWidth - margin - 180, 112);
-      doc.text(`Solde final : ${money(statement.totals.closing_balance)}`, pageWidth - margin - 180, 126);
+
+      doc.text(`Devise : ${statement.currency}`, rightX, 70);
+      doc.text(`Solde d'ouverture : ${formatPdfAmount(statement.opening_balance, statement.currency)}`, rightX, 84);
+      doc.text(`Total débit : ${formatPdfAmount(statement.totals.debits, statement.currency)}`, rightX, 98);
+      doc.text(`Total crédit : ${formatPdfAmount(statement.totals.credits, statement.currency)}`, rightX, 112);
+      doc.text(`Solde final : ${formatPdfAmount(statement.totals.closing_balance, statement.currency)}`, rightX, 126);
 
       autoTable(doc, {
         startY: 144,
@@ -284,20 +280,29 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
               formatDate(row.date),
               String(row.reference ?? '—'),
               String(row.label ?? '—'),
-              formatAmount(row.debit),
-              formatAmount(row.credit),
-              formatAmount(row.running_balance),
+              formatPdfAmount(row.debit, statement.currency),
+              formatPdfAmount(row.credit, statement.currency),
+              formatPdfAmount(row.running_balance, statement.currency),
             ])
-          : [['—', '—', 'Aucun mouvement sur la période', '0', '0', formatAmount(statement.opening_balance)]],
-        styles: { fontSize: 8, cellPadding: 4 },
-        headStyles: { fillColor: [45, 56, 72] },
+          : [['—', '—', 'Aucun mouvement sur la période', formatPdfAmount(0, statement.currency), formatPdfAmount(0, statement.currency), formatPdfAmount(statement.opening_balance, statement.currency)]],
+        styles: { fontSize: 8, cellPadding: 4, overflow: 'linebreak' },
+        headStyles: { fillColor: [45, 56, 72], halign: 'left' },
         alternateRowStyles: { fillColor: [247, 249, 252] },
+        columnStyles: {
+          3: { halign: 'right', cellWidth: 80 },
+          4: { halign: 'right', cellWidth: 80 },
+          5: { halign: 'right', cellWidth: 90 },
+        },
         margin: { left: margin, right: margin },
+        didDrawPage: (data: any) => {
+          doc.setFontSize(9);
+          doc.text(`Page ${doc.getCurrentPageInfo().pageNumber}`, pageWidth - margin - 40, doc.internal.pageSize.getHeight() - 18);
+          if (data.pageNumber === 1) {
+            doc.text('Signature / cachet prévus en bas', margin, doc.internal.pageSize.getHeight() - 18);
+          }
+        },
       });
 
-      const footerY = ((doc as any).lastAutoTable?.finalY ?? 180) + 16;
-      doc.setFontSize(9);
-      doc.text('Signature / cachet prévus en bas', margin, footerY);
       doc.save(`${fileBase}.pdf`);
     } catch (exception: any) {
       setError(exception?.message ?? 'Impossible de générer le PDF.');
@@ -322,15 +327,16 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
       />
 
       <div className="quick-form statement-filters">
+        <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, month: '', start: event.target.value })} />
+        <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, month: '', end: event.target.value })} />
         <select value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })}>
           <option value="">Mois</option>
           {months.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
-        <input type="number" min="2000" max="2100" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} placeholder="Annee" />
-        <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, month: '', start: event.target.value })} />
-        <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, month: '', end: event.target.value })} />
+        <input type="number" min="2000" max="2100" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} placeholder="Année" />
         <div className="filter-actions">
           <button type="button" onClick={loadStatement} disabled={loading}><RefreshCw size={16} />Actualiser</button>
+          <button type="button" className="secondary" onClick={() => setFilters({ month: '', year: String(now.getFullYear()), start: '', end: '' })}><RefreshCw size={16} />Réinitialiser</button>
           <button type="button" className="secondary" onClick={exportPdf} disabled={exportingPdf || loading}><FileSpreadsheet size={16} />PDF</button>
           <button type="button" className="secondary" onClick={exportWorkbook} disabled={exportingExcel || loading}><Download size={16} />Excel</button>
         </div>
@@ -373,7 +379,7 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
                   </tr>
                 </thead>
                 <tbody>
-                  {movementRows.map((row, index) => (
+                  {movementRows.length ? movementRows.map((row, index) => (
                     <tr key={`${row.movement_type}-${row.reference ?? index}-${index}`}>
                       <td>{formatDate(row.date)}</td>
                       <td>{String(row.reference ?? '—')}</td>
@@ -384,7 +390,9 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
                       <td>{row.currency ?? statement.currency}</td>
                       <td className="right">{formatAmount(row.running_balance)}</td>
                     </tr>
-                  ))}
+                  )) : (
+                    <tr><td colSpan={8}>Aucun mouvement sur la période.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -407,7 +415,13 @@ function movementLabel(type: string) {
 }
 
 function formatAmount(value: unknown) {
-  return Number(value ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00';
+}
+
+function formatPdfAmount(value: unknown, currency: string) {
+  const formatted = formatAmount(value).replace(/\u00A0|\u202F/g, ' ');
+  return `${formatted} ${currency || 'USD'}`;
 }
 
 function formatDate(value: unknown) {

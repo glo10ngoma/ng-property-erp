@@ -174,6 +174,8 @@ tbody tr.clickable-row:hover { background: #f8fafb; }
 .lease-field-full { grid-column: 1 / -1; }
 .quick-form { display: grid; grid-template-columns: repeat(6, minmax(128px, 1fr)); gap: 8px; margin-bottom: 8px; align-items: end; }
 .quick-form button { min-width: 128px; }
+.statement-filters { grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) auto; align-items: end; }
+.statement-filters .filter-actions { grid-column: auto; }
 .detail-list { display: grid; grid-template-columns: repeat(2, 150px minmax(160px, 1fr)); gap: 10px 16px; align-items: baseline; }
 .detail-list span { color: #637783; font-size: 13px; }
 .detail-list strong { font-weight: 700; }
@@ -529,10 +531,14 @@ textarea { min-height: 72px; resize: vertical; }
   .lease-section-grid { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
   .buildings-filter-bar, .leases-filter-bar, .invoices-filter-bar { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
   .filter-actions { grid-column: span 2; justify-content: flex-start; }
+  .statement-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .statement-filters .filter-actions { grid-column: span 2; }
 }
 
 @media (max-width: 640px) {
   .lease-section-grid, .quick-form { grid-template-columns: 1fr; }
+  .statement-filters { grid-template-columns: 1fr; }
+  .statement-filters .filter-actions { grid-column: auto; }
   .document-grid, .invoice-print-codes, .invoice-signature-row, .invoice-chart-row { grid-template-columns: 1fr; }
   .invoice-amount-cards, .invoice-accordion-grid, .invoice-parties, .print-invoice header { grid-template-columns: 1fr; }
   .invoice-meta { justify-items: start; }
