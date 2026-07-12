@@ -36,12 +36,12 @@ type PublisherService = { title: string; action: string };
 type RestrictedSetting = { label: string; status: string };
 type ExchangeRate = {
   id: number;
-  base_currency: string;
-  quote_currency: string;
+  fromCurrency: string;
+  toCurrency: string;
   rate: number;
-  effective_date: string;
-  created_at?: string;
-  updated_at?: string;
+  effectiveDate: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 const referenceTypeLabels: Record<string, string> = {
@@ -63,6 +63,8 @@ export function SettingsPage() {
   const [services, setServices] = useState<PublisherService[]>([]);
   const [restricted, setRestricted] = useState<RestrictedSetting[]>([]);
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
+  const [exchangeRateDraft, setExchangeRateDraft] = useState('');
+  const [exchangeRateDateDraft, setExchangeRateDateDraft] = useState(new Date().toISOString().slice(0, 10));
   const [success, setSuccess] = useState('');
 
   async function load() {
@@ -77,6 +79,8 @@ export function SettingsPage() {
     setReferences(referencesResponse.data);
     setServices(servicesResponse.data);
     setExchangeRate(exchangeRateResponse.data ?? null);
+    setExchangeRateDraft(exchangeRateResponse.data ? String(exchangeRateResponse.data.rate) : '');
+    setExchangeRateDateDraft(exchangeRateResponse.data?.effectiveDate ?? new Date().toISOString().slice(0, 10));
   }
 
   async function loadRestricted() {
@@ -93,16 +97,20 @@ export function SettingsPage() {
   async function updateCompany(form: FormData) {
     await api.patch('/settings/company', Object.fromEntries(form));
     setSuccess('Paramètres enregistrés.');
-    load();
+    await load();
   }
 
   async function updateExchangeRate(form: FormData) {
-    await api.patch('/settings/exchange-rate', {
+    const response = await api.patch<ExchangeRate>('/settings/exchange-rate', {
       rate: Number(form.get('rate')),
       effective_date: form.get('effective_date'),
     });
+    const next = response.data ?? null;
+    setExchangeRate(next);
+    setExchangeRateDraft(next ? String(next.rate) : '');
+    setExchangeRateDateDraft(next?.effectiveDate ?? new Date().toISOString().slice(0, 10));
     setSuccess('Taux de change enregistré.');
-    load();
+    await load();
   }
 
   const groupedReferences = useMemo(() => {
@@ -159,13 +167,13 @@ export function SettingsPage() {
                 <input value="CDF" readOnly className="locked-field" />
               </Field>
               <Field label="Taux courant">
-                <input name="rate" type="number" min="0.000001" step="0.000001" defaultValue={exchangeRate?.rate ?? ''} disabled={!can('settings.update')} required />
+                <input name="rate" type="number" min="0.000001" step="0.000001" value={exchangeRateDraft} onChange={(event) => setExchangeRateDraft(event.target.value)} disabled={!can('settings.update')} required />
               </Field>
               <Field label="Date d'application">
-                <input name="effective_date" type="date" defaultValue={exchangeRate?.effective_date ?? new Date().toISOString().slice(0, 10)} disabled={!can('settings.update')} required />
+                <input name="effective_date" type="date" value={exchangeRateDateDraft} onChange={(event) => setExchangeRateDateDraft(event.target.value)} disabled={!can('settings.update')} required />
               </Field>
               <Field label="Dernière modification">
-                <input value={exchangeRate?.updated_at ?? exchangeRate?.created_at ?? '-'} readOnly className="locked-field" />
+                <input value={exchangeRate?.updatedAt ?? exchangeRate?.createdAt ?? '-'} readOnly className="locked-field" />
               </Field>
               <Field label="Utilisateur">
                 <input value={exchangeRate ? 'Administrateur' : '-'} readOnly className="locked-field" />

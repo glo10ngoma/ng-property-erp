@@ -42,8 +42,10 @@ type Invoice = {
 };
 
 type ExchangeRate = {
+  fromCurrency?: string;
+  toCurrency?: string;
   rate: number;
-  effective_date?: string;
+  effectiveDate?: string;
 };
 
 const paymentMethods = [
@@ -77,8 +79,17 @@ export function Payments() {
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
 
+  async function refreshExchangeRate() {
+    try {
+      const response = await api.get<ExchangeRate | null>('/settings/exchange-rate');
+      setExchangeRate(response.data ?? null);
+    } catch {
+      setExchangeRate(null);
+    }
+  }
+
   useEffect(() => {
-    api.get<ExchangeRate | null>('/settings/exchange-rate').then((response) => setExchangeRate(response.data ?? null)).catch(() => setExchangeRate(null));
+    refreshExchangeRate();
   }, []);
 
   const invoiceOptions = useMemo(
@@ -183,7 +194,7 @@ export function Payments() {
 
   return (
     <section>
-      <PageHeader title="Paiements" action={can('payments.create') ? <button onClick={() => setOpen(true)}><Plus size={16} />Nouveau paiement</button> : undefined} />
+      <PageHeader title="Paiements" action={can('payments.create') ? <button onClick={() => { setOpen(true); refreshExchangeRate(); }}><Plus size={16} />Nouveau paiement</button> : undefined} />
       <SuccessMessage message={success} />
 
       <div className="summary-band">
@@ -429,7 +440,7 @@ function PaymentModal({
             </label>
             <label>Référence<input name="reference" placeholder="Référence" /></label>
             <input type="hidden" name="payment_currency" value={paymentCurrency} />
-            <input type="hidden" name="exchange_rate_date" value={exchangeRate?.effective_date ?? new Date().toISOString().slice(0, 10)} />
+            <input type="hidden" name="exchange_rate_date" value={exchangeRate?.effectiveDate ?? new Date().toISOString().slice(0, 10)} />
           </div>
           <div className="payment-summary-strip">
             <span>USD reçu: <strong>{Number(usdAmount || 0).toFixed(2)}</strong></span>

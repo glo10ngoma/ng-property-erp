@@ -2928,24 +2928,42 @@ export class SaasService {
 
   async exchangeRate() {
     const { rows } = await this.db.query(
-      `SELECT *
+      `SELECT id, organization_id, base_currency, quote_currency, rate, effective_date, is_active, created_by, created_at, updated_at
        FROM exchange_rates
        WHERE organization_id = $1 AND deleted_at IS NULL AND is_active = TRUE
+         AND base_currency = 'USD'
+         AND quote_currency = 'CDF'
        ORDER BY effective_date DESC, id DESC
        LIMIT 1`,
       [this.context.organizationId()],
     );
-    return rows[0] ?? null;
+    const row = rows[0];
+    return row
+      ? {
+        id: row.id,
+        organization_id: row.organization_id,
+        fromCurrency: row.base_currency,
+        toCurrency: row.quote_currency,
+        rate: Number(row.rate),
+        effectiveDate: this.toDateOnly(row.effective_date),
+        isActive: row.is_active,
+        createdBy: row.created_by,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }
+      : null;
   }
 
   async updateExchangeRate(body: Record<string, unknown>) {
     const rate = Number(body.rate ?? 0);
-    if (!(rate > 0)) throw new BadRequestException('Le taux doit etre superieur a 0');
+    if (!Number.isFinite(rate) || !(rate > 0)) throw new BadRequestException('Le taux doit etre superieur a 0');
     return this.db.transaction(async (client) => {
       await client.query(
         `UPDATE exchange_rates
          SET is_active = FALSE, updated_at = NOW()
-         WHERE organization_id = $1 AND deleted_at IS NULL AND is_active = TRUE`,
+         WHERE organization_id = $1 AND deleted_at IS NULL AND is_active = TRUE
+           AND base_currency = 'USD'
+           AND quote_currency = 'CDF'`,
         [this.context.organizationId()],
       );
       const { rows } = await client.query(
@@ -2954,8 +2972,32 @@ export class SaasService {
          RETURNING *`,
         [this.context.organizationId(), rate, body.effective_date ?? new Date().toISOString().slice(0, 10), this.context.userId() ?? 1],
       );
-      return rows[0];
+      const row = rows[0];
+      return {
+        id: row.id,
+        organization_id: row.organization_id,
+        fromCurrency: row.base_currency,
+        toCurrency: row.quote_currency,
+        rate: Number(row.rate),
+        effectiveDate: this.toDateOnly(row.effective_date),
+        isActive: row.is_active,
+        createdBy: row.created_by,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
     });
+  }
+
+  private toDateOnly(value: unknown) {
+    if (value === null || value === undefined) return null;
+    if (value instanceof Date) {
+      const year = value.getFullYear();
+      const month = String(value.getMonth() + 1).padStart(2, '0');
+      const day = String(value.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    const text = String(value);
+    return text.length >= 10 ? text.slice(0, 10) : text;
   }
 
   async updateCompanySettings(body: Record<string, unknown>) {
@@ -5095,7 +5137,13 @@ export class SaasService {
        WHERE id = $1 AND organization_id = $6`,
       [rows[0].id, currency, exchangeRateUsed, body.exchange_rate_date ?? null, equivalentUsd, this.context.organizationId()],
     );
-    return rows[0];
+    const refreshed = await client.query(
+      `SELECT *
+       FROM cash_movements
+       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+      [rows[0].id, this.context.organizationId()],
+    );
+    return refreshed.rows[0] ?? rows[0];
   }
 
   private async nextCashPieceNumber(client: PoolClient, type: string) {

@@ -45,7 +45,7 @@ type Invoice = {
 
 type ExchangeRate = {
   rate: number;
-  effective_date?: string;
+  effectiveDate?: string;
 };
 
 const lineTypes = ['Monthly rent', 'Syndic', 'Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Penalty', 'Other'];
@@ -448,7 +448,7 @@ export function InvoiceDetail() {
                 <label>Numero transaction<input name="transaction_number" placeholder="Numero transaction" /></label>
                 <label>Cheque<input name="check_number" placeholder="Cheque" /></label>
                 <label>Observations<textarea name="notes" rows={2} placeholder="Observations" /></label>
-                <input type="hidden" name="exchange_rate_date" value={exchangeRate?.effective_date ?? new Date().toISOString().slice(0, 10)} />
+                <input type="hidden" name="exchange_rate_date" value={exchangeRate?.effectiveDate ?? new Date().toISOString().slice(0, 10)} />
               </div>
             </div>
             <button>Enregistrer le paiement</button>
