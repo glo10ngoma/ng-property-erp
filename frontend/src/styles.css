@@ -166,6 +166,19 @@ tbody tr.clickable-row:hover { background: #f8fafb; }
 .settings-field.wide { grid-column: 1 / -1; }
 .settings-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; flex-wrap: wrap; border-top: 1px solid #edf2f5; margin-top: 2px; }
 .settings-actions button { min-width: 142px; }
+.company-file-card { grid-column: span 1; border: 1px solid #dde5ea; border-radius: 8px; background: #fff; padding: 10px; display: grid; gap: 8px; min-width: 0; }
+.company-file-head h5 { margin: 0; font-size: 13px; color: #203845; }
+.company-file-head p { margin: 2px 0 0; font-size: 12px; }
+.company-file-preview { min-height: 132px; border: 1px dashed #d6e0e6; border-radius: 8px; background: #f8fafb; display: grid; place-items: center; overflow: hidden; }
+.company-file-preview img { width: 100%; height: 132px; object-fit: contain; background: #fff; }
+.company-file-placeholder { display: grid; place-items: center; gap: 6px; color: #637783; text-align: center; min-height: 132px; }
+.company-file-meta { display: grid; gap: 6px; min-width: 0; }
+.company-file-meta div { display: grid; gap: 2px; min-width: 0; }
+.company-file-meta span { color: #637783; font-size: 11px; text-transform: uppercase; }
+.company-file-meta strong { color: #1f2933; font-size: 13px; overflow-wrap: anywhere; }
+.company-file-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.company-file-actions button { min-width: 0; flex: 1 1 126px; }
+.company-file-card .error-message { margin-top: 0; }
 .user-form { display: grid; gap: 12px; }
 .user-form-section { margin-top: 0; }
 .user-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: end; }

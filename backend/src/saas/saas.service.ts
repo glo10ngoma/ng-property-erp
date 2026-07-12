@@ -14,6 +14,10 @@ import { normalizeRole } from './permissions';
 
 @Injectable()
 export class SaasService {
+  private readonly companyStorageBucket = 'company';
+  private readonly allowedCompanyFileKinds = new Set(['logo', 'signature', 'stamp']);
+  private readonly allowedCompanyFileMimeTypes = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml']);
+
   constructor(private readonly db: DatabaseService, private readonly context: RequestContext) {}
 
   async findAll(table: string, orderBy = 'id DESC') {
@@ -3139,11 +3143,58 @@ export class SaasService {
       [this.context.organizationId()],
     );
     const row = rows[0] ?? (await this.createDefaultCompanySettings());
-    return {
-      ...row,
-      company_legal_name_resolved: row.company_legal_name ?? row.legal_name ?? row.company_name ?? '',
-      company_address_resolved: row.company_address ?? row.address ?? '',
-    };
+    return this.companySettingsRow(row);
+  }
+
+  async uploadCompanyFile(kind: string, file?: { originalname: string; mimetype: string; size: number; buffer: Buffer }) {
+    const resolvedKind = this.normalizeCompanyFileKind(kind);
+    if (!file) {
+      throw new BadRequestException('Fichier requis');
+    }
+    this.validateCompanyFile(file);
+    const fileName = this.originalFileName(file.originalname);
+    await this.uploadToCompanyStorage(resolvedKind, fileName, file);
+    const { rows } = await this.db.query(
+      `UPDATE company_settings
+       SET ${resolvedKind}_file_name = $2,
+           ${resolvedKind}_file_url = $3,
+           updated_by = $4,
+           updated_at = NOW()
+       WHERE organization_id = $1 AND deleted_at IS NULL
+       RETURNING *`,
+      [this.context.organizationId(), fileName, this.companyFileRoute(resolvedKind), this.context.userId() ?? 1],
+    );
+    return this.companySettingsRow(rows[0]);
+  }
+
+  async deleteCompanyFile(kind: string) {
+    const resolvedKind = this.normalizeCompanyFileKind(kind);
+    const row = requireRow(await this.companySettingsRaw(), 'Company settings');
+    const fileName = row[`${resolvedKind}_file_name`] ?? this.legacyFileName(row[`${resolvedKind}_file_url`]);
+    if (fileName) {
+      await this.deleteFromCompanyStorage(resolvedKind, String(fileName));
+    }
+    const { rows } = await this.db.query(
+      `UPDATE company_settings
+       SET ${resolvedKind}_file_name = NULL,
+           ${resolvedKind}_file_url = NULL,
+           updated_by = $2,
+           updated_at = NOW()
+       WHERE organization_id = $1 AND deleted_at IS NULL
+       RETURNING *`,
+      [this.context.organizationId(), this.context.userId() ?? 1],
+    );
+    return this.companySettingsRow(rows[0]);
+  }
+
+  async companyFile(kind: string) {
+    const resolvedKind = this.normalizeCompanyFileKind(kind);
+    const row = requireRow(await this.companySettingsRaw(), 'Company settings');
+    const fileName = row[`${resolvedKind}_file_name`] ?? this.legacyFileName(row[`${resolvedKind}_file_url`]);
+    if (!fileName) {
+      throw new BadRequestException('Aucun fichier disponible');
+    }
+    return this.downloadCompanyStorage(resolvedKind, String(fileName));
   }
 
   async exchangeRate() {
@@ -3265,6 +3316,12 @@ export class SaasService {
       'invoice_footer',
       'paper_format',
       'invoice_bottom_text',
+      'logo_file_name',
+      'logo_file_url',
+      'signature_file_name',
+      'signature_file_url',
+      'stamp_file_name',
+      'stamp_file_url',
       'default_lease_duration_months',
       'default_notice_months',
       'default_guarantee_months',
@@ -3282,7 +3339,7 @@ export class SaasService {
        RETURNING *`,
       [this.context.organizationId(), ...keys.map((key) => normalizedBody[key]), this.context.userId() ?? 1],
     );
-    return requireRow(rows[0], 'Company settings');
+    return this.companySettingsRow(requireRow(rows[0], 'Company settings'));
   }
 
   async referenceData(type?: string) {
@@ -5549,6 +5606,149 @@ export class SaasService {
       [this.context.organizationId(), this.context.userId() ?? 1],
     );
     return rows[0];
+  }
+
+  private async companySettingsRaw() {
+    const { rows } = await this.db.query(
+      `SELECT *
+       FROM company_settings
+       WHERE organization_id = $1 AND deleted_at IS NULL`,
+      [this.context.organizationId()],
+    );
+    return rows[0] ?? null;
+  }
+
+  private companySettingsRow(row: Record<string, any>) {
+    return {
+      ...row,
+      logo_file_name: row.logo_file_name ?? this.legacyFileName(row.logo_url),
+      logo_file_url: row.logo_file_url ?? row.logo_url ?? (row.logo_file_name ? this.companyFileRoute('logo') : null),
+      signature_file_name: row.signature_file_name ?? this.legacyFileName(row.signature_url),
+      signature_file_url:
+        row.signature_file_url ?? row.signature_url ?? (row.signature_file_name ? this.companyFileRoute('signature') : null),
+      stamp_file_name: row.stamp_file_name ?? this.legacyFileName(row.stamp_url),
+      stamp_file_url: row.stamp_file_url ?? row.stamp_url ?? (row.stamp_file_name ? this.companyFileRoute('stamp') : null),
+      logo_url: row.logo_url ?? row.logo_file_url ?? null,
+      signature_url: row.signature_url ?? row.signature_file_url ?? null,
+      stamp_url: row.stamp_url ?? row.stamp_file_url ?? null,
+      company_legal_name_resolved: row.company_legal_name ?? row.legal_name ?? row.company_name ?? '',
+      company_address_resolved: row.company_address ?? row.address ?? '',
+    };
+  }
+
+  private normalizeCompanyFileKind(kind: string) {
+    const normalized = String(kind ?? '').trim().toLowerCase();
+    if (!this.allowedCompanyFileKinds.has(normalized)) {
+      throw new BadRequestException('Type de fichier invalide');
+    }
+    return normalized;
+  }
+
+  private companyFileRoute(kind: string) {
+    return `/api/settings/company-files/${kind}`;
+  }
+
+  private companyStoragePath(kind: string, fileName: string) {
+    return `company/${this.context.organizationId()}/${kind}/${this.sanitizeStorageFileName(fileName)}`;
+  }
+
+  private sanitizeStorageFileName(fileName: string) {
+    const base = String(fileName ?? '').replace(/[\\/]/g, '_').trim();
+    return base.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_.-]/g, '_') || 'file';
+  }
+
+  private originalFileName(fileName: string) {
+    const trimmed = String(fileName ?? '').trim();
+    return trimmed || 'file';
+  }
+
+  private legacyFileName(value: unknown) {
+    if (!value) return null;
+    const text = String(value).trim();
+    if (!text) return null;
+    const last = text.split('?')[0].split('/').pop()?.trim();
+    return last || null;
+  }
+
+  private storageConfig() {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !serviceRoleKey) {
+      throw new BadRequestException('Configuration Supabase manquante');
+    }
+    return {
+      supabaseUrl: supabaseUrl.replace(/\/$/, ''),
+      serviceRoleKey,
+    };
+  }
+
+  private validateCompanyFile(file: { mimetype: string; size: number }) {
+    if (file.size > 5 * 1024 * 1024) {
+      throw new BadRequestException('Le fichier ne peut pas depasser 5 Mo');
+    }
+    const mimeType = String(file.mimetype ?? '').toLowerCase();
+    if (!this.allowedCompanyFileMimeTypes.has(mimeType)) {
+      throw new BadRequestException('Format de fichier non autorise');
+    }
+  }
+
+  private async uploadToCompanyStorage(kind: string, fileName: string, file: { mimetype: string; buffer: Buffer }) {
+    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
+    const storagePath = this.companyStoragePath(kind, fileName);
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.companyStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+        'x-upsert': 'true',
+        'content-type': file.mimetype,
+      },
+      body: file.buffer.buffer.slice(file.buffer.byteOffset, file.buffer.byteOffset + file.buffer.byteLength) as ArrayBuffer,
+    });
+    if (!response.ok) {
+      const details = await response.text();
+      throw new BadRequestException(details || `Impossible de televerser le fichier (${response.status})`);
+    }
+  }
+
+  private async deleteFromCompanyStorage(kind: string, fileName: string) {
+    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
+    const storagePath = this.companyStoragePath(kind, fileName);
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.companyStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: `${serviceRoleKey}`,
+      },
+    });
+    if (!response.ok && response.status !== 404) {
+      const details = await response.text();
+      throw new BadRequestException(details || `Impossible de supprimer le fichier (${response.status})`);
+    }
+  }
+
+  private async downloadCompanyStorage(kind: string, fileName: string) {
+    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
+    const storagePath = this.companyStoragePath(kind, fileName);
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.companyStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+      },
+    });
+    if (!response.ok) {
+      throw new BadRequestException(`Fichier introuvable (${response.status})`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return {
+      buffer,
+      mimeType: response.headers.get('content-type') ?? 'application/octet-stream',
+      downloadName: fileName,
+    };
+  }
+
+  private encodeStoragePath(path: string) {
+    return path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
   }
 
   private async auditRead(action: string, resource: string, resourceId: string) {

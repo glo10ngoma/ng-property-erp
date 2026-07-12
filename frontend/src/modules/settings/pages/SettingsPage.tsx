@@ -1,14 +1,20 @@
-import { Building2, FileCog, MapPin, Percent, Save, Settings2, ShieldCheck, User } from 'lucide-react';
-import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import { Building2, FileCog, Image as ImageIcon, MapPin, Percent, Save, Settings2, ShieldCheck, Trash2, Upload, User } from 'lucide-react';
+import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../../api';
 import { useAuth } from '../../../auth';
 import { EmptyState, LoadingState, PageHeader, SuccessMessage } from '../../../components';
 
 type CompanySettingsResponse = {
   logo_url?: string;
+  logo_file_name?: string;
+  logo_file_url?: string;
   invoice_logo_url?: string;
   signature_url?: string;
+  signature_file_name?: string;
+  signature_file_url?: string;
   stamp_url?: string;
+  stamp_file_name?: string;
+  stamp_file_url?: string;
   company_name?: string;
   legal_name?: string;
   company_legal_name?: string;
@@ -89,10 +95,13 @@ type SettingsDraft = {
   invoice_footer: string;
   paper_format: string;
   invoice_bottom_text: string;
-  logo_url: string;
+  logo_file_name: string;
+  logo_file_url: string;
   invoice_logo_url: string;
-  signature_url: string;
-  stamp_url: string;
+  signature_file_name: string;
+  signature_file_url: string;
+  stamp_file_name: string;
+  stamp_file_url: string;
   default_lease_duration_months: string;
   default_notice_months: string;
   default_guarantee_months: string;
@@ -100,6 +109,14 @@ type SettingsDraft = {
   default_lease_usage: string;
   default_contract_template_code: string;
 };
+
+const officialFileLabels = {
+  logo: 'Logo',
+  signature: 'Signature',
+  stamp: 'Cachet',
+} as const;
+
+type OfficialFileKind = keyof typeof officialFileLabels;
 
 const referenceTypeLabels: Record<string, string> = {
   charge_types: 'Types de charges',
@@ -139,10 +156,13 @@ const defaultSettingsDraft = (): SettingsDraft => ({
   invoice_footer: '',
   paper_format: 'A4',
   invoice_bottom_text: '',
-  logo_url: '',
+  logo_file_name: '',
+  logo_file_url: '',
   invoice_logo_url: '',
-  signature_url: '',
-  stamp_url: '',
+  signature_file_name: '',
+  signature_file_url: '',
+  stamp_file_name: '',
+  stamp_file_url: '',
   default_lease_duration_months: '12',
   default_notice_months: '1',
   default_guarantee_months: '3',
@@ -276,6 +296,36 @@ export function SettingsPage() {
     return nextRate;
   }
 
+  async function uploadOfficialFile(kind: OfficialFileKind, file: File) {
+    setError('');
+    setSuccess('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await api.post<CompanySettingsResponse>(`/settings/company-files/${kind}`, formData);
+      setSettings(normalizeSettings(response.data));
+      setSuccess(`${officialFileLabels[kind]} enregistré avec succès.`);
+      return response.data;
+    } catch (uploadError) {
+      setError(extractErrorMessage(uploadError, `Impossible d'enregistrer le ${officialFileLabels[kind].toLowerCase()}.`));
+      throw uploadError;
+    }
+  }
+
+  async function deleteOfficialFile(kind: OfficialFileKind) {
+    setError('');
+    setSuccess('');
+    try {
+      const response = await api.delete<CompanySettingsResponse>(`/settings/company-files/${kind}`);
+      setSettings(normalizeSettings(response.data));
+      setSuccess(`${officialFileLabels[kind]} supprimé avec succès.`);
+      return response.data;
+    } catch (deleteError) {
+      setError(extractErrorMessage(deleteError, `Impossible de supprimer le ${officialFileLabels[kind].toLowerCase()}.`));
+      throw deleteError;
+    }
+  }
+
   async function saveCompanySection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const companyLegalName = cleanText(settings.company_legal_name || settings.company_name);
@@ -328,10 +378,7 @@ export function SettingsPage() {
   async function saveDocumentsSection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await saveSettingsSection('documents', {
-      logo_url: cleanText(settings.logo_url),
       invoice_logo_url: cleanText(settings.invoice_logo_url),
-      signature_url: cleanText(settings.signature_url),
-      stamp_url: cleanText(settings.stamp_url),
       paper_format: cleanText(settings.paper_format),
       invoice_footer: cleanText(settings.invoice_footer),
       invoice_bottom_text: cleanText(settings.invoice_bottom_text),
@@ -598,18 +645,39 @@ export function SettingsPage() {
         icon={<Settings2 size={16} />}
       >
         <form className="settings-grid" onSubmit={saveDocumentsSection}>
-          <SettingField label="Logo principal">
-            <input {...fieldProps('logo_url')} disabled={documentsDisabled} />
-          </SettingField>
+          <OfficialFileUpload
+            kind="logo"
+            title="Logo principal"
+            description="Pièce jointe utilisée dans les documents officiels."
+            fileName={settings.logo_file_name}
+            fileUrl={settings.logo_file_url}
+            disabled={documentsDisabled}
+            onUpload={uploadOfficialFile}
+            onDelete={deleteOfficialFile}
+          />
           <SettingField label="Logo facture">
             <input {...fieldProps('invoice_logo_url')} disabled={documentsDisabled} />
           </SettingField>
-          <SettingField label="Signature">
-            <input {...fieldProps('signature_url')} disabled={documentsDisabled} />
-          </SettingField>
-          <SettingField label="Cachet">
-            <input {...fieldProps('stamp_url')} disabled={documentsDisabled} />
-          </SettingField>
+          <OfficialFileUpload
+            kind="signature"
+            title="Signature"
+            description="Signature officielle réutilisable dans les futurs documents."
+            fileName={settings.signature_file_name}
+            fileUrl={settings.signature_file_url}
+            disabled={documentsDisabled}
+            onUpload={uploadOfficialFile}
+            onDelete={deleteOfficialFile}
+          />
+          <OfficialFileUpload
+            kind="stamp"
+            title="Cachet"
+            description="Cachet officiel réutilisable dans les futurs documents."
+            fileName={settings.stamp_file_name}
+            fileUrl={settings.stamp_file_url}
+            disabled={documentsDisabled}
+            onUpload={uploadOfficialFile}
+            onDelete={deleteOfficialFile}
+          />
           <SettingField label="Format papier">
             <select {...fieldProps('paper_format')} disabled={documentsDisabled}>
               <option value="A4">A4</option>
@@ -721,6 +789,9 @@ export function SettingsPage() {
 
 function normalizeSettings(data: CompanySettingsResponse): SettingsDraft {
   const defaults = defaultSettingsDraft();
+  const logoLegacyName = data.logo_url && data.logo_url !== data.logo_file_url ? extractFileName(data.logo_url) : '';
+  const signatureLegacyName = data.signature_url && data.signature_url !== data.signature_file_url ? extractFileName(data.signature_url) : '';
+  const stampLegacyName = data.stamp_url && data.stamp_url !== data.stamp_file_url ? extractFileName(data.stamp_url) : '';
   return {
     company_name: data.company_name ?? data.company_legal_name_resolved ?? defaults.company_name,
     legal_name: data.legal_name ?? data.company_legal_name ?? data.company_legal_name_resolved ?? defaults.legal_name,
@@ -745,10 +816,13 @@ function normalizeSettings(data: CompanySettingsResponse): SettingsDraft {
     invoice_footer: data.invoice_footer ?? defaults.invoice_footer,
     paper_format: data.paper_format ?? defaults.paper_format,
     invoice_bottom_text: data.invoice_bottom_text ?? defaults.invoice_bottom_text,
-    logo_url: data.logo_url ?? defaults.logo_url,
+    logo_file_name: data.logo_file_name ?? logoLegacyName ?? defaults.logo_file_name,
+    logo_file_url: data.logo_file_url ?? data.logo_url ?? defaults.logo_file_url,
     invoice_logo_url: data.invoice_logo_url ?? defaults.invoice_logo_url,
-    signature_url: data.signature_url ?? defaults.signature_url,
-    stamp_url: data.stamp_url ?? defaults.stamp_url,
+    signature_file_name: data.signature_file_name ?? signatureLegacyName ?? defaults.signature_file_name,
+    signature_file_url: data.signature_file_url ?? data.signature_url ?? defaults.signature_file_url,
+    stamp_file_name: data.stamp_file_name ?? stampLegacyName ?? defaults.stamp_file_name,
+    stamp_file_url: data.stamp_file_url ?? data.stamp_url ?? defaults.stamp_file_url,
     default_lease_duration_months: String(data.default_lease_duration_months ?? 12),
     default_notice_months: String(data.default_notice_months ?? 1),
     default_guarantee_months: String(data.default_guarantee_months ?? 3),
@@ -760,6 +834,39 @@ function normalizeSettings(data: CompanySettingsResponse): SettingsDraft {
 
 function cleanText(value: string) {
   return value.trim();
+}
+
+function extractFileName(value?: string | null) {
+  if (!value) return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  try {
+    const withoutQuery = trimmed.split('?')[0];
+    return decodeURIComponent(withoutQuery.split('/').pop() ?? '');
+  } catch {
+    return trimmed.split('?')[0].split('/').pop() ?? '';
+  }
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '-';
+  const units = ['o', 'Ko', 'Mo', 'Go'];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const precision = unitIndex === 0 ? 0 : 1;
+  return `${size.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function inferFileType(fileName?: string | null, fileUrl?: string | null, mimeType?: string | null) {
+  const source = `${mimeType ?? ''} ${fileName ?? ''} ${fileUrl ?? ''}`.toLowerCase();
+  if (source.includes('png') || source.endsWith('.png')) return 'PNG';
+  if (source.includes('jpeg') || source.endsWith('.jpg') || source.endsWith('.jpeg')) return 'JPEG';
+  if (source.includes('svg') || source.endsWith('.svg')) return 'SVG';
+  return 'Image';
 }
 
 function toNumber(value: string) {
@@ -802,6 +909,193 @@ function SettingsSection({
       </div>
       {children}
     </section>
+  );
+}
+
+function OfficialFileUpload({
+  kind,
+  title,
+  description,
+  fileName,
+  fileUrl,
+  disabled,
+  onUpload,
+  onDelete,
+}: {
+  kind: OfficialFileKind;
+  title: string;
+  description: string;
+  fileName: string;
+  fileUrl: string;
+  disabled: boolean;
+  onUpload: (kind: OfficialFileKind, file: File) => Promise<unknown>;
+  onDelete: (kind: OfficialFileKind) => Promise<unknown>;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [objectUrl, setObjectUrl] = useState('');
+  const [remotePreviewUrl, setRemotePreviewUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [localError, setLocalError] = useState('');
+
+  useEffect(() => {
+    if (!selectedFile) {
+      setObjectUrl('');
+      return;
+    }
+    const nextUrl = URL.createObjectURL(selectedFile);
+    setObjectUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [selectedFile]);
+
+  useEffect(() => {
+    let active = true;
+    let previewObjectUrl = '';
+
+    async function loadRemotePreview() {
+      if (!fileUrl || selectedFile) {
+        if (active) setRemotePreviewUrl('');
+        return;
+      }
+      if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+        if (active) setRemotePreviewUrl(fileUrl);
+        return;
+      }
+      const requestUrl = fileUrl.startsWith('/api/') ? fileUrl.slice(4) : fileUrl;
+      try {
+        const response = await api.get(requestUrl, { responseType: 'blob' });
+        previewObjectUrl = URL.createObjectURL(response.data as Blob);
+        if (active) setRemotePreviewUrl(previewObjectUrl);
+      } catch {
+        if (active) setRemotePreviewUrl('');
+      }
+    }
+
+    void loadRemotePreview();
+    return () => {
+      active = false;
+      if (previewObjectUrl) {
+        URL.revokeObjectURL(previewObjectUrl);
+      }
+    };
+  }, [fileUrl, selectedFile]);
+
+  useEffect(() => {
+    setSelectedFile(null);
+    setLocalError('');
+    if (inputRef.current) {
+      inputRef.current.value = '';
+    }
+  }, [fileName, fileUrl]);
+
+  const hasStoredFile = Boolean(fileName || fileUrl);
+  const previewUrl = selectedFile ? objectUrl : remotePreviewUrl;
+  const displayName = selectedFile ? selectedFile.name : hasStoredFile ? fileName || 'Fichier enregistré' : 'Aucun fichier';
+  const displayType = inferFileType(selectedFile?.name, fileUrl, selectedFile?.type);
+  const displaySize = selectedFile ? formatBytes(selectedFile.size) : hasStoredFile ? 'Taille non disponible' : '-';
+
+  async function handleUpload() {
+    if (!selectedFile) {
+      return;
+    }
+    setBusy(true);
+    setLocalError('');
+    try {
+      await onUpload(kind, selectedFile);
+      setSelectedFile(null);
+      if (inputRef.current) {
+        inputRef.current.value = '';
+      }
+    } catch (uploadError) {
+      setLocalError(extractErrorMessage(uploadError, 'Impossible de televerser le fichier.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!selectedFile && !hasStoredFile) {
+      return;
+    }
+    if (selectedFile && !hasStoredFile) {
+      setSelectedFile(null);
+      if (inputRef.current) {
+        inputRef.current.value = '';
+      }
+      return;
+    }
+    setBusy(true);
+    setLocalError('');
+    try {
+      await onDelete(kind);
+      setSelectedFile(null);
+      if (inputRef.current) {
+        inputRef.current.value = '';
+      }
+    } catch (deleteError) {
+      setLocalError(extractErrorMessage(deleteError, 'Impossible de supprimer le fichier.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="company-file-card">
+      <div className="company-file-head">
+        <div>
+          <h5>{title}</h5>
+          <p className="muted-text">{description}</p>
+        </div>
+      </div>
+      <div className="company-file-preview">
+        {previewUrl ? <img src={previewUrl} alt={title} /> : <div className="company-file-placeholder"><ImageIcon size={30} /><span>Aucun fichier</span></div>}
+      </div>
+      <div className="company-file-meta">
+        <div><span>Nom</span><strong>{displayName}</strong></div>
+        <div><span>Type</span><strong>{displayType}</strong></div>
+        <div><span>Taille</span><strong>{displaySize}</strong></div>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/svg+xml,.png,.jpg,.jpeg,.svg"
+        hidden
+        onChange={(event) => {
+          const next = event.target.files?.[0] ?? null;
+          setLocalError('');
+          if (!next) {
+            setSelectedFile(null);
+            return;
+          }
+          if (next.size > 5 * 1024 * 1024) {
+            setLocalError('Le fichier ne peut pas depasser 5 Mo.');
+            event.currentTarget.value = '';
+            return;
+          }
+          if (!['image/png', 'image/jpeg', 'image/svg+xml', 'image/jpg'].includes(next.type)) {
+            setLocalError('Format de fichier non autorise.');
+            event.currentTarget.value = '';
+            return;
+          }
+          setSelectedFile(next);
+        }}
+      />
+      <div className="company-file-actions">
+        <button type="button" className="secondary" onClick={() => inputRef.current?.click()} disabled={disabled || busy}>
+          <Upload size={14} />
+          Choisir un fichier
+        </button>
+        <button type="button" onClick={() => void handleUpload()} disabled={disabled || busy || !selectedFile}>
+          <Save size={14} />
+          {busy ? 'Enregistrement...' : hasStoredFile ? 'Remplacer' : 'Téléverser'}
+        </button>
+        <button type="button" className="secondary" onClick={() => void handleDelete()} disabled={disabled || busy || (!selectedFile && !hasStoredFile)}>
+          <Trash2 size={14} />
+          Supprimer
+        </button>
+      </div>
+      {localError ? <div className="error-message">{localError}</div> : null}
+    </div>
   );
 }
 

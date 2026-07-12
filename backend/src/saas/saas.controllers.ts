@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { PERMISSIONS, ROLE_LABELS, ROLE_PERMISSIONS } from './permissions';
 import { SaasService } from './saas.service';
 import { UpdateCompanySettingsDto, UpdateExchangeRateDto } from './settings.dto';
@@ -167,6 +168,26 @@ export class SettingsController {
   @Get('company')
   company() {
     return this.service.companySettings();
+  }
+
+  @Post('company-files/:kind')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  uploadCompanyFile(@Param('kind') kind: string, @UploadedFile() file: any) {
+    return this.service.uploadCompanyFile(kind, file);
+  }
+
+  @Get('company-files/:kind')
+  async companyFile(@Param('kind') kind: string, @Res({ passthrough: true }) response: any) {
+    const file = await this.service.companyFile(kind);
+    const downloadName = String(file.downloadName ?? 'document').replace(/"/g, '');
+    response.setHeader('Content-Type', file.mimeType);
+    response.setHeader('Content-Disposition', `inline; filename="${downloadName}"`);
+    return file.buffer;
+  }
+
+  @Delete('company-files/:kind')
+  deleteCompanyFile(@Param('kind') kind: string) {
+    return this.service.deleteCompanyFile(kind);
   }
 
   @Patch('company')
