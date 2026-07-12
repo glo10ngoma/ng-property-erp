@@ -72,6 +72,8 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
   });
   const [statement, setStatement] = useState<StatementResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [error, setError] = useState('');
 
   const endpoint = useMemo(() => `/statements/${kind === 'tenant' ? 'tenants' : kind === 'unit' ? 'units' : 'buildings'}/${id}`, [id, kind]);
@@ -110,19 +112,25 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
   const movementRows = statement?.movements ?? [];
   const debitRows = movementRows.filter((row) => Number(row.debit ?? 0) > 0);
   const creditRows = movementRows.filter((row) => Number(row.credit ?? 0) > 0);
-  const summaryRows = statement ? [{
-    type_releve: title,
-    entite: statement.entity.title,
-    sous_titre: statement.entity.subtitle ?? '',
-    periode: `${shortDate(statement.period.start)} - ${shortDate(statement.period.end)}`,
-    solde_ouverture: money(statement.opening_balance),
-    total_debits: money(statement.totals.debits),
-    total_credits: money(statement.totals.credits),
-    solde_cloture: money(statement.totals.closing_balance),
-    nombre_factures: statement.totals.invoices_count,
-    nombre_paiements: statement.totals.payments_count,
-    devise: statement.currency,
-  }] : [];
+  const invoiceRows = statement?.invoices ?? [];
+  const paymentRows = statement?.payments ?? [];
+  const fileBase = `Releve_compte_${statementKindLabel(kind)}_${safePart(statement?.entity.title ?? kind)}_${statement?.period.start ?? '0000-00-00'}_${statement?.period.end ?? '0000-00-00'}`;
+
+  const summaryRows = statement
+    ? [{
+        releve: title,
+        entite: statement.entity.title,
+        sous_titre: statement.entity.subtitle ?? '',
+        periode: `${shortDate(statement.period.start)} - ${shortDate(statement.period.end)}`,
+        solde_ouverture: statement.opening_balance,
+        total_debits: statement.totals.debits,
+        total_credits: statement.totals.credits,
+        solde_cloture: statement.totals.closing_balance,
+        nombre_factures: statement.totals.invoices_count,
+        nombre_paiements: statement.totals.payments_count,
+        devise: statement.currency,
+      }]
+    : [];
 
   function backPath() {
     if (kind === 'tenant') return `/tenants/${id}/situation`;
@@ -130,19 +138,172 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
     return `/buildings/${id}/report`;
   }
 
+  function statementExcelRows() {
+    return [
+      { date: '', reference: 'Solde d’ouverture', type: '', label: '', debit: 0, credit: 0, currency: statement?.currency ?? 'USD', balance: statement?.opening_balance ?? 0 },
+      ...movementRows.map((row) => ({
+        date: formatDate(row.date),
+        reference: String(row.reference ?? '—'),
+        type: movementLabel(String(row.movement_type)),
+        label: String(row.label ?? '—'),
+        debit: Number(row.debit ?? 0),
+        credit: Number(row.credit ?? 0),
+        currency: row.currency ?? statement?.currency ?? 'USD',
+        balance: Number(row.running_balance ?? 0),
+      })),
+    ];
+  }
+
+  function invoiceExcelRows() {
+    return invoiceRows.length ? invoiceRows.map((row) => ({
+      number: String(row.invoice_number ?? '—'),
+      period: `${String(row.month ?? '—')}/${String(row.year ?? '—')}`,
+      issue_date: String(row.issue_date ?? '—'),
+      due_date: String(row.due_date ?? '—'),
+      tenant: String(row.tenant_name ?? '—'),
+      unit: String(row.unit_number ?? '—'),
+      total: Number(row.total ?? 0),
+      paid: Number(row.paid_amount ?? 0),
+      remaining: Number(row.remaining_amount ?? 0),
+      currency: String(row.currency ?? statement?.currency ?? 'USD'),
+      status: String(row.status ?? '—'),
+    })) : [{ information: 'Aucune facture sur la période' }];
+  }
+
+  function paymentExcelRows() {
+    return paymentRows.length ? paymentRows.map((row) => ({
+      date: String(row.payment_date ?? '—'),
+      receipt: String(row.receipt_number ?? row.reference ?? '—'),
+      invoice: String(row.invoice_number ?? '—'),
+      tenant: String(row.tenant_name ?? '—'),
+      unit: String(row.unit_number ?? '—'),
+      amount: Number(row.amount ?? 0),
+      method: paymentMethodLabel(String(row.payment_method ?? '')),
+      currency: String(row.currency ?? statement?.currency ?? 'USD'),
+    })) : [{ information: 'Aucun paiement sur la période' }];
+  }
+
+  function byUnitRows() {
+    const grouped = invoiceRows.reduce<Record<string, { appartement: string; total_debit: number; total_credit: number; solde: number }>>((acc, invoice) => {
+      const key = String(invoice.unit_number ?? 'Sans appartement');
+      acc[key] ??= { appartement: key, total_debit: 0, total_credit: 0, solde: 0 };
+      acc[key].total_debit += Number(invoice.total ?? 0);
+      acc[key].total_credit += Number(invoice.paid_amount ?? 0);
+      acc[key].solde += Number(invoice.remaining_amount ?? 0);
+      return acc;
+    }, {});
+    return Object.values(grouped).length ? Object.values(grouped) : [{ information: 'Aucune donnée par appartement' }];
+  }
+
+  function byTenantRows() {
+    const grouped = invoiceRows.reduce<Record<string, { locataire: string; total_debit: number; total_credit: number; solde: number }>>((acc, invoice) => {
+      const key = String(invoice.tenant_name ?? 'Sans locataire');
+      acc[key] ??= { locataire: key, total_debit: 0, total_credit: 0, solde: 0 };
+      acc[key].total_debit += Number(invoice.total ?? 0);
+      acc[key].total_credit += Number(invoice.paid_amount ?? 0);
+      acc[key].solde += Number(invoice.remaining_amount ?? 0);
+      return acc;
+    }, {});
+    return Object.values(grouped).length ? Object.values(grouped) : [{ information: 'Aucune donnée par locataire' }];
+  }
+
   function exportWorkbook() {
     if (!statement) return;
-    exportXlsxWorkbook(
-      `Releve_${safePart(statement.entity.title)}.xlsx`,
-      [
-        { name: 'Releve', rows: statement.movements },
-        { name: 'Resume', rows: summaryRows },
-        { name: 'Debits', rows: debitRows },
-        { name: 'Credits', rows: creditRows },
-        { name: 'Factures', rows: statement.invoices },
-        { name: 'Paiements', rows: statement.payments },
-      ],
-    );
+    setExportingExcel(true);
+    try {
+      exportXlsxWorkbook(
+        `${fileBase}.xlsx`,
+        [
+          { name: 'Releve', rows: statementExcelRows() },
+          { name: 'Resume', rows: summaryRows },
+          { name: 'Debits', rows: debitRows.length ? debitRows.map((row) => ({
+            date: formatDate(row.date),
+            reference: String(row.reference ?? '—'),
+            label: String(row.label ?? '—'),
+            debit: Number(row.debit ?? 0),
+            currency: String(row.currency ?? statement.currency),
+            balance: Number(row.running_balance ?? 0),
+          })) : [{ information: 'Aucun débit sur la période' }] },
+          { name: 'Credits', rows: creditRows.length ? creditRows.map((row) => ({
+            date: formatDate(row.date),
+            reference: String(row.reference ?? '—'),
+            label: String(row.label ?? '—'),
+            credit: Number(row.credit ?? 0),
+            currency: String(row.currency ?? statement.currency),
+            balance: Number(row.running_balance ?? 0),
+          })) : [{ information: 'Aucun crédit sur la période' }] },
+          { name: 'Factures', rows: invoiceExcelRows() },
+          { name: 'Paiements', rows: paymentExcelRows() },
+          ...(kind === 'building'
+            ? [
+                { name: 'Par appartement', rows: byUnitRows() },
+                { name: 'Par locataire', rows: byTenantRows() },
+              ]
+            : []),
+        ],
+      );
+    } finally {
+      setExportingExcel(false);
+    }
+  }
+
+  async function exportPdf() {
+    if (!statement) return;
+    setExportingPdf(true);
+    try {
+      const [{ jsPDF }, autotableModule] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+      const autoTable = (autotableModule as any).default ?? (autotableModule as any);
+      const doc = new jsPDF({ orientation: movementRows.length > 8 ? 'landscape' : 'portrait', unit: 'pt', format: 'a4' });
+      const margin = 36;
+      const pageWidth = doc.internal.pageSize.getWidth();
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text('NG Property ERP', margin, 32);
+      doc.setFontSize(12);
+      doc.text('Relevé de compte', margin, 50);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text(`Type : ${statementKindLabel(kind)}`, margin, 70);
+      doc.text(`Entité : ${statement.entity.title}`, margin, 84);
+      if (statement.entity.subtitle) doc.text(`Complément : ${statement.entity.subtitle}`, margin, 98);
+      doc.text(`Période : ${shortDate(statement.period.start)} - ${shortDate(statement.period.end)}`, margin, 112);
+      doc.text(`Généré le : ${shortDate(new Date().toISOString())}`, margin, 126);
+      doc.text(`Devise : ${statement.currency}`, pageWidth - margin - 120, 70);
+      doc.text(`Solde d'ouverture : ${money(statement.opening_balance)}`, pageWidth - margin - 180, 84);
+      doc.text(`Total débit : ${money(statement.totals.debits)}`, pageWidth - margin - 180, 98);
+      doc.text(`Total crédit : ${money(statement.totals.credits)}`, pageWidth - margin - 180, 112);
+      doc.text(`Solde final : ${money(statement.totals.closing_balance)}`, pageWidth - margin - 180, 126);
+
+      autoTable(doc, {
+        startY: 144,
+        head: [['Date', 'Référence', 'Libellé', 'Débit', 'Crédit', 'Solde']],
+        body: movementRows.length
+          ? movementRows.map((row) => [
+              formatDate(row.date),
+              String(row.reference ?? '—'),
+              String(row.label ?? '—'),
+              formatAmount(row.debit),
+              formatAmount(row.credit),
+              formatAmount(row.running_balance),
+            ])
+          : [['—', '—', 'Aucun mouvement sur la période', '0', '0', formatAmount(statement.opening_balance)]],
+        styles: { fontSize: 8, cellPadding: 4 },
+        headStyles: { fillColor: [45, 56, 72] },
+        alternateRowStyles: { fillColor: [247, 249, 252] },
+        margin: { left: margin, right: margin },
+      });
+
+      const footerY = ((doc as any).lastAutoTable?.finalY ?? 180) + 16;
+      doc.setFontSize(9);
+      doc.text('Signature / cachet prévus en bas', margin, footerY);
+      doc.save(`${fileBase}.pdf`);
+    } catch (exception: any) {
+      setError(exception?.message ?? 'Impossible de générer le PDF.');
+    } finally {
+      setExportingPdf(false);
+    }
   }
 
   return (
@@ -152,7 +313,9 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
         action={(
           <div className="page-actions">
             <button type="button" className="secondary" onClick={() => navigate(backPath())}><ArrowLeft size={16} />Retour</button>
-            <button type="button" className="secondary" onClick={exportWorkbook}><FileSpreadsheet size={16} />Excel</button>
+            <button type="button" className="secondary" onClick={loadStatement} disabled={loading}><RefreshCw size={16} />Actualiser</button>
+            <button type="button" className="secondary" onClick={exportPdf} disabled={exportingPdf || loading}><FileSpreadsheet size={16} />PDF</button>
+            <button type="button" className="secondary" onClick={exportWorkbook} disabled={exportingExcel || loading}><Download size={16} />Excel</button>
             <button type="button" className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
           </div>
         )}
@@ -167,13 +330,14 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
         <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, month: '', start: event.target.value })} />
         <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, month: '', end: event.target.value })} />
         <div className="filter-actions">
-          <button type="button" onClick={loadStatement}><RefreshCw size={16} />Actualiser</button>
-          <button type="button" className="secondary" onClick={exportWorkbook}><Download size={16} />Excel</button>
+          <button type="button" onClick={loadStatement} disabled={loading}><RefreshCw size={16} />Actualiser</button>
+          <button type="button" className="secondary" onClick={exportPdf} disabled={exportingPdf || loading}><FileSpreadsheet size={16} />PDF</button>
+          <button type="button" className="secondary" onClick={exportWorkbook} disabled={exportingExcel || loading}><Download size={16} />Excel</button>
         </div>
       </div>
 
       {error && <div className="error-message">{error}</div>}
-      {!statement && !error && <EmptyState message={loading ? 'Chargement...' : 'Aucune donnee.'} />}
+      {!statement && !error && <EmptyState message={loading ? 'Chargement...' : 'Aucune donnée.'} />}
 
       {statement && (
         <>
@@ -181,11 +345,11 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
             <h4>{statement.entity.title}</h4>
             <div className="summary-band">
               <SummaryCard label="Contexte" value={statement.entity.subtitle ?? backLabel} wide />
-              <SummaryCard label="Periode" value={`${shortDate(statement.period.start)} - ${shortDate(statement.period.end)}`} />
+              <SummaryCard label="Période" value={`${shortDate(statement.period.start)} - ${shortDate(statement.period.end)}`} />
               <SummaryCard label="Solde d'ouverture" value={money(statement.opening_balance)} />
-              <SummaryCard label="Debits" value={money(statement.totals.debits)} />
-              <SummaryCard label="Credits" value={money(statement.totals.credits)} />
-              <SummaryCard label="Solde de cloture" value={money(statement.totals.closing_balance)} />
+              <SummaryCard label="Débits" value={money(statement.totals.debits)} />
+              <SummaryCard label="Crédits" value={money(statement.totals.credits)} />
+              <SummaryCard label="Solde de clôture" value={money(statement.totals.closing_balance)} />
               <SummaryCard label="Factures" value={statement.totals.invoices_count} />
               <SummaryCard label="Paiements" value={statement.totals.payments_count} />
               <SummaryCard label="Devise" value={statement.currency} />
@@ -199,17 +363,17 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
                 <thead>
                   <tr>
                     <th>Date</th>
-                    <th>Reference</th>
+                    <th>Référence</th>
                     <th>Type mouvement</th>
-                    <th>Libelle</th>
-                    <th className="right">Debit</th>
-                    <th className="right">Credit</th>
+                    <th>Libellé</th>
+                    <th className="right">Débit</th>
+                    <th className="right">Crédit</th>
                     <th>Devise</th>
                     <th className="right">Solde courant</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {statement.movements.map((row, index) => (
+                  {movementRows.map((row, index) => (
                     <tr key={`${row.movement_type}-${row.reference ?? index}-${index}`}>
                       <td>{formatDate(row.date)}</td>
                       <td>{String(row.reference ?? '—')}</td>
@@ -252,4 +416,10 @@ function formatDate(value: unknown) {
 
 function safePart(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'releve';
+}
+
+function statementKindLabel(kind: StatementKind) {
+  if (kind === 'tenant') return 'Locataire';
+  if (kind === 'unit') return 'Appartement';
+  return 'Immeuble';
 }
