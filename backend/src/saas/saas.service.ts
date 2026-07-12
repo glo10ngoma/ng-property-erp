@@ -2650,7 +2650,7 @@ export class SaasService {
           rental_guarantee_payment_date, rental_guarantee_status, contract_file_url, contract_file_name, status,
           maintenance_fee_amount, other_charges_amount, lease_total_amount, guarantee_months, notice_months,
           signature_place, signature_date, lease_usage, contract_template_code, organization_id, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
          RETURNING *`,
         [
           normalized.tenantId,
