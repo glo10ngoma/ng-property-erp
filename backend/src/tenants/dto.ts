@@ -1,5 +1,14 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { IsDateString, IsEmail, IsIn, IsInt, IsOptional, IsString } from 'class-validator';
+import {
+  IsDateString,
+  IsEmail,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  ValidateIf,
+} from 'class-validator';
 import { TENANT_STATUSES } from '../common/status';
 
 export class CreateTenantDto {
@@ -7,25 +16,36 @@ export class CreateTenantDto {
   @IsIn(['PHYSICAL', 'COMPANY'])
   tenant_type?: string;
 
-  @IsOptional()
+  @ValidateIf((dto) => (dto.tenant_type ?? 'PHYSICAL') === 'PHYSICAL')
   @IsString()
+  @IsNotEmpty()
   first_name?: string;
 
-  @IsOptional()
+  @ValidateIf((dto) => (dto.tenant_type ?? 'PHYSICAL') === 'PHYSICAL')
   @IsString()
+  @IsNotEmpty()
   last_name?: string;
 
   @IsOptional()
   @IsString()
   post_name?: string;
 
-  @IsOptional()
+  @ValidateIf((dto) => (dto.tenant_type ?? 'PHYSICAL') === 'COMPANY')
   @IsString()
+  @IsNotEmpty()
   company_name?: string;
 
   @IsOptional()
   @IsString()
+  legal_form?: string;
+
+  @IsOptional()
+  @IsString()
   rccm?: string;
+
+  @IsOptional()
+  @IsString()
+  national_id_number?: string;
 
   @IsOptional()
   @IsString()
@@ -38,6 +58,14 @@ export class CreateTenantDto {
   @IsOptional()
   @IsString()
   legal_representative_name?: string;
+
+  @IsOptional()
+  @IsString()
+  representative_post_name?: string;
+
+  @IsOptional()
+  @IsString()
+  representative_first_name?: string;
 
   @IsOptional()
   @IsString()
@@ -56,6 +84,7 @@ export class CreateTenantDto {
   company_document_name?: string;
 
   @IsString()
+  @IsNotEmpty()
   phone: string;
 
   @IsOptional()
@@ -73,6 +102,18 @@ export class CreateTenantDto {
   @IsOptional()
   @IsString()
   address?: string;
+
+  @IsOptional()
+  @IsString()
+  commune?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  country?: string;
 
   @IsOptional()
   @IsString()

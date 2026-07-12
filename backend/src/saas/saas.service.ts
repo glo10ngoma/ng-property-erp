@@ -4,6 +4,12 @@ import { RequestContext } from '../auth/request-context';
 import { hashPassword } from '../auth/password';
 import { requireRow } from '../common/not-found';
 import { DatabaseService } from '../database/database.service';
+import {
+  buildLeaseContractHtml,
+  buildLeaseContractPdfBase64,
+  renderLeaseContractTemplate,
+  unresolvedPlaceholders,
+} from '../leases/lease-contracts';
 import { normalizeRole } from './permissions';
 
 @Injectable()
@@ -2554,14 +2560,39 @@ export class SaasService {
                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
              END AS tenant_name,
              u.number AS unit_number, b.name AS building_name,
+             latest_contract.id AS latest_contract_id,
+             latest_contract.status AS latest_contract_status,
              COALESCE(g.amount, l.rental_guarantee_amount, 0)::FLOAT AS guarantee_amount,
              COALESCE(g.paid_amount, l.rental_guarantee_paid, 0)::FLOAT AS guarantee_paid,
-             COALESCE(g.status, l.rental_guarantee_status) AS guarantee_status
+             COALESCE(g.status, l.rental_guarantee_status) AS guarantee_status,
+             COALESCE(
+               latest_contract.signed_contract_file_name,
+               latest_contract.pdf_file_name,
+               l.signed_contract_file_name,
+               l.generated_contract_file_name,
+               l.contract_file_name
+             ) AS contract_file_name,
+             COALESCE(
+               latest_contract.signed_contract_file_url,
+               latest_contract.pdf_file_url,
+               l.signed_contract_url,
+               l.generated_contract_url,
+               l.contract_file_url
+             ) AS contract_file_url
       FROM leases l
       JOIN tenants t ON t.id = l.tenant_id
       JOIN units u ON u.id = l.unit_id
       JOIN buildings b ON b.id = u.building_id
       LEFT JOIN lease_guarantees g ON g.lease_id = l.id AND g.deleted_at IS NULL
+      LEFT JOIN LATERAL (
+        SELECT cg.id, cg.status, cg.pdf_file_name, cg.pdf_file_url, cg.signed_contract_file_name, cg.signed_contract_file_url
+        FROM lease_contract_generations cg
+        WHERE cg.lease_id = l.id
+          AND cg.organization_id = l.organization_id
+          AND cg.deleted_at IS NULL
+        ORDER BY cg.generated_at DESC, cg.id DESC
+        LIMIT 1
+      ) latest_contract ON TRUE
       WHERE l.organization_id = $1 AND l.deleted_at IS NULL
       ORDER BY l.start_date DESC, l.id DESC
     `, [this.context.organizationId()]);
@@ -2574,8 +2605,17 @@ export class SaasService {
               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
                    ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
               END AS tenant_name,
+              t.tenant_type,
+              t.first_name, t.last_name, t.post_name, t.company_name, t.legal_form, t.rccm, t.national_id_number,
+              t.tax_number, t.address AS tenant_address, t.commune AS tenant_commune, t.city AS tenant_city, t.country AS tenant_country,
+              t.id_document_type, t.id_number, t.legal_representative_name, t.legal_representative_role,
+              t.representative_post_name, t.representative_first_name,
               t.phone AS tenant_phone,
-              u.number AS unit_number, u.status AS unit_status, b.name AS building_name
+              t.email AS tenant_email,
+              u.number AS unit_number, u.status AS unit_status, u.type AS unit_type, u.surface_area, u.bedrooms_count,
+              u.parking_spaces_count, u.has_parking, u.is_furnished, u.usage_type,
+              b.name AS building_name, b.address AS building_address, b.commune AS building_commune,
+              b.city AS building_city, b.neighborhood AS building_neighborhood
        FROM leases l
        JOIN tenants t ON t.id = l.tenant_id
        JOIN units u ON u.id = l.unit_id
@@ -2583,104 +2623,145 @@ export class SaasService {
        WHERE l.id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL`,
       [id, this.context.organizationId()],
     );
+    const row = requireRow(lease.rows[0], 'Lease');
     return {
-      ...requireRow(lease.rows[0], 'Lease'),
+      ...row,
       guarantee: await this.leaseGuarantee(id),
       documents: await this.leaseDocuments(id),
       history: await this.unitOccupationHistory(lease.rows[0]?.unit_id ?? 0),
+      latest_contract: await this.latestLeaseContract(id),
     };
   }
 
   async createLease(body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
       const organizationId = this.context.organizationId();
-      const tenantId = Number(body.tenant_id ?? 0);
-      const unitId = Number(body.unit_id ?? 0);
-      const startDate = String(body.start_date ?? '').trim();
-      if (!tenantId) throw new BadRequestException('Locataire requis');
-      if (!unitId) throw new BadRequestException('Unite requise');
-      if (!startDate) throw new BadRequestException('Date de debut requise');
-      if (body.status === 'ACTIVE') {
-        await this.ensureNoLeaseConflict(client, unitId, startDate, body.end_date ? String(body.end_date) : null);
+      const normalized = this.normalizeLeasePayload(body);
+      if (normalized.status === 'ACTIVE') {
+        await this.ensureNoLeaseConflict(client, normalized.unitId, normalized.startDate, normalized.endDate);
       }
       const { rows } = await client.query(
         `INSERT INTO leases
          (tenant_id, unit_id, start_date, end_date, monthly_rent, monthly_syndic_amount, rental_guarantee_amount, rental_guarantee_paid,
-          rental_guarantee_payment_date, rental_guarantee_status, contract_file_url, contract_file_name, status, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          rental_guarantee_payment_date, rental_guarantee_status, contract_file_url, contract_file_name, status,
+          maintenance_fee_amount, other_charges_amount, lease_total_amount, guarantee_months, notice_months,
+          signature_place, signature_date, lease_usage, contract_template_code, organization_id, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
          RETURNING *`,
-          [
-            tenantId,
-            unitId,
-            startDate,
-            body.end_date ?? null,
-          Number(body.monthly_rent ?? 0),
-          Number(body.monthly_syndic_amount ?? 0),
-          Number(body.rental_guarantee_amount ?? body.guarantee_amount ?? 0),
-          Number(body.rental_guarantee_paid ?? body.guarantee_paid ?? 0),
-          body.rental_guarantee_payment_date ?? body.guarantee_payment_date ?? null,
-          body.rental_guarantee_status ?? body.guarantee_status ?? 'NOT_PAID',
-          body.contract_file_url ?? null,
-          body.contract_file_name ?? null,
-          body.status ?? 'DRAFT',
+        [
+          normalized.tenantId,
+          normalized.unitId,
+          normalized.startDate,
+          normalized.endDate,
+          normalized.monthlyRent,
+          normalized.monthlySyndicAmount,
+          normalized.guaranteeAmount,
+          normalized.guaranteePaid,
+          normalized.guaranteePaymentDate,
+          normalized.guaranteeStatus,
+          normalized.contractFileUrl,
+          normalized.contractFileName,
+          normalized.status,
+          normalized.maintenanceFeeAmount,
+          normalized.otherChargesAmount,
+          normalized.leaseTotalAmount,
+          normalized.guaranteeMonths,
+          normalized.noticeMonths,
+          normalized.signaturePlace,
+          normalized.signatureDate,
+          normalized.leaseUsage,
+          normalized.contractTemplateCode,
           organizationId,
+          normalized.notes,
         ],
       );
       await this.upsertLeaseGuarantee(client, rows[0].id, {
-        amount: Number(body.rental_guarantee_amount ?? body.guarantee_amount ?? 0),
-        paid_amount: Number(body.rental_guarantee_paid ?? body.guarantee_paid ?? 0),
-        payment_date: body.rental_guarantee_payment_date ?? body.guarantee_payment_date ?? null,
-        status: body.rental_guarantee_status ?? body.guarantee_status ?? 'NOT_PAID',
+        amount: normalized.guaranteeAmount,
+        paid_amount: normalized.guaranteePaid,
+        payment_date: normalized.guaranteePaymentDate,
+        status: normalized.guaranteeStatus,
       });
-      if (body.contract_file_name) {
+      if (normalized.contractFileName) {
         await client.query(
           `INSERT INTO lease_documents (lease_id, document_type, file_name, file_url, uploaded_by, organization_id)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [rows[0].id, 'CONTRACT', body.contract_file_name, body.contract_file_url ?? null, this.context.userId(), organizationId],
-        );
-      }
-      if (body.notes !== undefined) {
-        await client.query(
-          `UPDATE leases SET notes = $2, updated_at = NOW() WHERE id = $1 AND organization_id = $3`,
-          [rows[0].id, body.notes ?? null, organizationId],
+          [rows[0].id, 'CONTRACT', normalized.contractFileName, normalized.contractFileUrl, this.context.userId(), organizationId],
         );
       }
       if (rows[0].status === 'ACTIVE') await this.activateLeaseInTransaction(client, rows[0].id);
-      const refreshed = await client.query(`SELECT * FROM leases WHERE id = $1 AND organization_id = $2`, [rows[0].id, organizationId]);
-      return refreshed.rows[0];
+      return this.leaseDetail(rows[0].id);
     });
   }
 
   async updateLease(id: number, body: Record<string, unknown>) {
-    await this.leaseDetail(id);
+    const current = await this.leaseDetail(id);
     return this.db.transaction(async (client) => {
-      const keys = ['tenant_id', 'unit_id', 'start_date', 'end_date', 'monthly_rent', 'monthly_syndic_amount', 'contract_file_url', 'contract_file_name', 'status', 'notes'].filter((key) => body[key] !== undefined);
-      let lease = null;
-      if (keys.length) {
-        const assignments = keys.map((key, index) => `${key} = $${index + 2}`);
-        const { rows } = await client.query(
-          `UPDATE leases SET ${assignments.join(', ')}, updated_at = NOW()
-           WHERE id = $1 AND organization_id = $${keys.length + 2} AND deleted_at IS NULL RETURNING *`,
-          [id, ...keys.map((key) => body[key]), this.context.organizationId()],
-        );
-        lease = rows[0];
+      const normalized = this.normalizeLeasePayload({ ...current, ...body });
+      if (normalized.status === 'ACTIVE') {
+        await this.ensureNoLeaseConflict(client, normalized.unitId, normalized.startDate, normalized.endDate, id);
       }
-      if (
-        body.rental_guarantee_amount !== undefined ||
-        body.guarantee_amount !== undefined ||
-        body.rental_guarantee_paid !== undefined ||
-        body.guarantee_paid !== undefined ||
-        body.rental_guarantee_status !== undefined ||
-        body.guarantee_status !== undefined
-      ) {
-        await this.upsertLeaseGuarantee(client, id, {
-          amount: Number(body.rental_guarantee_amount ?? body.guarantee_amount ?? 0),
-          paid_amount: Number(body.rental_guarantee_paid ?? body.guarantee_paid ?? 0),
-          payment_date: body.rental_guarantee_payment_date ?? body.guarantee_payment_date ?? null,
-          status: body.rental_guarantee_status ?? body.guarantee_status ?? 'NOT_PAID',
-        });
-      }
-      if (body.contract_file_name !== undefined || body.contract_file_url !== undefined) {
+      await client.query(
+        `UPDATE leases
+         SET tenant_id = $2,
+             unit_id = $3,
+             start_date = $4,
+             end_date = $5,
+             monthly_rent = $6,
+             monthly_syndic_amount = $7,
+             rental_guarantee_amount = $8,
+             rental_guarantee_paid = $9,
+             rental_guarantee_payment_date = $10,
+             rental_guarantee_status = $11,
+             contract_file_url = $12,
+             contract_file_name = $13,
+             status = $14,
+             maintenance_fee_amount = $15,
+             other_charges_amount = $16,
+             lease_total_amount = $17,
+             guarantee_months = $18,
+             notice_months = $19,
+             signature_place = $20,
+             signature_date = $21,
+             lease_usage = $22,
+             contract_template_code = $23,
+             notes = $24,
+             updated_at = NOW()
+         WHERE id = $1 AND organization_id = $25 AND deleted_at IS NULL`,
+        [
+          id,
+          normalized.tenantId,
+          normalized.unitId,
+          normalized.startDate,
+          normalized.endDate,
+          normalized.monthlyRent,
+          normalized.monthlySyndicAmount,
+          normalized.guaranteeAmount,
+          normalized.guaranteePaid,
+          normalized.guaranteePaymentDate,
+          normalized.guaranteeStatus,
+          normalized.contractFileUrl,
+          normalized.contractFileName,
+          normalized.status,
+          normalized.maintenanceFeeAmount,
+          normalized.otherChargesAmount,
+          normalized.leaseTotalAmount,
+          normalized.guaranteeMonths,
+          normalized.noticeMonths,
+          normalized.signaturePlace,
+          normalized.signatureDate,
+          normalized.leaseUsage,
+          normalized.contractTemplateCode,
+          normalized.notes,
+          this.context.organizationId(),
+        ],
+      );
+      await this.upsertLeaseGuarantee(client, id, {
+        amount: normalized.guaranteeAmount,
+        paid_amount: normalized.guaranteePaid,
+        payment_date: normalized.guaranteePaymentDate,
+        status: normalized.guaranteeStatus,
+      });
+      if (body.contract_file_name !== undefined || body.contract_file_url !== undefined || normalized.contractFileName) {
         const existingDocument = await client.query(
           `SELECT id FROM lease_documents
            WHERE lease_id = $1 AND organization_id = $2 AND document_type = 'CONTRACT' AND deleted_at IS NULL
@@ -2694,17 +2775,17 @@ export class SaasService {
              SET file_name = COALESCE($2, file_name),
                  file_url = COALESCE($3, file_url)
              WHERE id = $1`,
-            [existingDocument.rows[0].id, body.contract_file_name ?? null, body.contract_file_url ?? null],
+            [existingDocument.rows[0].id, normalized.contractFileName ?? null, normalized.contractFileUrl ?? null],
           );
-        } else if (body.contract_file_name) {
+        } else if (normalized.contractFileName) {
           await client.query(
             `INSERT INTO lease_documents (lease_id, document_type, file_name, file_url, uploaded_by, organization_id)
              VALUES ($1, 'CONTRACT', $2, $3, $4, $5)`,
-            [id, body.contract_file_name, body.contract_file_url ?? null, this.context.userId() ?? 1, this.context.organizationId()],
+            [id, normalized.contractFileName, normalized.contractFileUrl ?? null, this.context.userId() ?? 1, this.context.organizationId()],
           );
         }
       }
-      return lease ?? this.leaseDetail(id);
+      return this.leaseDetail(id);
     });
   }
 
@@ -2751,6 +2832,137 @@ export class SaasService {
       [id, this.context.organizationId()],
     );
     return rows;
+  }
+
+  async latestLeaseContract(id: number) {
+    const { rows } = await this.db.query(
+      `SELECT cg.*
+       FROM lease_contract_generations cg
+       WHERE cg.lease_id = $1
+         AND cg.organization_id = $2
+         AND cg.deleted_at IS NULL
+       ORDER BY cg.generated_at DESC, cg.id DESC
+       LIMIT 1`,
+      [id, this.context.organizationId()],
+    );
+    return rows[0] ?? null;
+  }
+
+  async generateLeaseContract(id: number) {
+    return this.db.transaction(async (client) => {
+      const lease = await this.leaseDetail(id) as Record<string, any>;
+      const company = await this.companySettings();
+      const template = await this.activeLeaseContractTemplate(client, lease.contract_template_code ?? 'LEASE_RESIDENTIAL');
+      const snapshot = this.buildLeaseContractSnapshot(lease, company);
+      const renderedContent = renderLeaseContractTemplate(template.content, snapshot);
+      const placeholders = unresolvedPlaceholders(renderedContent);
+      if (placeholders.length) {
+        throw new BadRequestException(`Variables de contrat non resolues: ${placeholders.join(', ')}`);
+      }
+      const renderedHtml = buildLeaseContractHtml(renderedContent);
+      const safeTenant = this.slugify(snapshot.locataire.signature_nom || lease.tenant_name || `locataire-${lease.id}`);
+      const generatedDate = new Date().toISOString().slice(0, 10);
+      const pdfFileName = `CONTRAT_BAIL_${this.leaseReferenceCode(lease.id)}_${safeTenant}_${generatedDate}.pdf`;
+      const pdfFileUrl = `data:application/pdf;base64,${buildLeaseContractPdfBase64(renderedContent, template.name)}`;
+      const { rows } = await client.query(
+        `INSERT INTO lease_contract_generations
+         (organization_id, lease_id, template_id, template_version, generated_content, generated_html, snapshot_json,
+          pdf_file_name, pdf_file_url, generated_by, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::JSONB, $8, $9, $10, 'GENERATED')
+         RETURNING *`,
+        [
+          this.context.organizationId(),
+          id,
+          template.id,
+          template.version,
+          renderedContent,
+          renderedHtml,
+          JSON.stringify(snapshot),
+          pdfFileName,
+          pdfFileUrl,
+          this.context.userId() ?? 1,
+        ],
+      );
+      await client.query(
+        `UPDATE leases
+         SET generated_contract_file_name = $2,
+             generated_contract_url = $3,
+             contract_generated_at = NOW(),
+             contract_template_code = $4,
+             updated_at = NOW()
+         WHERE id = $1 AND organization_id = $5`,
+        [id, pdfFileName, pdfFileUrl, template.code, this.context.organizationId()],
+      );
+      await client.query(
+        `INSERT INTO lease_documents (lease_id, document_type, file_name, file_url, uploaded_by, organization_id)
+         VALUES ($1, 'GENERATED_CONTRACT', $2, $3, $4, $5)`,
+        [id, pdfFileName, pdfFileUrl, this.context.userId() ?? 1, this.context.organizationId()],
+      );
+      return rows[0];
+    });
+  }
+
+  async markLeaseContractPrinted(leaseId: number, contractId: number) {
+    const { rows } = await this.db.query(
+      `UPDATE lease_contract_generations
+       SET printed_at = NOW(),
+           status = CASE WHEN status = 'SIGNED' THEN status ELSE 'PRINTED' END
+       WHERE id = $1 AND lease_id = $2 AND organization_id = $3 AND deleted_at IS NULL
+       RETURNING *`,
+      [contractId, leaseId, this.context.organizationId()],
+    );
+    return requireRow(rows[0], 'Lease contract generation');
+  }
+
+  async markLeaseContractSigned(leaseId: number, contractId: number) {
+    const { rows } = await this.db.query(
+      `UPDATE lease_contract_generations
+       SET signed_at = NOW(), status = 'SIGNED'
+       WHERE id = $1 AND lease_id = $2 AND organization_id = $3 AND deleted_at IS NULL
+       RETURNING *`,
+      [contractId, leaseId, this.context.organizationId()],
+    );
+    const contract = requireRow(rows[0], 'Lease contract generation');
+    await this.db.query(
+      `UPDATE leases
+       SET contract_signed_at = COALESCE(contract_signed_at, NOW()), updated_at = NOW()
+       WHERE id = $1 AND organization_id = $2`,
+      [leaseId, this.context.organizationId()],
+    );
+    return contract;
+  }
+
+  async uploadSignedLeaseContract(leaseId: number, contractId: number, body: Record<string, unknown>) {
+    const fileName = String(body.file_name ?? body.signed_contract_file_name ?? '').trim();
+    if (!fileName) throw new BadRequestException('Nom du contrat signe requis');
+    const fileUrl = body.file_url ?? body.signed_contract_file_url ?? null;
+    const { rows } = await this.db.query(
+      `UPDATE lease_contract_generations
+       SET signed_contract_file_name = $3,
+           signed_contract_file_url = $4,
+           signed_at = NOW(),
+           uploaded_by = $5,
+           status = 'SIGNED'
+       WHERE id = $1 AND lease_id = $2 AND organization_id = $6 AND deleted_at IS NULL
+       RETURNING *`,
+      [contractId, leaseId, fileName, fileUrl, this.context.userId() ?? 1, this.context.organizationId()],
+    );
+    const contract = requireRow(rows[0], 'Lease contract generation');
+    await this.db.query(
+      `UPDATE leases
+       SET signed_contract_file_name = $2,
+           signed_contract_url = $3,
+           contract_signed_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $1 AND organization_id = $4`,
+      [leaseId, fileName, fileUrl, this.context.organizationId()],
+    );
+    await this.db.query(
+      `INSERT INTO lease_documents (lease_id, document_type, file_name, file_url, uploaded_by, organization_id)
+       VALUES ($1, 'SIGNED_CONTRACT', $2, $3, $4, $5)`,
+      [leaseId, fileName, fileUrl, this.context.userId() ?? 1, this.context.organizationId()],
+    );
+    return contract;
   }
 
   async messageTemplates() {
@@ -2919,7 +3131,9 @@ export class SaasService {
 
   async companySettings() {
     const { rows } = await this.db.query(
-      `SELECT * FROM company_settings
+      `SELECT *,
+              COALESCE(company_legal_name, legal_name, company_name) AS company_legal_name_resolved
+       FROM company_settings
        WHERE organization_id = $1 AND deleted_at IS NULL`,
       [this.context.organizationId()],
     );
@@ -3009,10 +3223,21 @@ export class SaasService {
       'stamp_url',
       'company_name',
       'legal_name',
+      'company_legal_name',
+      'company_acronym',
+      'company_legal_form',
+      'company_rccm',
+      'company_national_id',
+      'company_tax_id',
       'address',
+      'company_commune',
+      'company_city',
+      'company_country',
       'phone',
       'email',
       'website',
+      'legal_representative_name',
+      'legal_representative_title',
       'currency',
       'language',
       'timezone',
@@ -5065,10 +5290,229 @@ export class SaasService {
     return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => String(variables[key] ?? ''));
   }
 
+  private normalizeLeasePayload(body: Record<string, unknown>) {
+    const tenantId = Number(body.tenant_id ?? body.tenantId ?? 0);
+    const unitId = Number(body.unit_id ?? body.unitId ?? 0);
+    const startDate = String(body.start_date ?? '').trim();
+    const endDateValue = String(body.end_date ?? '').trim();
+    if (!tenantId) throw new BadRequestException('Locataire requis');
+    if (!unitId) throw new BadRequestException('Unite requise');
+    if (!startDate) throw new BadRequestException('Date de debut requise');
+
+    const monthlyRent = Number(body.monthly_rent ?? 0);
+    const maintenanceFeeAmount = Number(body.maintenance_fee_amount ?? 0);
+    const monthlySyndicAmount = Number(body.monthly_syndic_amount ?? 0);
+    const otherChargesAmount = Number(body.other_charges_amount ?? 0);
+    const guaranteeMonths = Number(body.guarantee_months ?? 0);
+    const leaseTotalAmount = Number(body.lease_total_amount ?? (monthlyRent + maintenanceFeeAmount + monthlySyndicAmount + otherChargesAmount));
+    const guaranteeAmount = Number(body.rental_guarantee_amount ?? body.guarantee_amount ?? (leaseTotalAmount * guaranteeMonths));
+    const guaranteePaid = Number(body.rental_guarantee_paid ?? body.guarantee_paid ?? 0);
+
+    return {
+      tenantId,
+      unitId,
+      startDate,
+      endDate: endDateValue || null,
+      monthlyRent,
+      maintenanceFeeAmount,
+      monthlySyndicAmount,
+      otherChargesAmount,
+      leaseTotalAmount,
+      guaranteeMonths,
+      guaranteeAmount,
+      guaranteePaid,
+      guaranteePaymentDate: body.rental_guarantee_payment_date ?? body.guarantee_payment_date ?? null,
+      guaranteeStatus: String(body.rental_guarantee_status ?? body.guarantee_status ?? (guaranteePaid <= 0 ? 'NOT_PAID' : guaranteePaid >= guaranteeAmount ? 'PAID' : 'PARTIAL')),
+      noticeMonths: Number(body.notice_months ?? 0),
+      signaturePlace: body.signature_place ? String(body.signature_place).trim() : null,
+      signatureDate: body.signature_date ? String(body.signature_date).trim() : null,
+      leaseUsage: body.lease_usage ? String(body.lease_usage).trim() : null,
+      contractTemplateCode: body.contract_template_code ? String(body.contract_template_code).trim() : 'LEASE_RESIDENTIAL',
+      contractFileName: body.contract_file_name ? String(body.contract_file_name).trim() : null,
+      contractFileUrl: body.contract_file_url ? String(body.contract_file_url).trim() : null,
+      notes: body.notes ? String(body.notes) : null,
+      status: String(body.status ?? 'DRAFT'),
+    };
+  }
+
+  private async activeLeaseContractTemplate(client: PoolClient, code: string) {
+    const { rows } = await client.query(
+      `SELECT *
+       FROM lease_contract_templates
+       WHERE organization_id = $1
+         AND code = $2
+         AND is_active = TRUE
+         AND deleted_at IS NULL
+       ORDER BY version DESC, id DESC
+       LIMIT 1`,
+      [this.context.organizationId(), code],
+    );
+    return requireRow(rows[0], 'Lease contract template');
+  }
+
+  private buildLeaseContractSnapshot(lease: Record<string, any>, company: Record<string, any>) {
+    const totalMonthly = Number(lease.lease_total_amount ?? 0);
+    const guaranteeMonths = Number(lease.guarantee_months ?? 0);
+    const guaranteeAmount = Number(lease.rental_guarantee_amount ?? lease.guarantee?.amount ?? 0);
+    const durationMonths = this.leaseDurationMonths(lease.start_date, lease.end_date);
+    const isCompanyTenant = String(lease.tenant_type ?? 'PHYSICAL') === 'COMPANY';
+    const lessorName = company.company_legal_name ?? company.legal_name ?? company.company_name ?? 'NG Property ERP';
+    const representativeFullName = [company.legal_representative_name].filter(Boolean).join(' ').trim();
+    const tenantRepresentative = [
+      lease.legal_representative_name,
+      lease.representative_post_name,
+      lease.representative_first_name,
+    ].filter(Boolean).join(' ').trim();
+    const tenantFullName = [lease.first_name, lease.last_name, lease.post_name].filter(Boolean).join(' ').trim();
+    const buildingAddressParts = [lease.building_address, lease.building_commune, lease.building_neighborhood, lease.building_city].filter(Boolean);
+    const physicalPresentation = [
+      `Monsieur/Madame ${tenantFullName || lease.tenant_name}`,
+      lease.id_document_type ? `titulaire de la piece d'identite ${lease.id_document_type}` : null,
+      lease.id_number ? `numero ${lease.id_number}` : null,
+      lease.tenant_address ? `domicilie(e) a ${lease.tenant_address}` : null,
+      lease.tenant_commune ? `commune ${lease.tenant_commune}` : null,
+      lease.tenant_city ? `ville ${lease.tenant_city}` : null,
+      lease.tenant_country ? `pays ${lease.tenant_country}` : null,
+    ].filter(Boolean).join(', ');
+    const companyPresentation = [
+      lease.company_name,
+      lease.legal_form ? `${lease.legal_form}` : null,
+      lease.rccm ? `immatriculee au RCCM sous le numero ${lease.rccm}` : null,
+      lease.national_id_number ? `identification nationale ${lease.national_id_number}` : null,
+      lease.tax_number ? `numero fiscal ${lease.tax_number}` : null,
+      lease.tenant_address ? `siege social etabli a ${lease.tenant_address}` : null,
+      tenantRepresentative ? `representee par ${tenantRepresentative}` : null,
+      lease.legal_representative_role ? `agissant en qualite de ${lease.legal_representative_role}` : null,
+    ].filter(Boolean).join(', ');
+
+    return {
+      bailleur: {
+        raison_sociale: lessorName,
+        sigle: company.company_acronym ?? '',
+        rccm: company.company_rccm ?? '',
+        identification_nationale: company.company_national_id ?? '',
+        numero_fiscal: company.company_tax_id ?? '',
+        adresse: company.address ?? '',
+        commune: company.company_commune ?? '',
+        ville: company.company_city ?? '',
+        pays: company.company_country ?? '',
+        representant_nom: representativeFullName,
+        representant_fonction: company.legal_representative_title ?? '',
+        signature_nom: representativeFullName || lessorName,
+        presentation: [
+          lessorName,
+          company.company_legal_form ? `${company.company_legal_form}` : null,
+          company.company_rccm ? `RCCM ${company.company_rccm}` : null,
+          company.company_national_id ? `ID Nat ${company.company_national_id}` : null,
+          company.address ? `adresse ${company.address}` : null,
+          representativeFullName ? `representee par ${representativeFullName}` : null,
+          company.legal_representative_title ? `en qualite de ${company.legal_representative_title}` : null,
+        ].filter(Boolean).join(', '),
+      },
+      locataire: {
+        type: isCompanyTenant ? 'PERSONNE_MORALE' : 'PERSONNE_PHYSIQUE',
+        nom_complet: tenantFullName || lease.tenant_name,
+        raison_sociale: lease.company_name ?? '',
+        forme_juridique: lease.legal_form ?? '',
+        rccm: lease.rccm ?? '',
+        identification_nationale: lease.national_id_number ?? '',
+        numero_piece_identite: lease.id_number ?? '',
+        adresse: lease.tenant_address ?? '',
+        commune: lease.tenant_commune ?? '',
+        ville: lease.tenant_city ?? '',
+        pays: lease.tenant_country ?? '',
+        representant_nom_complet: tenantRepresentative,
+        representant_fonction: lease.legal_representative_role ?? '',
+        signature_nom: isCompanyTenant ? (lease.company_name ?? lease.tenant_name) : (tenantFullName || lease.tenant_name),
+        presentation: isCompanyTenant ? companyPresentation : physicalPresentation,
+      },
+      bien: {
+        numero_unite: lease.unit_number ?? '',
+        immeuble: lease.building_name ?? '',
+        adresse: lease.building_address ?? '',
+        commune: lease.building_commune ?? '',
+        quartier: lease.building_neighborhood ?? '',
+        ville: lease.building_city ?? '',
+        nombre_chambres: String(lease.bedrooms_count ?? 0),
+        nombre_parkings: String(lease.parking_spaces_count ?? (lease.has_parking ? 1 : 0)),
+        meuble_label: lease.is_furnished ? 'Meuble' : 'Non meuble',
+        usage: lease.usage_type ?? lease.lease_usage ?? 'residentiel',
+        adresse_complete: buildingAddressParts.join(', '),
+        description_detail: [
+          `l'unite ${lease.unit_number ?? ''}`.trim(),
+          lease.surface_area ? `${lease.surface_area} m2` : null,
+          lease.bedrooms_count ? `${lease.bedrooms_count} chambre(s)` : null,
+          String(lease.parking_spaces_count ?? (lease.has_parking ? 1 : 0)) !== '0'
+            ? `${lease.parking_spaces_count ?? 1} parking(s)`
+            : null,
+          lease.is_furnished ? 'meublee' : 'non meublee',
+        ].filter(Boolean).join(', '),
+      },
+      bail: {
+        date_debut: this.formatDate(lease.start_date),
+        date_fin: this.formatDate(lease.end_date) || this.formatDate(new Date().toISOString().slice(0, 10)),
+        duree_texte: durationMonths > 0 ? `${durationMonths} mois` : 'duree en cours',
+        preavis_mois: String(lease.notice_months ?? 0),
+        loyer_base: this.formatMoney(lease.monthly_rent),
+        frais_entretien: this.formatMoney(lease.maintenance_fee_amount),
+        frais_syndic: this.formatMoney(lease.monthly_syndic_amount),
+        autres_charges: this.formatMoney(lease.other_charges_amount),
+        loyer_total: this.formatMoney(totalMonthly),
+        garantie_nombre_mois: String(guaranteeMonths),
+        garantie_montant: this.formatMoney(guaranteeAmount),
+        devise: 'USD',
+        lieu_signature: lease.signature_place ?? company.company_city ?? 'Kinshasa',
+        date_signature: this.formatDate(lease.signature_date ?? new Date().toISOString().slice(0, 10)),
+        usage_label: lease.lease_usage ?? lease.usage_type ?? 'residentiel',
+      },
+    };
+  }
+
+  private leaseDurationMonths(startValue?: string, endValue?: string | null) {
+    if (!startValue) return 0;
+    const start = new Date(startValue);
+    const end = new Date(endValue ?? new Date().toISOString().slice(0, 10));
+    const months = (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth();
+    return Math.max(months, 0);
+  }
+
+  private formatMoney(value: unknown) {
+    return Number(value ?? 0).toLocaleString('fr-FR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  private formatDate(value?: string | null) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleDateString('fr-FR');
+  }
+
+  private slugify(value: string) {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 80) || 'document';
+  }
+
+  private leaseReferenceCode(id: number) {
+    return `B-${String(id).padStart(6, '0')}`;
+  }
+
   private async createDefaultCompanySettings() {
     const { rows } = await this.db.query(
-      `INSERT INTO company_settings (organization_id, company_name, legal_name, currency, language, timezone, invoice_footer, invoice_bottom_text, created_by)
-       VALUES ($1, 'Demo Property ERP', 'Demo Property ERP', 'USD', 'fr', 'Africa/Kinshasa', 'Merci pour votre confiance.', 'Facture generee par Property ERP.', $2)
+      `INSERT INTO company_settings (
+         organization_id, company_name, legal_name, company_legal_name, company_city, company_country,
+         currency, language, timezone, invoice_footer, invoice_bottom_text, created_by
+       )
+       VALUES (
+         $1, 'Demo Property ERP', 'Demo Property ERP', 'Demo Property ERP', 'Kinshasa', 'RDC',
+         'USD', 'fr', 'Africa/Kinshasa', 'Merci pour votre confiance.', 'Facture generee par Property ERP.', $2
+       )
        ON CONFLICT (organization_id) DO UPDATE SET organization_id = EXCLUDED.organization_id
        RETURNING *`,
       [this.context.organizationId(), this.context.userId() ?? 1],

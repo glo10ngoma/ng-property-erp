@@ -15,10 +15,14 @@ type Tenant = {
   last_name?: string;
   post_name?: string;
   company_name?: string;
+  legal_form?: string;
   rccm?: string;
+  national_id_number?: string;
   tax_number?: string;
   business_sector?: string;
   legal_representative_name?: string;
+  representative_post_name?: string;
+  representative_first_name?: string;
   legal_representative_role?: string;
   legal_representative_phone?: string;
   legal_representative_email?: string;
@@ -28,6 +32,9 @@ type Tenant = {
   email?: string;
   profession?: string;
   address?: string;
+  commune?: string;
+  city?: string;
+  country?: string;
   id_document_type?: string;
   id_number?: string;
   id_document_file_name?: string;
@@ -106,10 +113,14 @@ export function Tenants() {
       last_name: optionalText(form.get('last_name')),
       post_name: optionalText(form.get('post_name')),
       company_name: optionalText(form.get('company_name')),
+      legal_form: optionalText(form.get('legal_form')),
       rccm: optionalText(form.get('rccm')),
+      national_id_number: optionalText(form.get('national_id_number')),
       tax_number: optionalText(form.get('tax_number')),
       business_sector: optionalText(form.get('business_sector')),
       legal_representative_name: optionalText(form.get('legal_representative_name')),
+      representative_post_name: optionalText(form.get('representative_post_name')),
+      representative_first_name: optionalText(form.get('representative_first_name')),
       legal_representative_role: optionalText(form.get('legal_representative_role')),
       legal_representative_phone: optionalText(form.get('legal_representative_phone')),
       legal_representative_email: optionalText(form.get('legal_representative_email')),
@@ -119,6 +130,9 @@ export function Tenants() {
       email: optionalText(form.get('email')),
       profession: optionalText(form.get('profession')),
       address: optionalText(form.get('address')),
+      commune: optionalText(form.get('commune')),
+      city: optionalText(form.get('city')),
+      country: optionalText(form.get('country')),
       id_document_type: optionalText(form.get('id_document_type')),
       id_number: optionalText(form.get('id_number')),
       id_document_file_name: tenantType === 'PHYSICAL' ? identityFileName || null : null,
@@ -246,24 +260,31 @@ function TenantForm({ editing, identityFileName, onIdentityFile, onSubmit }: { e
         {!isCompany && <label><span>Nom <em>*</em></span><input name="last_name" defaultValue={editing.last_name ?? ''} required /></label>}
         {!isCompany && <label><span>Post-nom <small>(optionnel)</small></span><input name="post_name" defaultValue={editing.post_name ?? ''} /></label>}
         {isCompany && <label><span>Raison sociale <em>*</em></span><input name="company_name" defaultValue={editing.company_name ?? ''} required /></label>}
+        {isCompany && <label><span>Forme juridique <small>(optionnel)</small></span><input name="legal_form" defaultValue={editing.legal_form ?? ''} placeholder="SARL, SA, ONG..." /></label>}
         {isCompany && <label><span>RCCM <small>(optionnel)</small></span><input name="rccm" defaultValue={editing.rccm ?? ''} /></label>}
-        {isCompany && <label><span>ID Nat / Numero fiscal <small>(optionnel)</small></span><input name="tax_number" defaultValue={editing.tax_number ?? ''} /></label>}
+        {isCompany && <label><span>Identification nationale <small>(optionnel)</small></span><input name="national_id_number" defaultValue={editing.national_id_number ?? ''} /></label>}
+        {isCompany && <label><span>Numero fiscal <small>(optionnel)</small></span><input name="tax_number" defaultValue={editing.tax_number ?? ''} /></label>}
         <label><span>Statut <em>*</em></span><select name="status" defaultValue={editing.status ?? 'ACTIVE'} required>{tenantStatuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label>
       </FormSection>
-      <FormSection title={isCompany ? 'Societe' : 'Contact'}>
+      <FormSection title="Contact">
         {isCompany && <label><span>Secteur d'activite <small>(optionnel)</small></span><input name="business_sector" defaultValue={editing.business_sector ?? ''} /></label>}
         <label><span>{isCompany ? 'Telephone societe' : 'Telephone'} <em>*</em></span><input name="phone" defaultValue={editing.phone ?? ''} required /></label>
         {!isCompany && <label><span>Telephone secondaire <small>(optionnel)</small></span><input name="secondary_phone" defaultValue={editing.secondary_phone ?? ''} /></label>}
         <label><span>{isCompany ? 'Email societe' : 'Email'} <small>(optionnel)</small></span><input name="email" placeholder="exemple@email.com" type="email" defaultValue={editing.email ?? ''} /></label>
-        {isCompany && <label><span>Adresse societe <small>(optionnel)</small></span><input name="address" defaultValue={editing.address ?? ''} /></label>}
+        {isCompany && <label><span>Adresse siege <small>(optionnel)</small></span><input name="address" defaultValue={editing.address ?? ''} /></label>}
+        <label><span>Commune <small>(optionnel)</small></span><input name="commune" defaultValue={editing.commune ?? ''} /></label>
+        <label><span>Ville <small>(optionnel)</small></span><input name="city" defaultValue={editing.city ?? ''} /></label>
+        <label><span>Pays <small>(optionnel)</small></span><input name="country" defaultValue={editing.country ?? ''} /></label>
       </FormSection>
       {!isCompany && <FormSection title="Profil">
         <label><span>Profession <small>(optionnel)</small></span><input name="profession" defaultValue={editing.profession ?? ''} /></label>
         <label><span>Nationalite <small>(optionnel)</small></span><input name="nationality" placeholder="Congolaise" defaultValue={editing.nationality ?? ''} /></label>
-        <label><span>Adresse <small>(optionnel)</small></span><input name="address" defaultValue={editing.address ?? ''} /></label>
+        <label><span>Adresse detaillee <small>(optionnel)</small></span><input name="address" defaultValue={editing.address ?? ''} /></label>
       </FormSection>}
       {isCompany && <FormSection title="Representant">
-        <label><span>Representant legal <small>(optionnel)</small></span><input name="legal_representative_name" defaultValue={editing.legal_representative_name ?? ''} /></label>
+        <label><span>Nom representant <small>(optionnel)</small></span><input name="legal_representative_name" defaultValue={editing.legal_representative_name ?? ''} /></label>
+        <label><span>Post-nom representant <small>(optionnel)</small></span><input name="representative_post_name" defaultValue={editing.representative_post_name ?? ''} /></label>
+        <label><span>Prenom representant <small>(optionnel)</small></span><input name="representative_first_name" defaultValue={editing.representative_first_name ?? ''} /></label>
         <label><span>Fonction du representant <small>(optionnel)</small></span><input name="legal_representative_role" defaultValue={editing.legal_representative_role ?? ''} /></label>
         <label><span>Telephone representant <small>(optionnel)</small></span><input name="legal_representative_phone" defaultValue={editing.legal_representative_phone ?? ''} /></label>
         <label><span>Email representant <small>(optionnel)</small></span><input name="legal_representative_email" type="email" defaultValue={editing.legal_representative_email ?? ''} /></label>

@@ -666,7 +666,7 @@ export class MaintenanceController {
 
   @Post('requests/:id/approve')
   approve(@Param('id', ParseIntPipe) id: number) {
-    return this.service.transitionMaintenanceRequest(id, 'APPROVED', 'Validation', 'Demande approuvée');
+    return this.service.transitionMaintenanceRequest(id, 'APPROVED', 'Validation', 'Demande approuvee');
   }
 
   @Post('requests/:id/reject')
@@ -716,7 +716,7 @@ export class MaintenanceController {
 
   @Post('requests/:id/cancel')
   cancel(@Param('id', ParseIntPipe) id: number) {
-    return this.service.transitionMaintenanceRequest(id, 'CANCELLED', 'Annulation', 'Demande annulée');
+    return this.service.transitionMaintenanceRequest(id, 'CANCELLED', 'Annulation', 'Demande annulee');
   }
 
   @Post('requests/:id/stock')
@@ -800,7 +800,7 @@ export class LeasesController {
 
   @Post(':id/terminate')
   terminate(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
-    return this.service.terminateLease(id, String(body.reason ?? 'Résiliation'));
+    return this.service.terminateLease(id, String(body.reason ?? 'Resiliation'));
   }
 
   @Get(':id/guarantee')
@@ -821,6 +821,35 @@ export class LeasesController {
   @Get(':id/documents')
   documents(@Param('id', ParseIntPipe) id: number) {
     return this.service.leaseDocuments(id);
+  }
+
+  @Get(':id/contracts/latest')
+  latestContract(@Param('id', ParseIntPipe) id: number) {
+    return this.service.latestLeaseContract(id);
+  }
+
+  @Post(':id/contracts/generate')
+  generateContract(@Param('id', ParseIntPipe) id: number) {
+    return this.service.generateLeaseContract(id);
+  }
+
+  @Post(':id/contracts/:contractId/printed')
+  markPrinted(@Param('id', ParseIntPipe) id: number, @Param('contractId', ParseIntPipe) contractId: number) {
+    return this.service.markLeaseContractPrinted(id, contractId);
+  }
+
+  @Post(':id/contracts/:contractId/sign')
+  markSigned(@Param('id', ParseIntPipe) id: number, @Param('contractId', ParseIntPipe) contractId: number) {
+    return this.service.markLeaseContractSigned(id, contractId);
+  }
+
+  @Post(':id/contracts/:contractId/upload-signed')
+  uploadSigned(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('contractId', ParseIntPipe) contractId: number,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.service.uploadSignedLeaseContract(id, contractId, body);
   }
 
   @Post(':id/invoice')

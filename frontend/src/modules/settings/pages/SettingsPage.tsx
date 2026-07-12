@@ -10,10 +10,21 @@ type CompanySettings = {
   stamp_url?: string;
   company_name: string;
   legal_name?: string;
+  company_legal_name?: string;
+  company_acronym?: string;
+  company_legal_form?: string;
+  company_rccm?: string;
+  company_national_id?: string;
+  company_tax_id?: string;
   address?: string;
+  company_commune?: string;
+  company_city?: string;
+  company_country?: string;
   phone?: string;
   email?: string;
   website?: string;
+  legal_representative_name?: string;
+  legal_representative_title?: string;
   currency: string;
   language: string;
   timezone: string;
@@ -46,11 +57,11 @@ type ExchangeRate = {
 
 const referenceTypeLabels: Record<string, string> = {
   charge_types: 'Types de charges',
-  expense_categories: 'Catégories de dépenses',
-  stock_categories: 'Catégories stock',
+  expense_categories: 'Categories de depenses',
+  stock_categories: 'Categories stock',
   document_types: 'Types de documents',
   staff_positions: 'Fonctions du personnel',
-  leave_types: 'Types de congés',
+  leave_types: 'Types de conges',
   payment_methods: 'Modes de paiement',
   banks: 'Banques',
   cities: 'Villes',
@@ -90,13 +101,13 @@ export function SettingsPage() {
   }
 
   useEffect(() => {
-    load();
-    loadRestricted();
+    void load();
+    void loadRestricted();
   }, []);
 
   async function updateCompany(form: FormData) {
     await api.patch('/settings/company', Object.fromEntries(form));
-    setSuccess('Paramètres enregistrés.');
+    setSuccess('Parametres enregistres.');
     await load();
   }
 
@@ -109,7 +120,7 @@ export function SettingsPage() {
     setExchangeRate(next);
     setExchangeRateDraft(next ? String(next.rate) : '');
     setExchangeRateDateDraft(next?.effectiveDate ?? new Date().toISOString().slice(0, 10));
-    setSuccess('Taux de change enregistré.');
+    setSuccess('Taux de change enregistre.');
     await load();
   }
 
@@ -123,20 +134,35 @@ export function SettingsPage() {
 
   return (
     <section>
-      <PageHeader title="Paramètres" />
+      <PageHeader title="Parametres" />
       <SuccessMessage message={success} />
 
       {company && (
         <>
-          <SettingsSection title="Entreprise" hint="Informations générales visibles sur les documents et impressions.">
-            <form className="form-grid" onSubmit={(event) => { event.preventDefault(); updateCompany(new FormData(event.currentTarget)); }}>
+          <SettingsSection title="Entreprise" hint="Informations generales du bailleur reutilisees dans les contrats, factures et impressions.">
+            <form className="form-grid" onSubmit={(event) => { event.preventDefault(); void updateCompany(new FormData(event.currentTarget)); }}>
               <Field label="Nom entreprise">
                 <input name="company_name" defaultValue={company.company_name} disabled={!can('settings.update')} required />
               </Field>
               <Field label="Raison sociale">
-                <input name="legal_name" defaultValue={company.legal_name ?? ''} disabled={!can('settings.update')} />
+                <input name="company_legal_name" defaultValue={company.company_legal_name ?? company.legal_name ?? ''} disabled={!can('settings.update')} />
               </Field>
-              <Field label="Téléphone">
+              <Field label="Sigle">
+                <input name="company_acronym" defaultValue={company.company_acronym ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Forme juridique">
+                <input name="company_legal_form" defaultValue={company.company_legal_form ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="RCCM">
+                <input name="company_rccm" defaultValue={company.company_rccm ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Identification nationale">
+                <input name="company_national_id" defaultValue={company.company_national_id ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Numero fiscal">
+                <input name="company_tax_id" defaultValue={company.company_tax_id ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Telephone">
                 <input name="phone" defaultValue={company.phone ?? ''} disabled={!can('settings.update')} />
               </Field>
               <Field label="Adresse e-mail">
@@ -145,22 +171,32 @@ export function SettingsPage() {
               <Field label="Adresse">
                 <input name="address" defaultValue={company.address ?? ''} disabled={!can('settings.update')} />
               </Field>
+              <Field label="Commune">
+                <input name="company_commune" defaultValue={company.company_commune ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Ville">
+                <input name="company_city" defaultValue={company.company_city ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Pays">
+                <input name="company_country" defaultValue={company.company_country ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Representant legal">
+                <input name="legal_representative_name" defaultValue={company.legal_representative_name ?? ''} disabled={!can('settings.update')} />
+              </Field>
+              <Field label="Titre representant">
+                <input name="legal_representative_title" defaultValue={company.legal_representative_title ?? ''} disabled={!can('settings.update')} />
+              </Field>
               <Field label="Site web">
                 <input name="website" defaultValue={company.website ?? ''} disabled={!can('settings.update')} />
-              </Field>
-              <Field label="RCCM">
-                <input value="Bientôt" disabled />
-              </Field>
-              <Field label="NIF">
-                <input value="Bientôt" disabled />
               </Field>
               <Field label="Logo">
                 <input name="logo_url" defaultValue={company.logo_url ?? ''} disabled={!can('settings.update')} />
               </Field>
               {can('settings.update') && <div className="form-actions"><button>Enregistrer</button></div>}
             </form>
-            <form className="form-grid" onSubmit={(event) => { event.preventDefault(); updateExchangeRate(new FormData(event.currentTarget)); }}>
-              <Field label="Devise de référence">
+
+            <form className="form-grid" onSubmit={(event) => { event.preventDefault(); void updateExchangeRate(new FormData(event.currentTarget)); }}>
+              <Field label="Devise de reference">
                 <input value="USD" readOnly className="locked-field" />
               </Field>
               <Field label="Devise locale">
@@ -169,10 +205,10 @@ export function SettingsPage() {
               <Field label="Taux courant">
                 <input name="rate" type="number" min="0.000001" step="0.000001" value={exchangeRateDraft} onChange={(event) => setExchangeRateDraft(event.target.value)} disabled={!can('settings.update')} required />
               </Field>
-              <Field label="Date d'application">
+              <Field label="Date d application">
                 <input name="effective_date" type="date" value={exchangeRateDateDraft} onChange={(event) => setExchangeRateDateDraft(event.target.value)} disabled={!can('settings.update')} required />
               </Field>
-              <Field label="Dernière modification">
+              <Field label="Derniere modification">
                 <input value={exchangeRate?.updatedAt ?? exchangeRate?.createdAt ?? '-'} readOnly className="locked-field" />
               </Field>
               <Field label="Utilisateur">
@@ -182,8 +218,8 @@ export function SettingsPage() {
             </form>
           </SettingsSection>
 
-          <SettingsSection title="Facturation" hint="Réglages déjà persistés et champs avancés signalés sans fausse sauvegarde.">
-            <form className="form-grid" onSubmit={(event) => { event.preventDefault(); updateCompany(new FormData(event.currentTarget)); }}>
+          <SettingsSection title="Facturation" hint="Reglages deja persistes et zones de personnalisation de sortie.">
+            <form className="form-grid" onSubmit={(event) => { event.preventDefault(); void updateCompany(new FormData(event.currentTarget)); }}>
               <Field label="Devise">
                 <input name="currency" defaultValue={company.currency} disabled={!can('settings.update')} />
               </Field>
@@ -209,14 +245,14 @@ export function SettingsPage() {
               <Field label="Texte bas de facture">
                 <textarea name="invoice_bottom_text" defaultValue={company.invoice_bottom_text ?? ''} disabled={!can('settings.update')} />
               </Field>
-              <Field label="Préfixe facture">
-                <input value="Bientôt" disabled />
+              <Field label="Prefixe facture">
+                <input value="Bientot" disabled />
               </Field>
-              <Field label="Jour d’échéance par défaut">
-                <input value="Bientôt" disabled />
+              <Field label="Jour d echeance par defaut">
+                <input value="Bientot" disabled />
               </Field>
-              <Field label="Coordonnées bancaires">
-                <input value="Bientôt" disabled />
+              <Field label="Coordonnees bancaires">
+                <input value="Bientot" disabled />
               </Field>
               {can('settings.update') && <div className="form-actions"><button>Enregistrer</button></div>}
             </form>
@@ -227,9 +263,9 @@ export function SettingsPage() {
       <SettingsSection title="Immobilier">
         <PlaceholderGrid
           items={[
-            ['Ville par défaut', 'Bientôt'],
-            ['Types d’immeubles', summaryFromReferences(groupedReferences['Villes'])],
-            ['Types d’unités', 'Bientôt'],
+            ['Ville par defaut', 'Bientot'],
+            ['Types d immeubles', summaryFromReferences(groupedReferences['Villes'])],
+            ['Types d unites', 'Bientot'],
           ]}
         />
       </SettingsSection>
@@ -237,10 +273,10 @@ export function SettingsPage() {
       <SettingsSection title="Stock">
         <PlaceholderGrid
           items={[
-            ['Seuil de sécurité par défaut', 'Bientôt'],
-            ['Responsable stock', 'Bientôt'],
-            ['Notification rupture', 'Bientôt'],
-            ['Notification sous seuil', 'Bientôt'],
+            ['Seuil de securite par defaut', 'Bientot'],
+            ['Responsable stock', 'Bientot'],
+            ['Notification rupture', 'Bientot'],
+            ['Notification sous seuil', 'Bientot'],
           ]}
         />
       </SettingsSection>
@@ -248,9 +284,9 @@ export function SettingsPage() {
       <SettingsSection title="Ressources humaines">
         <PlaceholderGrid
           items={[
-            ['Jours ouvrables par défaut', 'Bientôt'],
+            ['Jours ouvrables par defaut', 'Bientot'],
             ['Devise paie', company?.currency ?? 'USD'],
-            ['Méthode salaire journalier', 'Bientôt'],
+            ['Methode salaire journalier', 'Bientot'],
           ]}
         />
       </SettingsSection>
@@ -261,30 +297,30 @@ export function SettingsPage() {
             ['Email', 'Simulation locale'],
             ['WhatsApp', 'Simulation locale'],
             ['SMS', 'Simulation locale'],
-            ['Préférences activation', 'Bientôt'],
+            ['Preferences activation', 'Bientot'],
           ]}
         />
       </SettingsSection>
 
-      <SettingsSection title="Sécurité">
+      <SettingsSection title="Securite">
         <PlaceholderGrid
           items={[
-            ['Durée session', 'Bientôt'],
-            ['Politique mot de passe', 'Bientôt'],
+            ['Duree session', 'Bientot'],
+            ['Politique mot de passe', 'Bientot'],
             ['Audit', 'Actif'],
           ]}
         />
       </SettingsSection>
 
-      <SettingsSection title="Référentiels">
+      <SettingsSection title="Referentiels">
         {!Object.keys(groupedReferences).length ? (
-          <EmptyState message="Aucun référentiel disponible." />
+          <EmptyState message="Aucun referentiel disponible." />
         ) : (
           <div className="chart-grid">
             {Object.entries(groupedReferences).map(([label, items]) => (
               <article className="chart-card" key={label}>
                 <h3>{label}</h3>
-                <p>{items.slice(0, 4).map((item) => item.label).join(', ') || 'Aucune donnée'}</p>
+                <p>{items.slice(0, 4).map((item) => item.label).join(', ') || 'Aucune donnee'}</p>
                 <small>{items.length} valeur(s)</small>
               </article>
             ))}
@@ -292,7 +328,7 @@ export function SettingsPage() {
         )}
       </SettingsSection>
 
-      <SettingsSection title="Services complémentaires">
+      <SettingsSection title="Services complementaires">
         <div className="chart-grid">
           {services.map((service) => (
             <article className="chart-card" key={service.title}>
@@ -303,15 +339,15 @@ export function SettingsPage() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Réservé éditeur">
+      <SettingsSection title="Reserve editeur">
         {!can('publisher_settings.read') ? (
-          <EmptyState message="Accès réservé." />
+          <EmptyState message="Acces reserve." />
         ) : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Paramètre avancé</th>
+                  <th>Parametre avance</th>
                   <th>Statut</th>
                 </tr>
               </thead>
@@ -364,6 +400,6 @@ function PlaceholderGrid({ items }: { items: Array<[string, string]> }) {
 }
 
 function summaryFromReferences(items?: ReferenceData[]) {
-  if (!items?.length) return 'Bientôt';
+  if (!items?.length) return 'Bientot';
   return `${items.length} valeur(s) disponibles`;
 }
