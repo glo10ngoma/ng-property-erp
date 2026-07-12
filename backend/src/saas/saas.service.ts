@@ -3637,6 +3637,375 @@ export class SaasService {
     };
   }
 
+  async tenantStatement(id: number, filters: { month?: string; year?: string; start?: string; end?: string } = {}) {
+    return this.accountStatement('tenant', id, filters);
+  }
+
+  async unitStatement(id: number, filters: { month?: string; year?: string; start?: string; end?: string } = {}) {
+    return this.accountStatement('unit', id, filters);
+  }
+
+  async buildingStatement(id: number, filters: { month?: string; year?: string; start?: string; end?: string } = {}) {
+    return this.accountStatement('building', id, filters);
+  }
+
+  private statementPeriod(filters: { month?: string; year?: string; start?: string; end?: string }) {
+    return this.reportPeriod(filters);
+  }
+
+  private statementMovementOrder(type: string) {
+    return type === 'INVOICE' ? 1 : type === 'PAYMENT' ? 2 : 0;
+  }
+
+  private statementEntityLabel(scope: 'tenant' | 'unit' | 'building', row: Record<string, any>) {
+    if (scope === 'tenant') {
+      return row.tenant_type === 'COMPANY'
+        ? row.company_name
+        : [row.first_name, row.last_name, row.post_name].filter(Boolean).join(' ').trim();
+    }
+    if (scope === 'unit') {
+      return `${row.building_name ?? ''}${row.building_name && row.number ? ' - ' : ''}${row.number ?? ''}`.trim();
+    }
+    return row.name ?? row.building_name ?? `#${row.id}`;
+  }
+
+  private statementEntitySubtitle(scope: 'tenant' | 'unit' | 'building', row: Record<string, any>) {
+    if (scope === 'tenant') {
+      if (row.tenant_type === 'COMPANY') {
+        return [row.rccm, row.legal_representative_name].filter(Boolean).join(' · ') || null;
+      }
+      return [row.phone, row.email].filter(Boolean).join(' · ') || null;
+    }
+    if (scope === 'unit') {
+      return [row.building_address, row.active_lease_end_date ? `Fin bail ${row.active_lease_end_date}` : null].filter(Boolean).join(' · ') || null;
+    }
+    return [row.city, row.address].filter(Boolean).join(' · ') || null;
+  }
+
+  private async accountStatement(scope: 'tenant' | 'unit' | 'building', id: number, filters: { month?: string; year?: string; start?: string; end?: string } = {}) {
+    const organizationId = this.context.organizationId();
+    const period = this.statementPeriod(filters);
+    const currency = 'USD';
+    const source = await this.statementSource(scope, id, organizationId);
+    const openingBalance = await this.statementOpeningBalance(scope, id, organizationId, period.start);
+    const invoiceRows = await this.statementInvoices(scope, id, organizationId, period.start, period.end);
+    const paymentRows = await this.statementPayments(scope, id, organizationId, period.start, period.end);
+    const movements = this.statementMovements(openingBalance, invoiceRows, paymentRows, currency, period.start);
+    const debits = invoiceRows.reduce((sum, row) => sum + Number(row.total ?? 0), 0);
+    const credits = paymentRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+    const closingBalance = Number(openingBalance ?? 0) + debits - credits;
+    return {
+      kind: scope.toUpperCase(),
+      entity: source.entity,
+      period,
+      currency,
+      opening_balance: Number(openingBalance ?? 0),
+      totals: {
+        debits,
+        credits,
+        closing_balance: Number(closingBalance.toFixed(2)),
+        invoices_count: invoiceRows.length,
+        payments_count: paymentRows.length,
+      },
+      movements,
+      invoices: invoiceRows,
+      payments: paymentRows,
+    };
+  }
+
+  private async statementSource(scope: 'tenant' | 'unit' | 'building', id: number, organizationId: number) {
+    if (scope === 'tenant') {
+      const { rows } = await this.db.query(
+        `SELECT t.*, u.number AS unit_number, b.name AS building_name, b.address AS building_address
+         FROM tenants t
+         LEFT JOIN units u ON u.id = t.unit_id
+         LEFT JOIN buildings b ON b.id = u.building_id
+         WHERE t.id = $1 AND t.organization_id = $2 AND t.deleted_at IS NULL`,
+        [id, organizationId],
+      );
+      const row = requireRow(rows[0], 'Tenant');
+      return {
+        entity: {
+          id: row.id,
+          entity_type: 'TENANT',
+          title: this.statementEntityLabel('tenant', row),
+          subtitle: this.statementEntitySubtitle('tenant', row),
+          tenant: row,
+        },
+      };
+    }
+    if (scope === 'unit') {
+      const { rows } = await this.db.query(
+        `SELECT u.*, b.name AS building_name, b.address AS building_address,
+                t.id AS tenant_id, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
+                t.phone AS tenant_phone, t.email AS tenant_email,
+                l.end_date AS active_lease_end_date
+         FROM units u
+         JOIN buildings b ON b.id = u.building_id
+         LEFT JOIN tenants t ON t.unit_id = u.id AND t.status = 'ACTIVE' AND t.deleted_at IS NULL
+         LEFT JOIN leases l ON l.unit_id = u.id AND l.status = 'ACTIVE' AND l.deleted_at IS NULL
+         WHERE u.id = $1 AND u.organization_id = $2 AND u.deleted_at IS NULL`,
+        [id, organizationId],
+      );
+      const row = requireRow(rows[0], 'Unit');
+      return {
+        entity: {
+          id: row.id,
+          entity_type: 'UNIT',
+          title: this.statementEntityLabel('unit', row),
+          subtitle: this.statementEntitySubtitle('unit', row),
+          unit: row,
+        },
+      };
+    }
+    const { rows } = await this.db.query(
+      `SELECT b.*
+       FROM buildings b
+       WHERE b.id = $1 AND b.organization_id = $2 AND b.deleted_at IS NULL`,
+      [id, organizationId],
+    );
+    const row = requireRow(rows[0], 'Building');
+    return {
+      entity: {
+        id: row.id,
+        entity_type: 'BUILDING',
+        title: this.statementEntityLabel('building', row),
+        subtitle: this.statementEntitySubtitle('building', row),
+        building: row,
+      },
+    };
+  }
+
+  private statementInvoiceScope(scope: 'tenant' | 'unit' | 'building') {
+    if (scope === 'tenant') return 'i.tenant_id = $1';
+    if (scope === 'unit') return 'COALESCE(i.unit_id, l.unit_id, t.unit_id) = $1';
+    return 'COALESCE(i.building_id, u.building_id) = $1';
+  }
+
+  private statementPaymentScope(scope: 'tenant' | 'unit' | 'building') {
+    if (scope === 'tenant') return 'i.tenant_id = $1';
+    if (scope === 'unit') return 'COALESCE(i.unit_id, l.unit_id, t.unit_id) = $1';
+    return 'COALESCE(i.building_id, u.building_id) = $1';
+  }
+
+  private async statementOpeningBalance(scope: 'tenant' | 'unit' | 'building', id: number, organizationId: number, start: string) {
+    const invoiceCondition = this.statementInvoiceScope(scope);
+    const paymentCondition = this.statementPaymentScope(scope);
+    const invoiceSql = scope === 'tenant'
+      ? `SELECT COALESCE(SUM(i.total), 0)::FLOAT AS total
+         FROM invoices i
+         WHERE ${invoiceCondition}
+           AND i.issue_date < $3
+           AND i.organization_id = $2
+           AND i.deleted_at IS NULL`
+      : scope === 'unit'
+        ? `SELECT COALESCE(SUM(i.total), 0)::FLOAT AS total
+           FROM invoices i
+           LEFT JOIN leases l ON l.id = i.lease_id
+           LEFT JOIN tenants t ON t.id = i.tenant_id
+           WHERE ${invoiceCondition}
+             AND i.issue_date < $3
+             AND i.organization_id = $2
+             AND i.deleted_at IS NULL`
+        : `SELECT COALESCE(SUM(i.total), 0)::FLOAT AS total
+           FROM invoices i
+           LEFT JOIN leases l ON l.id = i.lease_id
+           LEFT JOIN tenants t ON t.id = i.tenant_id
+           LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+           WHERE ${invoiceCondition}
+             AND i.issue_date < $3
+             AND i.organization_id = $2
+             AND i.deleted_at IS NULL`;
+    const paymentSql = scope === 'tenant'
+      ? `SELECT COALESCE(SUM(p.amount), 0)::FLOAT AS total
+         FROM payments p
+         JOIN invoices i ON i.id = p.invoice_id
+         WHERE ${paymentCondition}
+           AND p.payment_date < $3
+           AND p.organization_id = $2
+           AND p.deleted_at IS NULL`
+      : scope === 'unit'
+        ? `SELECT COALESCE(SUM(p.amount), 0)::FLOAT AS total
+           FROM payments p
+           JOIN invoices i ON i.id = p.invoice_id
+           LEFT JOIN leases l ON l.id = i.lease_id
+           LEFT JOIN tenants t ON t.id = i.tenant_id
+           WHERE ${paymentCondition}
+             AND p.payment_date < $3
+             AND p.organization_id = $2
+             AND p.deleted_at IS NULL`
+        : `SELECT COALESCE(SUM(p.amount), 0)::FLOAT AS total
+           FROM payments p
+           JOIN invoices i ON i.id = p.invoice_id
+           LEFT JOIN leases l ON l.id = i.lease_id
+           LEFT JOIN tenants t ON t.id = i.tenant_id
+           LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+           WHERE ${paymentCondition}
+             AND p.payment_date < $3
+             AND p.organization_id = $2
+             AND p.deleted_at IS NULL`;
+    const [invoiceBalance, paymentBalance] = await Promise.all([
+      this.db.query(invoiceSql, [id, organizationId, start]),
+      this.db.query(paymentSql, [id, organizationId, start]),
+    ]);
+    return Number(invoiceBalance.rows[0]?.total ?? 0) - Number(paymentBalance.rows[0]?.total ?? 0);
+  }
+
+  private async statementInvoices(scope: 'tenant' | 'unit' | 'building', id: number, organizationId: number, start: string, end: string) {
+    const condition = this.statementInvoiceScope(scope);
+    const sql = scope === 'tenant'
+      ? `SELECT i.id, i.invoice_number, i.month, i.year, i.issue_date, i.due_date, i.status, i.total,
+              i.last_reminder_at, COALESCE(i.reminder_count, 0)::INT AS reminder_count,
+              i.tenant_id, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone, t.email,
+              u.number AS unit_number,
+              COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
+              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
+         FROM invoices i
+         JOIN tenants t ON t.id = i.tenant_id
+         LEFT JOIN leases l ON l.id = i.lease_id
+         LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+         LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
+         WHERE ${condition}
+           AND i.organization_id = $2
+           AND i.deleted_at IS NULL
+           AND i.issue_date BETWEEN $3 AND $4
+         ORDER BY i.issue_date ASC, i.id ASC`
+      : scope === 'unit'
+        ? `SELECT i.id, i.invoice_number, i.month, i.year, i.issue_date, i.due_date, i.status, i.total,
+              i.last_reminder_at, COALESCE(i.reminder_count, 0)::INT AS reminder_count,
+              i.tenant_id, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone, t.email,
+              u.number AS unit_number, b.name AS building_name,
+              COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
+              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
+         FROM invoices i
+         JOIN tenants t ON t.id = i.tenant_id
+         LEFT JOIN leases l ON l.id = i.lease_id
+         LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+         LEFT JOIN buildings b ON b.id = u.building_id
+         LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
+         WHERE ${condition}
+           AND i.organization_id = $2
+           AND i.deleted_at IS NULL
+           AND i.issue_date BETWEEN $3 AND $4
+         ORDER BY i.issue_date ASC, i.id ASC`
+        : `SELECT i.id, i.invoice_number, i.month, i.year, i.issue_date, i.due_date, i.status, i.total,
+              i.last_reminder_at, COALESCE(i.reminder_count, 0)::INT AS reminder_count,
+              i.tenant_id, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone, t.email,
+              u.number AS unit_number, b.name AS building_name,
+              COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
+              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
+         FROM invoices i
+         JOIN tenants t ON t.id = i.tenant_id
+         LEFT JOIN leases l ON l.id = i.lease_id
+         LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+         LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
+         LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
+         WHERE ${condition}
+           AND i.organization_id = $2
+           AND i.deleted_at IS NULL
+           AND i.issue_date BETWEEN $3 AND $4
+         ORDER BY i.issue_date ASC, i.id ASC`;
+    const { rows } = await this.db.query(sql, [id, organizationId, start, end]);
+    return this.appendInvoiceItemSummaries(rows);
+  }
+
+  private async statementPayments(scope: 'tenant' | 'unit' | 'building', id: number, organizationId: number, start: string, end: string) {
+    const condition = this.statementPaymentScope(scope);
+    const sql = scope === 'tenant'
+      ? `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference, p.receipt_number,
+              i.invoice_number, i.status AS invoice_status, i.id AS invoice_id, i.tenant_id,
+              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
+              u.number AS unit_number
+         FROM payments p
+         JOIN invoices i ON i.id = p.invoice_id
+         JOIN tenants t ON t.id = i.tenant_id
+         LEFT JOIN leases l ON l.id = i.lease_id
+         LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+         WHERE ${condition}
+           AND p.payment_date BETWEEN $3 AND $4
+           AND p.organization_id = $2
+           AND p.deleted_at IS NULL
+         ORDER BY p.payment_date ASC, p.id ASC`
+      : scope === 'unit'
+        ? `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference, p.receipt_number,
+              i.invoice_number, i.status AS invoice_status, i.id AS invoice_id, i.tenant_id,
+              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
+              u.number AS unit_number, b.name AS building_name
+         FROM payments p
+         JOIN invoices i ON i.id = p.invoice_id
+         JOIN tenants t ON t.id = i.tenant_id
+         LEFT JOIN leases l ON l.id = i.lease_id
+         LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+         LEFT JOIN buildings b ON b.id = u.building_id
+         WHERE ${condition}
+           AND p.payment_date BETWEEN $3 AND $4
+           AND p.organization_id = $2
+           AND p.deleted_at IS NULL
+         ORDER BY p.payment_date ASC, p.id ASC`
+        : `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference, p.receipt_number,
+              i.invoice_number, i.status AS invoice_status, i.id AS invoice_id, i.tenant_id,
+              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
+              u.number AS unit_number, b.name AS building_name
+         FROM payments p
+         JOIN invoices i ON i.id = p.invoice_id
+         JOIN tenants t ON t.id = i.tenant_id
+         LEFT JOIN leases l ON l.id = i.lease_id
+         LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+         LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
+         WHERE ${condition}
+           AND p.payment_date BETWEEN $3 AND $4
+           AND p.organization_id = $2
+           AND p.deleted_at IS NULL
+         ORDER BY p.payment_date ASC, p.id ASC`;
+    const { rows } = await this.db.query(sql, [id, organizationId, start, end]);
+    return rows;
+  }
+
+  private statementMovements(openingBalance: number, invoices: Record<string, any>[], payments: Record<string, any>[], currency: string, openingDate: string) {
+    const rows = [
+      {
+        date: openingDate,
+        reference: 'OUVERTURE',
+        movement_type: 'OPENING',
+        label: 'Solde initial',
+        debit: 0,
+        credit: 0,
+        currency,
+        running_balance: Number(openingBalance.toFixed(2)),
+      },
+      ...invoices.map((invoice) => ({
+        date: invoice.issue_date,
+        reference: invoice.invoice_number,
+        movement_type: 'INVOICE',
+        label: `Facture ${invoice.invoice_number}${invoice.rent_amount || invoice.syndic_amount ? ` - Loyer ${Number(invoice.rent_amount ?? 0).toFixed(2)} / Syndic ${Number(invoice.syndic_amount ?? 0).toFixed(2)}` : ''}`,
+        debit: Number(invoice.total ?? 0),
+        credit: 0,
+        currency,
+        source_id: invoice.id,
+      })),
+      ...payments.map((payment) => ({
+        date: payment.payment_date,
+        reference: payment.receipt_number ?? payment.reference ?? payment.invoice_number,
+        movement_type: 'PAYMENT',
+        label: `Paiement ${payment.invoice_number ?? payment.receipt_number ?? payment.reference ?? `#${payment.id}`}`,
+        debit: 0,
+        credit: Number(payment.amount ?? 0),
+        currency,
+        source_id: payment.id,
+      })),
+    ].sort((a, b) => {
+      const dateDiff = new Date(String(a.date)).getTime() - new Date(String(b.date)).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      return this.statementMovementOrder(String(a.movement_type)) - this.statementMovementOrder(String(b.movement_type));
+    });
+    let running = Number(openingBalance ?? 0);
+    return rows.map((row, index) => {
+      if (index === 0 && row.movement_type === 'OPENING') return row;
+      running += Number(row.debit ?? 0) - Number(row.credit ?? 0);
+      return { ...row, running_balance: Number(running.toFixed(2)) };
+    });
+  }
+
   async availabilityReport() {
     const { rows } = await this.db.query(
       `SELECT b.id AS building_id, b.name AS building_name,

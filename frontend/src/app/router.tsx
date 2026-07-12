@@ -34,6 +34,7 @@ import { LeaseDetail } from '../pages/LeaseDetail';
 import { LeaseNew } from '../pages/LeaseNew';
 import { Login } from '../pages/Login';
 import { PaymentDetail } from '../pages/PaymentDetail';
+import { BuildingStatementPage, TenantStatementPage, UnitStatementPage } from '../pages/StatementPage';
 import { StockDetailPage } from '../pages/StockDetailPage';
 import { TenantSituation } from '../pages/TenantSituation';
 import { UnitDetail } from '../pages/UnitDetail';
@@ -55,13 +56,16 @@ export function AppRouter() {
           <Route path="/activity" element={guarded('activity.read', <ActivityPage />)} />
           <Route path="/buildings" element={guarded('buildings.read', <BuildingsPage />)} />
           <Route path="/buildings/:id/report" element={guarded('buildings.read', <BuildingReport />)} />
+          <Route path="/statements/building/:id" element={guarded('buildings.read', <BuildingStatementPage />)} />
           <Route path="/buildings/:id" element={guarded('buildings.read', <ModulePlaceholder title="Détail immeuble" />)} />
           <Route path="/rental-units" element={guarded('units.read', <RentalUnitsPage />)} />
           <Route path="/rental-units/:id" element={guarded('units.read', <UnitDetail />)} />
+          <Route path="/statements/unit/:id" element={guarded('units.read', <UnitStatementPage />)} />
           <Route path="/units" element={<Navigate to="/rental-units" replace />} />
           <Route path="/units/:id" element={guarded('units.read', <UnitDetail />)} />
           <Route path="/tenants" element={guarded('tenants.read', <TenantsPage />)} />
           <Route path="/tenants/:id/situation" element={guarded('tenants.read', <TenantSituation />)} />
+          <Route path="/statements/tenant/:id" element={guarded('tenants.read', <TenantStatementPage />)} />
           <Route path="/tenants/:id" element={guarded('tenants.read', <ModulePlaceholder title="Détail locataire" />)} />
           <Route path="/leases" element={guarded('documents.read', <LeasesPage />)} />
           <Route path="/leases/new" element={guarded('documents.upload', <LeaseNew />)} />

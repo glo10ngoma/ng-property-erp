@@ -938,3 +938,41 @@ export class ReportsController {
     });
   }
 }
+
+@Controller('statements')
+export class StatementsController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get('tenants/:id')
+  tenant(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+    @Query('start') start?: string,
+    @Query('end') end?: string,
+  ) {
+    return this.service.tenantStatement(id, { month, year, start, end });
+  }
+
+  @Get('units/:id')
+  unit(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+    @Query('start') start?: string,
+    @Query('end') end?: string,
+  ) {
+    return this.service.unitStatement(id, { month, year, start, end });
+  }
+
+  @Get('buildings/:id')
+  building(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+    @Query('start') start?: string,
+    @Query('end') end?: string,
+  ) {
+    return this.service.buildingStatement(id, { month, year, start, end });
+  }
+}

@@ -1,4 +1,4 @@
-import { ArrowLeft, CreditCard, Download, Eye, FilePlus, FileSpreadsheet, Printer, RefreshCw, Send } from 'lucide-react';
+import { ArrowLeft, CreditCard, Download, Eye, FilePlus, FileSpreadsheet, FileText, Printer, RefreshCw, Send } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, invoiceDisplayStatus, money, paymentMethodLabel, shortDate } from '../api';
@@ -130,6 +130,7 @@ export function TenantSituation() {
             {can('invoices.create') && <button className="secondary" onClick={() => navigate(`/invoices?tenantId=${id}`)}><FilePlus size={16} />Nouvelle facture</button>}
             {can('payments.create') && <button className="secondary" onClick={() => navigate(`/payments?tenantId=${id}`)}><CreditCard size={16} />Enregistrer paiement</button>}
             {can('communication.send') && <button className="secondary" onClick={remindFirstOverdue}><Send size={16} />Relancer</button>}
+            <button className="secondary" onClick={() => navigate(`/statements/tenant/${id}`)}><FileText size={16} />Relevé de compte</button>
             <button className="secondary" onClick={() => report && exportTenantSituationWorkbook(report)}><FileSpreadsheet size={16} />Export Excel</button>
             <button className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
           </div>

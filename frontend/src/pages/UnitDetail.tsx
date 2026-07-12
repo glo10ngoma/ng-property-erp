@@ -85,6 +85,7 @@ export function UnitDetail() {
         action={
           <div className="toolbar-actions">
             <button className="secondary" onClick={() => navigate('/rental-units')}><ArrowLeft size={15} />Retour</button>
+            <button className="secondary" onClick={() => navigate(`/statements/unit/${id}`)}><FileText size={15} />Relevé de compte</button>
             <button className="secondary" onClick={() => exportCsv(`appartement-${unit.number}.csv`, exportRows)}><FileText size={15} />CSV</button>
             <button className="secondary" onClick={() => exportUnitWorkbook(unit)}><FileSpreadsheet size={15} />Excel</button>
             <button className="secondary" onClick={() => window.print()}><Printer size={15} />PDF</button>

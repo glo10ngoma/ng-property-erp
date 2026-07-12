@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, FileSpreadsheet, Printer, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Download, FileSpreadsheet, FileText, Printer, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, invoiceDisplayStatus, money, shortDate } from '../api';
@@ -121,6 +121,7 @@ export function BuildingReport() {
         action={(
           <div className="actions">
             <button className="secondary" onClick={() => navigate('/buildings')}><ArrowLeft size={16} />Retour</button>
+            <button className="secondary" onClick={() => navigate(`/statements/building/${id}`)}><FileText size={16} />Relevé de compte</button>
             <button type="button" className="secondary" onClick={() => exportData && exportReportCsv('rapport-immeuble.csv', exportData)}><Download size={16} />CSV</button>
             <button type="button" className="secondary" onClick={() => exportData && exportReportExcel('rapport-immeuble.xls', exportData)}><FileSpreadsheet size={16} />Excel</button>
             <button type="button" className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
