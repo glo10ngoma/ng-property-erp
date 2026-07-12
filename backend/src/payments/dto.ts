@@ -30,6 +30,29 @@ export class CreatePaymentDto {
   @Min(0.01)
   amount: number;
 
+  @IsOptional()
+  @IsIn(['USD', 'CDF', 'MIXED'])
+  payment_currency?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  amount_usd?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  amount_cdf?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.000001)
+  exchange_rate_used?: number;
+
+  @IsOptional()
+  @IsDateString()
+  exchange_rate_date?: string;
+
   @IsIn(PAYMENT_METHODS)
   payment_method: string;
 

@@ -1,5 +1,5 @@
-import { ChevronRight, FileSpreadsheet, Filter, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+﻿import { ChevronRight, FileSpreadsheet, Filter, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, exportXlsxWorkbook, includesText, money, paymentMethodLabel, shortDate } from '../api';
 import { useAuth } from '../auth';
@@ -41,8 +41,13 @@ type Invoice = {
   paid_amount?: number;
 };
 
+type ExchangeRate = {
+  rate: number;
+  effective_date?: string;
+};
+
 const paymentMethods = [
-  ['CASH', 'Espèces'],
+  ['CASH', 'EspÃ¨ces'],
   ['BANK', 'Banque'],
   ['MOBILE_MONEY', 'Mobile Money'],
 ];
@@ -70,6 +75,11 @@ export function Payments() {
   });
   const [success, setSuccess] = useState('');
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
+  const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
+
+  useEffect(() => {
+    api.get<ExchangeRate | null>('/settings/exchange-rate').then((response) => setExchangeRate(response.data ?? null)).catch(() => setExchangeRate(null));
+  }, []);
 
   const invoiceOptions = useMemo(
     () => invoices.data.filter((invoice) => ['UNPAID', 'PARTIAL', 'OVERDUE'].includes(invoice.status) && Number(invoice.remaining_amount) > 0),
@@ -128,6 +138,11 @@ export function Payments() {
       invoice_id: Number(form.get('invoice_id')),
       payment_date: form.get('payment_date'),
       amount: Number(form.get('amount')),
+      payment_currency: String(form.get('payment_currency') ?? 'USD'),
+      amount_usd: Number(form.get('amount_usd') ?? 0),
+      amount_cdf: Number(form.get('amount_cdf') ?? 0),
+      exchange_rate_used: Number(form.get('exchange_rate_used') ?? 0) || undefined,
+      exchange_rate_date: form.get('exchange_rate_date'),
       payment_method: form.get('payment_method'),
       reference: form.get('reference'),
       notes: form.get('notes'),
@@ -159,11 +174,11 @@ export function Payments() {
     ['Total paiements', totals.total],
     ['Paiements aujourd\'hui', totals.today],
     ['Ce mois', totals.month],
-    ['Espèces', totals.cash],
+    ['EspÃ¨ces', totals.cash],
     ['Banque', totals.bank],
     ['Mobile Money', totals.mobile],
     ['Paiements partiels', totals.partial],
-    ['Total encaissé', money(totals.collected)],
+    ['Total encaissÃ©', money(totals.collected)],
   ] as const;
 
   return (
@@ -185,16 +200,16 @@ export function Payments() {
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" />
         </div>
         <div className="toolbar-actions">
-          <button type="button" className="secondary" onClick={() => setFilters({ month: '', year: '', payment_method: '', tenant: '', status: '', invoice: '', start: '', end: '', min: '', max: '', receipt: '', reference: '' })}>Réinitialiser</button>
+          <button type="button" className="secondary" onClick={() => setFilters({ month: '', year: '', payment_method: '', tenant: '', status: '', invoice: '', start: '', end: '', min: '', max: '', receipt: '', reference: '' })}>RÃ©initialiser</button>
           <button type="button" className="secondary" onClick={() => exportXlsxWorkbook('Paiements.xlsx', [{ name: 'Paiements', rows: exportRows() }])}><FileSpreadsheet size={16} />Exporter</button>
         </div>
       </div>
 
       <details className="detail-section" open>
-        <summary><Filter size={16} />Filtres avancés</summary>
+        <summary><Filter size={16} />Filtres avancÃ©s</summary>
         <div className="quick-form compact-grid">
           <input type="number" min="1" max="12" placeholder="Mois" value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })} />
-          <input type="number" min="2000" max="2100" placeholder="Année" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} />
+          <input type="number" min="2000" max="2100" placeholder="AnnÃ©e" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} />
           <select value={filters.payment_method} onChange={(event) => setFilters({ ...filters, payment_method: event.target.value })}>
             <option value="">Mode de paiement</option>
             {paymentMethods.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -207,20 +222,20 @@ export function Payments() {
           </select>
           <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}>
             <option value="">Statut</option>
-            <option value="PAID">Payée</option>
+            <option value="PAID">PayÃ©e</option>
             <option value="PARTIAL">Paiement partiel</option>
-            <option value="UNPAID">Non payée</option>
+            <option value="UNPAID">Non payÃ©e</option>
           </select>
           <input placeholder="Facture" value={filters.invoice} onChange={(event) => setFilters({ ...filters, invoice: event.target.value })} />
-        <button type="button" className="secondary" onClick={() => setFilters({ ...filters, month: '', year: '', payment_method: '', tenant: '', status: '', invoice: '', start: '', end: '', min: '', max: '', receipt: '', reference: '' })}>Réinitialiser</button>
+        <button type="button" className="secondary" onClick={() => setFilters({ ...filters, month: '', year: '', payment_method: '', tenant: '', status: '', invoice: '', start: '', end: '', min: '', max: '', receipt: '', reference: '' })}>RÃ©initialiser</button>
         </div>
         <div className="quick-form compact-grid advanced-grid">
           <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, start: event.target.value })} />
           <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, end: event.target.value })} />
           <input type="number" placeholder="Montant min." value={filters.min} onChange={(event) => setFilters({ ...filters, min: event.target.value })} />
           <input type="number" placeholder="Montant max." value={filters.max} onChange={(event) => setFilters({ ...filters, max: event.target.value })} />
-          <input placeholder="Reçu" value={filters.receipt} onChange={(event) => setFilters({ ...filters, receipt: event.target.value })} />
-          <input placeholder="Référence" value={filters.reference} onChange={(event) => setFilters({ ...filters, reference: event.target.value })} />
+          <input placeholder="ReÃ§u" value={filters.receipt} onChange={(event) => setFilters({ ...filters, receipt: event.target.value })} />
+          <input placeholder="RÃ©fÃ©rence" value={filters.reference} onChange={(event) => setFilters({ ...filters, reference: event.target.value })} />
         </div>
       </details>
 
@@ -234,7 +249,7 @@ export function Payments() {
               <th>Date</th>
               <th className="right">Montant</th>
               <th>Mode</th>
-              <th>Référence</th>
+              <th>RÃ©fÃ©rence</th>
               <th>Statut</th>
               <th>Actions</th>
             </tr>
@@ -272,6 +287,7 @@ export function Payments() {
           invoices={invoiceOptions}
           selectedInvoice={selectedInvoice}
           selectedInvoiceId={selectedInvoiceId}
+          exchangeRate={exchangeRate}
           onSelectInvoice={setSelectedInvoiceId}
           onClose={() => setOpen(false)}
           onSubmit={save}
@@ -292,6 +308,7 @@ function PaymentModal({
   invoices,
   selectedInvoice,
   selectedInvoiceId,
+  exchangeRate,
   onSelectInvoice,
   onClose,
   onSubmit,
@@ -299,11 +316,27 @@ function PaymentModal({
   invoices: Invoice[];
   selectedInvoice: Invoice | null;
   selectedInvoiceId: number | null;
+  exchangeRate: ExchangeRate | null;
   onSelectInvoice: (value: number | null) => void;
   onClose: () => void;
   onSubmit: (form: FormData) => Promise<void>;
 }) {
   const remaining = Number(selectedInvoice?.remaining_amount ?? 0);
+  const [paymentCurrency, setPaymentCurrency] = useState<'USD' | 'CDF' | 'MIXED'>('USD');
+  const [usdAmount, setUsdAmount] = useState<string>(remaining ? String(remaining) : '');
+  const [cdfAmount, setCdfAmount] = useState<string>('');
+  const rate = Number(exchangeRate?.rate ?? 0);
+  const cdfEquivalentUsd = paymentCurrency === 'USD' ? 0 : Number(((Number(cdfAmount || 0) / rate) || 0).toFixed(2));
+  const totalEquivalentUsd = Number(
+    (
+      paymentCurrency === 'USD'
+        ? Number(usdAmount || 0)
+        : paymentCurrency === 'CDF'
+          ? cdfEquivalentUsd
+          : Number(usdAmount || 0) + cdfEquivalentUsd
+    ).toFixed(2),
+  );
+
   return (
     <Modal title="Nouveau paiement" onClose={onClose}>
       <form
@@ -316,6 +349,27 @@ function PaymentModal({
         <div className="detail-section compact-modal-section">
           <summary>Informations paiement</summary>
           <div className="lease-section-grid">
+            <label>
+              Mode de règlement
+              <select
+                value={paymentCurrency}
+                onChange={(event) => {
+                  const next = event.target.value as 'USD' | 'CDF' | 'MIXED';
+                  setPaymentCurrency(next);
+                  if (next === 'USD') {
+                    setUsdAmount(remaining ? String(remaining) : '');
+                    setCdfAmount('');
+                  }
+                  if (next === 'CDF') {
+                    setUsdAmount('');
+                  }
+                }}
+              >
+                <option value="USD">USD uniquement</option>
+                <option value="CDF">CDF uniquement</option>
+                <option value="MIXED">Mixte USD + CDF</option>
+              </select>
+            </label>
             <label>
               Facture
               <select
@@ -361,7 +415,11 @@ function PaymentModal({
           <summary>Paiement</summary>
           <div className="lease-section-grid">
             <label>Date<input name="payment_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></label>
-            <label>Montant<input name="amount" type="number" step="0.01" required defaultValue={remaining || undefined} /></label>
+            <label>Montant USD<input name="amount_usd" type="number" step="0.01" min="0" value={paymentCurrency === 'CDF' ? '' : usdAmount} onChange={(event) => setUsdAmount(event.target.value)} disabled={paymentCurrency === 'CDF'} /></label>
+            <label>Montant CDF<input name="amount_cdf" type="number" step="1" min="0" value={paymentCurrency === 'USD' ? '' : cdfAmount} onChange={(event) => setCdfAmount(event.target.value)} disabled={paymentCurrency === 'USD'} /></label>
+            <label>Taux appliqué<input name="exchange_rate_used" type="number" value={rate || ''} readOnly className="locked-field" /></label>
+            <label>Équivalent USD du CDF<input value={cdfEquivalentUsd.toFixed(2)} readOnly className="locked-field" /></label>
+            <label>Total équivalent USD<input name="amount" type="number" value={totalEquivalentUsd || usdAmount || cdfEquivalentUsd || ''} readOnly className="locked-field" /></label>
             <label>Mode de paiement
               <select name="payment_method">
                 <option value="CASH">Espèces</option>
@@ -370,6 +428,15 @@ function PaymentModal({
               </select>
             </label>
             <label>Référence<input name="reference" placeholder="Référence" /></label>
+            <input type="hidden" name="payment_currency" value={paymentCurrency} />
+            <input type="hidden" name="exchange_rate_date" value={exchangeRate?.effective_date ?? new Date().toISOString().slice(0, 10)} />
+          </div>
+          <div className="payment-summary-strip">
+            <span>USD reçu: <strong>{Number(usdAmount || 0).toFixed(2)}</strong></span>
+            <span>CDF reçu: <strong>{Number(cdfAmount || 0).toLocaleString('fr-FR')}</strong></span>
+            <span>Taux: <strong>{rate ? `1 USD = ${rate.toLocaleString('fr-FR')} CDF` : 'Non disponible'}</strong></span>
+            <span>Total: <strong>{totalEquivalentUsd.toFixed(2)} USD</strong></span>
+            <span>Reste: <strong>{Math.max(remaining - totalEquivalentUsd, 0).toFixed(2)} USD</strong></span>
           </div>
         </div>
 
@@ -390,5 +457,5 @@ function PaymentModal({
 }
 
 function statusLabel(value: string) {
-  return ({ PAID: 'Payée', PARTIAL: 'Paiement partiel', UNPAID: 'Non payée', OVERDUE: 'En retard', DRAFT: 'Brouillon', CANCELLED: 'Annulée' } as Record<string, string>)[value] ?? value;
+  return ({ PAID: 'PayÃ©e', PARTIAL: 'Paiement partiel', UNPAID: 'Non payÃ©e', OVERDUE: 'En retard', DRAFT: 'Brouillon', CANCELLED: 'AnnulÃ©e' } as Record<string, string>)[value] ?? value;
 }

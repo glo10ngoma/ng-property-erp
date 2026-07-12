@@ -173,6 +173,16 @@ export class SettingsController {
     return this.service.updateCompanySettings(body);
   }
 
+  @Get('exchange-rate')
+  exchangeRate() {
+    return this.service.exchangeRate();
+  }
+
+  @Patch('exchange-rate')
+  updateExchangeRate(@Body() body: Record<string, unknown>) {
+    return this.service.updateExchangeRate(body);
+  }
+
   @Get('publisher-services')
   publisherServices() {
     return this.service.publisherServices();

@@ -1,4 +1,4 @@
-import { ArrowLeft, CreditCard, FileSpreadsheet, Mail, MessageCircle, Pencil, Plus, Printer, Smartphone, X } from 'lucide-react';
+﻿import { ArrowLeft, CreditCard, FileSpreadsheet, Mail, MessageCircle, Pencil, Plus, Printer, Smartphone, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, invoiceDisplayStatus, itemLabel, money, paymentMethodLabel, shortDate } from '../api';
@@ -43,6 +43,11 @@ type Invoice = {
   reminders: { id: number; channel: string; message: string; status: string; reminded_at: string; reminded_by?: number }[];
 };
 
+type ExchangeRate = {
+  rate: number;
+  effective_date?: string;
+};
+
 const lineTypes = ['Monthly rent', 'Syndic', 'Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Penalty', 'Other'];
 
 export function InvoiceDetail() {
@@ -61,6 +66,10 @@ export function InvoiceDetail() {
   const [editInternalNotes, setEditInternalNotes] = useState('');
   const [editAttachmentName, setEditAttachmentName] = useState('');
   const [success, setSuccess] = useState('');
+  const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
+  const [paymentCurrency, setPaymentCurrency] = useState<'USD' | 'CDF' | 'MIXED'>('USD');
+  const [usdAmount, setUsdAmount] = useState('');
+  const [cdfAmount, setCdfAmount] = useState('');
 
   async function reload() {
     if (!id) return;
@@ -82,22 +91,52 @@ export function InvoiceDetail() {
   }, [id]);
 
   useEffect(() => {
+    api.get<ExchangeRate | null>('/settings/exchange-rate').then((response) => setExchangeRate(response.data ?? null)).catch(() => setExchangeRate(null));
+  }, []);
+
+  useEffect(() => {
+    if (invoice) setUsdAmount(String(Number(invoice.remaining_amount ?? 0).toFixed(2)));
+  }, [invoice]);
+
+  useEffect(() => {
     if (invoice && searchParams.get('edit') === '1') openEdit();
   }, [invoice, searchParams]);
 
   async function pay(form: FormData) {
-    const amount = Number(form.get('amount'));
-    if (amount <= 0 || amount > Number(invoice?.remaining_amount ?? 0)) {
-      setSuccess(`Le montant doit être compris entre 0 et ${money(invoice?.remaining_amount ?? 0)}.`);
+    const paymentCurrency = String(form.get('payment_currency') ?? 'USD');
+    const amountUsd = Number(form.get('amount_usd') ?? 0);
+    const amountCdf = Number(form.get('amount_cdf') ?? 0);
+    const rate = Number(form.get('exchange_rate_used') ?? exchangeRate?.rate ?? 0) || null;
+    const amount = Number(form.get('amount') ?? 0);
+    if (!Number.isFinite(amountUsd) || !Number.isFinite(amountCdf) || !Number.isFinite(amount)) {
+      setSuccess('Montant de paiement invalide.');
+      return;
+    }
+    if (amountUsd <= 0 && amountCdf <= 0) {
+      setSuccess('Le paiement doit contenir au moins un montant USD ou CDF.');
+      return;
+    }
+    if ((paymentCurrency === 'CDF' || amountCdf > 0) && !rate) {
+      setSuccess('Aucun taux de change n\'est configure. Veuillez definir le taux dans Parametres.');
+      return;
+    }
+    if (amount > Number(invoice?.remaining_amount ?? 0) + 0.01) {
+      setSuccess(`Le montant doit etre compris entre 0 et ${money(invoice?.remaining_amount ?? 0)}.`);
       return;
     }
     await api.post('/payments', {
       invoice_id: Number(id),
       payment_date: form.get('payment_date'),
       amount,
+      payment_currency: paymentCurrency,
+      amount_usd: amountUsd,
+      amount_cdf: amountCdf,
+      exchange_rate_used: rate ?? undefined,
+      exchange_rate_date: form.get('exchange_rate_date'),
       payment_method: form.get('payment_method'),
       reference: form.get('reference'),
       notes: form.get('notes'),
+      payer_name: form.get('payer_name'),
     });
     setSuccess('Paiement enregistre avec succes.');
     setPaymentOpen(false);
@@ -346,25 +385,58 @@ export function InvoiceDetail() {
             <div className="detail-section compact-modal-section">
               <summary>Informations paiement</summary>
               <div className="lease-section-grid">
-                <label>Facture<input readOnly className="locked-field" value={`${invoice.invoice_number} | ${invoice.tenant_name || `${invoice.first_name} ${invoice.last_name}`} | ${invoice.unit_number ?? '-'} | Facture: ${money(invoice.total)} | Paye: ${money(invoice.paid_amount)} | Reste: ${money(invoice.remaining_amount)}`} /></label>
+                <label>
+                  Mode de règlement
+                  <select
+                    name="payment_currency"
+                    value={paymentCurrency}
+                    onChange={(event) => {
+                      const next = event.target.value as 'USD' | 'CDF' | 'MIXED';
+                      setPaymentCurrency(next);
+                      if (next === 'USD') {
+                        setUsdAmount(String(Number(invoice.remaining_amount ?? 0).toFixed(2)));
+                        setCdfAmount('');
+                      }
+                      if (next === 'CDF') {
+                        setUsdAmount('');
+                      }
+                    }}
+                  >
+                    <option value="USD">USD uniquement</option>
+                    <option value="CDF">CDF uniquement</option>
+                    <option value="MIXED">Mixte USD + CDF</option>
+                  </select>
+                </label>
+                <label>
+                  Facture
+                  <input
+                    readOnly
+                    className="locked-field"
+                    value={`${invoice.invoice_number} | ${invoice.tenant_name || `${invoice.first_name} ${invoice.last_name}`} | ${invoice.unit_number ?? '-'} | Facture: ${money(invoice.total)} USD | Payé: ${money(invoice.paid_amount)} USD | Reste: ${money(invoice.remaining_amount)} USD`}
+                  />
+                </label>
                 <label>Locataire<input readOnly className="locked-field" value={invoice.tenant_name || `${invoice.first_name} ${invoice.last_name}`} /></label>
                 <label>Bail<input readOnly className="locked-field" value={invoice.lease_id ? `B-${invoice.lease_id}` : '-'} /></label>
                 <label>Appartement<input readOnly className="locked-field" value={invoice.unit_number ?? '-'} /></label>
-              </div>
-              <div className="payment-summary-strip">
-                <span>{invoice.invoice_number}</span>
-                <span>{invoice.tenant_name || `${invoice.first_name} ${invoice.last_name}`}</span>
-                <span>{invoice.unit_number ?? '-'}</span>
-                <span>Facture : <strong>{money(invoice.total)}</strong></span>
-                <span>Paye : <strong>{money(invoice.paid_amount)}</strong></span>
-                <span>Reste : <strong>{money(invoice.remaining_amount)}</strong></span>
               </div>
             </div>
             <div className="detail-section compact-modal-section">
               <summary>Paiement</summary>
               <div className="lease-section-grid">
                 <label>Date<input name="payment_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></label>
-                <label>Montant<input name="amount" type="number" step="0.01" max={Number(invoice.remaining_amount)} required defaultValue={invoice.remaining_amount} /></label>
+                <label>Montant USD<input name="amount_usd" type="number" step="0.01" min="0" value={paymentCurrency === 'CDF' ? '' : usdAmount} onChange={(event) => setUsdAmount(event.target.value)} disabled={paymentCurrency === 'CDF'} /></label>
+                <label>Montant CDF<input name="amount_cdf" type="number" step="1" min="0" value={paymentCurrency === 'USD' ? '' : cdfAmount} onChange={(event) => setCdfAmount(event.target.value)} disabled={paymentCurrency === 'USD'} /></label>
+                <label>Taux appliqué<input name="exchange_rate_used" type="number" step="0.000001" min="0" defaultValue={exchangeRate?.rate ?? ''} /></label>
+                <label>Équivalent USD du CDF<input readOnly className="locked-field" value={exchangeRate?.rate && cdfAmount ? money(Number(cdfAmount || 0) / Number(exchangeRate.rate)) : money(0)} /></label>
+                <label>Total équivalent USD<input name="amount" type="number" readOnly className="locked-field" value={Number(
+                  (
+                    paymentCurrency === 'USD'
+                      ? Number(usdAmount || 0)
+                      : paymentCurrency === 'CDF'
+                        ? (exchangeRate?.rate && cdfAmount ? Number(cdfAmount || 0) / Number(exchangeRate.rate) : 0)
+                        : Number(usdAmount || 0) + (exchangeRate?.rate && cdfAmount ? Number(cdfAmount || 0) / Number(exchangeRate.rate) : 0)
+                  ).toFixed(2),
+                )} /></label>
                 <label>Mode de paiement<select name="payment_method"><option value="CASH">{paymentMethodLabel('CASH')}</option><option value="BANK">{paymentMethodLabel('BANK')}</option><option value="MOBILE_MONEY">{paymentMethodLabel('MOBILE_MONEY')}</option></select></label>
                 <label>Reference<input name="reference" placeholder="Reference" /></label>
               </div>
@@ -376,6 +448,7 @@ export function InvoiceDetail() {
                 <label>Numero transaction<input name="transaction_number" placeholder="Numero transaction" /></label>
                 <label>Cheque<input name="check_number" placeholder="Cheque" /></label>
                 <label>Observations<textarea name="notes" rows={2} placeholder="Observations" /></label>
+                <input type="hidden" name="exchange_rate_date" value={exchangeRate?.effective_date ?? new Date().toISOString().slice(0, 10)} />
               </div>
             </div>
             <button>Enregistrer le paiement</button>
@@ -409,12 +482,12 @@ function displayStatusLabel(status: string) {
 
 function clientInvoiceStatusLabel(status: string) {
   return ({
-    PAID: 'Facture acquittée',
+    PAID: 'Facture acquittÃ©e',
     PARTIAL: 'Paiement partiel',
-    UNPAID: 'À payer',
+    UNPAID: 'Ã€ payer',
     OVERDUE: 'En retard',
     DRAFT: 'Brouillon',
-    CANCELLED: 'Annulée',
+    CANCELLED: 'AnnulÃ©e',
   } as Record<string, string>)[status] ?? status;
 }
 

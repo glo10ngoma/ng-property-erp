@@ -1,4 +1,4 @@
-import { ArrowLeft, Eye, FileSpreadsheet, Pencil, Printer } from 'lucide-react';
+﻿import { ArrowLeft, Eye, FileSpreadsheet, Pencil, Printer } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, includesText, money, shortDate } from '../api';
@@ -13,6 +13,10 @@ type CashMovement = {
   label?: string;
   category: string;
   amount: number;
+  currency?: string;
+  exchange_rate_used?: number;
+  exchange_rate_date?: string;
+  equivalent_usd?: number;
   movement_date: string;
   invoice_number?: string;
   tenant_name?: string;
@@ -60,7 +64,7 @@ export function CashPage() {
   const sessions = useApiList<CashSession>('/cash/sessions');
   const [query, setQuery] = useState('');
   const [success, setSuccess] = useState('');
-  const [filters, setFilters] = useState({ type: '', category: '', period: '' });
+  const [filters, setFilters] = useState({ type: '', category: '', period: '', currency: '' });
 
   const filtered = useMemo(
     () =>
@@ -69,7 +73,8 @@ export function CashPage() {
           includesText(item, query) &&
           (!filters.type || item.type === filters.type) &&
           (!filters.category || item.category === filters.category) &&
-          (!filters.period || String(item.movement_date).slice(0, 7) === filters.period),
+          (!filters.period || String(item.movement_date).slice(0, 7) === filters.period) &&
+          (!filters.currency || String(item.currency ?? 'USD') === filters.currency),
       ),
     [movements.data, query, filters],
   );
@@ -77,21 +82,31 @@ export function CashPage() {
   const stats = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     const month = today.slice(0, 7);
-    const totalIn = movements.data.filter((m) => m.type === 'IN').reduce((sum, m) => sum + Number(m.amount), 0);
-    const totalOut = movements.data.filter((m) => m.type === 'OUT').reduce((sum, m) => sum + Number(m.amount), 0);
-    const todayIn = movements.data
-      .filter((m) => m.type === 'IN' && String(m.movement_date).slice(0, 10) === today)
-      .reduce((sum, m) => sum + Number(m.amount), 0);
-    const todayOut = movements.data
-      .filter((m) => m.type === 'OUT' && String(m.movement_date).slice(0, 10) === today)
-      .reduce((sum, m) => sum + Number(m.amount), 0);
-    const monthIn = movements.data
-      .filter((m) => m.type === 'IN' && String(m.movement_date).slice(0, 7) === month)
-      .reduce((sum, m) => sum + Number(m.amount), 0);
-    const monthOut = movements.data
-      .filter((m) => m.type === 'OUT' && String(m.movement_date).slice(0, 7) === month)
-      .reduce((sum, m) => sum + Number(m.amount), 0);
-    return { balance: totalIn - totalOut, todayIn, todayOut, monthIn, monthOut, monthBalance: monthIn - monthOut, count: movements.data.length };
+    const inByCurrency = (currency: string, dateCheck?: (movement: CashMovement) => boolean) =>
+      movements.data
+        .filter((m) => m.type === 'IN' && String(m.currency ?? 'USD') === currency && (!dateCheck || dateCheck(m)))
+        .reduce((sum, m) => sum + Number(m.amount), 0);
+    const outByCurrency = (currency: string, dateCheck?: (movement: CashMovement) => boolean) =>
+      movements.data
+        .filter((m) => m.type === 'OUT' && String(m.currency ?? 'USD') === currency && (!dateCheck || dateCheck(m)))
+        .reduce((sum, m) => sum + Number(m.amount), 0);
+    return {
+      usd: {
+        balance: inByCurrency('USD') - outByCurrency('USD'),
+        todayIn: inByCurrency('USD', (movement) => String(movement.movement_date).slice(0, 10) === today),
+        todayOut: outByCurrency('USD', (movement) => String(movement.movement_date).slice(0, 10) === today),
+        monthIn: inByCurrency('USD', (movement) => String(movement.movement_date).slice(0, 7) === month),
+        monthOut: outByCurrency('USD', (movement) => String(movement.movement_date).slice(0, 7) === month),
+      },
+      cdf: {
+        balance: inByCurrency('CDF') - outByCurrency('CDF'),
+        todayIn: inByCurrency('CDF', (movement) => String(movement.movement_date).slice(0, 10) === today),
+        todayOut: outByCurrency('CDF', (movement) => String(movement.movement_date).slice(0, 10) === today),
+        monthIn: inByCurrency('CDF', (movement) => String(movement.movement_date).slice(0, 7) === month),
+        monthOut: outByCurrency('CDF', (movement) => String(movement.movement_date).slice(0, 7) === month),
+      },
+      count: movements.data.length,
+    };
   }, [movements.data]);
 
   const nextPieceNumber = useMemo(() => {
@@ -119,6 +134,9 @@ export function CashPage() {
       libelle: movement.label ?? movement.reference ?? '-',
       categorie: cashCategoryLabel(movement.category),
       montant: money(movement.amount),
+      devise: movement.currency ?? 'USD',
+      taux: movement.exchange_rate_used ?? '-',
+      equivalent_usd: money(movement.equivalent_usd ?? movement.amount),
       facture: movement.invoice_number ?? '-',
       locataire_ou_fournisseur: movement.tenant_name ?? movement.supplier ?? '-',
       reference: movement.reference ?? '-',
@@ -131,12 +149,16 @@ export function CashPage() {
       <PageHeader title="Caisse" />
       <SuccessMessage message={success} />
       <div className="mini-stats">
-        <div className="mini-stat"><span>Solde actuel</span><strong>{money(stats.balance)}</strong></div>
-        <div className="mini-stat"><span>Entrees aujourd'hui</span><strong>{money(stats.todayIn)}</strong></div>
-        <div className="mini-stat"><span>Depenses aujourd'hui</span><strong>{money(stats.todayOut)}</strong></div>
-        <div className="mini-stat"><span>Entrees du mois</span><strong>{money(stats.monthIn)}</strong></div>
-        <div className="mini-stat"><span>Depenses du mois</span><strong>{money(stats.monthOut)}</strong></div>
-        <div className="mini-stat"><span>Solde du mois</span><strong>{money(stats.monthBalance)}</strong></div>
+        <div className="mini-stat"><span>Solde USD</span><strong>{money(stats.usd.balance)}</strong></div>
+        <div className="mini-stat"><span>Entrees USD aujourd'hui</span><strong>{money(stats.usd.todayIn)}</strong></div>
+        <div className="mini-stat"><span>Depenses USD aujourd'hui</span><strong>{money(stats.usd.todayOut)}</strong></div>
+        <div className="mini-stat"><span>Entrees USD du mois</span><strong>{money(stats.usd.monthIn)}</strong></div>
+        <div className="mini-stat"><span>Depenses USD du mois</span><strong>{money(stats.usd.monthOut)}</strong></div>
+        <div className="mini-stat"><span>Solde CDF</span><strong>{money(stats.cdf.balance)}</strong></div>
+        <div className="mini-stat"><span>Entrees CDF aujourd'hui</span><strong>{money(stats.cdf.todayIn)}</strong></div>
+        <div className="mini-stat"><span>Depenses CDF aujourd'hui</span><strong>{money(stats.cdf.todayOut)}</strong></div>
+        <div className="mini-stat"><span>Entrees CDF du mois</span><strong>{money(stats.cdf.monthIn)}</strong></div>
+        <div className="mini-stat"><span>Depenses CDF du mois</span><strong>{money(stats.cdf.monthOut)}</strong></div>
         <div className="mini-stat"><span>Nombre de mouvements</span><strong>{stats.count}</strong></div>
       </div>
 
@@ -145,13 +167,13 @@ export function CashPage() {
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" />
         </div>
         <div className="toolbar-actions">
-          <button type="button" className="secondary" onClick={() => setFilters({ type: '', category: '', period: '' })}>Reinitialiser</button>
+          <button type="button" className="secondary" onClick={() => setFilters({ type: '', category: '', period: '', currency: '' })}>Reinitialiser</button>
           <button
             type="button"
             className="secondary"
             onClick={() =>
               exportXlsxWorkbook('Caisse.xlsx', [
-                { name: 'Resume', rows: [{ solde_actuel: money(stats.balance), entrees_aujourd_hui: money(stats.todayIn), depenses_aujourd_hui: money(stats.todayOut), entrees_du_mois: money(stats.monthIn), depenses_du_mois: money(stats.monthOut), solde_du_mois: money(stats.monthBalance), nombre_mouvements: stats.count }] },
+                { name: 'Resume', rows: [{ solde_usd: money(stats.usd.balance), entrees_usd_aujourdhui: money(stats.usd.todayIn), depenses_usd_aujourdhui: money(stats.usd.todayOut), entrees_usd_du_mois: money(stats.usd.monthIn), depenses_usd_du_mois: money(stats.usd.monthOut), solde_cdf: money(stats.cdf.balance), entrees_cdf_aujourdhui: money(stats.cdf.todayIn), depenses_cdf_aujourdhui: money(stats.cdf.todayOut), entrees_cdf_du_mois: money(stats.cdf.monthIn), depenses_cdf_du_mois: money(stats.cdf.monthOut), nombre_mouvements: stats.count }] },
                 { name: 'Mouvements', rows: exportRows() },
                 { name: 'Entrees', rows: filtered.filter((movement) => movement.type === 'IN').map(cashExportRow) },
                 { name: 'Depenses', rows: filtered.filter((movement) => movement.type === 'OUT').map(cashExportRow) },
@@ -167,7 +189,7 @@ export function CashPage() {
         </div>
       </div>
 
-      <div className="quick-form compact-grid cash-filters-row">
+        <div className="quick-form compact-grid cash-filters-row">
         <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}>
           <option value="">Type</option>
           <option value="IN">Entree</option>
@@ -182,6 +204,11 @@ export function CashPage() {
           ))}
         </select>
         <input type="month" value={filters.period} onChange={(event) => setFilters({ ...filters, period: event.target.value })} />
+        <select value={filters.currency} onChange={(event) => setFilters({ ...filters, currency: event.target.value })}>
+          <option value="">Devise</option>
+          <option value="USD">USD</option>
+          <option value="CDF">CDF</option>
+        </select>
       </div>
 
       {can('cash.create') && <CashExpenseForm onSubmit={expense} nextPieceNumber={nextPieceNumber} />}
@@ -196,6 +223,9 @@ export function CashPage() {
               <th>Libelle</th>
               <th>Categorie</th>
               <th className="right">Montant</th>
+              <th>Devise</th>
+              <th>Taux</th>
+              <th className="right">Eq. USD</th>
               <th>Facture</th>
               <th>Locataire / Fournisseur</th>
               <th>Reference</th>
@@ -212,6 +242,9 @@ export function CashPage() {
                 <td>{movement.label ?? movement.reference ?? '-'}</td>
                 <td>{cashCategoryLabel(movement.category)}</td>
                 <td className="right">{money(movement.amount)}</td>
+                <td>{movement.currency ?? 'USD'}</td>
+                <td>{movement.exchange_rate_used ? movement.exchange_rate_used.toLocaleString('fr-FR') : '-'}</td>
+                <td className="right">{money(movement.equivalent_usd ?? movement.amount)}</td>
                 <td>{movement.invoice_number ?? '-'}</td>
                 <td>{movement.tenant_name ?? movement.supplier ?? '-'}</td>
                 <td>{movement.reference ?? '-'}</td>
@@ -263,6 +296,9 @@ export function CashDetailPage() {
       type: movementTypeLabel(movement.type),
       category: cashCategoryLabel(movement.category),
       amount: money(movement.amount),
+      devise: movement.currency ?? 'USD',
+      taux: movement.exchange_rate_used ?? '-',
+      equivalent_usd: money(movement.equivalent_usd ?? movement.amount),
       reference: movement.reference ?? '-',
       tenant: movement.tenant_name ?? '-',
       attachment: movement.attachment_file_name ?? '-',
@@ -368,20 +404,20 @@ export function CashDetailPage() {
             </div>
 
             <div className="detail-section no-print">
-              <h4>Pièce jointe</h4>
+              <h4>PiÃ¨ce jointe</h4>
               {movement.attachment_file_name ? (
                 <div className="actions-row">
                   <span className="info-message">{movement.attachment_file_name}</span>
                   {movement.attachment_file_url ? (
                     <a className="secondary" href={movement.attachment_file_url} target="_blank" rel="noreferrer">
-                      Voir / Télécharger
+                      Voir / TÃ©lÃ©charger
                     </a>
                   ) : (
                     <span className="compact-empty">Aucune URL de fichier disponible.</span>
                   )}
                 </div>
               ) : (
-                <div className="compact-empty">Aucune pièce jointe.</div>
+                <div className="compact-empty">Aucune piÃ¨ce jointe.</div>
               )}
             </div>
           </article>
@@ -455,6 +491,13 @@ function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormD
                   Date *
                   <input name="movement_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} />
                 </label>
+                <label>
+                  Devise
+                  <select name="currency" defaultValue="USD">
+                    <option value="USD">USD</option>
+                    <option value="CDF">CDF</option>
+                  </select>
+                </label>
               </div>
             </div>
 
@@ -479,7 +522,7 @@ function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormD
                   <input name="reference" placeholder="Reference" />
                 </label>
                 <label>
-                  Piece jointe
+                  Pièce jointe
                   <input
                     name="attachment_file"
                     type="file"
@@ -488,7 +531,7 @@ function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormD
                   />
                 </label>
                 <label>
-                  Nom du fichier
+                  Fichier sélectionné
                   <input value={attachmentName || '-'} readOnly className="locked-field" />
                 </label>
               </div>
@@ -530,6 +573,9 @@ function cashExportRow(movement: CashMovement) {
     libelle: movement.label ?? movement.reference ?? '-',
     categorie: cashCategoryLabel(movement.category),
     montant: money(movement.amount),
+    devise: movement.currency ?? 'USD',
+    taux: movement.exchange_rate_used ?? '-',
+    equivalent_usd: money(movement.equivalent_usd ?? movement.amount),
     facture: movement.invoice_number ?? '-',
     locataire_ou_fournisseur: movement.tenant_name ?? movement.supplier ?? '-',
     reference: movement.reference ?? '-',

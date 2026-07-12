@@ -34,6 +34,15 @@ type ReferenceData = {
 
 type PublisherService = { title: string; action: string };
 type RestrictedSetting = { label: string; status: string };
+type ExchangeRate = {
+  id: number;
+  base_currency: string;
+  quote_currency: string;
+  rate: number;
+  effective_date: string;
+  created_at?: string;
+  updated_at?: string;
+};
 
 const referenceTypeLabels: Record<string, string> = {
   charge_types: 'Types de charges',
@@ -53,18 +62,21 @@ export function SettingsPage() {
   const [references, setReferences] = useState<ReferenceData[]>([]);
   const [services, setServices] = useState<PublisherService[]>([]);
   const [restricted, setRestricted] = useState<RestrictedSetting[]>([]);
+  const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [success, setSuccess] = useState('');
 
   async function load() {
-    const [companyResponse, referencesResponse, servicesResponse] = await Promise.all([
+    const [companyResponse, referencesResponse, servicesResponse, exchangeRateResponse] = await Promise.all([
       api.get<CompanySettings>('/settings/company'),
       api.get<ReferenceData[]>('/reference-data'),
       api.get<PublisherService[]>('/settings/publisher-services'),
+      api.get<ExchangeRate | null>('/settings/exchange-rate').catch(() => ({ data: null })),
     ]);
 
     setCompany(companyResponse.data);
     setReferences(referencesResponse.data);
     setServices(servicesResponse.data);
+    setExchangeRate(exchangeRateResponse.data ?? null);
   }
 
   async function loadRestricted() {
@@ -81,6 +93,15 @@ export function SettingsPage() {
   async function updateCompany(form: FormData) {
     await api.patch('/settings/company', Object.fromEntries(form));
     setSuccess('Paramètres enregistrés.');
+    load();
+  }
+
+  async function updateExchangeRate(form: FormData) {
+    await api.patch('/settings/exchange-rate', {
+      rate: Number(form.get('rate')),
+      effective_date: form.get('effective_date'),
+    });
+    setSuccess('Taux de change enregistré.');
     load();
   }
 
@@ -129,6 +150,27 @@ export function SettingsPage() {
                 <input name="logo_url" defaultValue={company.logo_url ?? ''} disabled={!can('settings.update')} />
               </Field>
               {can('settings.update') && <div className="form-actions"><button>Enregistrer</button></div>}
+            </form>
+            <form className="form-grid" onSubmit={(event) => { event.preventDefault(); updateExchangeRate(new FormData(event.currentTarget)); }}>
+              <Field label="Devise de référence">
+                <input value="USD" readOnly className="locked-field" />
+              </Field>
+              <Field label="Devise locale">
+                <input value="CDF" readOnly className="locked-field" />
+              </Field>
+              <Field label="Taux courant">
+                <input name="rate" type="number" min="0.000001" step="0.000001" defaultValue={exchangeRate?.rate ?? ''} disabled={!can('settings.update')} required />
+              </Field>
+              <Field label="Date d'application">
+                <input name="effective_date" type="date" defaultValue={exchangeRate?.effective_date ?? new Date().toISOString().slice(0, 10)} disabled={!can('settings.update')} required />
+              </Field>
+              <Field label="Dernière modification">
+                <input value={exchangeRate?.updated_at ?? exchangeRate?.created_at ?? '-'} readOnly className="locked-field" />
+              </Field>
+              <Field label="Utilisateur">
+                <input value={exchangeRate ? 'Administrateur' : '-'} readOnly className="locked-field" />
+              </Field>
+              {can('settings.update') && <div className="form-actions"><button>Enregistrer taux</button></div>}
             </form>
           </SettingsSection>
 

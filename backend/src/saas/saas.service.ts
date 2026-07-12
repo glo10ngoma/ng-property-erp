@@ -937,13 +937,26 @@ export class SaasService {
     });
   }
 
-  async createInvoicePaymentMovement(client: PoolClient, paymentId: number, invoiceId: number, amount: number, reference?: string | null) {
+  async createInvoicePaymentMovement(client: PoolClient, paymentId: number, invoiceId: number, amount: number, reference?: string | null, options: { currency?: string; exchangeRateUsed?: number | null; exchangeRateDate?: string | null; equivalentUsd?: number | null } = {}) {
     const session = await this.openSession(client);
     const invoice = await client.query('SELECT tenant_id FROM invoices WHERE id = $1 AND organization_id = $2', [invoiceId, this.context.organizationId()]);
     await client.query(
-      `INSERT INTO cash_movements (cash_session_id, type, category, amount, movement_date, payment_id, invoice_id, tenant_id, description, reference, created_by, organization_id)
-       VALUES ($1, 'IN', 'INVOICE_PAYMENT', $2, CURRENT_DATE, $3, $4, $5, 'Paiement facture', $6, $7, $8)`,
-      [session.id, amount, paymentId, invoiceId, invoice.rows[0]?.tenant_id ?? null, reference ?? null, this.context.userId() ?? 1, this.context.organizationId()],
+      `INSERT INTO cash_movements (cash_session_id, type, category, amount, movement_date, payment_id, invoice_id, tenant_id, description, reference, currency, exchange_rate_used, exchange_rate_date, equivalent_usd, created_by, organization_id)
+       VALUES ($1, 'IN', 'INVOICE_PAYMENT', $2, CURRENT_DATE, $3, $4, $5, 'Paiement facture', $6, $7, $8, $9, $10, $11, $12)`,
+      [
+        session.id,
+        amount,
+        paymentId,
+        invoiceId,
+        invoice.rows[0]?.tenant_id ?? null,
+        reference ?? null,
+        options.currency ?? 'USD',
+        options.exchangeRateUsed ?? null,
+        options.exchangeRateDate ?? null,
+        options.equivalentUsd ?? amount,
+        this.context.userId() ?? 1,
+        this.context.organizationId(),
+      ],
     );
   }
 
@@ -2913,6 +2926,38 @@ export class SaasService {
     return rows[0] ?? this.createDefaultCompanySettings();
   }
 
+  async exchangeRate() {
+    const { rows } = await this.db.query(
+      `SELECT *
+       FROM exchange_rates
+       WHERE organization_id = $1 AND deleted_at IS NULL AND is_active = TRUE
+       ORDER BY effective_date DESC, id DESC
+       LIMIT 1`,
+      [this.context.organizationId()],
+    );
+    return rows[0] ?? null;
+  }
+
+  async updateExchangeRate(body: Record<string, unknown>) {
+    const rate = Number(body.rate ?? 0);
+    if (!(rate > 0)) throw new BadRequestException('Le taux doit etre superieur a 0');
+    return this.db.transaction(async (client) => {
+      await client.query(
+        `UPDATE exchange_rates
+         SET is_active = FALSE, updated_at = NOW()
+         WHERE organization_id = $1 AND deleted_at IS NULL AND is_active = TRUE`,
+        [this.context.organizationId()],
+      );
+      const { rows } = await client.query(
+        `INSERT INTO exchange_rates (organization_id, base_currency, quote_currency, rate, effective_date, is_active, created_by)
+         VALUES ($1, 'USD', 'CDF', $2, $3, TRUE, $4)
+         RETURNING *`,
+        [this.context.organizationId(), rate, body.effective_date ?? new Date().toISOString().slice(0, 10), this.context.userId() ?? 1],
+      );
+      return rows[0];
+    });
+  }
+
   async updateCompanySettings(body: Record<string, unknown>) {
     await this.companySettings();
     const allowed = [
@@ -4088,11 +4133,23 @@ export class SaasService {
   async cashReport() {
     const sessions = await this.findAll('cash_sessions', 'opened_at DESC');
     const movements = await this.cashMovements();
+    const byCurrency = Object.values(
+      movements.reduce<Record<string, { currency: string; amount_in: number; amount_out: number; balance: number }>>((acc, movement) => {
+        const currency = String(movement.currency ?? 'USD').toUpperCase();
+        acc[currency] ??= { currency, amount_in: 0, amount_out: 0, balance: 0 };
+        const amount = Number(movement.amount ?? 0);
+        if (movement.type === 'IN') acc[currency].amount_in += amount;
+        if (movement.type === 'OUT') acc[currency].amount_out += amount;
+        acc[currency].balance = acc[currency].amount_in - acc[currency].amount_out;
+        return acc;
+      }, {}),
+    );
     return {
       sessions,
       movements,
       total_in: movements.filter((m) => m.type === 'IN').reduce((sum, m) => sum + Number(m.amount), 0),
       total_out: movements.filter((m) => m.type === 'OUT').reduce((sum, m) => sum + Number(m.amount), 0),
+      by_currency: byCurrency,
       by_category: Object.values(
         movements.reduce<Record<string, { category: string; amount: number }>>((acc, movement) => {
           acc[movement.category] ??= { category: movement.category, amount: 0 };
@@ -4998,6 +5055,10 @@ export class SaasService {
     const type = String(body.type ?? 'OUT');
     const category = String(body.category ?? (type === 'IN' ? 'OTHER_INCOME' : 'OTHER_EXPENSE'));
     const pieceNumber = body.piece_number ?? await this.nextCashPieceNumber(client, type);
+    const currency = String(body.currency ?? 'USD').toUpperCase();
+    const exchangeRateUsed = Number(body.exchange_rate_used ?? 0) || null;
+    const amount = Number(body.amount ?? 0);
+    const equivalentUsd = Number(body.equivalent_usd ?? (currency === 'CDF' && exchangeRateUsed ? amount / exchangeRateUsed : amount));
     const { rows } = await client.query(
       `INSERT INTO cash_movements
        (cash_session_id, piece_number, type, label, category, amount, movement_date, payment_id, invoice_id, tenant_id, employee_id, supplier, description, reference, attachment_file_name, attachment_file_url, stock_purchase_id, created_by, organization_id)
@@ -5024,6 +5085,15 @@ export class SaasService {
         this.context.userId() ?? body.created_by ?? 1,
         this.context.organizationId(),
       ],
+    );
+    await client.query(
+      `UPDATE cash_movements
+       SET currency = $2,
+           exchange_rate_used = $3,
+           exchange_rate_date = $4,
+           equivalent_usd = $5
+       WHERE id = $1 AND organization_id = $6`,
+      [rows[0].id, currency, exchangeRateUsed, body.exchange_rate_date ?? null, equivalentUsd, this.context.organizationId()],
     );
     return rows[0];
   }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { RequestContext } from '../auth/request-context';
 import { requireRow } from '../common/not-found';
 import { DatabaseService } from '../database/database.service';
@@ -88,14 +88,68 @@ export class PaymentsService {
 
   async create(dto: CreatePaymentDto) {
     return this.db.transaction(async (client) => {
+      const locked = await this.lockInvoiceForPayment(client, dto);
+      const exchangeRate = await this.currentExchangeRate();
+      const paymentCurrency = String(dto.payment_currency ?? 'USD').toUpperCase();
+      const amountUsd = this.safeNumber(dto.amount_usd ?? (paymentCurrency === 'USD' ? dto.amount : 0));
+      const amountCdf = this.safeNumber(dto.amount_cdf ?? (paymentCurrency === 'CDF' ? dto.amount : 0));
+      const rateUsed = this.safeNumber(dto.exchange_rate_used ?? exchangeRate?.rate ?? 0) || null;
+      const exchangeRateDate = dto.exchange_rate_date ?? exchangeRate?.effective_date ?? null;
+      if (paymentCurrency === 'CDF' && !rateUsed) {
+        throw new BadRequestException('Aucun taux de change n\'est configure. Veuillez definir le taux dans Parametres.');
+      }
+      if (paymentCurrency === 'MIXED' && amountCdf > 0 && !rateUsed) {
+        throw new BadRequestException('Un taux de change est requis pour un paiement mixte.');
+      }
+      const cdfEquivalentUsd = amountCdf > 0 && rateUsed ? Number((amountCdf / rateUsed).toFixed(2)) : 0;
+      const totalEquivalentUsd = Number((amountUsd + cdfEquivalentUsd).toFixed(2));
+      if (!Number.isFinite(amountUsd) || !Number.isFinite(amountCdf) || !Number.isFinite(totalEquivalentUsd)) {
+        throw new BadRequestException('Montant de paiement invalide');
+      }
+      if (amountUsd <= 0 && amountCdf <= 0) {
+        throw new BadRequestException('Le paiement doit contenir au moins un montant USD ou CDF.');
+      }
+      if (amountUsd < 0 || amountCdf < 0) {
+        throw new BadRequestException('Les montants de paiement ne peuvent pas etre negatifs.');
+      }
+      if (rateUsed !== null && (!Number.isFinite(rateUsed) || rateUsed <= 0)) {
+        throw new BadRequestException('Le taux de change doit etre superieur a 0.');
+      }
+      const remaining = Number(locked.remaining_amount ?? locked.total ?? 0);
+      if (remaining <= 0 || String(locked.status).toUpperCase() === 'PAID') {
+        throw new BadRequestException('Cette facture est deja soldée.');
+      }
+      if (totalEquivalentUsd > remaining + 0.01) {
+        throw new BadRequestException(`Le paiement depasse le restant dû (${remaining.toFixed(2)} USD).`);
+      }
       const allocations = this.allocationsFromDto(dto);
-      const total = allocations.reduce((sum, allocation) => sum + Number(allocation.amount), 0);
+      const allocationTotal = allocations.reduce((sum, allocation) => sum + Number(allocation.amount), 0);
       const primaryInvoiceId = dto.invoice_id ?? allocations[0]?.invoice_id;
+      if (!primaryInvoiceId) {
+        throw new BadRequestException('Une facture est requise pour enregistrer le paiement.');
+      }
       const receiptNumber = await this.nextReceiptNumber(client);
       const { rows } = await client.query(
-        `INSERT INTO payments (invoice_id, payment_date, amount, payment_method, reference, notes, payer_name, receipt_number, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-        [primaryInvoiceId, dto.payment_date, total || dto.amount, dto.payment_method, dto.reference ?? null, dto.notes ?? null, dto.payer_name ?? null, receiptNumber, this.context.organizationId()],
+        `INSERT INTO payments (invoice_id, payment_date, amount, payment_method, reference, notes, payer_name, receipt_number, currency, amount_usd, amount_cdf, exchange_rate_used, exchange_rate_date, cdf_equivalent_usd, total_equivalent_usd, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
+        [
+          primaryInvoiceId,
+          dto.payment_date,
+          totalEquivalentUsd || allocationTotal || this.safeNumber(dto.amount),
+          dto.payment_method,
+          dto.reference ?? null,
+          dto.notes ?? null,
+          dto.payer_name ?? null,
+          receiptNumber,
+          paymentCurrency,
+          amountUsd,
+          amountCdf,
+          rateUsed,
+          exchangeRateDate,
+          cdfEquivalentUsd,
+          totalEquivalentUsd || allocationTotal || this.safeNumber(dto.amount),
+          this.context.organizationId(),
+        ],
       );
       for (const allocation of allocations) {
         await client.query(
@@ -105,7 +159,21 @@ export class PaymentsService {
         );
         await this.invoices.refreshStatus(client, allocation.invoice_id);
       }
-      await this.saas.createInvoicePaymentMovement(client, rows[0].id, primaryInvoiceId, total || dto.amount, dto.reference);
+      if (amountUsd > 0) {
+        await this.saas.createInvoicePaymentMovement(client, rows[0].id, primaryInvoiceId, amountUsd, dto.reference, {
+          currency: 'USD',
+          equivalentUsd: amountUsd,
+        });
+      }
+      if (amountCdf > 0) {
+        await this.saas.createInvoicePaymentMovement(client, rows[0].id, primaryInvoiceId, amountCdf, dto.reference, {
+          currency: 'CDF',
+          exchangeRateUsed: rateUsed,
+          exchangeRateDate: exchangeRateDate ? String(exchangeRateDate) : null,
+          equivalentUsd: cdfEquivalentUsd,
+        });
+      }
+      await this.invoices.refreshStatus(client, primaryInvoiceId);
       return rows[0];
     });
   }
@@ -149,6 +217,42 @@ export class PaymentsService {
   private allocationsFromDto(dto: CreatePaymentDto) {
     if (dto.allocations?.length) return dto.allocations;
     return [{ invoice_id: Number(dto.invoice_id), amount: Number(dto.amount) }];
+  }
+
+  private safeNumber(value: unknown) {
+    const number = Number(value ?? 0);
+    return Number.isFinite(number) ? number : 0;
+  }
+
+  private async lockInvoiceForPayment(client: import('pg').PoolClient, dto: CreatePaymentDto) {
+    const invoiceId = Number(dto.invoice_id ?? dto.allocations?.[0]?.invoice_id ?? 0);
+    if (!invoiceId) {
+      throw new BadRequestException('Une facture est requise pour enregistrer le paiement.');
+    }
+    const { rows } = await client.query(
+      `SELECT i.id, i.total, i.status,
+              COALESCE(s.paid_amount, 0)::NUMERIC(12,2) AS paid_amount,
+              COALESCE(s.remaining_amount, i.total)::NUMERIC(12,2) AS remaining_amount
+       FROM invoices i
+       LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
+       WHERE i.id = $1 AND i.organization_id = $2 AND i.deleted_at IS NULL
+       FOR UPDATE OF i`,
+      [invoiceId, this.context.organizationId()],
+    );
+    const invoice = requireRow(rows[0], 'Invoice');
+    return invoice;
+  }
+
+  private async currentExchangeRate() {
+    const { rows } = await this.db.query(
+      `SELECT rate, effective_date
+       FROM exchange_rates
+       WHERE organization_id = $1 AND deleted_at IS NULL AND is_active = TRUE
+       ORDER BY effective_date DESC, id DESC
+       LIMIT 1`,
+      [this.context.organizationId()],
+    );
+    return rows[0] ?? null;
   }
 
   private async nextReceiptNumber(client: import('pg').PoolClient) {

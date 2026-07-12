@@ -17,6 +17,13 @@ type PaymentDetailData = {
   notes?: string;
   receipt_number?: string;
   payer_name?: string;
+  currency?: string;
+  amount_usd?: number;
+  amount_cdf?: number;
+  exchange_rate_used?: number;
+  exchange_rate_date?: string;
+  cdf_equivalent_usd?: number;
+  total_equivalent_usd?: number;
   tenant_name?: string;
   tenant_type?: string;
   tenant_phone?: string;
@@ -68,10 +75,11 @@ export function PaymentDetail() {
 
   const summary = useMemo(() => {
     if (!payment) return null;
-    const remaining = Math.max(Number(payment.invoice_total ?? payment.amount) - Number(payment.amount), 0);
+    const totalEquivalent = Number(payment.total_equivalent_usd ?? payment.amount ?? 0);
+    const remaining = Math.max(Number(payment.invoice_total ?? totalEquivalent) - totalEquivalent, 0);
     return {
-      total: Number(payment.invoice_total ?? payment.amount),
-      paid: Number(payment.amount),
+      total: Number(payment.invoice_total ?? totalEquivalent),
+      paid: totalEquivalent,
       remaining,
       invoiceStatus: payment.invoice_status ?? 'PAID',
     };
@@ -171,9 +179,9 @@ export function PaymentDetail() {
         </header>
 
         <div className="invoice-amount-cards">
-          <div className="invoice-amount-card"><span>Montant</span><strong>{money(payment.amount)}</strong><em>USD</em></div>
-          <div className="invoice-amount-card"><span>Facture</span><strong>{money(summary?.total ?? 0)}</strong><em>USD</em></div>
-          <div className="invoice-amount-card due"><span>Reste</span><strong>{money(summary?.remaining ?? 0)}</strong><em>USD</em></div>
+          <div className="invoice-amount-card"><span>Montant USD</span><strong>{money(payment.amount_usd ?? payment.amount)}</strong><em>USD</em></div>
+          <div className="invoice-amount-card"><span>Montant CDF</span><strong>{Number(payment.amount_cdf ?? 0).toLocaleString('fr-FR')}</strong><em>CDF</em></div>
+          <div className="invoice-amount-card due"><span>Total équivalent</span><strong>{money(summary?.paid ?? 0)}</strong><em>USD</em></div>
         </div>
 
         <div className="invoice-parties">
@@ -184,6 +192,7 @@ export function PaymentDetail() {
             <p>Téléphone: {payment.tenant_phone || '-'}</p>
             <p>Email: {payment.tenant_email || '-'}</p>
             <p>Référence client: {payment.payer_name || '-'}</p>
+            <p>Taux appliqué: {payment.exchange_rate_used ? `1 USD = ${money(payment.exchange_rate_used)} CDF` : '-'}</p>
           </div>
           <div>
             <span>Appartement</span>
@@ -197,7 +206,7 @@ export function PaymentDetail() {
 
         <table>
           <thead><tr><th>Référence</th><th>Facture</th><th>Mode</th><th className="right">Montant</th><th>Devise</th><th>Utilisateur</th></tr></thead>
-          <tbody>
+        <tbody>
             <tr>
               <td>{payment.reference ?? payment.receipt_number ?? '-'}</td>
               <td>{payment.invoice_number}</td>
