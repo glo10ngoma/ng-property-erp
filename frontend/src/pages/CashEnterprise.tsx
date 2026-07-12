@@ -452,6 +452,7 @@ export function CashDetailPage() {
 function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormData) => void; nextPieceNumber: string }) {
   const [open, setOpen] = useState(false);
   const [attachmentName, setAttachmentName] = useState('');
+  const [currency, setCurrency] = useState<'USD' | 'CDF'>('USD');
   return (
     <>
       <div className="actions-row">
@@ -471,9 +472,11 @@ function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormD
                 formData.set('attachment_file_name', file.name);
               }
               formData.delete('attachment_file');
+              formData.set('currency', currency);
               onSubmit(formData);
               event.currentTarget.reset();
               setAttachmentName('');
+              setCurrency('USD');
               setOpen(false);
             }}
           >
@@ -502,7 +505,7 @@ function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormD
                 </label>
                 <label>
                   Devise
-                  <select name="currency" defaultValue="USD">
+                  <select name="currency" value={currency} onChange={(event) => setCurrency(event.target.value as 'USD' | 'CDF')}>
                     <option value="USD">USD</option>
                     <option value="CDF">CDF</option>
                   </select>
@@ -556,10 +559,6 @@ function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormD
                 <label>
                   Observations internes
                   <textarea name="notes" rows={2} placeholder="Observations internes" />
-                </label>
-                <label>
-                  Devise
-                  <input value="USD" readOnly className="locked-field" />
                 </label>
               </div>
             </div>
