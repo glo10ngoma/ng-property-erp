@@ -1,4 +1,6 @@
 type VariableValue = string | number | null | undefined;
+type ContractBlock = { type: 'text'; lines: string[] } | { type: 'table'; rows: Array<[string, string]> };
+type PdfLine = { text: string; kind: 'normal' | 'title' | 'article' | 'table' | 'blank' };
 
 const DEFAULT_TITLE = 'CONTRAT DE BAIL A USAGE RESIDENTIEL';
 const PDF_PAGE_WIDTH = 595;
@@ -60,6 +62,23 @@ function formatVariableValue(value: VariableValue) {
   return String(value).trim();
 }
 
+function parseContractBlocks(content: string): ContractBlock[] {
+  return normalizeWhitespace(content)
+    .split(/\n{2,}/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((block) => {
+      const lines = block.split('\n').map((line) => line.trim()).filter(Boolean);
+      const tableRows = lines
+        .map((line) => line.split('|').map((cell) => cell.trim()))
+        .filter((row) => row.length >= 2);
+      if (lines.length >= 2 && tableRows.length === lines.length) {
+        return { type: 'table', rows: tableRows.map((row) => [row[0], row[1] ?? ''] as [string, string]) };
+      }
+      return { type: 'text', lines };
+    });
+}
+
 export function renderLeaseContractTemplate(template: string, variables: Record<string, unknown>) {
   const flattened = flattenVariables(variables);
   return normalizeWhitespace(
@@ -72,9 +91,11 @@ export function unresolvedPlaceholders(content: string) {
 }
 
 export function buildLeaseContractHtml(content: string) {
-  const blocks = normalizeWhitespace(content).split(/\n{2,}/).map((entry) => entry.trim()).filter(Boolean);
-  const sections = blocks.map((block) => {
-    const lines = block.split('\n').map((line) => line.trim()).filter(Boolean);
+  const sections = parseContractBlocks(content).map((block) => {
+    if (block.type === 'table') {
+      return `<section><table class="contract-table"><tbody>${block.rows.map(([left, right]) => `<tr><th>${escapeHtml(left)}</th><td>${escapeHtml(right)}</td></tr>`).join('')}</tbody></table></section>`;
+    }
+    const lines = block.lines;
     if (!lines.length) return '';
     const first = escapeHtml(lines[0]);
     if (lines.length === 1 && first === first.toUpperCase()) {
@@ -97,7 +118,7 @@ export function buildLeaseContractHtml(content: string) {
 }
 
 export function buildLeaseContractPdfBase64(content: string, fileTitle = DEFAULT_TITLE) {
-  const pages = paginateContent(normalizeWhitespace(content), fileTitle);
+  const pages = paginateContent(content, fileTitle);
   const pdf = buildPdfDocument(pages);
   return Buffer.from(pdf, 'binary').toString('base64');
 }
@@ -105,23 +126,47 @@ export function buildLeaseContractPdfBase64(content: string, fileTitle = DEFAULT
 function paginateContent(content: string, title: string) {
   const wrapped = wrapContractContent(content);
   const linesPerPage = Math.floor((PDF_PAGE_HEIGHT - PDF_MARGIN_TOP - PDF_MARGIN_BOTTOM) / PDF_LINE_HEIGHT);
-  const pages: string[][] = [];
+  const pages: PdfLine[][] = [];
   for (let index = 0; index < wrapped.length; index += linesPerPage - 2) {
     const chunk = wrapped.slice(index, index + (linesPerPage - 2));
-    pages.push([title, '', ...chunk]);
+    pages.push([{ text: title, kind: 'title' }, { text: '', kind: 'blank' }, ...chunk]);
   }
   return pages;
 }
 
 function wrapContractContent(content: string) {
-  return content
-    .split('\n')
-    .flatMap((line) => wrapLine(line.trim(), PDF_MAX_CHARS))
-    .flatMap((line) => line === '__BLANK__' ? [''] : [line]);
+  const lines: PdfLine[] = [];
+  for (const block of parseContractBlocks(content)) {
+    if (lines.length && lines[lines.length - 1].kind !== 'blank') {
+      lines.push({ text: '', kind: 'blank' });
+    }
+    if (block.type === 'table') {
+      const leftWidth = Math.max(...block.rows.map(([left]) => left.length), 0) + 4;
+      block.rows.forEach(([left, right]) => {
+        lines.push({
+          text: `${left.padEnd(leftWidth)}${right}`,
+          kind: 'table',
+        });
+      });
+      lines.push({ text: '', kind: 'blank' });
+      continue;
+    }
+    block.lines.forEach((line) => {
+      const wrapped = wrapLine(line.trim(), PDF_MAX_CHARS);
+      wrapped.forEach((entry) => {
+        lines.push({
+          text: entry,
+          kind: classifyBodyLine(entry),
+        });
+      });
+    });
+  }
+  while (lines.length && lines[lines.length - 1].kind === 'blank') lines.pop();
+  return lines;
 }
 
 function wrapLine(line: string, maxChars: number) {
-  if (!line) return ['__BLANK__'];
+  if (!line) return [''];
   if (line.length <= maxChars) return [line];
   const words = line.split(/\s+/);
   const lines: string[] = [];
@@ -139,7 +184,14 @@ function wrapLine(line: string, maxChars: number) {
   return lines;
 }
 
-function buildPdfDocument(pages: string[][]) {
+function classifyBodyLine(line: string): PdfLine['kind'] {
+  if (!line.trim()) return 'blank';
+  if (/^ARTICLE\s+\d+/i.test(line)) return 'article';
+  if (line.includes('|')) return 'table';
+  return 'normal';
+}
+
+function buildPdfDocument(pages: PdfLine[][]) {
   const objects: string[] = [];
   const offsets: number[] = [0];
   const addObject = (body: string) => {
@@ -148,15 +200,17 @@ function buildPdfDocument(pages: string[][]) {
   };
 
   const fontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  const boldFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
+  const monoFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>');
   const contentObjectIds = pages.map((pageLines, index) => {
     const content = buildPdfPageStream(pageLines, index + 1, pages.length);
     return addObject(`<< /Length ${Buffer.byteLength(content, 'binary')} >>\nstream\n${content}\nendstream`);
   });
-  const pagesObjectId = 1 + 1 + contentObjectIds.length + pages.length;
+  const pagesObjectId = 1 + 3 + contentObjectIds.length + pages.length;
 
   const pageObjectIds = pages.map((_, index) =>
     addObject(
-      `<< /Type /Page /Parent ${pagesObjectId} 0 R /MediaBox [0 0 ${PDF_PAGE_WIDTH} ${PDF_PAGE_HEIGHT}] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectIds[index]} 0 R >>`,
+      `<< /Type /Page /Parent ${pagesObjectId} 0 R /MediaBox [0 0 ${PDF_PAGE_WIDTH} ${PDF_PAGE_HEIGHT}] /Resources << /Font << /F1 ${fontObjectId} 0 R /F2 ${boldFontObjectId} 0 R /F3 ${monoFontObjectId} 0 R >> >> /Contents ${contentObjectIds[index]} 0 R >>`,
     ),
   );
 
@@ -179,13 +233,15 @@ function buildPdfDocument(pages: string[][]) {
   return pdf;
 }
 
-function buildPdfPageStream(lines: string[], pageNumber: number, totalPages: number) {
+function buildPdfPageStream(lines: PdfLine[], pageNumber: number, totalPages: number) {
   const commands: string[] = ['BT', '/F1 11 Tf', `${PDF_MARGIN_X} ${PDF_PAGE_HEIGHT - PDF_MARGIN_TOP} Td`, `${PDF_LINE_HEIGHT} TL`];
   lines.forEach((line, index) => {
-    const fontSize = index === 0 ? 14 : line.startsWith('ARTICLE ') ? 12 : 11;
+    const kind = line.kind;
+    const fontSize = kind === 'title' ? 14 : kind === 'article' ? 12 : kind === 'table' ? 10 : 11;
+    const fontName = kind === 'title' || kind === 'article' ? '/F2' : kind === 'table' ? '/F3' : '/F1';
     if (index > 0) commands.push('T*');
-    commands.push(`/F1 ${fontSize} Tf`);
-    commands.push(`(${escapePdfString(toWinAnsi(line))}) Tj`);
+    commands.push(`${fontName} ${fontSize} Tf`);
+    commands.push(`(${escapePdfString(toWinAnsi(line.text))}) Tj`);
   });
   commands.push('ET');
   commands.push(`BT /F1 9 Tf ${PDF_MARGIN_X} ${PDF_MARGIN_BOTTOM - 14} Td (${escapePdfString(toWinAnsi(`Page ${pageNumber}/${totalPages}`))}) Tj ET`);

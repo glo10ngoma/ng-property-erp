@@ -425,6 +425,11 @@ textarea { min-height: 72px; resize: vertical; }
 .lease-contract-preview-html h2 { font-size: 18px; text-transform: uppercase; }
 .lease-contract-preview-html h3 { font-size: 15px; margin-top: 14px; }
 .lease-contract-preview-html p { margin: 0 0 8px; color: #334e68; line-height: 1.55; white-space: pre-wrap; }
+.lease-contract-preview-html .contract-table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; }
+.lease-contract-preview-html .contract-table th,
+.lease-contract-preview-html .contract-table td { border: 1px solid #cdd9e0; padding: 8px 10px; text-align: left; vertical-align: top; }
+.lease-contract-preview-html .contract-table th { width: 48%; background: #f7fafc; color: #203845; font-weight: 700; }
+.lease-contract-preview-html .contract-table td { color: #334e68; }
 .storage-note { margin: 6px 0 0; color: #637783; font-size: 12px; }
 .search-select { display: grid; gap: 8px; }
 .search-select-list { display: grid; gap: 6px; max-height: 220px; overflow: auto; }

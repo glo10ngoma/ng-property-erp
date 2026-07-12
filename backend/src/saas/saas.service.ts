@@ -2856,6 +2856,20 @@ export class SaasService {
     return this.db.transaction(async (client) => {
       const lease = await this.leaseDetail(id) as Record<string, any>;
       const company = await this.companySettings();
+      const companyData = company as Record<string, any>;
+      const landlordName = String(companyData.company_legal_name_resolved ?? companyData.company_legal_name ?? companyData.legal_name ?? companyData.company_name ?? '').trim();
+      const landlordRccm = String(companyData.company_rccm ?? '').trim();
+      const landlordAddress = String(companyData.company_address_resolved ?? companyData.company_address ?? companyData.address ?? '').trim();
+      const landlordRepresentative = String(companyData.legal_representative_name ?? '').trim();
+      const landlordRepresentativeTitle = String(companyData.legal_representative_title ?? '').trim();
+      const tenantName = String(lease.tenant_name ?? '').trim();
+      const unitNumber = String(lease.unit_number ?? '').trim();
+      const buildingName = String(lease.building_name ?? '').trim();
+      const startDate = String(lease.start_date ?? '').trim();
+      const monthlyRent = Number(lease.monthly_rent ?? 0);
+      if (!landlordName || !landlordRccm || !landlordAddress || !landlordRepresentative || !landlordRepresentativeTitle || !tenantName || !unitNumber || !buildingName || !startDate || !Number.isFinite(monthlyRent) || monthlyRent <= 0) {
+        throw new BadRequestException('Informations insuffisantes pour generer le contrat');
+      }
       const template = await this.activeLeaseContractTemplate(client, lease.contract_template_code ?? 'LEASE_RESIDENTIAL');
       const snapshot = this.buildLeaseContractSnapshot(lease, company);
       const renderedContent = renderLeaseContractTemplate(template.content, snapshot);
@@ -5468,8 +5482,62 @@ export class SaasService {
       tenantRepresentative ? `representee par ${tenantRepresentative}` : null,
       lease.legal_representative_role ? `agissant en qualite de ${lease.legal_representative_role}` : null,
     ].filter(Boolean).join(', ');
+    const apartmentLabel = lease.is_furnished ? 'Appartement Meuble' : 'Appartement Non Meuble';
+    const signatureDate = this.formatDate(lease.signature_date ?? new Date().toISOString().slice(0, 10));
+    const leaseStartDate = this.formatDate(lease.start_date);
+    const leaseEndDate = this.formatDate(lease.end_date) || this.formatDate(new Date().toISOString().slice(0, 10));
 
     return {
+      LANDLORD_NAME: lessorName,
+      LANDLORD_ACRONYM: company.company_acronym ?? '',
+      LANDLORD_LEGAL_FORM: company.company_legal_form ?? '',
+      LANDLORD_RCCM: company.company_rccm ?? '',
+      LANDLORD_NATIONAL_ID: company.company_national_id ?? '',
+      LANDLORD_TAX_ID: company.company_tax_id ?? '',
+      LANDLORD_ADDRESS: company.company_address ?? company.address ?? '',
+      LANDLORD_COMMUNE: company.company_commune ?? '',
+      LANDLORD_CITY: company.company_city ?? '',
+      LANDLORD_COUNTRY: company.company_country ?? '',
+      LANDLORD_REPRESENTATIVE_NAME: representativeFullName,
+      LANDLORD_REPRESENTATIVE_TITLE: company.legal_representative_title ?? '',
+      LANDLORD_PRESENTATION: [
+        lessorName,
+        company.company_legal_form ? `${company.company_legal_form}` : null,
+        company.company_rccm ? `RCCM ${company.company_rccm}` : null,
+        company.company_national_id ? `ID Nat ${company.company_national_id}` : null,
+        (company.company_address ?? company.address) ? `adresse ${company.company_address ?? company.address}` : null,
+        representativeFullName ? `representee par ${representativeFullName}` : null,
+        company.legal_representative_title ? `en qualite de ${company.legal_representative_title}` : null,
+      ].filter(Boolean).join(', '),
+      TENANT_NAME: isCompanyTenant ? (lease.company_name ?? lease.tenant_name) : (tenantFullName || lease.tenant_name),
+      TENANT_LEGAL_FORM: lease.legal_form ?? '',
+      TENANT_RCCM: lease.rccm ?? '',
+      TENANT_ID: lease.national_id_number ?? lease.id_number ?? '',
+      TENANT_ADDRESS: lease.tenant_address ?? '',
+      TENANT_COMMUNE: lease.tenant_commune ?? '',
+      TENANT_CITY: lease.tenant_city ?? '',
+      TENANT_COUNTRY: lease.tenant_country ?? '',
+      TENANT_REPRESENTATIVE_NAME: tenantRepresentative,
+      TENANT_REPRESENTATIVE_TITLE: lease.legal_representative_role ?? '',
+      TENANT_PRESENTATION: isCompanyTenant ? companyPresentation : physicalPresentation,
+      BUILDING_NAME: lease.building_name ?? '',
+      BUILDING_ADDRESS: lease.building_address ?? '',
+      BUILDING_COMMUNE: lease.building_commune ?? '',
+      BUILDING_NEIGHBORHOOD: lease.building_neighborhood ?? '',
+      BUILDING_CITY: lease.building_city ?? '',
+      UNIT_NUMBER: lease.unit_number ?? '',
+      APARTMENT_LABEL: apartmentLabel,
+      START_DATE: leaseStartDate,
+      END_DATE: leaseEndDate,
+      MONTHLY_RENT: this.formatMoney(lease.monthly_rent),
+      MAINTENANCE_AMOUNT: this.formatMoney(lease.maintenance_fee_amount),
+      SYNDIC_AMOUNT: this.formatMoney(lease.monthly_syndic_amount),
+      OTHER_CHARGES_AMOUNT: this.formatMoney(lease.other_charges_amount),
+      MONTHLY_TOTAL: this.formatMoney(totalMonthly),
+      GUARANTEE_MONTHS: String(guaranteeMonths),
+      GUARANTEE_TOTAL: this.formatMoney(guaranteeAmount),
+      SIGNATURE_PLACE: lease.signature_place ?? company.default_signature_place ?? company.company_city ?? 'Kinshasa',
+      SIGNATURE_DATE: signatureDate,
       bailleur: {
         raison_sociale: lessorName,
         sigle: company.company_acronym ?? '',
@@ -5520,6 +5588,7 @@ export class SaasService {
         nombre_chambres: String(lease.bedrooms_count ?? 0),
         nombre_parkings: String(lease.parking_spaces_count ?? (lease.has_parking ? 1 : 0)),
         meuble_label: lease.is_furnished ? 'Meuble' : 'Non meuble',
+        appartement_label: apartmentLabel,
         usage: lease.usage_type ?? lease.lease_usage ?? company.default_lease_usage ?? 'residentiel',
         adresse_complete: buildingAddressParts.join(', '),
         description_detail: [
@@ -5533,8 +5602,8 @@ export class SaasService {
         ].filter(Boolean).join(', '),
       },
       bail: {
-        date_debut: this.formatDate(lease.start_date),
-        date_fin: this.formatDate(lease.end_date) || this.formatDate(new Date().toISOString().slice(0, 10)),
+        date_debut: leaseStartDate,
+        date_fin: leaseEndDate,
         duree_texte: durationMonths > 0 ? `${durationMonths} mois` : 'duree en cours',
         preavis_mois: String(lease.notice_months ?? company.default_notice_months ?? 0),
         loyer_base: this.formatMoney(lease.monthly_rent),
@@ -5546,7 +5615,7 @@ export class SaasService {
         garantie_montant: this.formatMoney(guaranteeAmount),
         devise: 'USD',
         lieu_signature: lease.signature_place ?? company.default_signature_place ?? company.company_city ?? 'Kinshasa',
-        date_signature: this.formatDate(lease.signature_date ?? new Date().toISOString().slice(0, 10)),
+        date_signature: signatureDate,
         usage_label: lease.lease_usage ?? company.default_lease_usage ?? lease.usage_type ?? 'residentiel',
         type_contrat: lease.contract_template_code ?? company.default_contract_template_code ?? 'LEASE_RESIDENTIAL',
       },
