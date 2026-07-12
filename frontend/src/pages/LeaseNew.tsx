@@ -29,6 +29,15 @@ type Tenant = {
   unit_number?: string;
 };
 
+type CompanySettingsDefaults = {
+  default_lease_duration_months?: number;
+  default_notice_months?: number;
+  default_guarantee_months?: number;
+  default_signature_place?: string;
+  default_lease_usage?: string;
+  default_contract_template_code?: string;
+};
+
 export function LeaseNew() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -41,16 +50,17 @@ export function LeaseNew() {
   const [tenantId, setTenantId] = useState<number | null>(null);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [durationMonths, setDurationMonths] = useState('');
+  const [durationMonths, setDurationMonths] = useState('12');
   const [rent, setRent] = useState(0);
   const [maintenanceFee, setMaintenanceFee] = useState(0);
   const [syndicAmount, setSyndicAmount] = useState(0);
   const [otherCharges, setOtherCharges] = useState(0);
-  const [guaranteeMonths, setGuaranteeMonths] = useState('0');
+  const [guaranteeMonths, setGuaranteeMonths] = useState('3');
   const [noticeMonths, setNoticeMonths] = useState('1');
   const [signaturePlace, setSignaturePlace] = useState('Kinshasa');
   const [signatureDate, setSignatureDate] = useState(new Date().toISOString().slice(0, 10));
-  const [leaseUsage, setLeaseUsage] = useState('Residentiel');
+  const [leaseUsage, setLeaseUsage] = useState('RESIDENTIAL');
+  const [contractTemplateCode, setContractTemplateCode] = useState('LEASE_RESIDENTIAL');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -85,6 +95,25 @@ export function LeaseNew() {
     building_name: tenant.building_name,
     unit_number: tenant.unit_number,
   }));
+
+  useEffect(() => {
+    let active = true;
+    api.get<CompanySettingsDefaults>('/settings/company')
+      .then((response) => {
+        if (!active) return;
+        const defaults = response.data;
+        if (defaults.default_lease_duration_months) setDurationMonths(String(defaults.default_lease_duration_months));
+        if (defaults.default_notice_months !== undefined) setNoticeMonths(String(defaults.default_notice_months));
+        if (defaults.default_guarantee_months !== undefined) setGuaranteeMonths(String(defaults.default_guarantee_months));
+        if (defaults.default_signature_place) setSignaturePlace(defaults.default_signature_place);
+        if (defaults.default_lease_usage) setLeaseUsage(defaults.default_lease_usage);
+        if (defaults.default_contract_template_code) setContractTemplateCode(defaults.default_contract_template_code);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (selectedUnit) {
@@ -152,7 +181,7 @@ export function LeaseNew() {
       signature_place: signaturePlace || null,
       signature_date: signatureDate || null,
       lease_usage: leaseUsage || null,
-      contract_template_code: 'LEASE_RESIDENTIAL',
+      contract_template_code: contractTemplateCode || 'LEASE_RESIDENTIAL',
       status: form.get('status') || 'DRAFT',
       notes: form.get('notes') || null,
     };
@@ -220,7 +249,7 @@ export function LeaseNew() {
           <div className="lease-section-grid">
             <label>Lieu signature<input name="signature_place" value={signaturePlace} onChange={(event) => setSignaturePlace(event.target.value)} /></label>
             <label>Date signature<input name="signature_date" type="date" value={signatureDate} onChange={(event) => setSignatureDate(event.target.value)} /></label>
-            <label>Modele<input className="locked-field" name="contract_template_code" value="Contrat residentiel actif" readOnly /></label>
+            <label>Modele<input className="locked-field" name="contract_template_code" value={contractTemplateCode} readOnly /></label>
           </div>
         </div>
 

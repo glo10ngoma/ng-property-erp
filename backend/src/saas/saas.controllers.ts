@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { PERMISSIONS, ROLE_LABELS, ROLE_PERMISSIONS } from './permissions';
 import { SaasService } from './saas.service';
+import { UpdateCompanySettingsDto, UpdateExchangeRateDto } from './settings.dto';
 
 @Controller('users')
 export class UsersController {
@@ -169,8 +170,8 @@ export class SettingsController {
   }
 
   @Patch('company')
-  updateCompany(@Body() body: Record<string, unknown>) {
-    return this.service.updateCompanySettings(body);
+  updateCompany(@Body() body: UpdateCompanySettingsDto) {
+    return this.service.updateCompanySettings(body as Record<string, unknown>);
   }
 
   @Get('exchange-rate')
@@ -179,8 +180,8 @@ export class SettingsController {
   }
 
   @Patch('exchange-rate')
-  updateExchangeRate(@Body() body: Record<string, unknown>) {
-    return this.service.updateExchangeRate(body);
+  updateExchangeRate(@Body() body: UpdateExchangeRateDto) {
+    return this.service.updateExchangeRate(body as Record<string, unknown>);
   }
 
   @Get('publisher-services')

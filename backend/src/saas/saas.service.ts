@@ -3132,12 +3132,18 @@ export class SaasService {
   async companySettings() {
     const { rows } = await this.db.query(
       `SELECT *,
-              COALESCE(company_legal_name, legal_name, company_name) AS company_legal_name_resolved
+              COALESCE(company_legal_name, legal_name, company_name) AS company_legal_name_resolved,
+              COALESCE(company_address, address) AS company_address_resolved
        FROM company_settings
        WHERE organization_id = $1 AND deleted_at IS NULL`,
       [this.context.organizationId()],
     );
-    return rows[0] ?? this.createDefaultCompanySettings();
+    const row = rows[0] ?? (await this.createDefaultCompanySettings());
+    return {
+      ...row,
+      company_legal_name_resolved: row.company_legal_name ?? row.legal_name ?? row.company_name ?? '',
+      company_address_resolved: row.company_address ?? row.address ?? '',
+    };
   }
 
   async exchangeRate() {
@@ -3171,6 +3177,7 @@ export class SaasService {
   async updateExchangeRate(body: Record<string, unknown>) {
     const rate = Number(body.rate ?? 0);
     if (!Number.isFinite(rate) || !(rate > 0)) throw new BadRequestException('Le taux doit etre superieur a 0');
+    const effectiveDate = String(body.effectiveDate ?? body.effective_date ?? new Date().toISOString().slice(0, 10));
     return this.db.transaction(async (client) => {
       await client.query(
         `UPDATE exchange_rates
@@ -3184,7 +3191,7 @@ export class SaasService {
         `INSERT INTO exchange_rates (organization_id, base_currency, quote_currency, rate, effective_date, is_active, created_by)
          VALUES ($1, 'USD', 'CDF', $2, $3, TRUE, $4)
          RETURNING *`,
-        [this.context.organizationId(), rate, body.effective_date ?? new Date().toISOString().slice(0, 10), this.context.userId() ?? 1],
+        [this.context.organizationId(), rate, effectiveDate, this.context.userId() ?? 1],
       );
       const row = rows[0];
       return {
@@ -3216,6 +3223,19 @@ export class SaasService {
 
   async updateCompanySettings(body: Record<string, unknown>) {
     await this.companySettings();
+    const normalizedBody: Record<string, unknown> = { ...body };
+    if (normalizedBody.company_legal_name === undefined && normalizedBody.legal_name !== undefined) {
+      normalizedBody.company_legal_name = normalizedBody.legal_name;
+    }
+    if (normalizedBody.legal_name === undefined && normalizedBody.company_legal_name !== undefined) {
+      normalizedBody.legal_name = normalizedBody.company_legal_name;
+    }
+    if (normalizedBody.company_address === undefined && normalizedBody.address !== undefined) {
+      normalizedBody.company_address = normalizedBody.address;
+    }
+    if (normalizedBody.address === undefined && normalizedBody.company_address !== undefined) {
+      normalizedBody.address = normalizedBody.company_address;
+    }
     const allowed = [
       'logo_url',
       'invoice_logo_url',
@@ -3230,6 +3250,7 @@ export class SaasService {
       'company_national_id',
       'company_tax_id',
       'address',
+      'company_address',
       'company_commune',
       'company_city',
       'company_country',
@@ -3244,8 +3265,14 @@ export class SaasService {
       'invoice_footer',
       'paper_format',
       'invoice_bottom_text',
+      'default_lease_duration_months',
+      'default_notice_months',
+      'default_guarantee_months',
+      'default_signature_place',
+      'default_lease_usage',
+      'default_contract_template_code',
     ];
-    const keys = allowed.filter((key) => body[key] !== undefined);
+    const keys = allowed.filter((key) => normalizedBody[key] !== undefined);
     if (!keys.length) throw new BadRequestException('No data provided');
     const assignments = keys.map((key, index) => `${key} = $${index + 2}`);
     const { rows } = await this.db.query(
@@ -3253,7 +3280,7 @@ export class SaasService {
        SET ${assignments.join(', ')}, updated_by = $${keys.length + 2}, updated_at = NOW()
        WHERE organization_id = $1 AND deleted_at IS NULL
        RETURNING *`,
-      [this.context.organizationId(), ...keys.map((key) => body[key]), this.context.userId() ?? 1],
+      [this.context.organizationId(), ...keys.map((key) => normalizedBody[key]), this.context.userId() ?? 1],
     );
     return requireRow(rows[0], 'Company settings');
   }
@@ -5352,9 +5379,9 @@ export class SaasService {
 
   private buildLeaseContractSnapshot(lease: Record<string, any>, company: Record<string, any>) {
     const totalMonthly = Number(lease.lease_total_amount ?? 0);
-    const guaranteeMonths = Number(lease.guarantee_months ?? 0);
+    const guaranteeMonths = Number(lease.guarantee_months ?? company.default_guarantee_months ?? 0);
     const guaranteeAmount = Number(lease.rental_guarantee_amount ?? lease.guarantee?.amount ?? 0);
-    const durationMonths = this.leaseDurationMonths(lease.start_date, lease.end_date);
+    const durationMonths = this.leaseDurationMonths(lease.start_date, lease.end_date) || Number(company.default_lease_duration_months ?? 0);
     const isCompanyTenant = String(lease.tenant_type ?? 'PHYSICAL') === 'COMPANY';
     const lessorName = company.company_legal_name ?? company.legal_name ?? company.company_name ?? 'NG Property ERP';
     const representativeFullName = [company.legal_representative_name].filter(Boolean).join(' ').trim();
@@ -5392,7 +5419,7 @@ export class SaasService {
         rccm: company.company_rccm ?? '',
         identification_nationale: company.company_national_id ?? '',
         numero_fiscal: company.company_tax_id ?? '',
-        adresse: company.address ?? '',
+        adresse: company.company_address ?? company.address ?? '',
         commune: company.company_commune ?? '',
         ville: company.company_city ?? '',
         pays: company.company_country ?? '',
@@ -5404,7 +5431,7 @@ export class SaasService {
           company.company_legal_form ? `${company.company_legal_form}` : null,
           company.company_rccm ? `RCCM ${company.company_rccm}` : null,
           company.company_national_id ? `ID Nat ${company.company_national_id}` : null,
-          company.address ? `adresse ${company.address}` : null,
+          (company.company_address ?? company.address) ? `adresse ${company.company_address ?? company.address}` : null,
           representativeFullName ? `representee par ${representativeFullName}` : null,
           company.legal_representative_title ? `en qualite de ${company.legal_representative_title}` : null,
         ].filter(Boolean).join(', '),
@@ -5436,7 +5463,7 @@ export class SaasService {
         nombre_chambres: String(lease.bedrooms_count ?? 0),
         nombre_parkings: String(lease.parking_spaces_count ?? (lease.has_parking ? 1 : 0)),
         meuble_label: lease.is_furnished ? 'Meuble' : 'Non meuble',
-        usage: lease.usage_type ?? lease.lease_usage ?? 'residentiel',
+        usage: lease.usage_type ?? lease.lease_usage ?? company.default_lease_usage ?? 'residentiel',
         adresse_complete: buildingAddressParts.join(', '),
         description_detail: [
           `l'unite ${lease.unit_number ?? ''}`.trim(),
@@ -5452,7 +5479,7 @@ export class SaasService {
         date_debut: this.formatDate(lease.start_date),
         date_fin: this.formatDate(lease.end_date) || this.formatDate(new Date().toISOString().slice(0, 10)),
         duree_texte: durationMonths > 0 ? `${durationMonths} mois` : 'duree en cours',
-        preavis_mois: String(lease.notice_months ?? 0),
+        preavis_mois: String(lease.notice_months ?? company.default_notice_months ?? 0),
         loyer_base: this.formatMoney(lease.monthly_rent),
         frais_entretien: this.formatMoney(lease.maintenance_fee_amount),
         frais_syndic: this.formatMoney(lease.monthly_syndic_amount),
@@ -5461,9 +5488,10 @@ export class SaasService {
         garantie_nombre_mois: String(guaranteeMonths),
         garantie_montant: this.formatMoney(guaranteeAmount),
         devise: 'USD',
-        lieu_signature: lease.signature_place ?? company.company_city ?? 'Kinshasa',
+        lieu_signature: lease.signature_place ?? company.default_signature_place ?? company.company_city ?? 'Kinshasa',
         date_signature: this.formatDate(lease.signature_date ?? new Date().toISOString().slice(0, 10)),
-        usage_label: lease.lease_usage ?? lease.usage_type ?? 'residentiel',
+        usage_label: lease.lease_usage ?? company.default_lease_usage ?? lease.usage_type ?? 'residentiel',
+        type_contrat: lease.contract_template_code ?? company.default_contract_template_code ?? 'LEASE_RESIDENTIAL',
       },
     };
   }
@@ -5506,12 +5534,15 @@ export class SaasService {
   private async createDefaultCompanySettings() {
     const { rows } = await this.db.query(
       `INSERT INTO company_settings (
-         organization_id, company_name, legal_name, company_legal_name, company_city, company_country,
-         currency, language, timezone, invoice_footer, invoice_bottom_text, created_by
+         organization_id, company_name, legal_name, company_legal_name, address, company_address, company_city, company_country,
+         currency, language, timezone, invoice_footer, invoice_bottom_text,
+         default_lease_duration_months, default_notice_months, default_guarantee_months,
+         default_signature_place, default_lease_usage, default_contract_template_code, created_by
        )
        VALUES (
-         $1, 'Demo Property ERP', 'Demo Property ERP', 'Demo Property ERP', 'Kinshasa', 'RDC',
-         'USD', 'fr', 'Africa/Kinshasa', 'Merci pour votre confiance.', 'Facture generee par Property ERP.', $2
+         $1, 'Demo Property ERP', 'Demo Property ERP', 'Demo Property ERP', '22 Avenue des Écuries', '22 Avenue des Écuries', 'Kinshasa', 'RDC',
+         'USD', 'fr', 'Africa/Kinshasa', 'Merci pour votre confiance.', 'Facture generee par Property ERP.',
+         12, 1, 3, 'Kinshasa', 'RESIDENTIAL', 'LEASE_RESIDENTIAL', $2
        )
        ON CONFLICT (organization_id) DO UPDATE SET organization_id = EXCLUDED.organization_id
        RETURNING *`,
