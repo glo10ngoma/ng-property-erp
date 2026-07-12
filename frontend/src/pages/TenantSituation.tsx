@@ -99,6 +99,8 @@ export function TenantSituation() {
   const exportRows = report ? [...report.leases, ...report.guarantees, ...report.invoices, ...report.payments, ...report.documents] : [];
   const tenantLabel = report ? tenantDisplayName(report.tenant) : '';
   const rentedUnitsCount = report ? new Set(report.leases.map((lease) => String(lease.unit_id ?? lease.unit_number ?? '')).filter(Boolean)).size : 0;
+  const totalGuarantee = report ? totalGuaranteeAmount(report.leases) : 0;
+  const totalLeases = report ? totalLeaseAmount(report.leases) : 0;
   const synthesis = report ? tenantSynthesis(report) : null;
 
   async function sendReminder(row: ReportRow, channel: 'EMAIL' | 'SMS' | 'WHATSAPP') {
@@ -204,6 +206,8 @@ export function TenantSituation() {
           <div className="mini-stats">
             <div className="mini-stat"><span>Baux actifs</span><strong>{report.active_leases.length}</strong></div>
             <div className="mini-stat"><span>Unites louees</span><strong>{rentedUnitsCount}</strong></div>
+            <div className="mini-stat"><span>Total garantie</span><strong>{money(totalGuarantee)}</strong></div>
+            <div className="mini-stat"><span>Total des baux</span><strong>{money(totalLeases)}</strong></div>
             <div className="mini-stat"><span>Factures payees</span><strong>{report.paid.length}</strong></div>
             <div className="mini-stat"><span>Factures partielles</span><strong>{report.partial.length}</strong></div>
             <div className="mini-stat"><span>Factures en retard</span><strong>{report.overdue.length}</strong></div>
@@ -512,7 +516,7 @@ function exportTenantSituationWorkbook(report: TenantReportData) {
     { name: 'Relances', rows: reminderRows },
     { name: 'Documents', rows: report.documents },
     { name: 'Timeline', rows: timeline },
-    { name: 'Rentabilite', rows: [{ 'Total loyers factures': amount(report.total_rent_invoiced), 'Total syndic facture': amount(report.total_syndic_invoiced), 'Total facture': amount(report.total_invoiced), 'Total encaisse': amount(report.total_paid), 'Total impayes': amount(report.remaining), 'Nombre de baux': report.leases.length, 'Nombre de relances': reminderRows.reduce((sum, row) => sum + Number(row['Nombre relances'] ?? 0), 0), 'Date dernier paiement': latestDate(report.payments.map((payment) => String(payment.payment_date ?? ''))), 'Solde restant': amount(report.remaining) }] },
+    { name: 'Rentabilite', rows: [{ 'Total loyers factures': amount(report.total_rent_invoiced), 'Total syndic facture': amount(report.total_syndic_invoiced), 'Total facture': amount(report.total_invoiced), 'Total encaisse': amount(report.total_paid), 'Total impayes': amount(report.remaining), 'Total garantie': amount(totalGuaranteeAmount(report.leases)), 'Total des baux': amount(totalLeaseAmount(report.leases)), 'Nombre de baux': report.leases.length, 'Nombre de relances': reminderRows.reduce((sum, row) => sum + Number(row['Nombre relances'] ?? 0), 0), 'Date dernier paiement': latestDate(report.payments.map((payment) => String(payment.payment_date ?? ''))), 'Solde restant': amount(report.remaining) }] },
   ]);
 }
 
@@ -524,4 +528,31 @@ function latestDate(values: string[]) {
 
 function safeFilePart(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'locataire';
+}
+
+function totalGuaranteeAmount(leases: ReportRow[]) {
+  return leases.reduce((sum, lease) => {
+    const value = lease.rental_guarantee_amount ?? lease.guarantee_amount ?? lease.deposit_amount ?? lease.amount;
+    return sum + Number(value ?? 0);
+  }, 0);
+}
+
+function totalLeaseAmount(leases: ReportRow[]) {
+  return leases.reduce((sum, lease) => {
+    const duration = leaseDurationMonths(lease.start_date, lease.end_date);
+    const rent = Number(lease.monthly_rent ?? lease.rent_amount ?? 0);
+    const syndic = Number(lease.monthly_syndic_amount ?? lease.syndic_amount ?? 0);
+    return sum + duration * (rent + syndic);
+  }, 0);
+}
+
+function leaseDurationMonths(startValue: unknown, endValue: unknown) {
+  if (!startValue) return 0;
+  const start = new Date(String(startValue));
+  const end = endValue ? new Date(String(endValue)) : new Date();
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+  const yearMonths = (end.getFullYear() - start.getFullYear()) * 12;
+  const monthDiff = end.getMonth() - start.getMonth();
+  const total = yearMonths + monthDiff + 1;
+  return Math.max(0, total);
 }
