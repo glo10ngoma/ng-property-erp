@@ -193,7 +193,7 @@ export function SettingsPage() {
       if (companyResult.status === 'fulfilled') {
         setSettings(normalizeSettings(companyResult.value.data));
       } else {
-        setError(extractErrorMessage(companyResult.reason, 'Impossible de charger les paramètres de l’entreprise.'));
+        setError(extractErrorMessage(companyResult.reason, "Impossible de charger les paramètres de l’entreprise."));
       }
 
       if (referencesResult.status === 'fulfilled') {
@@ -261,162 +261,90 @@ export function SettingsPage() {
     };
   }
 
+  async function refreshCompanySettings() {
+    const response = await api.get<CompanySettingsResponse>('/settings/company');
+    setSettings(normalizeSettings(response.data));
+    return response.data;
+  }
+
+  async function refreshExchangeRate() {
+    const response = await api.get<ExchangeRate | null>('/settings/exchange-rate');
+    const nextRate = response.data ?? null;
+    setExchangeRate(nextRate);
+    setExchangeRateDraft(nextRate ? String(nextRate.rate) : '');
+    setExchangeRateDateDraft(nextRate?.effectiveDate ?? today());
+    return nextRate;
+  }
+
   async function saveCompanySection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const companyLegalName = cleanText(settings.company_legal_name || settings.company_name);
-    await saveSettingsSection(
-      'company',
-      {
-        company_name: cleanText(settings.company_name),
-        legal_name: companyLegalName,
-        company_legal_name: companyLegalName,
-        company_acronym: cleanText(settings.company_acronym),
-        company_legal_form: cleanText(settings.company_legal_form),
-        company_rccm: cleanText(settings.company_rccm),
-        company_national_id: cleanText(settings.company_national_id),
-        company_tax_id: cleanText(settings.company_tax_id),
-      },
-      (response) => {
-        setSettings((current) => ({
-          ...current,
-          company_name: response.company_name ?? current.company_name,
-          legal_name: response.legal_name ?? response.company_legal_name ?? current.legal_name,
-          company_legal_name: response.company_legal_name ?? response.legal_name ?? current.company_legal_name,
-          company_acronym: response.company_acronym ?? current.company_acronym,
-          company_legal_form: response.company_legal_form ?? current.company_legal_form,
-          company_rccm: response.company_rccm ?? current.company_rccm,
-          company_national_id: response.company_national_id ?? current.company_national_id,
-          company_tax_id: response.company_tax_id ?? current.company_tax_id,
-        }));
-      },
-      'Informations du bailleur enregistrées.',
-    );
+    await saveSettingsSection('company', {
+      company_name: cleanText(settings.company_name),
+      legal_name: companyLegalName,
+      company_legal_name: companyLegalName,
+      company_acronym: cleanText(settings.company_acronym),
+      company_legal_form: cleanText(settings.company_legal_form),
+      company_rccm: cleanText(settings.company_rccm),
+      company_national_id: cleanText(settings.company_national_id),
+      company_tax_id: cleanText(settings.company_tax_id),
+    });
   }
 
   async function saveLocationSection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await saveSettingsSection(
-      'location',
-      {
-        address: cleanText(settings.company_address),
-        company_address: cleanText(settings.company_address),
-        company_commune: cleanText(settings.company_commune),
-        company_city: cleanText(settings.company_city),
-        company_country: cleanText(settings.company_country),
-      },
-      (response) => {
-        setSettings((current) => ({
-          ...current,
-          company_address: response.company_address ?? response.address ?? current.company_address,
-          company_commune: response.company_commune ?? current.company_commune,
-          company_city: response.company_city ?? current.company_city,
-          company_country: response.company_country ?? current.company_country,
-        }));
-      },
-      'Localisation enregistrée.',
-    );
+    await saveSettingsSection('location', {
+      address: cleanText(settings.company_address),
+      company_address: cleanText(settings.company_address),
+      company_commune: cleanText(settings.company_commune),
+      company_city: cleanText(settings.company_city),
+      company_country: cleanText(settings.company_country),
+    });
   }
 
   async function saveRepresentativeSection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await saveSettingsSection(
-      'representative',
-      {
-        phone: cleanText(settings.phone),
-        email: cleanText(settings.email),
-        website: cleanText(settings.website),
-        legal_representative_name: cleanText(settings.legal_representative_name),
-        legal_representative_title: cleanText(settings.legal_representative_title),
-      },
-      (response) => {
-        setSettings((current) => ({
-          ...current,
-          phone: response.phone ?? current.phone,
-          email: response.email ?? current.email,
-          website: response.website ?? current.website,
-          legal_representative_name: response.legal_representative_name ?? current.legal_representative_name,
-          legal_representative_title: response.legal_representative_title ?? current.legal_representative_title,
-        }));
-      },
-      'Représentant légal enregistré.',
-    );
+    await saveSettingsSection('representative', {
+      phone: cleanText(settings.phone),
+      email: cleanText(settings.email),
+      website: cleanText(settings.website),
+      legal_representative_name: cleanText(settings.legal_representative_name),
+      legal_representative_title: cleanText(settings.legal_representative_title),
+    });
   }
 
   async function saveLeaseSection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await saveSettingsSection(
-      'lease',
-      {
-        default_lease_duration_months: toNumber(settings.default_lease_duration_months),
-        default_notice_months: toNumber(settings.default_notice_months),
-        default_guarantee_months: toNumber(settings.default_guarantee_months),
-        default_signature_place: cleanText(settings.default_signature_place),
-        default_lease_usage: cleanText(settings.default_lease_usage),
-        default_contract_template_code: cleanText(settings.default_contract_template_code),
-      },
-      (response) => {
-        setSettings((current) => ({
-          ...current,
-          default_lease_duration_months: String(response.default_lease_duration_months ?? current.default_lease_duration_months),
-          default_notice_months: String(response.default_notice_months ?? current.default_notice_months),
-          default_guarantee_months: String(response.default_guarantee_months ?? current.default_guarantee_months),
-          default_signature_place: response.default_signature_place ?? current.default_signature_place,
-          default_lease_usage: response.default_lease_usage ?? current.default_lease_usage,
-          default_contract_template_code: response.default_contract_template_code ?? current.default_contract_template_code,
-        }));
-      },
-      'Paramètres des baux enregistrés.',
-    );
+    await saveSettingsSection('lease', {
+      default_lease_duration_months: toNumber(settings.default_lease_duration_months),
+      default_notice_months: toNumber(settings.default_notice_months),
+      default_guarantee_months: toNumber(settings.default_guarantee_months),
+      default_signature_place: cleanText(settings.default_signature_place),
+      default_lease_usage: cleanText(settings.default_lease_usage),
+      default_contract_template_code: cleanText(settings.default_contract_template_code),
+    });
   }
 
   async function saveDocumentsSection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await saveSettingsSection(
-      'documents',
-      {
-        logo_url: cleanText(settings.logo_url),
-        invoice_logo_url: cleanText(settings.invoice_logo_url),
-        signature_url: cleanText(settings.signature_url),
-        stamp_url: cleanText(settings.stamp_url),
-        paper_format: cleanText(settings.paper_format),
-        invoice_footer: cleanText(settings.invoice_footer),
-        invoice_bottom_text: cleanText(settings.invoice_bottom_text),
-      },
-      (response) => {
-        setSettings((current) => ({
-          ...current,
-          logo_url: response.logo_url ?? current.logo_url,
-          invoice_logo_url: response.invoice_logo_url ?? current.invoice_logo_url,
-          signature_url: response.signature_url ?? current.signature_url,
-          stamp_url: response.stamp_url ?? current.stamp_url,
-          paper_format: response.paper_format ?? current.paper_format,
-          invoice_footer: response.invoice_footer ?? current.invoice_footer,
-          invoice_bottom_text: response.invoice_bottom_text ?? current.invoice_bottom_text,
-        }));
-      },
-      'Documents et impression enregistrés.',
-    );
+    await saveSettingsSection('documents', {
+      logo_url: cleanText(settings.logo_url),
+      invoice_logo_url: cleanText(settings.invoice_logo_url),
+      signature_url: cleanText(settings.signature_url),
+      stamp_url: cleanText(settings.stamp_url),
+      paper_format: cleanText(settings.paper_format),
+      invoice_footer: cleanText(settings.invoice_footer),
+      invoice_bottom_text: cleanText(settings.invoice_bottom_text),
+    });
   }
 
   async function saveGeneralSection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await saveSettingsSection(
-      'general',
-      {
-        currency: cleanText(settings.currency),
-        language: cleanText(settings.language),
-        timezone: cleanText(settings.timezone),
-      },
-      (response) => {
-        setSettings((current) => ({
-          ...current,
-          currency: response.currency ?? current.currency,
-          language: response.language ?? current.language,
-          timezone: response.timezone ?? current.timezone,
-        }));
-      },
-      'Paramètres généraux enregistrés.',
-    );
+    await saveSettingsSection('general', {
+      currency: cleanText(settings.currency),
+      language: cleanText(settings.language),
+      timezone: cleanText(settings.timezone),
+    });
   }
 
   async function saveExchangeRate(event: FormEvent<HTMLFormElement>) {
@@ -425,37 +353,29 @@ export function SettingsPage() {
     setSuccess('');
     setSavingSection('rate');
     try {
-      const response = await api.patch<ExchangeRate>('/settings/exchange-rate', {
+      await api.patch<ExchangeRate>('/settings/exchange-rate', {
         rate: Number(exchangeRateDraft),
         effectiveDate: exchangeRateDateDraft,
       });
-      const next = response.data ?? null;
-      setExchangeRate(next);
-      setExchangeRateDraft(next ? String(next.rate) : '');
-      setExchangeRateDateDraft(next?.effectiveDate ?? today());
-      setSuccess('Taux de change enregistré.');
+      await refreshExchangeRate();
+      setSuccess('Paramètres enregistrés avec succès.');
     } catch (submissionError) {
-      setError(extractErrorMessage(submissionError, 'Impossible d’enregistrer le taux de change.'));
+      setError(extractErrorMessage(submissionError, "Impossible d’enregistrer le taux de change."));
     } finally {
       setSavingSection(null);
     }
   }
 
-  async function saveSettingsSection(
-    section: NonNullable<typeof savingSection>,
-    payload: Record<string, unknown>,
-    merge: (response: CompanySettingsResponse) => void,
-    successMessage: string,
-  ) {
+  async function saveSettingsSection(section: NonNullable<typeof savingSection>, payload: Record<string, unknown>) {
     setError('');
     setSuccess('');
     setSavingSection(section);
     try {
-      const response = await api.patch<CompanySettingsResponse>('/settings/company', payload);
-      merge(response.data);
-      setSuccess(successMessage);
+      await api.patch<CompanySettingsResponse>('/settings/company', payload);
+      await refreshCompanySettings();
+      setSuccess('Paramètres enregistrés avec succès.');
     } catch (submissionError) {
-      setError(extractErrorMessage(submissionError, 'Impossible d’enregistrer les paramètres.'));
+      setError(extractErrorMessage(submissionError, "Impossible d’enregistrer les paramètres."));
     } finally {
       setSavingSection(null);
     }
@@ -471,6 +391,7 @@ export function SettingsPage() {
       <p className="muted-text settings-intro">Centralisez les informations du bailleur, les paramètres des baux et le taux de change.</p>
       <SuccessMessage message={success} />
       {error ? <div className="error-message">{error}</div> : null}
+
       <div className="summary-band">
         <div className="summary-item">
           <span>Bailleur</span>
@@ -526,11 +447,7 @@ export function SettingsPage() {
         </form>
       </SettingsSection>
 
-      <SettingsSection
-        title="Localisation"
-        description="Adresse et localisation administrative du bailleur."
-        icon={<MapPin size={16} />}
-      >
+      <SettingsSection title="Localisation" description="Adresse et localisation administrative du bailleur." icon={<MapPin size={16} />}>
         <form className="settings-grid" onSubmit={saveLocationSection}>
           <SettingField label="Adresse">
             <input {...fieldProps('company_address')} disabled={locationDisabled} />
@@ -626,7 +543,7 @@ export function SettingsPage() {
 
       <SettingsSection
         title="Taux de change"
-        description="Le taux USD/CDF est chargé au montage et réutilisé dans les paiements."
+        description="Le taux USD/CDF est chargé au chargement de la page et réutilisé dans les paiements."
         icon={<Percent size={16} />}
       >
         <form className="settings-grid" onSubmit={saveExchangeRate}>
@@ -657,15 +574,11 @@ export function SettingsPage() {
             />
           </SettingField>
           <SettingField label="Dernière mise à jour">
-            <input
-              value={exchangeRate?.updatedAt ?? exchangeRate?.createdAt ?? '-'}
-              readOnly
-              className="locked-field"
-            />
+            <input value={exchangeRate?.updatedAt ?? exchangeRate?.createdAt ?? '-'} readOnly className="locked-field" />
           </SettingField>
           <SettingField label="Aperçu">
             <input
-              value={exchangeRate?.rate ? `1 USD = ${exchangeRate.rate.toLocaleString('fr-FR')} CDF` : 'Non disponible'}
+              value={Number(exchangeRateDraft) > 0 ? `1 USD = ${Number(exchangeRateDraft).toLocaleString('fr-FR')} CDF` : 'Non disponible'}
               readOnly
               className="locked-field"
             />
@@ -765,7 +678,7 @@ export function SettingsPage() {
         )}
       </SettingsSection>
 
-      <SettingsSection title="Services complémentaires">
+      <SettingsSection title="Services complémentaires" description="Zones non connectées à la V1, visibles à titre informatif uniquement.">
         <div className="chart-grid">
           {services.map((service) => (
             <article className="chart-card" key={service.title}>
@@ -778,7 +691,7 @@ export function SettingsPage() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Réservé éditeur">
+      <SettingsSection title="Réservé éditeur" description="Paramètres avancés non modifiables dans cette version.">
         {!can('publisher_settings.read') ? (
           <EmptyState message="Accès réservé." />
         ) : (
