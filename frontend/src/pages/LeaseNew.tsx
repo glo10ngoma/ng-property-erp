@@ -24,6 +24,8 @@ export function LeaseNew() {
   const [rent, setRent] = useState(0);
   const [syndicAmount, setSyndicAmount] = useState(0);
   const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [contractName, setContractName] = useState('');
   const [guaranteeAmount, setGuaranteeAmount] = useState('0');
   const [guaranteePaid, setGuaranteePaid] = useState('0');
@@ -83,21 +85,28 @@ export function LeaseNew() {
   }
 
   async function save(form: FormData) {
-    if (!Number(form.get('tenant_id'))) {
-      setMessage('Selectionnez un locataire avant de creer le bail.');
+    const tenantValue = Number(form.get('tenant_id') ?? 0);
+    const unitValue = Number(form.get('unit_id') ?? 0);
+    const startValue = String(form.get('start_date') ?? '').trim();
+    if (!tenantValue) {
+      setError('Selectionnez un locataire avant de creer le bail.');
       return;
     }
-    if (!Number(form.get('unit_id'))) {
-      setMessage('Selectionnez une unite avant de creer le bail.');
+    if (!unitValue) {
+      setError('Selectionnez une unite avant de creer le bail.');
+      return;
+    }
+    if (!startValue) {
+      setError('Selectionnez une date de debut.');
       return;
     }
     const payload = {
-      tenant_id: Number(form.get('tenant_id')),
-      unit_id: Number(form.get('unit_id')),
-      start_date: form.get('start_date'),
+      tenant_id: tenantValue,
+      unit_id: unitValue,
+      start_date: startValue,
       end_date: form.get('end_date') || null,
       monthly_rent: rent,
-      monthly_syndic_amount: syndicAmount,
+      monthly_syndic_amount: Number(syndicAmount || 0),
       rental_guarantee_amount: Number(form.get('rental_guarantee_amount') ?? 0),
       rental_guarantee_paid: Number(form.get('rental_guarantee_paid') ?? 0),
       rental_guarantee_payment_date: form.get('rental_guarantee_payment_date') || null,
@@ -107,16 +116,27 @@ export function LeaseNew() {
       status: form.get('status') || 'DRAFT',
       notes: form.get('notes') || null,
     };
-    await api.post('/leases', payload);
-    setMessage('Bail cree avec succes. Le contrat sera stocke dans le bucket contracts lorsque Supabase Storage sera active.');
-    setTimeout(() => navigate('/leases'), 700);
+    setSubmitting(true);
+    setError('');
+    try {
+      await api.post('/leases', payload);
+      setMessage('Bail cree avec succes. Le contrat sera stocke dans le bucket contracts lorsque Supabase Storage sera active.');
+      setTimeout(() => navigate('/leases'), 700);
+    } catch (err: any) {
+      const responseMessage = err?.response?.data?.message;
+      const details = Array.isArray(responseMessage) ? responseMessage.filter(Boolean).map(String).join(' | ') : responseMessage;
+      setError(details || 'Impossible de creer le bail.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
-    <section>
-      <PageHeader title="Nouveau bail" action={<button className="secondary" onClick={() => navigate('/leases')}><ArrowLeft size={16} />Retour</button>} />
-      <SuccessMessage message={message} />
-      <form className="lease-form" onSubmit={(event) => { event.preventDefault(); save(new FormData(event.currentTarget)); }}>
+      <section>
+        <PageHeader title="Nouveau bail" action={<button className="secondary" onClick={() => navigate('/leases')}><ArrowLeft size={16} />Retour</button>} />
+        <SuccessMessage message={message} />
+        {error && <div className="error-banner">{error}</div>}
+        <form className="lease-form" onSubmit={(event) => { event.preventDefault(); save(new FormData(event.currentTarget)); }}>
         <div className="detail-section report-section">
           <h4>Parties concernees</h4>
           <div className="lease-section-grid">
@@ -169,7 +189,7 @@ export function LeaseNew() {
         </div>
 
         <div className="actions">
-          <button><Save size={16} />Enregistrer le bail</button>
+          <button type="submit" disabled={submitting}><Save size={16} />{submitting ? 'Enregistrement...' : 'Enregistrer le bail'}</button>
           <button type="button" className="secondary" onClick={() => navigate('/leases')}>Annuler</button>
         </div>
       </form>

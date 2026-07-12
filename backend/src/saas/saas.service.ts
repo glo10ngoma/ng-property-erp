@@ -2581,8 +2581,14 @@ export class SaasService {
   async createLease(body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
       const organizationId = this.context.organizationId();
+      const tenantId = Number(body.tenant_id ?? 0);
+      const unitId = Number(body.unit_id ?? 0);
+      const startDate = String(body.start_date ?? '').trim();
+      if (!tenantId) throw new BadRequestException('Locataire requis');
+      if (!unitId) throw new BadRequestException('Unite requise');
+      if (!startDate) throw new BadRequestException('Date de debut requise');
       if (body.status === 'ACTIVE') {
-        await this.ensureNoLeaseConflict(client, Number(body.unit_id), String(body.start_date), body.end_date ? String(body.end_date) : null);
+        await this.ensureNoLeaseConflict(client, unitId, startDate, body.end_date ? String(body.end_date) : null);
       }
       const { rows } = await client.query(
         `INSERT INTO leases
@@ -2590,11 +2596,11 @@ export class SaasService {
           rental_guarantee_payment_date, rental_guarantee_status, contract_file_url, contract_file_name, status, organization_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          RETURNING *`,
-        [
-          body.tenant_id,
-          body.unit_id,
-          body.start_date,
-          body.end_date ?? null,
+          [
+            tenantId,
+            unitId,
+            startDate,
+            body.end_date ?? null,
           Number(body.monthly_rent ?? 0),
           Number(body.monthly_syndic_amount ?? 0),
           Number(body.rental_guarantee_amount ?? body.guarantee_amount ?? 0),
