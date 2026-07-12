@@ -47,7 +47,7 @@ type ExchangeRate = {
 };
 
 const paymentMethods = [
-  ['CASH', 'EspÃ¨ces'],
+  ['CASH', 'Espèces'],
   ['BANK', 'Banque'],
   ['MOBILE_MONEY', 'Mobile Money'],
 ];
@@ -149,7 +149,7 @@ export function Payments() {
       payer_name: form.get('payer_name'),
     };
     await api.post('/payments', payload);
-    setSuccess('Paiement enregistre avec succes.');
+    setSuccess('Paiement enregistré avec succès.');
     setOpen(false);
     setSelectedInvoiceId(null);
     reload();
@@ -174,11 +174,11 @@ export function Payments() {
     ['Total paiements', totals.total],
     ['Paiements aujourd\'hui', totals.today],
     ['Ce mois', totals.month],
-    ['EspÃ¨ces', totals.cash],
+    ['Espèces', totals.cash],
     ['Banque', totals.bank],
     ['Mobile Money', totals.mobile],
     ['Paiements partiels', totals.partial],
-    ['Total encaissÃ©', money(totals.collected)],
+    ['Total encaissé', money(totals.collected)],
   ] as const;
 
   return (
@@ -200,16 +200,16 @@ export function Payments() {
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" />
         </div>
         <div className="toolbar-actions">
-          <button type="button" className="secondary" onClick={() => setFilters({ month: '', year: '', payment_method: '', tenant: '', status: '', invoice: '', start: '', end: '', min: '', max: '', receipt: '', reference: '' })}>RÃ©initialiser</button>
+          <button type="button" className="secondary" onClick={() => setFilters({ month: '', year: '', payment_method: '', tenant: '', status: '', invoice: '', start: '', end: '', min: '', max: '', receipt: '', reference: '' })}>Réinitialiser</button>
           <button type="button" className="secondary" onClick={() => exportXlsxWorkbook('Paiements.xlsx', [{ name: 'Paiements', rows: exportRows() }])}><FileSpreadsheet size={16} />Exporter</button>
         </div>
       </div>
 
       <details className="detail-section" open>
-        <summary><Filter size={16} />Filtres avancÃ©s</summary>
+        <summary><Filter size={16} />Filtres avancés</summary>
         <div className="quick-form compact-grid">
           <input type="number" min="1" max="12" placeholder="Mois" value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })} />
-          <input type="number" min="2000" max="2100" placeholder="AnnÃ©e" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} />
+          <input type="number" min="2000" max="2100" placeholder="Année" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} />
           <select value={filters.payment_method} onChange={(event) => setFilters({ ...filters, payment_method: event.target.value })}>
             <option value="">Mode de paiement</option>
             {paymentMethods.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -222,20 +222,20 @@ export function Payments() {
           </select>
           <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}>
             <option value="">Statut</option>
-            <option value="PAID">PayÃ©e</option>
+            <option value="PAID">Payée</option>
             <option value="PARTIAL">Paiement partiel</option>
-            <option value="UNPAID">Non payÃ©e</option>
+            <option value="UNPAID">Non payée</option>
           </select>
           <input placeholder="Facture" value={filters.invoice} onChange={(event) => setFilters({ ...filters, invoice: event.target.value })} />
-        <button type="button" className="secondary" onClick={() => setFilters({ ...filters, month: '', year: '', payment_method: '', tenant: '', status: '', invoice: '', start: '', end: '', min: '', max: '', receipt: '', reference: '' })}>RÃ©initialiser</button>
+        <button type="button" className="secondary" onClick={() => setFilters({ ...filters, month: '', year: '', payment_method: '', tenant: '', status: '', invoice: '', start: '', end: '', min: '', max: '', receipt: '', reference: '' })}>Réinitialiser</button>
         </div>
         <div className="quick-form compact-grid advanced-grid">
           <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, start: event.target.value })} />
           <input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, end: event.target.value })} />
           <input type="number" placeholder="Montant min." value={filters.min} onChange={(event) => setFilters({ ...filters, min: event.target.value })} />
           <input type="number" placeholder="Montant max." value={filters.max} onChange={(event) => setFilters({ ...filters, max: event.target.value })} />
-          <input placeholder="ReÃ§u" value={filters.receipt} onChange={(event) => setFilters({ ...filters, receipt: event.target.value })} />
-          <input placeholder="RÃ©fÃ©rence" value={filters.reference} onChange={(event) => setFilters({ ...filters, reference: event.target.value })} />
+          <input placeholder="Reçu" value={filters.receipt} onChange={(event) => setFilters({ ...filters, receipt: event.target.value })} />
+          <input placeholder="Référence" value={filters.reference} onChange={(event) => setFilters({ ...filters, reference: event.target.value })} />
         </div>
       </details>
 
@@ -249,7 +249,7 @@ export function Payments() {
               <th>Date</th>
               <th className="right">Montant</th>
               <th>Mode</th>
-              <th>RÃ©fÃ©rence</th>
+              <th>Référence</th>
               <th>Statut</th>
               <th>Actions</th>
             </tr>
@@ -457,5 +457,5 @@ function PaymentModal({
 }
 
 function statusLabel(value: string) {
-  return ({ PAID: 'PayÃ©e', PARTIAL: 'Paiement partiel', UNPAID: 'Non payÃ©e', OVERDUE: 'En retard', DRAFT: 'Brouillon', CANCELLED: 'AnnulÃ©e' } as Record<string, string>)[value] ?? value;
+  return ({ PAID: 'Payée', PARTIAL: 'Paiement partiel', UNPAID: 'Non payée', OVERDUE: 'En retard', DRAFT: 'Brouillon', CANCELLED: 'Annulée' } as Record<string, string>)[value] ?? value;
 }
