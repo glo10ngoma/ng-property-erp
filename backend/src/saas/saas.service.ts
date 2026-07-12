@@ -5471,6 +5471,8 @@ export class SaasService {
     const guaranteeAmount = Number(lease.rental_guarantee_amount ?? lease.guarantee?.amount ?? 0);
     const durationMonths = this.leaseDurationMonths(lease.start_date, lease.end_date) || Number(company.default_lease_duration_months ?? 0);
     const isCompanyTenant = String(lease.tenant_type ?? 'PHYSICAL') === 'COMPANY';
+    const bedroomCount = Number(lease.bedrooms_count ?? 0);
+    const parkingCount = Number(lease.parking_spaces_count ?? (lease.has_parking ? 1 : 0));
     const lessorName = company.company_legal_name ?? company.legal_name ?? company.company_name ?? 'NG Property ERP';
     const representativeFullName = [company.legal_representative_name].filter(Boolean).join(' ').trim();
     const tenantRepresentative = [
@@ -5490,23 +5492,22 @@ export class SaasService {
       lease.tenant_country ? `pays ${lease.tenant_country}` : null,
     ].filter(Boolean).join(', ');
     const companyPresentation = [
-      lease.company_name,
-      lease.legal_form ? `${lease.legal_form}` : null,
-      lease.rccm ? `immatriculee au RCCM sous le numero ${lease.rccm}` : null,
-      lease.national_id_number ? `identification nationale ${lease.national_id_number}` : null,
-      lease.tax_number ? `numero fiscal ${lease.tax_number}` : null,
-      lease.tenant_address ? `siege social etabli a ${lease.tenant_address}` : null,
-      tenantRepresentative ? `representee par ${tenantRepresentative}` : null,
-      lease.legal_representative_role ? `agissant en qualite de ${lease.legal_representative_role}` : null,
-    ].filter(Boolean).join(', ');
+      `${lease.company_name || lease.tenant_name || ''}, ${lease.legal_form || ''} / inscrite au Registre du Commerce et du Crédit Mobilier de la Ville de Kinshasa sous le numéro RCCM : ${lease.rccm || ''}, ainsi qu’au Registre du Ministère de l’Economie Nationale sous le numéro Id. Nat. : ${lease.national_id_number || ''}, dont le Siège social est sis, ${lease.tenant_address || ''} dans la Commune de ${lease.tenant_commune || ''}, à ${lease.tenant_city || ''} en République Démocratique du Congo ici représentée par Monsieur ${tenantRepresentative || ''} son ${lease.legal_representative_role || ''};`,
+    ].filter(Boolean).join(' ');
     const apartmentLabel = lease.is_furnished ? 'Meublé' : 'Non Meublé';
-    const tenantPhysicalNote = isCompanyTenant
-      ? ''
-      : "Nom et numéro de pièce d'identité au cas où c'était une personne physique";
+    const tenantPhysicalNote = isCompanyTenant ? '' : "Nom et numero piece d identite au cas ou c'était une personne";
     const signatureDate = this.formatDate(lease.signature_date ?? new Date().toISOString().slice(0, 10));
     const leaseStartDate = this.formatDate(lease.start_date);
     const leaseEndDate = this.formatDate(lease.end_date) || this.formatDate(new Date().toISOString().slice(0, 10));
     const otherChargesAmount = Number(lease.other_charges_amount ?? 0);
+    const rentBreakdown = [
+      lease.monthly_rent > 0 ? `• ${this.formatMoney(lease.monthly_rent)} USD loyer` : null,
+      Number(lease.maintenance_fee_amount ?? 0) > 0 ? `• ${this.formatMoney(lease.maintenance_fee_amount)} USD Entretien et Maintenance` : null,
+      Number(lease.monthly_syndic_amount ?? 0) > 0 ? `• ${this.formatMoney(lease.monthly_syndic_amount)} USD syndic` : null,
+      otherChargesAmount > 0 ? `• ${this.formatMoney(otherChargesAmount)} USD autres charges` : null,
+    ].filter(Boolean).join('\n');
+    const leaseDurationText = durationMonths > 0 ? `${durationMonths} mois` : 'duree en cours';
+    const bedroomCountText = this.frenchNumberWord(bedroomCount);
 
     return {
       LANDLORD_NAME: lessorName,
@@ -5520,6 +5521,7 @@ export class SaasService {
       LANDLORD_CITY: company.company_city ?? '',
       LANDLORD_COUNTRY: company.company_country ?? '',
       LANDLORD_REPRESENTATIVE_NAME: representativeFullName,
+      LANDLORD_REPRESENTATIVE: representativeFullName,
       LANDLORD_REPRESENTATIVE_TITLE: company.legal_representative_title ?? '',
       LANDLORD_PRESENTATION: [
         lessorName,
@@ -5540,23 +5542,32 @@ export class SaasService {
       TENANT_COUNTRY: lease.tenant_country ?? '',
       TENANT_REPRESENTATIVE_NAME: tenantRepresentative,
       TENANT_REPRESENTATIVE_TITLE: lease.legal_representative_role ?? '',
-      TENANT_PRESENTATION: isCompanyTenant ? companyPresentation : physicalPresentation,
-      TENANT_PHYSICAL_NOTE: tenantPhysicalNote,
+      TENANT_PRESENTATION: isCompanyTenant ? companyPresentation : '',
+      TENANT_PHYSICAL_NOTE: isCompanyTenant ? '' : physicalPresentation,
       BUILDING_NAME: lease.building_name ?? '',
       BUILDING_ADDRESS: lease.building_address ?? '',
       BUILDING_COMMUNE: lease.building_commune ?? '',
       BUILDING_NEIGHBORHOOD: lease.building_neighborhood ?? '',
       BUILDING_CITY: lease.building_city ?? '',
       UNIT_NUMBER: lease.unit_number ?? '',
+      UNIT_FURNISHING: apartmentLabel,
       APARTMENT_LABEL: apartmentLabel,
+      BEDROOM_COUNT: String(bedroomCount),
+      PARKING_COUNT: String(parkingCount),
+      BEDROOM_COUNT_TEXT: bedroomCountText,
       START_DATE: leaseStartDate,
       END_DATE: leaseEndDate,
+      LEASE_DURATION_TEXT: leaseDurationText,
+      NOTICE_MONTHS: String(lease.notice_months ?? company.default_notice_months ?? 0),
       MONTHLY_RENT: this.formatMoney(lease.monthly_rent),
       MAINTENANCE_AMOUNT: this.formatMoney(lease.maintenance_fee_amount),
       SYNDIC_AMOUNT: this.formatMoney(lease.monthly_syndic_amount),
       OTHER_CHARGES_AMOUNT: this.formatMoney(lease.other_charges_amount),
       OTHER_CHARGES_LINE: otherChargesAmount > 0 ? `${this.formatMoney(otherChargesAmount)} USD autres charges` : '',
+      RENT_BREAKDOWN: rentBreakdown,
       MONTHLY_TOTAL: this.formatMoney(totalMonthly),
+      MONTHLY_TOTAL_RAW: this.formatMoney(totalMonthly),
+      CURRENCY: 'USD',
       GUARANTEE_MONTHS: String(guaranteeMonths),
       GUARANTEE_TOTAL: this.formatMoney(guaranteeAmount),
       SIGNATURE_PLACE: lease.signature_place ?? company.default_signature_place ?? company.company_city ?? 'Kinshasa',
@@ -5608,8 +5619,8 @@ export class SaasService {
         commune: lease.building_commune ?? '',
         quartier: lease.building_neighborhood ?? '',
         ville: lease.building_city ?? '',
-        nombre_chambres: String(lease.bedrooms_count ?? 0),
-        nombre_parkings: String(lease.parking_spaces_count ?? (lease.has_parking ? 1 : 0)),
+        nombre_chambres: String(bedroomCount),
+        nombre_parkings: String(parkingCount),
         meuble_label: lease.is_furnished ? 'Meuble' : 'Non meuble',
         appartement_label: apartmentLabel,
         usage: lease.usage_type ?? lease.lease_usage ?? company.default_lease_usage ?? 'residentiel',
@@ -5617,9 +5628,9 @@ export class SaasService {
         description_detail: [
           `l'unite ${lease.unit_number ?? ''}`.trim(),
           lease.surface_area ? `${lease.surface_area} m2` : null,
-          lease.bedrooms_count ? `${lease.bedrooms_count} chambre(s)` : null,
-          String(lease.parking_spaces_count ?? (lease.has_parking ? 1 : 0)) !== '0'
-            ? `${lease.parking_spaces_count ?? 1} parking(s)`
+          bedroomCount ? `${bedroomCount} chambre(s)` : null,
+          String(parkingCount) !== '0'
+            ? `${parkingCount} parking(s)`
             : null,
           lease.is_furnished ? 'meublee' : 'non meublee',
         ].filter(Boolean).join(', '),
@@ -5627,7 +5638,7 @@ export class SaasService {
       bail: {
         date_debut: leaseStartDate,
         date_fin: leaseEndDate,
-        duree_texte: durationMonths > 0 ? `${durationMonths} mois` : 'duree en cours',
+        duree_texte: leaseDurationText,
         preavis_mois: String(lease.notice_months ?? company.default_notice_months ?? 0),
         loyer_base: this.formatMoney(lease.monthly_rent),
         frais_entretien: this.formatMoney(lease.maintenance_fee_amount),
@@ -5658,6 +5669,24 @@ export class SaasService {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
+  }
+
+  private frenchNumberWord(value: number) {
+    const normalized = Math.max(0, Math.floor(Number(value ?? 0)));
+    const dictionary: Record<number, string> = {
+      0: 'Zero',
+      1: 'Un',
+      2: 'Deux',
+      3: 'Trois',
+      4: 'Quatre',
+      5: 'Cinq',
+      6: 'Six',
+      7: 'Sept',
+      8: 'Huit',
+      9: 'Neuf',
+      10: 'Dix',
+    };
+    return dictionary[normalized] ?? String(normalized);
   }
 
   private formatDate(value?: string | null) {
