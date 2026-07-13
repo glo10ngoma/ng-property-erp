@@ -51,6 +51,9 @@ export function LeaseDetail() {
   const activeTemplateVersion = Number(lease?.active_contract_template_version ?? 0);
   const currentContractVersion = Number(lease?.latest_contract?.template_version ?? 0);
   const contractVersionOutdated = Boolean(lease?.latest_contract && activeTemplateVersion > 0 && currentContractVersion < activeTemplateVersion);
+  const canManageLeaseContract = can('documents.upload');
+  const canReadLeaseContract = can('documents.read');
+  const hasGeneratedDocx = Boolean(lease?.latest_contract?.docx_file_name);
 
   async function load() {
     if (!id) return;
@@ -67,6 +70,14 @@ export function LeaseDetail() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function loadLatestDocx() {
+    if (!id) return null;
+    const response = await api.get<LeaseContractGeneration | null>(`/leases/${id}/contracts/latest-docx`);
+    const latestDocx = response.data;
+    setLease((current) => current ? { ...current, latest_contract: current.latest_contract ? { ...current.latest_contract, ...latestDocx } : latestDocx } : current);
+    return latestDocx;
   }
 
   useEffect(() => {
@@ -95,6 +106,7 @@ export function LeaseDetail() {
     setError('');
     try {
       await api.post(`/leases/${lease.id}/contracts/generate-docx`);
+      await loadLatestDocx();
       await load();
       setSuccess('Contrat genere avec succes.');
       if (openPreview) setPreviewOpen(true);
@@ -154,10 +166,23 @@ export function LeaseDetail() {
   }
 
   async function downloadGeneratedDocx() {
-    const contract = lease?.latest_contract;
-    if (!contract?.docx_file_url) return;
+    if (!lease) return;
     await markPrinted();
-    downloadFile(contract.docx_file_url, contract.docx_file_name || `Contrat_${leaseReference(lease!)}.docx`); // eslint-disable-line @typescript-eslint/no-non-null-assertion
+    try {
+      const latestDocx = await loadLatestDocx();
+      if (!latestDocx?.id) {
+        setError('Aucun contrat Word genere pour ce bail.');
+        return;
+      }
+      const response = await api.get(`/leases/${lease.id}/contracts/${latestDocx.id}/download`, { responseType: 'blob' });
+      const objectUrl = window.URL.createObjectURL(response.data);
+      downloadFile(objectUrl, `Contrat_bail_${leaseReference(lease)}.docx`);
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (err: any) {
+      const responseMessage = err?.response?.data?.message;
+      const message = Array.isArray(responseMessage) ? responseMessage.join(' | ') : responseMessage;
+      setError(message || 'Impossible de telecharger le contrat Word.');
+    }
   }
 
   async function printGeneratedPreview() {
@@ -203,13 +228,13 @@ export function LeaseDetail() {
         action={(
           <div className="page-actions">
             <button className="secondary" onClick={() => navigate('/leases')}><ArrowLeft size={16} />Retour</button>
-            {can('documents.upload') && (
+            {canManageLeaseContract && (
               <button className="secondary" onClick={() => { if (lease.latest_contract && !contractVersionOutdated) setPreviewOpen(true); else void generateContract(true); }} disabled={contractBusy}>
                 <ScrollText size={16} />
                 {lease.latest_contract && !contractVersionOutdated ? 'Previsualiser contrat' : 'Generer contrat Word'}
               </button>
             )}
-            <button className="secondary" onClick={() => void downloadGeneratedDocx()} disabled={!lease.latest_contract?.docx_file_url}><Download size={16} />Telecharger Word</button>
+            {canReadLeaseContract && <button className="secondary" onClick={() => void downloadGeneratedDocx()} disabled={!hasGeneratedDocx || contractBusy}><Download size={16} />Telecharger Word</button>}
             {can('invoices.create') && <button className="secondary" onClick={invoice}><Receipt size={16} />Facturer</button>}
             <button className="secondary" onClick={() => exportCsv(`bail-${lease.id}.csv`, exportRows)}><Download size={16} />CSV</button>
             <button className="secondary" onClick={() => exportLeaseDetail(lease, totalMonthly)}><FileSpreadsheet size={16} />Excel</button>
@@ -281,6 +306,48 @@ export function LeaseDetail() {
         ) : null}
       </SimpleSection>
 
+      <div className="detail-section report-section">
+        <h4>Contrat de bail</h4>
+        <div className="compact-list">
+          <div className="compact-item">
+            <span>Contrat Word officiel</span>
+            <strong>{hasGeneratedDocx ? (lease.latest_contract?.docx_file_name ?? `Contrat_bail_${leaseReference(lease)}.docx`) : 'Aucun DOCX genere'}</strong>
+          </div>
+          <div className="actions" style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {canManageLeaseContract && (
+              <button type="button" className="secondary" onClick={() => void generateContract(false)} disabled={contractBusy}>
+                {contractBusy ? <RefreshCcw size={16} /> : <ScrollText size={16} />}
+                {hasGeneratedDocx ? 'Regenerer le contrat Word' : 'Generer le contrat Word'}
+              </button>
+            )}
+            {canReadLeaseContract && (
+              <button type="button" className="secondary" onClick={() => void downloadGeneratedDocx()} disabled={!hasGeneratedDocx || contractBusy}>
+                <Download size={16} />
+                Telecharger Word
+              </button>
+            )}
+            {canReadLeaseContract && lease.latest_contract?.generated_html ? (
+              <button type="button" className="secondary" onClick={() => setPreviewOpen(true)} disabled={contractBusy}>
+                <ScrollText size={16} />
+                Voir l'aperçu
+              </button>
+            ) : null}
+            {canReadLeaseContract && lease.latest_contract?.generated_html ? (
+              <button type="button" className="secondary" onClick={() => void printGeneratedPreview()} disabled={contractBusy}>
+                <Printer size={16} />
+                Imprimer
+              </button>
+            ) : null}
+            {canReadLeaseContract && lease.latest_contract?.pdf_file_url ? (
+              <button type="button" className="secondary" onClick={() => void downloadGeneratedPdf()} disabled={contractBusy}>
+                <Download size={16} />
+                Telecharger PDF
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
       <SimpleSection title="Documents" empty="Aucun document trouve.">
         {lease.documents.map((document) => <div className="compact-item" key={document.id}><span>{document.document_type}</span><strong>{document.file_name}</strong></div>)}
       </SimpleSection>
@@ -300,7 +367,7 @@ export function LeaseDetail() {
             <>
               <button type="button" className="secondary" onClick={() => setPreviewOpen(false)}>Retour au bail</button>
               <button type="button" className="secondary" onClick={() => void generateContract(true)} disabled={contractBusy}><RefreshCcw size={16} />Regenerer Word</button>
-              <button type="button" className="secondary" onClick={() => void downloadGeneratedDocx()} disabled={!lease.latest_contract?.docx_file_url}><Download size={16} />Telecharger Word</button>
+              <button type="button" className="secondary" onClick={() => void downloadGeneratedDocx()} disabled={!hasGeneratedDocx || contractBusy}><Download size={16} />Telecharger Word</button>
               <button type="button" className="secondary" onClick={() => void printGeneratedPreview()} disabled={!lease.latest_contract?.generated_html}><Printer size={16} />Imprimer</button>
               {lease.latest_contract?.pdf_file_url ? <button type="button" className="secondary" onClick={() => void downloadGeneratedPdf()}><Download size={16} />Generer PDF</button> : null}
               <button type="button" className="secondary" onClick={() => void markSigned()} disabled={!lease.latest_contract}><ShieldCheck size={16} />Marquer comme signe</button>
