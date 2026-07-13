@@ -850,9 +850,32 @@ export class LeasesController {
     return this.service.latestLeaseContract(id);
   }
 
+  @Get(':id/contracts/latest-docx')
+  latestContractDocx(@Param('id', ParseIntPipe) id: number) {
+    return this.service.latestLeaseContractDocx(id);
+  }
+
   @Post(':id/contracts/generate')
   generateContract(@Param('id', ParseIntPipe) id: number) {
     return this.service.generateLeaseContract(id);
+  }
+
+  @Post(':id/contracts/generate-docx')
+  generateContractDocx(@Param('id', ParseIntPipe) id: number) {
+    return this.service.generateLeaseContract(id);
+  }
+
+  @Get(':id/contracts/:contractId/download')
+  async downloadGeneratedContract(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('contractId', ParseIntPipe) contractId: number,
+    @Res({ passthrough: true }) response: any,
+  ) {
+    const file = await this.service.downloadLeaseContractDocx(id, contractId);
+    const downloadName = String(file.downloadName ?? 'contrat.docx').replace(/"/g, '');
+    response.setHeader('Content-Type', file.mimeType);
+    response.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+    return file.buffer;
   }
 
   @Post(':id/contracts/:contractId/printed')

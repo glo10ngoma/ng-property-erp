@@ -5,8 +5,8 @@ import { hashPassword } from '../auth/password';
 import { requireRow } from '../common/not-found';
 import { DatabaseService } from '../database/database.service';
 import {
+  buildLeaseContractDocxBuffer,
   buildLeaseContractHtml,
-  buildLeaseContractPdfBase64,
   renderLeaseContractTemplate,
   unresolvedPlaceholders,
 } from '../leases/lease-contracts';
@@ -15,6 +15,7 @@ import { normalizeRole } from './permissions';
 @Injectable()
 export class SaasService {
   private readonly companyStorageBucket = 'company';
+  private readonly leaseContractStorageBucket = 'company';
   private readonly allowedCompanyFileKinds = new Set(['logo', 'signature', 'stamp']);
   private readonly allowedCompanyFileMimeTypes = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml']);
 
@@ -2571,6 +2572,7 @@ export class SaasService {
              COALESCE(g.status, l.rental_guarantee_status) AS guarantee_status,
              COALESCE(
                latest_contract.signed_contract_file_name,
+               latest_contract.docx_file_name,
                latest_contract.pdf_file_name,
                l.signed_contract_file_name,
                l.generated_contract_file_name,
@@ -2578,6 +2580,7 @@ export class SaasService {
              ) AS contract_file_name,
              COALESCE(
                latest_contract.signed_contract_file_url,
+               latest_contract.docx_file_url,
                latest_contract.pdf_file_url,
                l.signed_contract_url,
                l.generated_contract_url,
@@ -2589,7 +2592,7 @@ export class SaasService {
       JOIN buildings b ON b.id = u.building_id
       LEFT JOIN lease_guarantees g ON g.lease_id = l.id AND g.deleted_at IS NULL
       LEFT JOIN LATERAL (
-        SELECT cg.id, cg.status, cg.pdf_file_name, cg.pdf_file_url, cg.signed_contract_file_name, cg.signed_contract_file_url
+        SELECT cg.id, cg.status, cg.docx_file_name, cg.docx_file_url, cg.pdf_file_name, cg.pdf_file_url, cg.signed_contract_file_name, cg.signed_contract_file_url
         FROM lease_contract_generations cg
         WHERE cg.lease_id = l.id
           AND cg.organization_id = l.organization_id
@@ -2854,6 +2857,20 @@ export class SaasService {
     return rows[0] ?? null;
   }
 
+  async latestLeaseContractDocx(id: number) {
+    const contract = await this.latestLeaseContract(id);
+    if (!contract) return null;
+    return {
+      id: contract.id,
+      lease_id: contract.lease_id,
+      template_version: contract.template_version,
+      generated_at: contract.generated_at,
+      status: contract.status,
+      docx_file_name: contract.docx_file_name ?? null,
+      docx_file_url: contract.docx_file_url ?? null,
+    };
+  }
+
   async generateLeaseContract(id: number) {
     return this.db.transaction(async (client) => {
       const lease = await this.leaseDetail(id) as Record<string, any>;
@@ -2882,13 +2899,13 @@ export class SaasService {
       const renderedHtml = buildLeaseContractHtml(renderedContent);
       const safeTenant = this.slugify(snapshot.locataire.signature_nom || lease.tenant_name || `locataire-${lease.id}`);
       const generatedDate = new Date().toISOString().slice(0, 10);
-      const pdfFileName = `CONTRAT_BAIL_${this.leaseReferenceCode(lease.id)}_${safeTenant}_${generatedDate}.pdf`;
-      const pdfFileUrl = `data:application/pdf;base64,${buildLeaseContractPdfBase64(renderedContent, template.name)}`;
+      const docxFileName = `CONTRAT_BAIL_${this.leaseReferenceCode(lease.id)}_${safeTenant}_${generatedDate}.docx`;
+      const docxBuffer = buildLeaseContractDocxBuffer(snapshot);
       const { rows } = await client.query(
         `INSERT INTO lease_contract_generations
          (organization_id, lease_id, template_id, template_version, generated_content, generated_html, snapshot_json,
-          pdf_file_name, pdf_file_url, generated_by, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::JSONB, $8, $9, $10, 'GENERATED')
+          docx_file_name, docx_file_url, pdf_file_name, pdf_file_url, generated_by, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::JSONB, NULL, NULL, NULL, NULL, $8, 'GENERATED')
          RETURNING *`,
         [
           this.context.organizationId(),
@@ -2898,10 +2915,18 @@ export class SaasService {
           renderedContent,
           renderedHtml,
           JSON.stringify(snapshot),
-          pdfFileName,
-          pdfFileUrl,
           this.context.userId() ?? 1,
         ],
+      );
+      const contract = rows[0];
+      const storedDocx = await this.persistLeaseContractDocx(id, contract.id, docxFileName, docxBuffer);
+      const { rows: updatedRows } = await client.query(
+        `UPDATE lease_contract_generations
+         SET docx_file_name = $3,
+             docx_file_url = $4
+         WHERE id = $1 AND lease_id = $2 AND organization_id = $5
+         RETURNING *`,
+        [contract.id, id, storedDocx.fileName, storedDocx.fileUrl, this.context.organizationId()],
       );
       await client.query(
         `UPDATE leases
@@ -2911,15 +2936,34 @@ export class SaasService {
              contract_template_code = $4,
              updated_at = NOW()
          WHERE id = $1 AND organization_id = $5`,
-        [id, pdfFileName, pdfFileUrl, template.code, this.context.organizationId()],
+        [id, storedDocx.fileName, storedDocx.fileUrl, template.code, this.context.organizationId()],
       );
       await client.query(
         `INSERT INTO lease_documents (lease_id, document_type, file_name, file_url, uploaded_by, organization_id)
          VALUES ($1, 'GENERATED_CONTRACT', $2, $3, $4, $5)`,
-        [id, pdfFileName, pdfFileUrl, this.context.userId() ?? 1, this.context.organizationId()],
+        [id, storedDocx.fileName, storedDocx.fileUrl, this.context.userId() ?? 1, this.context.organizationId()],
       );
-      return rows[0];
+      return updatedRows[0];
     });
+  }
+
+  async downloadLeaseContractDocx(leaseId: number, contractId: number) {
+    const { rows } = await this.db.query(
+      `SELECT id, lease_id, docx_file_name, docx_file_url
+       FROM lease_contract_generations
+       WHERE id = $1 AND lease_id = $2 AND organization_id = $3 AND deleted_at IS NULL`,
+      [contractId, leaseId, this.context.organizationId()],
+    );
+    const contract = requireRow(rows[0], 'Lease contract generation');
+    const fileName = String(contract.docx_file_name ?? '').trim();
+    const fileUrl = String(contract.docx_file_url ?? '').trim();
+    if (!fileName || !fileUrl) {
+      throw new BadRequestException('Aucun contrat Word genere pour ce bail');
+    }
+    if (fileUrl.startsWith('data:')) {
+      return this.dataUrlFile(fileUrl, fileName);
+    }
+    return this.downloadLeaseContractStorage(leaseId, contractId, fileName);
   }
 
   async markLeaseContractPrinted(leaseId: number, contractId: number) {
@@ -5495,7 +5539,7 @@ export class SaasService {
       `${lease.company_name || lease.tenant_name || ''}, ${lease.legal_form || ''} / inscrite au Registre du Commerce et du Crédit Mobilier de la Ville de Kinshasa sous le numéro RCCM : ${lease.rccm || ''}, ainsi qu’au Registre du Ministère de l’Economie Nationale sous le numéro Id. Nat. : ${lease.national_id_number || ''}, dont le Siège social est sis, ${lease.tenant_address || ''} dans la Commune de ${lease.tenant_commune || ''}, à ${lease.tenant_city || ''} en République Démocratique du Congo ici représentée par Monsieur ${tenantRepresentative || ''} son ${lease.legal_representative_role || ''};`,
     ].filter(Boolean).join(' ');
     const apartmentLabel = lease.is_furnished ? 'Meublé' : 'Non Meublé';
-    const tenantPhysicalNote = isCompanyTenant ? '' : "Nom et numero piece d identite au cas ou c'était une personne";
+    const tenantPhysicalNote = '';
     const signatureDate = this.formatDate(lease.signature_date ?? new Date().toISOString().slice(0, 10));
     const leaseStartDate = this.formatDate(lease.start_date);
     const leaseEndDate = this.formatDate(lease.end_date) || this.formatDate(new Date().toISOString().slice(0, 10));
@@ -5508,6 +5552,14 @@ export class SaasService {
     ].filter(Boolean).join('\n');
     const leaseDurationText = durationMonths > 0 ? `${durationMonths} mois` : 'duree en cours';
     const bedroomCountText = this.frenchNumberWord(bedroomCount);
+    const monthlySectionLines = [
+      `Le loyer mensuel du local est constitué de ${this.formatMoney(totalMonthly)} USD le mois dont :`,
+      lease.monthly_rent > 0 ? `${this.formatMoney(lease.monthly_rent)} USD loyer` : null,
+      Number(lease.maintenance_fee_amount ?? 0) > 0 ? `${this.formatMoney(lease.maintenance_fee_amount)} USD Entretien et Maintenance` : null,
+      Number(lease.monthly_syndic_amount ?? 0) > 0 ? `${this.formatMoney(lease.monthly_syndic_amount)} USD syndic` : null,
+      otherChargesAmount > 0 ? `${this.formatMoney(otherChargesAmount)} USD autres charges` : null,
+    ].filter(Boolean).join('\n');
+    const guaranteeSection = `La garantie locative équivaut à ${guaranteeMonths} mois (= ${this.formatMoney(totalMonthly)} x ${guaranteeMonths})`;
 
     return {
       LANDLORD_NAME: lessorName,
@@ -5542,8 +5594,8 @@ export class SaasService {
       TENANT_COUNTRY: lease.tenant_country ?? '',
       TENANT_REPRESENTATIVE_NAME: tenantRepresentative,
       TENANT_REPRESENTATIVE_TITLE: lease.legal_representative_role ?? '',
-      TENANT_PRESENTATION: isCompanyTenant ? companyPresentation : '',
-      TENANT_PHYSICAL_NOTE: isCompanyTenant ? '' : physicalPresentation,
+      TENANT_PRESENTATION: isCompanyTenant ? companyPresentation : physicalPresentation,
+      TENANT_PHYSICAL_NOTE: tenantPhysicalNote,
       BUILDING_NAME: lease.building_name ?? '',
       BUILDING_ADDRESS: lease.building_address ?? '',
       BUILDING_COMMUNE: lease.building_commune ?? '',
@@ -5564,12 +5616,14 @@ export class SaasService {
       SYNDIC_AMOUNT: this.formatMoney(lease.monthly_syndic_amount),
       OTHER_CHARGES_AMOUNT: this.formatMoney(lease.other_charges_amount),
       OTHER_CHARGES_LINE: otherChargesAmount > 0 ? `${this.formatMoney(otherChargesAmount)} USD autres charges` : '',
+      MONTHLY_SECTION: monthlySectionLines,
       RENT_BREAKDOWN: rentBreakdown,
       MONTHLY_TOTAL: this.formatMoney(totalMonthly),
       MONTHLY_TOTAL_RAW: this.formatMoney(totalMonthly),
       CURRENCY: 'USD',
       GUARANTEE_MONTHS: String(guaranteeMonths),
       GUARANTEE_TOTAL: this.formatMoney(guaranteeAmount),
+      GUARANTEE_SECTION: guaranteeSection,
       SIGNATURE_PLACE: lease.signature_place ?? company.default_signature_place ?? company.company_city ?? 'Kinshasa',
       SIGNATURE_DATE: signatureDate,
       bailleur: {
@@ -5803,6 +5857,10 @@ export class SaasService {
     };
   }
 
+  private hasStorageConfig() {
+    return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+  }
+
   private validateCompanyFile(file: { mimetype: string; size: number }) {
     if (file.size > 5 * 1024 * 1024) {
       throw new BadRequestException('Le fichier ne peut pas depasser 5 Mo');
@@ -5864,6 +5922,79 @@ export class SaasService {
     return {
       buffer,
       mimeType: response.headers.get('content-type') ?? 'application/octet-stream',
+      downloadName: fileName,
+    };
+  }
+
+  private leaseContractDownloadRoute(leaseId: number, contractId: number) {
+    return `/api/leases/${leaseId}/contracts/${contractId}/download`;
+  }
+
+  private leaseContractStoragePath(leaseId: number, contractId: number, fileName: string) {
+    return `leases/${this.context.organizationId()}/contracts/${leaseId}/${contractId}/${this.sanitizeStorageFileName(fileName)}`;
+  }
+
+  private async uploadLeaseContractDocxToStorage(leaseId: number, contractId: number, fileName: string, buffer: Buffer) {
+    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
+    const storagePath = this.leaseContractStoragePath(leaseId, contractId, fileName);
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.leaseContractStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+        'x-upsert': 'true',
+        'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      },
+      body: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer,
+    });
+    if (!response.ok) {
+      const details = await response.text();
+      throw new BadRequestException(details || `Impossible de televerser le contrat Word (${response.status})`);
+    }
+    return this.leaseContractDownloadRoute(leaseId, contractId);
+  }
+
+  private async downloadLeaseContractStorage(leaseId: number, contractId: number, fileName: string) {
+    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
+    const storagePath = this.leaseContractStoragePath(leaseId, contractId, fileName);
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.leaseContractStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+      },
+    });
+    if (!response.ok) {
+      throw new BadRequestException(`Contrat Word introuvable (${response.status})`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return {
+      buffer,
+      mimeType: response.headers.get('content-type') ?? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      downloadName: fileName,
+    };
+  }
+
+  private async persistLeaseContractDocx(leaseId: number, contractId: number, fileName: string, buffer: Buffer) {
+    if (!this.hasStorageConfig()) {
+      return {
+        fileName,
+        fileUrl: `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${buffer.toString('base64')}`,
+      };
+    }
+    return {
+      fileName,
+      fileUrl: await this.uploadLeaseContractDocxToStorage(leaseId, contractId, fileName, buffer),
+    };
+  }
+
+  private dataUrlFile(fileUrl: string, fileName: string) {
+    const match = fileUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) {
+      throw new BadRequestException('Document invalide');
+    }
+    return {
+      buffer: Buffer.from(match[2], 'base64'),
+      mimeType: match[1],
       downloadName: fileName,
     };
   }

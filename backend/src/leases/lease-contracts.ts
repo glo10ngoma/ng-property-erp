@@ -1,3 +1,9 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import { BadRequestException } from '@nestjs/common';
+import Docxtemplater from 'docxtemplater';
+import PizZip from 'pizzip';
+
 type VariableValue = string | number | null | undefined;
 type ContractBlock = { type: 'text'; lines: string[] } | { type: 'table'; rows: Array<[string, string]> };
 type PdfLine = { text: string; kind: 'normal' | 'title' | 'article' | 'table' | 'blank' };
@@ -10,6 +16,7 @@ const PDF_MARGIN_TOP = 60;
 const PDF_MARGIN_BOTTOM = 54;
 const PDF_LINE_HEIGHT = 14;
 const PDF_MAX_CHARS = 96;
+const DOCX_TEMPLATE_PATH = path.resolve(__dirname, '..', '..', 'templates', 'leases', 'LEASE_RESIDENTIAL.docx');
 
 const winAnsiMap: Record<string, number> = {
   '\u20ac': 128,
@@ -126,6 +133,32 @@ export function buildLeaseContractPdfBase64(content: string, fileTitle = DEFAULT
   const pages = paginateContent(content, fileTitle);
   const pdf = buildPdfDocument(pages);
   return Buffer.from(pdf, 'binary').toString('base64');
+}
+
+export function buildLeaseContractDocxBuffer(variables: Record<string, unknown>) {
+  if (!fs.existsSync(DOCX_TEMPLATE_PATH)) {
+    throw new BadRequestException(`Modele DOCX introuvable: ${DOCX_TEMPLATE_PATH}`);
+  }
+
+  const zip = new PizZip(fs.readFileSync(DOCX_TEMPLATE_PATH));
+  const doc = new Docxtemplater(zip, {
+    paragraphLoop: true,
+    linebreaks: true,
+    delimiters: { start: '{{', end: '}}' },
+    nullGetter: () => '',
+  });
+
+  try {
+    doc.render(variables);
+  } catch (error: any) {
+    const details = error?.properties?.errors?.map((entry: any) => entry?.properties?.explanation).filter(Boolean).join(' | ');
+    throw new BadRequestException(details || error?.message || 'Impossible de generer le contrat Word');
+  }
+
+  return doc.getZip().generate({
+    type: 'nodebuffer',
+    compression: 'DEFLATE',
+  }) as Buffer;
 }
 
 function paginateContent(content: string, title: string) {
