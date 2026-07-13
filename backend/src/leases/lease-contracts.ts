@@ -6,10 +6,10 @@ const DEFAULT_TITLE = 'CONTRAT DE BAIL A USAGE RESIDENTIEL';
 const PDF_PAGE_WIDTH = 595;
 const PDF_PAGE_HEIGHT = 842;
 const PDF_MARGIN_X = 50;
-const PDF_MARGIN_TOP = 64;
-const PDF_MARGIN_BOTTOM = 56;
-const PDF_LINE_HEIGHT = 15;
-const PDF_MAX_CHARS = 92;
+const PDF_MARGIN_TOP = 60;
+const PDF_MARGIN_BOTTOM = 54;
+const PDF_LINE_HEIGHT = 14;
+const PDF_MAX_CHARS = 96;
 
 const winAnsiMap: Record<string, number> = {
   '\u20ac': 128,
@@ -96,27 +96,27 @@ export function unresolvedPlaceholders(content: string) {
 }
 
 export function buildLeaseContractHtml(content: string) {
-  const sections = parseContractBlocks(content).map((block) => {
+  const blocks = parseContractBlocks(content);
+  const bodyBlocks = blocks.length && isTitleBlock(blocks[0]) ? blocks.slice(1) : blocks;
+  const sections = bodyBlocks.map((block, index) => {
     if (block.type === 'table') {
-      return `<section><table class="contract-table"><tbody>${block.rows.map(([left, right]) => `<tr><th>${escapeHtml(left)}</th><td>${escapeHtml(right)}</td></tr>`).join('')}</tbody></table></section>`;
+      return `<section class="contract-table-wrap"><table class="contract-table"><tbody>${block.rows.map(([left, right]) => `<tr><th>${escapeHtml(left)}</th><td>${escapeHtml(right)}</td></tr>`).join('')}</tbody></table></section>`;
     }
     const lines = block.lines;
     if (!lines.length) return '';
     const first = escapeHtml(lines[0]);
-    if (lines.length === 1 && first === first.toUpperCase()) {
-      return `<h2>${first}</h2>`;
+    if (first.toUpperCase().startsWith('ARTICLE ')) {
+      return `<section class="contract-article"><h3>${first}</h3>${lines.slice(1).map((line) => `<p>${escapeHtml(line)}</p>`).join('')}</section>`;
     }
-    if (first.startsWith('ARTICLE ')) {
-      return `<section><h3>${first}</h3>${lines.slice(1).map((line) => `<p>${escapeHtml(line)}</p>`).join('')}</section>`;
+    if (lines.length === 1 && /^LE PRENEUR\b/i.test(first)) {
+      return `<section class="contract-signatures"><p>${first}</p></section>`;
     }
-    if (lines.length === 1) {
-      return `<p>${first}</p>`;
-    }
-    return `<section>${lines.map((line, index) => `<p${index === 0 && first === first.toUpperCase() ? ' class="lead"' : ''}>${escapeHtml(line)}</p>`).join('')}</section>`;
+    const className = index === 0 ? 'contract-intro' : 'contract-paragraph';
+    return `<section class="${className}">${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}</section>`;
   });
   return [
-    '<article class="lease-contract-preview">',
-    `<header><h1>${DEFAULT_TITLE}</h1></header>`,
+    '<article class="lease-contract-preview contract-document">',
+    `<header class="contract-header"><h1 class="contract-title">${DEFAULT_TITLE}</h1></header>`,
     ...sections,
     '</article>',
   ].join('');
@@ -141,7 +141,9 @@ function paginateContent(content: string, title: string) {
 
 function wrapContractContent(content: string) {
   const lines: PdfLine[] = [];
-  for (const block of parseContractBlocks(content)) {
+  const blocks = parseContractBlocks(content);
+  const bodyBlocks = blocks.length && isTitleBlock(blocks[0]) ? blocks.slice(1) : blocks;
+  for (const block of bodyBlocks) {
     if (lines.length && lines[lines.length - 1].kind !== 'blank') {
       lines.push({ text: '', kind: 'blank' });
     }
@@ -168,6 +170,10 @@ function wrapContractContent(content: string) {
   }
   while (lines.length && lines[lines.length - 1].kind === 'blank') lines.pop();
   return lines;
+}
+
+function isTitleBlock(block: ContractBlock) {
+  return block.type === 'text' && block.lines.length === 1 && block.lines[0].trim().toUpperCase() === DEFAULT_TITLE;
 }
 
 function wrapLine(line: string, maxChars: number) {
