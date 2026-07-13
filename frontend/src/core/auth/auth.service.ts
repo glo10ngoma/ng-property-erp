@@ -26,6 +26,10 @@ export async function switchOrganization(organizationId: number) {
   return response.data;
 }
 
+export async function logoutRequest() {
+  await api.post('/auth/logout');
+}
+
 export function persistSession(token: string, user: AuthUser) {
   localStorage.setItem(appConfig.tokenStorageKey, token);
   localStorage.setItem(appConfig.userStorageKey, JSON.stringify(user));
@@ -33,6 +37,13 @@ export function persistSession(token: string, user: AuthUser) {
     localStorage.setItem(appConfig.activeOrganizationStorageKey, String(user.organization_id));
   }
   setAuthToken(token);
+}
+
+export function persistUser(user: AuthUser) {
+  localStorage.setItem(appConfig.userStorageKey, JSON.stringify(user));
+  if (user.organization_id) {
+    localStorage.setItem(appConfig.activeOrganizationStorageKey, String(user.organization_id));
+  }
 }
 
 export function readSession() {
@@ -48,6 +59,9 @@ export function clearSession() {
   localStorage.removeItem(appConfig.tokenStorageKey);
   localStorage.removeItem(appConfig.userStorageKey);
   localStorage.removeItem(appConfig.activeOrganizationStorageKey);
+  localStorage.removeItem(appConfig.sessionStartedAtStorageKey);
+  localStorage.removeItem(appConfig.sessionLastActivityStorageKey);
+  localStorage.removeItem(appConfig.organizationSelectionRequiredStorageKey);
   setAuthToken(undefined);
 }
 
@@ -64,4 +78,47 @@ export function writeActiveOrganizationId(organizationId: number | null) {
     return;
   }
   localStorage.setItem(appConfig.activeOrganizationStorageKey, String(organizationId));
+}
+
+export function readSessionStartedAt() {
+  return readNumberStorageValue(appConfig.sessionStartedAtStorageKey);
+}
+
+export function writeSessionStartedAt(timestamp: number | null) {
+  writeNumberStorageValue(appConfig.sessionStartedAtStorageKey, timestamp);
+}
+
+export function readLastActivityAt() {
+  return readNumberStorageValue(appConfig.sessionLastActivityStorageKey);
+}
+
+export function writeLastActivityAt(timestamp: number | null) {
+  writeNumberStorageValue(appConfig.sessionLastActivityStorageKey, timestamp);
+}
+
+export function readOrganizationSelectionRequired() {
+  return localStorage.getItem(appConfig.organizationSelectionRequiredStorageKey) === 'true';
+}
+
+export function writeOrganizationSelectionRequired(required: boolean) {
+  if (!required) {
+    localStorage.removeItem(appConfig.organizationSelectionRequiredStorageKey);
+    return;
+  }
+  localStorage.setItem(appConfig.organizationSelectionRequiredStorageKey, 'true');
+}
+
+function readNumberStorageValue(key: string) {
+  const stored = localStorage.getItem(key);
+  if (!stored) return null;
+  const parsed = Number(stored);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function writeNumberStorageValue(key: string, value: number | null) {
+  if (!value || !Number.isFinite(value) || value <= 0) {
+    localStorage.removeItem(key);
+    return;
+  }
+  localStorage.setItem(key, String(Math.round(value)));
 }

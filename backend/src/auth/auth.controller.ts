@@ -27,6 +27,7 @@ type RequestWithHeaders = {
 @Controller('auth')
 export class AuthController {
   private readonly jwtSecret: string;
+  private readonly absoluteTimeoutSeconds: number;
 
   constructor(
     private readonly db: DatabaseService,
@@ -38,6 +39,9 @@ export class AuthController {
       throw new Error('Missing required environment variable JWT_SECRET');
     }
     this.jwtSecret = jwtSecret;
+    const configuredHours = Number(config.get<string>('SESSION_ABSOLUTE_TIMEOUT_HOURS') ?? '8');
+    const resolvedHours = Number.isFinite(configuredHours) && configuredHours > 0 ? configuredHours : 8;
+    this.absoluteTimeoutSeconds = Math.round(resolvedHours * 60 * 60);
   }
 
   @Post('login')
@@ -54,11 +58,14 @@ export class AuthController {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    const issuedAt = Math.floor(Date.now() / 1000);
     const body = Buffer.from(
       JSON.stringify({
         sub: user.id,
         email: user.email,
         role: user.platform_role ?? user.role,
+        iat: issuedAt,
+        exp: issuedAt + this.absoluteTimeoutSeconds,
       }),
     ).toString('base64url');
     const signature = createHmac('sha256', this.jwtSecret).update(body).digest('base64url');

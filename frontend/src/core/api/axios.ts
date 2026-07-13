@@ -27,9 +27,10 @@ api.interceptors.response.use(
     if (status === 401) {
       localStorage.removeItem(appConfig.tokenStorageKey);
       localStorage.removeItem(appConfig.userStorageKey);
-      window.dispatchEvent(new CustomEvent('property-erp:auth-error', { detail: { status } }));
-    }
-    if (status === 403) {
+      localStorage.removeItem(appConfig.activeOrganizationStorageKey);
+      localStorage.removeItem(appConfig.sessionStartedAtStorageKey);
+      localStorage.removeItem(appConfig.sessionLastActivityStorageKey);
+      localStorage.removeItem(appConfig.organizationSelectionRequiredStorageKey);
       window.dispatchEvent(new CustomEvent('property-erp:auth-error', { detail: { status } }));
     }
     return Promise.reject(error);

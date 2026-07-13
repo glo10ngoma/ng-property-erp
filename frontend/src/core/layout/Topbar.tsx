@@ -26,7 +26,7 @@ export function Topbar() {
     navigate('/login', { replace: true });
   }
 
-  const organizations = user?.organizations ?? [];
+  const organizations = (user?.organizations ?? []).filter((organization) => organization.is_active);
   const isPlatformSpace = location.pathname.startsWith('/platform');
 
   return (
@@ -50,7 +50,7 @@ export function Topbar() {
         ) : null}
       </div>
 
-      {user && (
+      {user ? (
         <div className="user-menu">
           <button className="operator" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu">
             <UserCircle size={18} />
@@ -60,7 +60,7 @@ export function Topbar() {
             </span>
             <ChevronDown size={16} />
           </button>
-          {open && (
+          {open ? (
             <div className="user-menu-panel" role="menu">
               <button className="menu-item" onClick={() => { setOpen(false); navigate('/settings'); }}>
                 <UserCircle size={16} /> Mon profil
@@ -69,9 +69,9 @@ export function Topbar() {
                 <LogOut size={16} /> Déconnexion
               </button>
             </div>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
     </header>
   );
 }

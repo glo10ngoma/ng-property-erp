@@ -165,7 +165,7 @@ export class OrganizationAccessService {
       organization_name: row.name,
       organization_slug: row.slug,
       role_code: 'ADMIN',
-      is_active: row.status === 'ACTIVE',
+      is_active: row.status !== 'ARCHIVED',
       is_default: false,
     }));
   }

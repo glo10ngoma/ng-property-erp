@@ -36,6 +36,7 @@ import { LeaseDetail } from '../pages/LeaseDetail';
 import { LeaseNew } from '../pages/LeaseNew';
 import { Login } from '../pages/Login';
 import { PaymentDetail } from '../pages/PaymentDetail';
+import { SelectOrganization } from '../pages/SelectOrganization';
 import { BuildingStatementPage, TenantStatementPage, UnitStatementPage } from '../pages/StatementPage';
 import { StockDetailPage } from '../pages/StockDetailPage';
 import { TenantSituation } from '../pages/TenantSituation';
@@ -61,6 +62,7 @@ export function AppRouter() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route element={<ProtectedRoute />}>
+        <Route path="/select-organization" element={<SelectOrganization />} />
         <Route element={<PlatformRoute />}>
           <Route path="/platform" element={<PlatformLayout />}>
             <Route index element={<Navigate to="/platform/overview" replace />} />

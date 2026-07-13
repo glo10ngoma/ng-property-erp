@@ -1,25 +1,47 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, LockKeyhole, Mail } from 'lucide-react';
 import { useAuth } from '../auth';
+import { appConfig } from '../app/config';
 
 export function Login() {
-  const { login } = useAuth();
+  const { login, user, requiresOrganizationSelection } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('admin@property-erp.local');
-  const [password, setPassword] = useState('demo');
+  const location = useLocation();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [resetMessage, setResetMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    if (requiresOrganizationSelection) {
+      navigate('/select-organization', { replace: true });
+      return;
+    }
+    const nextPath = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+    navigate(nextPath && nextPath !== '/login' ? nextPath : appConfig.defaultRoute, { replace: true });
+  }, [location.state, navigate, requiresOrganizationSelection, user]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     try {
       setError('');
-      await login(email, password);
-      navigate('/activity', { replace: true });
-    } catch {
-      setError('Adresse e-mail ou mot de passe incorrect.');
+      setSubmitting(true);
+      const authenticatedUser = await login(email, password);
+      const activeOrganizations = (authenticatedUser.organizations ?? []).filter((organization) => organization.is_active);
+      if (activeOrganizations.length > 1) {
+        navigate('/select-organization', { replace: true, state: { from: location.state?.from } });
+        return;
+      }
+      const nextPath = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+      navigate(nextPath && nextPath !== '/login' ? nextPath : appConfig.defaultRoute, { replace: true });
+    } catch (nextError) {
+      setError((nextError as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Adresse e-mail ou mot de passe incorrect.');
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -30,19 +52,19 @@ export function Login() {
           <div className="login-logo"><LockKeyhole size={24} /></div>
           <div>
             <strong>NG Property ERP</strong>
-            <span>Gestion Immobiliere</span>
+            <span>Gestion immobilière</span>
           </div>
         </div>
         <div className="login-heading">
           <h1>Connexion</h1>
-          <p>Connectez-vous a votre espace de gestion.</p>
+          <p>Connectez-vous à votre espace de gestion.</p>
         </div>
         <form className="form-grid login-form" onSubmit={submit}>
           <label>
             Adresse e-mail
             <div className="field-with-icon">
               <Mail size={16} />
-              <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@property-erp.local" type="email" autoComplete="email" />
+              <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="vous@entreprise.com" type="email" autoComplete="email" />
             </div>
           </label>
           <label>
@@ -57,15 +79,15 @@ export function Login() {
               </button>
             </div>
           </label>
-          {error && <div className="error-message">{error}</div>}
-          {resetMessage && <div className="info-message">{resetMessage}</div>}
-          <button>Connexion</button>
+          {error ? <div className="error-message">{error}</div> : null}
+          {resetMessage ? <div className="info-message">{resetMessage}</div> : null}
+          <button disabled={submitting}>{submitting ? 'Connexion…' : 'Se connecter'}</button>
           <button
             className="login-link"
             type="button"
-            onClick={() => setResetMessage('Veuillez contacter l administrateur pour reinitialiser votre mot de passe.')}
+            onClick={() => setResetMessage('Veuillez contacter l’administrateur pour réinitialiser votre mot de passe.')}
           >
-            Mot de passe oublie ?
+            Mot de passe oublié ?
           </button>
         </form>
         <footer className="login-footer">

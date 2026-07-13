@@ -1,4 +1,5 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'crypto';
 import { OrganizationAccessService } from './organization-access.service';
 import { AuthPayload } from './request-context';
@@ -14,6 +15,8 @@ type TokenPayload = {
   sub: number;
   email: string;
   role?: string;
+  iat?: number;
+  exp?: number;
 };
 
 const routePermissions: Array<[RegExp, string]> = [
@@ -44,7 +47,14 @@ const routePermissions: Array<[RegExp, string]> = [
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
-  constructor(private readonly organizationAccess: OrganizationAccessService) {}
+  private readonly jwtSecret: string;
+
+  constructor(
+    private readonly organizationAccess: OrganizationAccessService,
+    config: ConfigService,
+  ) {
+    this.jwtSecret = config.get<string>('JWT_SECRET') ?? 'local-demo-secret';
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<GuardRequest>();
@@ -66,11 +76,15 @@ export class PermissionsGuard implements CanActivate {
     if (!authorization?.startsWith('Bearer ')) throw new UnauthorizedException('Missing token');
     const token = authorization.slice('Bearer '.length);
     const [body, signature] = token.split('.');
-    const expected = createHmac('sha256', process.env.JWT_SECRET ?? 'local-demo-secret')
+    const expected = createHmac('sha256', this.jwtSecret)
       .update(body)
       .digest('base64url');
     if (signature !== expected) throw new UnauthorizedException('Invalid token');
-    return JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as TokenPayload;
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as TokenPayload;
+    if (payload.exp && Math.floor(Date.now() / 1000) >= payload.exp) {
+      throw new UnauthorizedException('Token expired');
+    }
+    return payload;
   }
 
   private readRequestedOrganizationId(request: GuardRequest) {
