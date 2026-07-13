@@ -12,7 +12,7 @@ import {
   renderLeaseContractTemplate,
   unresolvedPlaceholders,
 } from '../leases/lease-contracts';
-import { normalizeRole } from './permissions';
+import { isPlatformRole, normalizeRole } from './permissions';
 
 @Injectable()
 export class SaasService {
@@ -239,16 +239,758 @@ export class SaasService {
     return rows[0];
   }
 
-  async createUser(body: Record<string, unknown>) {
+  async listUsers() {
+    const currentUser = this.context.user();
+    if (currentUser?.platform_role && isPlatformRole(currentUser.platform_role)) {
+      const { rows } = await this.db.query(
+        `SELECT
+           au.id,
+           au.first_name,
+           au.last_name,
+           au.email,
+           au.role,
+           au.status,
+           au.organization_id,
+           o.name AS organization_name,
+           au.created_at
+         FROM app_users au
+         LEFT JOIN organizations o ON o.id = au.organization_id
+         WHERE au.deleted_at IS NULL
+         ORDER BY au.created_at DESC, au.id DESC`,
+      );
+      return rows;
+    }
+
+    try {
+      const { rows } = await this.db.query(
+        `SELECT
+           au.id,
+           au.first_name,
+           au.last_name,
+           au.email,
+           uo.role_code AS role,
+           au.status,
+           uo.organization_id,
+           o.name AS organization_name,
+           au.created_at
+         FROM user_organizations uo
+         JOIN app_users au ON au.id = uo.user_id
+         JOIN organizations o ON o.id = uo.organization_id
+         WHERE uo.organization_id = $1
+           AND uo.is_active = TRUE
+           AND au.deleted_at IS NULL
+           AND COALESCE(au.platform_role, '') = ''
+         ORDER BY au.created_at DESC, au.id DESC`,
+        [this.context.organizationId()],
+      );
+      return rows;
+    } catch (error) {
+      if (!this.isOptionalSchemaError(error)) throw error;
+      const { rows } = await this.db.query(
+        `SELECT
+           au.id,
+           au.first_name,
+           au.last_name,
+           au.email,
+           COALESCE(au.role, 'VIEWER_CLIENT') AS role,
+           au.status,
+           au.organization_id,
+           o.name AS organization_name,
+           au.created_at
+         FROM app_users au
+         LEFT JOIN organizations o ON o.id = au.organization_id
+         WHERE au.organization_id = $1
+           AND au.deleted_at IS NULL
+           AND COALESCE(au.platform_role, '') = ''
+         ORDER BY au.created_at DESC, au.id DESC`,
+        [this.context.organizationId()],
+      );
+      return rows;
+    }
+  }
+
+  async createScopedUser(body: Record<string, unknown>) {
+    const roleCode = this.normalizeScopedUserRole(body.role);
     const password = String(body.password ?? body.password_hash ?? 'demo');
-    return this.insert('app_users', { status: 'ACTIVE', ...body, role: normalizeRole(String(body.role ?? 'EDITOR')), password_hash: await hashPassword(password) }, [
-      'first_name',
-      'last_name',
-      'email',
-      'password_hash',
-      'role',
-      'status',
+    const firstName = String(body.first_name ?? '').trim();
+    const lastName = String(body.last_name ?? '').trim();
+    const email = String(body.email ?? '').trim();
+    const status = String(body.status ?? 'ACTIVE').trim().toUpperCase() || 'ACTIVE';
+    const organizationId = this.context.organizationId();
+
+    if (!firstName || !lastName || !email) {
+      throw new BadRequestException('Nom, prénom et adresse e-mail sont obligatoires.');
+    }
+
+    const existing = await this.db.query(
+      `SELECT id FROM app_users WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL LIMIT 1`,
+      [email],
+    );
+    if (existing.rows[0]) {
+      throw new ConflictException('Un utilisateur avec cette adresse e-mail existe déjà.');
+    }
+
+    const { rows } = await this.db.query(
+      `INSERT INTO app_users (
+         first_name, last_name, email, password_hash, role, status, organization_id
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [
+        firstName,
+        lastName,
+        email,
+        await hashPassword(password),
+        roleCode,
+        status,
+        organizationId,
+      ],
+    );
+
+    const created = rows[0];
+    try {
+      await this.db.query(
+        `INSERT INTO user_organizations (
+           user_id, organization_id, role_code, is_active, is_default
+         )
+         VALUES ($1, $2, $3, TRUE, TRUE)
+         ON CONFLICT (user_id, organization_id)
+         DO UPDATE SET role_code = EXCLUDED.role_code, is_active = TRUE, updated_at = NOW()`,
+        [created.id, organizationId, roleCode],
+      );
+    } catch (error) {
+      if (!this.isOptionalSchemaError(error)) throw error;
+    }
+
+    return {
+      ...created,
+      role: roleCode,
+      organization_name: this.context.user()?.organization_name ?? `Organisation ${organizationId}`,
+    };
+  }
+
+  async updateScopedUser(id: number, body: Record<string, unknown>) {
+    const currentUser = this.context.user();
+    const organizationId = this.context.organizationId();
+    const isPlatformUser = Boolean(currentUser?.platform_role && isPlatformRole(currentUser.platform_role));
+    const roleCode = body.role !== undefined ? this.normalizeScopedUserRole(body.role) : undefined;
+    const targetUserResult = await this.db.query(
+      `SELECT id, role FROM app_users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [id],
+    );
+    const targetUser = requireRow(targetUserResult.rows[0], 'User');
+
+    if (!isPlatformUser) {
+      try {
+        const membership = await this.db.query(
+          `SELECT au.id
+           FROM user_organizations uo
+           JOIN app_users au ON au.id = uo.user_id
+           WHERE au.id = $1
+             AND uo.organization_id = $2
+             AND uo.is_active = TRUE
+             AND au.deleted_at IS NULL
+             AND COALESCE(au.platform_role, '') = ''
+           LIMIT 1`,
+          [id, organizationId],
+        );
+        if (!membership.rows[0]) {
+          throw new ConflictException('Utilisateur introuvable dans l’organisation active.');
+        }
+      } catch (error) {
+        if (!this.isOptionalSchemaError(error)) throw error;
+        const membership = await this.db.query(
+          `SELECT id
+           FROM app_users
+           WHERE id = $1
+             AND organization_id = $2
+             AND deleted_at IS NULL
+             AND COALESCE(platform_role, '') = ''
+           LIMIT 1`,
+          [id, organizationId],
+        );
+        if (!membership.rows[0]) {
+          throw new ConflictException('Utilisateur introuvable dans l’organisation active.');
+        }
+      }
+    }
+
+    if (roleCode && isPlatformRole(targetUser.role)) {
+      throw new ConflictException('Le rôle plateforme de cet utilisateur doit être géré séparément.');
+    }
+
+    const baseFields = ['first_name', 'last_name', 'email', 'status'] as const;
+    const baseKeys = baseFields.filter((key) => body[key] !== undefined);
+    if (baseKeys.length) {
+      const assignments = baseKeys.map((key, index) => `${key} = $${index + 2}`);
+      const values = baseKeys.map((key) => body[key]);
+      const updated = await this.db.query(
+        `UPDATE app_users
+         SET ${assignments.join(', ')}
+         WHERE id = $1 AND deleted_at IS NULL
+         RETURNING *`,
+        [id, ...values],
+      );
+      requireRow(updated.rows[0], 'User');
+    }
+
+    if (roleCode) {
+      try {
+        await this.db.query(
+          `INSERT INTO user_organizations (user_id, organization_id, role_code, is_active, is_default)
+           VALUES ($1, $2, $3, TRUE, FALSE)
+           ON CONFLICT (user_id, organization_id)
+           DO UPDATE SET role_code = EXCLUDED.role_code, is_active = TRUE, updated_at = NOW()`,
+          [id, organizationId, roleCode],
+        );
+      } catch (error) {
+        if (!this.isOptionalSchemaError(error)) throw error;
+      }
+      await this.db.query(
+        `UPDATE app_users
+         SET role = CASE WHEN organization_id = $2 THEN $3 ELSE role END
+         WHERE id = $1 AND deleted_at IS NULL`,
+        [id, organizationId, roleCode],
+      );
+    }
+
+    try {
+      const { rows } = await this.db.query(
+        `SELECT
+           au.*,
+           COALESCE(uo.role_code, au.role) AS role,
+           o.name AS organization_name
+         FROM app_users au
+         LEFT JOIN user_organizations uo
+           ON uo.user_id = au.id
+          AND uo.organization_id = $2
+         LEFT JOIN organizations o ON o.id = COALESCE(uo.organization_id, au.organization_id)
+         WHERE au.id = $1 AND au.deleted_at IS NULL
+         LIMIT 1`,
+        [id, organizationId],
+      );
+      return requireRow(rows[0], 'User');
+    } catch (error) {
+      if (!this.isOptionalSchemaError(error)) throw error;
+      const { rows } = await this.db.query(
+        `SELECT
+           au.*,
+           au.role AS role,
+           o.name AS organization_name
+         FROM app_users au
+         LEFT JOIN organizations o ON o.id = au.organization_id
+         WHERE au.id = $1 AND au.deleted_at IS NULL
+         LIMIT 1`,
+        [id],
+      );
+      return requireRow(rows[0], 'User');
+    }
+  }
+
+  async platformOverview() {
+    const statsQuery = async () => {
+      try {
+        return await this.db.query(
+          `SELECT
+             (SELECT COUNT(*)::INT FROM organizations) AS total_organizations,
+             (SELECT COUNT(*)::INT FROM organizations WHERE status = 'ACTIVE') AS active_organizations,
+             (SELECT COUNT(*)::INT FROM organizations WHERE status = 'SUSPENDED') AS suspended_organizations,
+             (SELECT COUNT(*)::INT FROM app_users WHERE deleted_at IS NULL) AS total_users,
+             (SELECT COUNT(*)::INT FROM app_users WHERE deleted_at IS NULL AND status = 'ACTIVE') AS active_users,
+             (SELECT COUNT(*)::INT FROM (
+                SELECT user_id
+                FROM user_organizations
+                WHERE is_active = TRUE
+                GROUP BY user_id
+                HAVING COUNT(*) > 1
+              ) multi) AS multi_organization_users,
+             (SELECT COUNT(*)::INT FROM user_organizations WHERE is_active = TRUE) AS active_memberships`,
+        );
+      } catch (error) {
+        if (!this.isOptionalSchemaError(error)) throw error;
+        return this.db.query(
+          `SELECT
+             (SELECT COUNT(*)::INT FROM organizations) AS total_organizations,
+             (SELECT COUNT(*)::INT FROM organizations WHERE status = 'ACTIVE') AS active_organizations,
+             (SELECT COUNT(*)::INT FROM organizations WHERE status = 'SUSPENDED') AS suspended_organizations,
+             (SELECT COUNT(*)::INT FROM app_users WHERE deleted_at IS NULL) AS total_users,
+             (SELECT COUNT(*)::INT FROM app_users WHERE deleted_at IS NULL AND status = 'ACTIVE') AS active_users,
+             0::INT AS multi_organization_users,
+             (SELECT COUNT(*)::INT FROM app_users WHERE deleted_at IS NULL AND organization_id IS NOT NULL) AS active_memberships`,
+        );
+      }
+    };
+
+    const [stats, latestOrganizations, latestActivity] = await Promise.all([
+      statsQuery(),
+      this.db.query(
+        `SELECT id, name, slug, status, created_at
+         FROM organizations
+         ORDER BY created_at DESC, id DESC
+         LIMIT 5`,
+      ),
+      this.platformActivity(),
     ]);
+
+    return {
+      stats: stats.rows[0],
+      latestOrganizations: latestOrganizations.rows,
+      latestActivity,
+    };
+  }
+
+  async platformOrganizations(filters: { search?: string; status?: string }) {
+    const params: unknown[] = [];
+    const where: string[] = [];
+    if (filters.search) {
+      params.push(`%${String(filters.search).trim()}%`);
+      where.push(`(o.name ILIKE $${params.length} OR o.slug ILIKE $${params.length})`);
+    }
+    if (filters.status && filters.status !== 'ALL') {
+      params.push(filters.status);
+      where.push(`o.status = $${params.length}`);
+    }
+
+    const { rows } = await this.db.query(
+      `SELECT
+         o.id,
+         o.name,
+         o.slug,
+         o.status,
+         o.created_at,
+         cs.company_name,
+         cs.email AS primary_email,
+         cs.phone,
+         cs.company_country AS country,
+         cs.company_city AS city,
+         (SELECT COUNT(*)::INT FROM app_users au WHERE au.organization_id = o.id AND au.deleted_at IS NULL) AS users_count,
+         (SELECT COUNT(*)::INT FROM user_organizations uo WHERE uo.organization_id = o.id) AS memberships_count
+       FROM organizations o
+       LEFT JOIN company_settings cs ON cs.organization_id = o.id AND cs.deleted_at IS NULL
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY o.created_at DESC, o.id DESC`,
+      params,
+    );
+    return rows;
+  }
+
+  async platformCreateOrganization(body: Record<string, unknown>) {
+    const name = String(body.name ?? '').trim();
+    const slug = String(body.slug ?? '').trim().toLowerCase();
+    if (!name || !slug) throw new BadRequestException('Nom et slug sont obligatoires.');
+
+    const { rows } = await this.db.query(
+      `INSERT INTO organizations (name, slug, status)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [name, slug, String(body.status ?? 'ACTIVE').toUpperCase()],
+    );
+    const organization = rows[0];
+
+    await this.db.query(
+      `INSERT INTO company_settings (
+         organization_id, company_name, legal_name, currency, language, timezone, created_by
+       )
+       VALUES ($1, $2, $2, 'USD', 'fr', 'Africa/Kinshasa', $3)
+       ON CONFLICT (organization_id) DO NOTHING`,
+      [organization.id, name, this.context.userId() ?? 1],
+    );
+
+    await this.writePlatformAudit('ORGANIZATION_CREATED', null, organization.id, null, organization);
+    return organization;
+  }
+
+  async platformUpdateOrganization(id: number, body: Record<string, unknown>) {
+    const before = await this.db.query(`SELECT * FROM organizations WHERE id = $1 LIMIT 1`, [id]);
+    const existing = requireRow(before.rows[0], 'Organization');
+    const keys = ['name', 'slug', 'status'].filter((key) => body[key] !== undefined);
+    if (!keys.length) throw new BadRequestException('No data provided');
+    const assignments = keys.map((key, index) => `${key} = $${index + 2}`);
+    const { rows } = await this.db.query(
+      `UPDATE organizations
+       SET ${assignments.join(', ')}
+       WHERE id = $1
+       RETURNING *`,
+      [id, ...keys.map((key) => key === 'slug' ? String(body[key]).toLowerCase() : body[key])],
+    );
+    const updated = requireRow(rows[0], 'Organization');
+    await this.writePlatformAudit('ORGANIZATION_UPDATED', null, id, existing, updated);
+    return updated;
+  }
+
+  async platformUsers(filters: { search?: string; status?: string }) {
+    const params: unknown[] = [];
+    const where = ['au.deleted_at IS NULL'];
+    if (filters.search) {
+      params.push(`%${String(filters.search).trim()}%`);
+      where.push(`(CONCAT(COALESCE(au.first_name, ''), ' ', COALESCE(au.last_name, '')) ILIKE $${params.length} OR au.email ILIKE $${params.length})`);
+    }
+    if (filters.status && filters.status !== 'ALL') {
+      params.push(filters.status);
+      where.push(`au.status = $${params.length}`);
+    }
+
+    try {
+      const { rows } = await this.db.query(
+        `SELECT
+           au.id,
+           au.first_name,
+           au.last_name,
+           au.email,
+           au.status,
+           au.role,
+           au.platform_role,
+           au.created_at,
+           au.organization_id,
+           default_org.organization_name,
+           default_org.organization_slug,
+           default_org.role_code AS default_membership_role,
+           COALESCE(orgs.membership_count, 0)::INT AS organizations_count,
+           COALESCE(orgs.organizations, '[]'::json) AS organizations
+         FROM app_users au
+         LEFT JOIN LATERAL (
+           SELECT o.name AS organization_name, o.slug AS organization_slug, uo.role_code
+           FROM user_organizations uo
+           JOIN organizations o ON o.id = uo.organization_id
+           WHERE uo.user_id = au.id AND uo.is_default = TRUE
+           ORDER BY uo.id DESC
+           LIMIT 1
+         ) default_org ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT
+             COUNT(*) AS membership_count,
+             json_agg(json_build_object(
+               'organization_id', o.id,
+               'organization_name', o.name,
+               'organization_slug', o.slug,
+               'role_code', uo.role_code,
+               'is_active', uo.is_active,
+               'is_default', uo.is_default
+             ) ORDER BY o.name ASC) AS organizations
+           FROM user_organizations uo
+           JOIN organizations o ON o.id = uo.organization_id
+           WHERE uo.user_id = au.id
+         ) orgs ON TRUE
+         WHERE ${where.join(' AND ')}
+         ORDER BY au.created_at DESC, au.id DESC`,
+        params,
+      );
+      return rows;
+    } catch (error) {
+      if (!this.isOptionalSchemaError(error)) throw error;
+      const { rows } = await this.db.query(
+        `SELECT
+           au.id,
+           au.first_name,
+           au.last_name,
+           au.email,
+           au.status,
+           au.role,
+           au.platform_role,
+           au.created_at,
+           au.organization_id,
+           o.name AS organization_name,
+           o.slug AS organization_slug,
+           COALESCE(au.role, 'VIEWER_CLIENT') AS default_membership_role,
+           CASE WHEN au.organization_id IS NULL THEN 0 ELSE 1 END::INT AS organizations_count,
+           CASE
+             WHEN au.organization_id IS NULL THEN '[]'::json
+             ELSE json_build_array(json_build_object(
+               'organization_id', o.id,
+               'organization_name', o.name,
+               'organization_slug', o.slug,
+               'role_code', COALESCE(au.role, 'VIEWER_CLIENT'),
+               'is_active', TRUE,
+               'is_default', TRUE
+             ))
+           END AS organizations
+         FROM app_users au
+         LEFT JOIN organizations o ON o.id = au.organization_id
+         WHERE ${where.join(' AND ')}
+         ORDER BY au.created_at DESC, au.id DESC`,
+        params,
+      );
+      return rows;
+    }
+  }
+
+  async platformCreateUser(body: Record<string, unknown>) {
+    const password = String(body.password ?? body.password_hash ?? 'demo');
+    const firstName = String(body.first_name ?? '').trim();
+    const lastName = String(body.last_name ?? '').trim();
+    const email = String(body.email ?? '').trim();
+    const status = String(body.status ?? 'ACTIVE').trim().toUpperCase() || 'ACTIVE';
+    const platformRole = body.platform_role ? String(body.platform_role).trim().toUpperCase() : null;
+    if (!firstName || !lastName || !email) {
+      throw new BadRequestException('Nom, prénom et adresse e-mail sont obligatoires.');
+    }
+    const { rows } = await this.db.query(
+      `INSERT INTO app_users (
+         first_name, last_name, email, password_hash, role, platform_role, status, organization_id
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, 1))
+       RETURNING *`,
+      [firstName, lastName, email, await hashPassword(password), 'VIEWER_CLIENT', platformRole, status, Number(body.organization_id ?? 1)],
+    );
+    const created = rows[0];
+    await this.writePlatformAudit('PLATFORM_USER_CREATED', created.id, created.organization_id ?? null, null, created);
+    return created;
+  }
+
+  async platformUpdateUser(id: number, body: Record<string, unknown>) {
+    const before = await this.db.query(`SELECT * FROM app_users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [id]);
+    const existing = requireRow(before.rows[0], 'User');
+    const keys = ['first_name', 'last_name', 'email', 'status', 'platform_role'].filter((key) => body[key] !== undefined);
+    if (!keys.length) throw new BadRequestException('No data provided');
+    const assignments = keys.map((key, index) => `${key} = $${index + 2}`);
+    const { rows } = await this.db.query(
+      `UPDATE app_users
+       SET ${assignments.join(', ')}
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING *`,
+      [id, ...keys.map((key) => key === 'platform_role' && body[key] ? String(body[key]).toUpperCase() : body[key])],
+    );
+    const updated = requireRow(rows[0], 'User');
+    await this.writePlatformAudit('PLATFORM_USER_UPDATED', id, updated.organization_id ?? null, existing, updated);
+    return updated;
+  }
+
+  async platformMemberships(filters: { userId?: number; organizationId?: number }) {
+    const params: unknown[] = [];
+    const where: string[] = [];
+    if (filters.userId) {
+      params.push(filters.userId);
+      where.push(`uo.user_id = $${params.length}`);
+    }
+    if (filters.organizationId) {
+      params.push(filters.organizationId);
+      where.push(`uo.organization_id = $${params.length}`);
+    }
+    try {
+      const { rows } = await this.db.query(
+        `SELECT
+           uo.id,
+           uo.user_id,
+           uo.organization_id,
+           uo.role_code,
+           uo.role_id,
+           uo.is_active,
+           uo.is_default,
+           uo.created_at,
+           uo.updated_at,
+           CONCAT(COALESCE(au.first_name, ''), ' ', COALESCE(au.last_name, '')) AS user_name,
+           au.email,
+           o.name AS organization_name,
+           o.slug AS organization_slug,
+           r.name AS role_name
+         FROM user_organizations uo
+         JOIN app_users au ON au.id = uo.user_id
+         JOIN organizations o ON o.id = uo.organization_id
+         LEFT JOIN roles r ON r.id = uo.role_id
+         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+         ORDER BY uo.created_at DESC, uo.id DESC`,
+        params,
+      );
+      return rows;
+    } catch (error) {
+      if (!this.isOptionalSchemaError(error)) throw error;
+      const fallbackWhere = where
+        .map((clause) => clause.replace(/uo\.user_id/g, 'au.id').replace(/uo\.organization_id/g, 'au.organization_id'))
+        .join(' AND ');
+      const { rows } = await this.db.query(
+        `SELECT
+           au.id,
+           au.id AS user_id,
+           au.organization_id,
+           COALESCE(au.role, 'VIEWER_CLIENT') AS role_code,
+           NULL::INTEGER AS role_id,
+           TRUE AS is_active,
+           TRUE AS is_default,
+           au.created_at,
+           au.created_at AS updated_at,
+           CONCAT(COALESCE(au.first_name, ''), ' ', COALESCE(au.last_name, '')) AS user_name,
+           au.email,
+           o.name AS organization_name,
+           o.slug AS organization_slug,
+           NULL::VARCHAR AS role_name
+         FROM app_users au
+         JOIN organizations o ON o.id = au.organization_id
+         ${fallbackWhere ? `WHERE ${fallbackWhere}` : ''}
+         ORDER BY au.created_at DESC, au.id DESC`,
+        params,
+      );
+      return rows;
+    }
+  }
+
+  async platformUpsertMembership(body: Record<string, unknown>) {
+    const userId = Number(body.user_id ?? body.userId ?? 0);
+    const organizationId = Number(body.organization_id ?? body.organizationId ?? 0);
+    const roleCode = this.normalizeScopedUserRole(body.role_code ?? body.role ?? 'VIEWER_CLIENT');
+    const isActive = body.is_active === undefined ? true : Boolean(body.is_active);
+    const isDefault = body.is_default === undefined ? false : Boolean(body.is_default);
+    if (!userId || !organizationId) throw new BadRequestException('Utilisateur et organisation sont requis.');
+
+    const roleId = await this.resolveOrganizationRoleId(organizationId, roleCode);
+    const before = await this.db.query(`SELECT * FROM user_organizations WHERE user_id = $1 AND organization_id = $2 LIMIT 1`, [userId, organizationId]);
+    if (isDefault && !isActive) {
+      throw new BadRequestException('Une adhésion inactive ne peut pas être définie par défaut.');
+    }
+
+    if (isDefault) {
+      await this.db.query(`UPDATE user_organizations SET is_default = FALSE, updated_at = NOW() WHERE user_id = $1`, [userId]);
+    }
+
+    const { rows } = await this.db.query(
+      `INSERT INTO user_organizations (
+         user_id, organization_id, role_code, role_id, is_active, is_default, created_by, updated_by
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+       ON CONFLICT (user_id, organization_id)
+       DO UPDATE SET
+         role_code = EXCLUDED.role_code,
+         role_id = EXCLUDED.role_id,
+         is_active = EXCLUDED.is_active,
+         is_default = EXCLUDED.is_default,
+         updated_by = EXCLUDED.updated_by,
+         updated_at = NOW()
+       RETURNING *`,
+      [userId, organizationId, roleCode, roleId, isActive, isDefault, this.context.userId() ?? 1],
+    );
+    const membership = rows[0];
+    await this.writePlatformAudit('MEMBERSHIP_UPSERTED', userId, organizationId, before.rows[0] ?? null, membership);
+    return membership;
+  }
+
+  async platformUpdateMembership(id: number, body: Record<string, unknown>) {
+    const before = await this.db.query(`SELECT * FROM user_organizations WHERE id = $1 LIMIT 1`, [id]);
+    const existing = requireRow(before.rows[0], 'Membership');
+    const nextRoleCode = body.role_code !== undefined || body.role !== undefined
+      ? this.normalizeScopedUserRole(body.role_code ?? body.role)
+      : existing.role_code;
+    const nextIsActive = body.is_active === undefined ? existing.is_active : Boolean(body.is_active);
+    const nextIsDefault = body.is_default === undefined ? existing.is_default : Boolean(body.is_default);
+    if (nextIsDefault && !nextIsActive) {
+      throw new BadRequestException('Une adhésion inactive ne peut pas être définie par défaut.');
+    }
+    if (nextIsDefault) {
+      await this.db.query(`UPDATE user_organizations SET is_default = FALSE, updated_at = NOW() WHERE user_id = $1`, [existing.user_id]);
+    }
+    const roleId = await this.resolveOrganizationRoleId(existing.organization_id, nextRoleCode);
+    const { rows } = await this.db.query(
+      `UPDATE user_organizations
+       SET role_code = $2,
+           role_id = $3,
+           is_active = $4,
+           is_default = $5,
+           updated_by = $6,
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [id, nextRoleCode, roleId, nextIsActive, nextIsDefault, this.context.userId() ?? 1],
+    );
+    const updated = requireRow(rows[0], 'Membership');
+    await this.writePlatformAudit('MEMBERSHIP_UPDATED', updated.user_id, updated.organization_id, existing, updated);
+    return updated;
+  }
+
+  async platformRoles() {
+    return {
+      platformRoles: [
+        { code: 'SUPER_ADMIN', label: 'Super administrateur', scope: 'PLATFORM' },
+        { code: 'ADMIN_PLATFORM', label: 'Administrateur plateforme', scope: 'PLATFORM' },
+      ],
+      organizationRoles: [
+        { code: 'ADMIN_CLIENT', label: 'Administrateur client', scope: 'ORGANIZATION' },
+        { code: 'EDITOR_CLIENT', label: 'Utilisateur en écriture', scope: 'ORGANIZATION' },
+        { code: 'VIEWER_CLIENT', label: 'Lecture seule', scope: 'ORGANIZATION' },
+      ],
+    };
+  }
+
+  async platformActivity() {
+    try {
+      const { rows } = await this.db.query(
+        `SELECT
+           pal.id,
+           pal.actor_user_id,
+           pal.target_user_id,
+           pal.organization_id,
+           pal.action,
+           pal.created_at,
+           CONCAT(COALESCE(actor.first_name, ''), ' ', COALESCE(actor.last_name, '')) AS actor_name,
+           CONCAT(COALESCE(target.first_name, ''), ' ', COALESCE(target.last_name, '')) AS target_name,
+           o.name AS organization_name
+         FROM platform_admin_audit_logs pal
+         LEFT JOIN app_users actor ON actor.id = pal.actor_user_id
+         LEFT JOIN app_users target ON target.id = pal.target_user_id
+         LEFT JOIN organizations o ON o.id = pal.organization_id
+         ORDER BY pal.created_at DESC, pal.id DESC
+         LIMIT 20`,
+      );
+      return rows;
+    } catch (error: any) {
+      if (error?.code === '42P01') return [];
+      throw error;
+    }
+  }
+
+  async createUser(body: Record<string, unknown>) {
+    return this.createScopedUser(body);
+  }
+
+  private normalizeScopedUserRole(role: unknown) {
+    const value = String(role ?? 'EDITOR_CLIENT').trim().toUpperCase();
+    if (value === 'ADMIN' || value === 'ADMIN_CLIENT') return 'ADMIN_CLIENT';
+    if (['EDITOR', 'EDITOR_CLIENT', 'ACCOUNTANT', 'STAFF', 'AGENT', 'GESTIONNAIRE', 'COMPTABLE'].includes(value)) return 'EDITOR_CLIENT';
+    return 'VIEWER_CLIENT';
+  }
+
+  private async resolveOrganizationRoleId(organizationId: number, roleCode: string) {
+    const candidates =
+      roleCode === 'ADMIN_CLIENT'
+        ? ['ADMIN']
+        : roleCode === 'EDITOR_CLIENT'
+          ? ['STAFF', 'ACCOUNTANT']
+          : ['DIRECTOR'];
+    const { rows } = await this.db.query(
+      `SELECT id
+       FROM roles
+       WHERE organization_id = $1
+         AND code = ANY($2::text[])
+       ORDER BY CASE code
+         WHEN 'ADMIN' THEN 1
+         WHEN 'STAFF' THEN 2
+         WHEN 'ACCOUNTANT' THEN 3
+         WHEN 'DIRECTOR' THEN 4
+         ELSE 99
+       END
+       LIMIT 1`,
+      [organizationId, candidates],
+    );
+    return rows[0]?.id ?? null;
+  }
+
+  private async writePlatformAudit(action: string, targetUserId: number | null, organizationId: number | null, beforeJson: unknown, afterJson: unknown) {
+    try {
+      await this.db.query(
+        `INSERT INTO platform_admin_audit_logs (
+           actor_user_id, target_user_id, organization_id, action, before_json, after_json
+         )
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          this.context.userId(),
+          targetUserId,
+          organizationId,
+          action,
+          beforeJson ? JSON.stringify(beforeJson) : null,
+          afterJson ? JSON.stringify(afterJson) : null,
+        ],
+      );
+    } catch (error: any) {
+      if (error?.code === '42P01') return;
+      throw error;
+    }
   }
 
   workflowDefinitions() {

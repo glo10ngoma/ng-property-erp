@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { PlatformRoleGuard } from '../auth/platform-role.guard';
 import { PERMISSIONS, ROLE_LABELS, ROLE_PERMISSIONS } from './permissions';
 import { SaasService } from './saas.service';
 import { UpdateCompanySettingsDto, UpdateExchangeRateDto } from './settings.dto';
@@ -10,17 +11,17 @@ export class UsersController {
 
   @Get()
   findUsers() {
-    return this.service.findAll('app_users', 'created_at DESC');
+    return this.service.listUsers();
   }
 
   @Post()
   createUser(@Body() body: Record<string, unknown>) {
-    return this.service.createUser(body);
+    return this.service.createScopedUser(body);
   }
 
   @Put(':id')
   updateUser(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
-    return this.service.updateById('app_users', id, body, ['first_name', 'last_name', 'email', 'role', 'status']);
+    return this.service.updateScopedUser(id, body);
   }
 
   @Get('roles')
@@ -1059,5 +1060,74 @@ export class StatementsController {
     @Query('end') end?: string,
   ) {
     return this.service.buildingStatement(id, { month, year, start, end });
+  }
+}
+
+@UseGuards(PlatformRoleGuard)
+@Controller('platform')
+export class PlatformController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get('overview')
+  overview() {
+    return this.service.platformOverview();
+  }
+
+  @Get('organizations')
+  organizations(@Query('search') search?: string, @Query('status') status?: string) {
+    return this.service.platformOrganizations({ search, status });
+  }
+
+  @Post('organizations')
+  createOrganization(@Body() body: Record<string, unknown>) {
+    return this.service.platformCreateOrganization(body);
+  }
+
+  @Patch('organizations/:id')
+  updateOrganization(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.platformUpdateOrganization(id, body);
+  }
+
+  @Get('users')
+  users(@Query('search') search?: string, @Query('status') status?: string) {
+    return this.service.platformUsers({ search, status });
+  }
+
+  @Post('users')
+  createUser(@Body() body: Record<string, unknown>) {
+    return this.service.platformCreateUser(body);
+  }
+
+  @Patch('users/:id')
+  updateUser(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.platformUpdateUser(id, body);
+  }
+
+  @Get('memberships')
+  memberships(@Query('userId') userId?: string, @Query('organizationId') organizationId?: string) {
+    return this.service.platformMemberships({
+      userId: userId ? Number(userId) : undefined,
+      organizationId: organizationId ? Number(organizationId) : undefined,
+    });
+  }
+
+  @Post('memberships')
+  upsertMembership(@Body() body: Record<string, unknown>) {
+    return this.service.platformUpsertMembership(body);
+  }
+
+  @Patch('memberships/:id')
+  updateMembership(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.platformUpdateMembership(id, body);
+  }
+
+  @Get('roles')
+  roles() {
+    return this.service.platformRoles();
+  }
+
+  @Get('activity')
+  activity() {
+    return this.service.platformActivity();
   }
 }

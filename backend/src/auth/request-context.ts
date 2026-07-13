@@ -5,8 +5,22 @@ export type AuthPayload = {
   sub: number;
   email: string;
   role: string;
+  platform_role?: string | null;
+  organization_role?: string | null;
   organization_id: number;
+  organization_name?: string | null;
+  organization_slug?: string | null;
   permissions: string[];
+  organizations?: UserOrganizationMembership[];
+};
+
+export type UserOrganizationMembership = {
+  organization_id: number;
+  organization_name: string;
+  organization_slug: string;
+  role_code: string;
+  is_active: boolean;
+  is_default: boolean;
 };
 
 type Store = {

@@ -3,8 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { IsString } from 'class-validator';
 import { createHmac } from 'crypto';
 import { DatabaseService } from '../database/database.service';
-import { ROLE_PERMISSIONS, normalizeRole } from '../saas/permissions';
 import { verifyPassword } from './password';
+import { OrganizationAccessService } from './organization-access.service';
 import { AuthPayload } from './request-context';
 
 class LoginDto {
@@ -15,12 +15,22 @@ class LoginDto {
   password: string;
 }
 
+class SwitchOrganizationDto {
+  organizationId: number;
+}
+
+type RequestWithHeaders = {
+  headers: Record<string, string | string[] | undefined>;
+  user?: AuthPayload;
+};
+
 @Controller('auth')
 export class AuthController {
   private readonly jwtSecret: string;
 
   constructor(
     private readonly db: DatabaseService,
+    private readonly organizationAccess: OrganizationAccessService,
     config: ConfigService,
   ) {
     const jwtSecret = config.get<string>('JWT_SECRET');
@@ -31,53 +41,58 @@ export class AuthController {
   }
 
   @Post('login')
-  async login(@Body() dto: LoginDto) {
+  async login(@Body() dto: LoginDto, @Req() request: RequestWithHeaders) {
     const { rows } = await this.db.query(
-      `SELECT id, first_name, last_name, email, role, status, password_hash, organization_id
-       FROM app_users WHERE email = $1 LIMIT 1`,
+      `SELECT id, email, status, password_hash, role, platform_role
+       FROM app_users
+       WHERE email = $1
+       LIMIT 1`,
       [dto.email],
     );
     const user = rows[0];
     if (!user || user.status !== 'ACTIVE' || !(await verifyPassword(dto.password, user.password_hash))) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    const normalizedRole = normalizeRole(user.role);
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      role: normalizedRole,
-      organization_id: user.organization_id ?? 1,
-      permissions: ROLE_PERMISSIONS[normalizedRole] ?? [],
-    };
-    const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+
+    const body = Buffer.from(
+      JSON.stringify({
+        sub: user.id,
+        email: user.email,
+        role: user.platform_role ?? user.role,
+      }),
+    ).toString('base64url');
     const signature = createHmac('sha256', this.jwtSecret).update(body).digest('base64url');
+    const requestedOrganizationId = this.readRequestedOrganizationId(request);
+    const loginUser = await this.organizationAccess.loginPayload(Number(user.id), requestedOrganizationId);
+
     return {
       token: `${body}.${signature}`,
-      user: {
-        id: user.id,
-        name: `${user.first_name} ${user.last_name}`,
-        email: user.email,
-        role: normalizedRole,
-        organization_id: user.organization_id ?? 1,
-        permissions: payload.permissions,
-      },
+      user: loginUser,
     };
   }
 
   @Get('me')
-  me(@Req() request: { user?: AuthPayload }) {
+  async me(@Req() request: RequestWithHeaders) {
     if (!request.user) throw new UnauthorizedException('Missing token');
-    return {
-      id: request.user.sub,
-      email: request.user.email,
-      role: request.user.role,
-      organization_id: request.user.organization_id,
-      permissions: request.user.permissions,
-    };
+    return this.organizationAccess.loginPayload(request.user.sub, request.user.organization_id);
+  }
+
+  @Post('switch-organization')
+  async switchOrganization(@Body() dto: SwitchOrganizationDto, @Req() request: RequestWithHeaders) {
+    if (!request.user) throw new UnauthorizedException('Missing token');
+    return this.organizationAccess.loginPayload(request.user.sub, Number(dto.organizationId));
   }
 
   @Post('logout')
   logout() {
     return { ok: true };
+  }
+
+  private readRequestedOrganizationId(request: RequestWithHeaders) {
+    const raw = request.headers['x-organization-id'];
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    if (!value) return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
   }
 }

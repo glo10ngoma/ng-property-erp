@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from '../core/layout/AppLayout';
 import { PermissionGuard } from '../core/auth/PermissionGuard';
 import { ProtectedRoute } from '../core/auth/ProtectedRoute';
+import { PlatformRoute } from '../core/auth/PlatformRoute';
 import { ActivityPage } from '../modules/activity/pages/ActivityPage';
 import { BuildingsPage } from '../modules/buildings/pages/BuildingsPage';
 import { CashPage } from '../modules/cash/pages/CashPage';
@@ -28,6 +29,7 @@ import { StockReportPage } from '../modules/stock/pages/StockReportPage';
 import { TenantsPage } from '../modules/tenants/pages/TenantsPage';
 import { UsersPage } from '../modules/users/pages/UsersPage';
 import { WorkflowsPage } from '../modules/workflows/pages/WorkflowsPage';
+import { PlatformLayout } from '../core/layout/PlatformLayout';
 import { BuildingReport } from '../pages/BuildingReport';
 import { CashDetailPage } from '../pages/CashEnterprise';
 import { LeaseDetail } from '../pages/LeaseDetail';
@@ -40,6 +42,15 @@ import { TenantSituation } from '../pages/TenantSituation';
 import { UnitDetail } from '../pages/UnitDetail';
 import { InvoiceDetailPage } from '../modules/invoices/pages/InvoiceDetailPage';
 import { InvoicePrintPage } from '../modules/invoices/pages/InvoicePrintPage';
+import {
+  PlatformActivityPage,
+  PlatformMembershipsPage,
+  PlatformOrganizationsPage,
+  PlatformOverviewPage,
+  PlatformRolesPage,
+  PlatformSettingsPage,
+  PlatformUsersPage,
+} from '../modules/platform/pages/PlatformPages';
 
 const guarded = (permission: string, element: JSX.Element) => (
   <PermissionGuard permission={permission}>{element}</PermissionGuard>
@@ -50,6 +61,18 @@ export function AppRouter() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route element={<ProtectedRoute />}>
+        <Route element={<PlatformRoute />}>
+          <Route path="/platform" element={<PlatformLayout />}>
+            <Route index element={<Navigate to="/platform/overview" replace />} />
+            <Route path="overview" element={<PlatformOverviewPage />} />
+            <Route path="organizations" element={<PlatformOrganizationsPage />} />
+            <Route path="users" element={<PlatformUsersPage />} />
+            <Route path="memberships" element={<PlatformMembershipsPage />} />
+            <Route path="roles" element={<PlatformRolesPage />} />
+            <Route path="activity" element={<PlatformActivityPage />} />
+            <Route path="settings" element={<PlatformSettingsPage />} />
+          </Route>
+        </Route>
         <Route element={<AppLayout />}>
           <Route index element={<Navigate to="/activity" replace />} />
           <Route path="/dashboard" element={guarded('dashboard.read', <DashboardPage />)} />
@@ -118,7 +141,15 @@ export function AppRouter() {
           <Route path="/settings" element={guarded('settings.read', <SettingsPage />)} />
         </Route>
       </Route>
+      <Route path="/app/*" element={<ClientAppRedirect />} />
       <Route path="*" element={<Navigate to="/activity" replace />} />
     </Routes>
   );
+}
+
+function ClientAppRedirect() {
+  const path = window.location.pathname.replace(/^\/app/, '') || '/activity';
+  const search = window.location.search;
+  const hash = window.location.hash;
+  return <Navigate to={`${path}${search}${hash}`} replace />;
 }

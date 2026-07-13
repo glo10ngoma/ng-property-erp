@@ -1,13 +1,19 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { createHmac } from 'crypto';
-import { ROLE_PERMISSIONS, normalizeRole } from '../saas/permissions';
+import { OrganizationAccessService } from './organization-access.service';
 import { AuthPayload } from './request-context';
 
 type GuardRequest = {
   path: string;
   method: string;
-  headers: { authorization?: string };
+  headers: Record<string, string | string[] | undefined>;
   user?: AuthPayload;
+};
+
+type TokenPayload = {
+  sub: number;
+  email: string;
+  role?: string;
 };
 
 const routePermissions: Array<[RegExp, string]> = [
@@ -38,30 +44,41 @@ const routePermissions: Array<[RegExp, string]> = [
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
+  constructor(private readonly organizationAccess: OrganizationAccessService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<GuardRequest>();
     if (request.path === '/api/auth/login' || request.path === '/api/auth/logout' || request.path === '/api/health') return true;
-    const user = this.decode(request);
+
+    const tokenPayload = this.decode(request);
+    const requestedOrganizationId = this.readRequestedOrganizationId(request);
+    const user = await this.organizationAccess.resolveUserContext(tokenPayload.sub, requestedOrganizationId);
     request.user = user;
+
     const permission = this.permissionFor(request.path, request.method);
     if (!permission || user.permissions.includes('*') || user.permissions.includes(permission)) return true;
     throw new ForbiddenException(`Permission required: ${permission}`);
   }
 
-  private decode(request: GuardRequest): AuthPayload {
+  private decode(request: GuardRequest): TokenPayload {
     const header = request.headers.authorization;
-    if (!header?.startsWith('Bearer ')) throw new UnauthorizedException('Missing token');
-    const token = header.slice('Bearer '.length);
+    const authorization = Array.isArray(header) ? header[0] : header;
+    if (!authorization?.startsWith('Bearer ')) throw new UnauthorizedException('Missing token');
+    const token = authorization.slice('Bearer '.length);
     const [body, signature] = token.split('.');
     const expected = createHmac('sha256', process.env.JWT_SECRET ?? 'local-demo-secret')
       .update(body)
       .digest('base64url');
     if (signature !== expected) throw new UnauthorizedException('Invalid token');
-    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as AuthPayload;
-    payload.role = normalizeRole(payload.role);
-    payload.permissions = ROLE_PERMISSIONS[payload.role] ?? [];
-    payload.organization_id = payload.organization_id ?? 1;
-    return payload;
+    return JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as TokenPayload;
+  }
+
+  private readRequestedOrganizationId(request: GuardRequest) {
+    const raw = request.headers['x-organization-id'];
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    if (!value) return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
   }
 
   private permissionFor(path: string, method: string) {

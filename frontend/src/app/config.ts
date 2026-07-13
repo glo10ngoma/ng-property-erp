@@ -12,4 +12,5 @@ export const appConfig = {
   apiBaseUrl: `${resolvedApiBaseUrl}/api`,
   tokenStorageKey: 'property_erp_token',
   userStorageKey: 'property_erp_user',
+  activeOrganizationStorageKey: 'property_erp_active_organization',
 };

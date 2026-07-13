@@ -44,6 +44,8 @@ export function UsersPage() {
   const [viewing, setViewing] = useState<UserRow | null>(null);
   const [creating, setCreating] = useState(false);
 
+  const activeOrganizationName = user?.organization_name ?? `Organisation ${user?.organization_id ?? 1}`;
+
   const filtered = useMemo(
     () =>
       data.filter((item) => {
@@ -107,7 +109,7 @@ export function UsersPage() {
         <div className="mini-stat"><span>Total utilisateurs</span><strong>{data.length}</strong></div>
         <div className="mini-stat"><span>Actifs</span><strong>{data.filter((item) => item.status === 'ACTIVE').length}</strong></div>
         <div className="mini-stat"><span>Inactifs</span><strong>{data.filter((item) => item.status !== 'ACTIVE').length}</strong></div>
-        <div className="mini-stat"><span>Administrateurs</span><strong>{data.filter((item) => normalizeRole(item.role) === 'ADMIN').length}</strong></div>
+        <div className="mini-stat"><span>Administrateurs client</span><strong>{data.filter((item) => normalizeRole(item.role) === 'ADMIN').length}</strong></div>
         <div className="mini-stat"><span>Utilisateurs en écriture</span><strong>{data.filter((item) => normalizeRole(item.role) === 'EDITOR').length}</strong></div>
         <div className="mini-stat"><span>Lecture seule</span><strong>{data.filter((item) => normalizeRole(item.role) === 'VIEWER').length}</strong></div>
       </div>
@@ -117,7 +119,7 @@ export function UsersPage() {
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Recherche" />
           <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
             <option value="ALL">Rôle</option>
-            <option value="ADMIN">Administrateur</option>
+            <option value="ADMIN">Administrateur client</option>
             <option value="EDITOR">Utilisateur en écriture</option>
             <option value="VIEWER">Lecture seule</option>
           </select>
@@ -157,14 +159,14 @@ export function UsersPage() {
                 <td>{displayUserName(row)}</td>
                 <td>{row.email}</td>
                 <td>{roleLabel(row.role)}</td>
-                <td>{row.organization_name ?? `Organisation ${row.organization_id ?? user?.organization_id ?? 1}`}</td>
+                <td>{row.organization_name ?? activeOrganizationName}</td>
                 <td>{row.last_login_at ? shortDate(row.last_login_at) : '—'}</td>
                 <td>{statusLabel(row.status)}</td>
                 <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}>
                   <ActionIconButton icon={Eye} title="Voir" onClick={() => setViewing(row)} />
-                  {can('users.update') && <ActionIconButton icon={Pencil} title="Modifier" onClick={() => setEditing(row)} />}
+                  {can('users.update') && !isPlatformAccount(row.role) && <ActionIconButton icon={Pencil} title="Modifier" onClick={() => setEditing(row)} />}
                   <ActionIconButton icon={KeyRound} title="Réinitialisation bientôt disponible" disabled />
-                  {can('users.update') && (
+                  {can('users.update') && !isPlatformAccount(row.role) && (
                     <ActionIconButton
                       icon={row.status === 'ACTIVE' ? Power : RotateCcw}
                       title={row.status === 'ACTIVE' ? 'Désactiver' : 'Réactiver'}
@@ -193,7 +195,7 @@ export function UsersPage() {
           }}
         >
           <CreateUserForm
-            organizationName={user?.organization_name ?? `Organisation ${user?.organization_id ?? 1}`}
+            organizationName={activeOrganizationName}
             error={error}
             onCancel={() => {
               setCreating(false);
@@ -217,10 +219,10 @@ export function UsersPage() {
             <label>Nom<input name="last_name" defaultValue={editing.last_name} required /></label>
             <label>Adresse e-mail<input name="email" type="email" defaultValue={editing.email} required /></label>
             <label>Rôle
-              <select name="role" defaultValue={normalizeRole(editing.role)}>
-                <option value="ADMIN">Administrateur</option>
-                <option value="EDITOR">Utilisateur en écriture</option>
-                <option value="VIEWER">Lecture seule</option>
+              <select name="role" defaultValue={normalizeScopedRole(editing.role)}>
+                <option value="ADMIN_CLIENT">Administrateur client</option>
+                <option value="EDITOR_CLIENT">Utilisateur en écriture</option>
+                <option value="VIEWER_CLIENT">Lecture seule</option>
               </select>
             </label>
             <label>Statut
@@ -240,7 +242,7 @@ export function UsersPage() {
             <span>Nom</span><strong>{displayUserName(viewing)}</strong>
             <span>Adresse e-mail</span><strong>{viewing.email}</strong>
             <span>Rôle</span><strong>{roleLabel(viewing.role)}</strong>
-            <span>Organisation</span><strong>{viewing.organization_name ?? `Organisation ${viewing.organization_id ?? user?.organization_id ?? 1}`}</strong>
+            <span>Organisation</span><strong>{viewing.organization_name ?? activeOrganizationName}</strong>
             <span>Dernière connexion</span><strong>{viewing.last_login_at ? shortDate(viewing.last_login_at) : 'Non disponible'}</strong>
             <span>Statut</span><strong>{statusLabel(viewing.status)}</strong>
           </div>
@@ -287,10 +289,10 @@ function CreateUserForm({
           <label className="user-form-wide">Nom complet *<input name="full_name" placeholder="Nom complet" required autoComplete="name" /></label>
           <label className="user-form-wide">Adresse e-mail *<input name="email" type="email" placeholder="Adresse e-mail" required autoComplete="email" /></label>
           <label>Rôle *
-            <select name="role" defaultValue="EDITOR" required>
-              <option value="ADMIN">Administrateur</option>
-              <option value="EDITOR">Utilisateur en écriture</option>
-              <option value="VIEWER">Lecture seule</option>
+            <select name="role" defaultValue="EDITOR_CLIENT" required>
+              <option value="ADMIN_CLIENT">Administrateur client</option>
+              <option value="EDITOR_CLIENT">Utilisateur en écriture</option>
+              <option value="VIEWER_CLIENT">Lecture seule</option>
             </select>
           </label>
           <label>Statut
@@ -305,10 +307,10 @@ function CreateUserForm({
       <div className="detail-section user-form-section">
         <h4>Accès</h4>
         <div className="user-form-grid">
-          <label className="user-form-wide">Organisation *<input value={organizationName} disabled /></label>
+          <label className="user-form-wide">Organisation active *<input value={organizationName} disabled /></label>
           <div className="user-form-hint user-form-wide">
-            <span>Fonction activée</span>
-            <strong>Les identifiants sont gérés à la création.</strong>
+            <span>Portée</span>
+            <strong>Le nouvel utilisateur sera rattaché à l’organisation actuellement sélectionnée.</strong>
           </div>
         </div>
       </div>
@@ -396,7 +398,7 @@ function buildCreatePayload(form: FormData): CreateUserPayload {
   const email = String(form.get('email') ?? '').trim();
   const password = String(form.get('password') ?? '');
   const confirmPassword = String(form.get('confirm_password') ?? '');
-  const role = String(form.get('role') ?? 'EDITOR');
+  const role = normalizeScopedRole(String(form.get('role') ?? 'EDITOR_CLIENT'));
   const status = String(form.get('status') ?? 'ACTIVE');
 
   if (!fullName || !email || !password) {
@@ -436,9 +438,14 @@ function extractApiError(error: unknown) {
 function roleLabel(role: string) {
   return (
     {
-      ADMIN: 'Administrateur',
+      SUPER_ADMIN: 'Super administrateur',
+      ADMIN: 'Administrateur plateforme',
+      ADMIN_PLATFORM: 'Administrateur plateforme',
+      ADMIN_CLIENT: 'Administrateur client',
       EDITOR: 'Utilisateur en écriture',
+      EDITOR_CLIENT: 'Utilisateur en écriture',
       VIEWER: 'Lecture seule',
+      VIEWER_CLIENT: 'Lecture seule',
       ACCOUNTANT: 'Utilisateur en écriture',
       STAFF: 'Utilisateur en écriture',
       AGENT: 'Utilisateur en écriture',
@@ -446,15 +453,27 @@ function roleLabel(role: string) {
       DIRECTOR: 'Lecture seule',
       DIRECTEUR: 'Lecture seule',
       COMPTABLE: 'Utilisateur en écriture',
-    }[normalizeRole(role)] ?? role
+    }[role.toUpperCase()] ?? role
   );
 }
 
 function normalizeRole(role: string) {
   const value = role.toUpperCase();
-  if (value === 'ADMIN') return 'ADMIN';
-  if (['EDITOR', 'ACCOUNTANT', 'STAFF', 'AGENT', 'GESTIONNAIRE', 'COMPTABLE'].includes(value)) return 'EDITOR';
+  if (value === 'SUPER_ADMIN' || value === 'ADMIN' || value === 'ADMIN_PLATFORM' || value === 'ADMIN_CLIENT') return 'ADMIN';
+  if (['EDITOR', 'EDITOR_CLIENT', 'ACCOUNTANT', 'STAFF', 'AGENT', 'GESTIONNAIRE', 'COMPTABLE'].includes(value)) return 'EDITOR';
   return 'VIEWER';
+}
+
+function normalizeScopedRole(role: string) {
+  const value = role.toUpperCase();
+  if (value === 'ADMIN' || value === 'ADMIN_CLIENT') return 'ADMIN_CLIENT';
+  if (['EDITOR', 'EDITOR_CLIENT', 'ACCOUNTANT', 'STAFF', 'AGENT', 'GESTIONNAIRE', 'COMPTABLE'].includes(value)) return 'EDITOR_CLIENT';
+  return 'VIEWER_CLIENT';
+}
+
+function isPlatformAccount(role: string) {
+  const value = role.toUpperCase();
+  return value === 'ADMIN' || value === 'ADMIN_PLATFORM' || value === 'SUPER_ADMIN';
 }
 
 function displayUserName(user: Pick<UserRow, 'first_name' | 'last_name' | 'full_name' | 'name' | 'email'>) {

@@ -88,9 +88,14 @@ const viewerPermissions = [
 ];
 
 export const ROLE_ALIASES: Record<string, CanonicalRole> = {
+  SUPER_ADMIN: 'ADMIN',
   ADMIN: 'ADMIN',
+  ADMIN_PLATFORM: 'ADMIN',
+  ADMIN_CLIENT: 'ADMIN',
   EDITOR: 'EDITOR',
+  EDITOR_CLIENT: 'EDITOR',
   VIEWER: 'VIEWER',
+  VIEWER_CLIENT: 'VIEWER',
   ACCOUNTANT: 'EDITOR',
   STAFF: 'EDITOR',
   AGENT: 'EDITOR',
@@ -100,10 +105,22 @@ export const ROLE_ALIASES: Record<string, CanonicalRole> = {
   DIRECTEUR: 'VIEWER',
 };
 
-export const ROLE_LABELS: Record<CanonicalRole, string> = {
-  ADMIN: 'Administrateur',
+export const ROLE_LABELS: Record<string, string> = {
+  SUPER_ADMIN: 'Super administrateur',
+  ADMIN: 'Administrateur plateforme',
+  ADMIN_PLATFORM: 'Administrateur plateforme',
+  ADMIN_CLIENT: 'Administrateur client',
   EDITOR: 'Utilisateur en écriture',
+  EDITOR_CLIENT: 'Utilisateur en écriture',
   VIEWER: 'Lecture seule',
+  VIEWER_CLIENT: 'Lecture seule',
+  ACCOUNTANT: 'Utilisateur en écriture',
+  STAFF: 'Utilisateur en écriture',
+  AGENT: 'Utilisateur en écriture',
+  GESTIONNAIRE: 'Utilisateur en écriture',
+  COMPTABLE: 'Utilisateur en écriture',
+  DIRECTOR: 'Lecture seule',
+  DIRECTEUR: 'Lecture seule',
 };
 
 export function normalizeRole(role?: string | null): CanonicalRole {
@@ -112,13 +129,19 @@ export function normalizeRole(role?: string | null): CanonicalRole {
 }
 
 export function roleDisplayName(role?: string | null) {
-  return ROLE_LABELS[normalizeRole(role)];
+  const value = String(role ?? '').toUpperCase();
+  return ROLE_LABELS[value] ?? ROLE_LABELS[normalizeRole(role)];
 }
 
 export const ROLE_PERMISSIONS: Record<string, string[]> = {
+  SUPER_ADMIN: ['*'],
   ADMIN: ['*'],
+  ADMIN_PLATFORM: ['*'],
+  ADMIN_CLIENT: ['*'],
   EDITOR: editorPermissions,
+  EDITOR_CLIENT: editorPermissions,
   VIEWER: viewerPermissions,
+  VIEWER_CLIENT: viewerPermissions,
   ACCOUNTANT: editorPermissions,
   STAFF: editorPermissions,
   AGENT: editorPermissions,
@@ -129,3 +152,13 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
 };
 
 export const PERMISSIONS = Array.from(new Set(Object.values(ROLE_PERMISSIONS).flat().filter((item) => item !== '*')));
+
+export function permissionSetForRole(role?: string | null) {
+  const value = String(role ?? '').toUpperCase();
+  return ROLE_PERMISSIONS[value] ?? ROLE_PERMISSIONS[normalizeRole(role)] ?? [];
+}
+
+export function isPlatformRole(role?: string | null) {
+  const value = String(role ?? '').toUpperCase();
+  return value === 'SUPER_ADMIN' || value === 'ADMIN' || value === 'ADMIN_PLATFORM';
+}

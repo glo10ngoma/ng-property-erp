@@ -13,6 +13,10 @@ export function setAuthToken(token?: string) {
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem(appConfig.tokenStorageKey);
   if (token && !config.headers.Authorization) config.headers.Authorization = `Bearer ${token}`;
+  const activeOrganizationId = localStorage.getItem(appConfig.activeOrganizationStorageKey);
+  if (activeOrganizationId) {
+    config.headers['x-organization-id'] = activeOrganizationId;
+  }
   return config;
 });
 

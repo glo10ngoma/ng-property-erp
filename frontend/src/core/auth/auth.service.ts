@@ -19,9 +19,19 @@ export async function me() {
   return response.data;
 }
 
+export async function switchOrganization(organizationId: number) {
+  const response = await api.post<AuthUser & { organization_id: number }>('/auth/switch-organization', {
+    organizationId,
+  });
+  return response.data;
+}
+
 export function persistSession(token: string, user: AuthUser) {
   localStorage.setItem(appConfig.tokenStorageKey, token);
   localStorage.setItem(appConfig.userStorageKey, JSON.stringify(user));
+  if (user.organization_id) {
+    localStorage.setItem(appConfig.activeOrganizationStorageKey, String(user.organization_id));
+  }
   setAuthToken(token);
 }
 
@@ -37,5 +47,21 @@ export function readSession() {
 export function clearSession() {
   localStorage.removeItem(appConfig.tokenStorageKey);
   localStorage.removeItem(appConfig.userStorageKey);
+  localStorage.removeItem(appConfig.activeOrganizationStorageKey);
   setAuthToken(undefined);
+}
+
+export function readActiveOrganizationId() {
+  const stored = localStorage.getItem(appConfig.activeOrganizationStorageKey);
+  if (!stored) return null;
+  const parsed = Number(stored);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+export function writeActiveOrganizationId(organizationId: number | null) {
+  if (!organizationId) {
+    localStorage.removeItem(appConfig.activeOrganizationStorageKey);
+    return;
+  }
+  localStorage.setItem(appConfig.activeOrganizationStorageKey, String(organizationId));
 }
