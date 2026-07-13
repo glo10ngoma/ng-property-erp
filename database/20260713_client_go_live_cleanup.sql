@@ -32,7 +32,8 @@ BEGIN;
 
 CREATE TEMP TABLE cleanup_scope (
   organization_id INTEGER NOT NULL,
-  organization_slug TEXT,
+  organization_slug TEXT NOT NULL,
+  confirmation_token TEXT,
   execute_cleanup BOOLEAN NOT NULL DEFAULT FALSE
 ) ON COMMIT DROP;
 
@@ -41,9 +42,10 @@ CREATE TEMP TABLE cleanup_scope (
 -- Replace the organization_id / slug below with the client target.
 -- Keep execute_cleanup = FALSE for dry run.
 -- Set execute_cleanup = TRUE only after backup + manual validation.
+-- The confirmation token must remain NULL until the final human validation.
 -- -----------------------------------------------------------------
-INSERT INTO cleanup_scope (organization_id, organization_slug, execute_cleanup)
-VALUES (2, 'ng-erp-demo-property', FALSE);
+INSERT INTO cleanup_scope (organization_id, organization_slug, confirmation_token, execute_cleanup)
+VALUES (1, 'demo', NULL, FALSE);
 
 CREATE TEMP TABLE cleanup_keep_users (
   email TEXT PRIMARY KEY
@@ -68,6 +70,12 @@ CREATE TEMP TABLE cleanup_preview (
   rows_to_delete BIGINT NOT NULL
 ) ON COMMIT DROP;
 
+CREATE TEMP TABLE cleanup_totals (
+  sort_order INTEGER NOT NULL,
+  table_name TEXT NOT NULL,
+  total_rows BIGINT NOT NULL
+) ON COMMIT DROP;
+
 CREATE TEMP TABLE cleanup_deleted (
   sort_order INTEGER NOT NULL,
   table_name TEXT NOT NULL,
@@ -80,13 +88,22 @@ CREATE TEMP TABLE cleanup_sequences (
 ) ON COMMIT DROP;
 
 DO $$
+DECLARE
+  matches INTEGER;
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM organizations o
-    JOIN cleanup_scope s ON s.organization_id = o.id
-  ) THEN
-    RAISE EXCEPTION 'cleanup_scope.organization_id does not exist';
+  SELECT COUNT(*)
+  INTO matches
+  FROM organizations o
+  JOIN cleanup_scope s
+    ON s.organization_id = o.id
+   AND s.organization_slug = o.slug;
+
+  IF matches = 0 THEN
+    RAISE EXCEPTION 'cleanup_scope does not match any organization by id + slug';
+  END IF;
+
+  IF matches > 1 THEN
+    RAISE EXCEPTION 'cleanup_scope matches more than one organization';
   END IF;
 END $$;
 
@@ -653,8 +670,10 @@ DO $$
 DECLARE
   item RECORD;
   row_count BIGINT;
+  total_rows BIGINT;
 BEGIN
   DELETE FROM cleanup_preview;
+  DELETE FROM cleanup_totals;
 
   FOR item IN
     SELECT *
@@ -664,10 +683,15 @@ BEGIN
     IF to_regclass(item.relation_name) IS NULL THEN
       INSERT INTO cleanup_preview (sort_order, table_name, rows_to_delete)
       VALUES (item.sort_order, item.label, 0);
+      INSERT INTO cleanup_totals (sort_order, table_name, total_rows)
+      VALUES (item.sort_order, item.label, 0);
     ELSE
       EXECUTE item.count_sql INTO row_count;
+      EXECUTE format('SELECT COUNT(*) FROM %I', item.relation_name) INTO total_rows;
       INSERT INTO cleanup_preview (sort_order, table_name, rows_to_delete)
       VALUES (item.sort_order, item.label, COALESCE(row_count, 0));
+      INSERT INTO cleanup_totals (sort_order, table_name, total_rows)
+      VALUES (item.sort_order, item.label, COALESCE(total_rows, 0));
     END IF;
   END LOOP;
 END $$;
@@ -684,11 +708,38 @@ FROM cleanup_scope s
 JOIN organizations o ON o.id = s.organization_id;
 
 SELECT
-  sort_order,
-  table_name,
-  rows_to_delete
-FROM cleanup_preview
-ORDER BY sort_order;
+  p.sort_order,
+  p.table_name,
+  t.total_rows,
+  p.rows_to_delete,
+  GREATEST(t.total_rows - p.rows_to_delete, 0) AS rows_to_remain,
+  CASE
+    WHEN p.table_name IN ('buildings', 'units', 'tenants', 'leases', 'lease_guarantees') THEN 'Immobilier - depend des baux, locataires et unites'
+    WHEN p.table_name IN ('lease_documents', 'lease_contract_generations') THEN 'Documents de bail relies aux baux'
+    WHEN p.table_name IN ('invoices', 'invoice_items', 'invoice_reminders', 'payments', 'payment_allocations') THEN 'Finance - depend des factures, paiements et baux'
+    WHEN p.table_name IN ('cash_sessions', 'cash_movements') THEN 'Caisse - depend des paiements et depenses'
+    WHEN p.table_name IN ('stock_items', 'stock_movements', 'stock_alerts', 'stock_documents', 'stock_document_lines', 'stock_movement_history', 'stock_purchases', 'stock_purchase_lines', 'stock_purchase_receipts', 'stock_purchase_receipt_lines', 'stock_purchase_payments', 'stock_purchase_timeline', 'inventory_counts', 'inventory_count_lines') THEN 'Stock - depend des articles, documents, achats et inventaires'
+    WHEN p.table_name IN ('maintenance_requests', 'maintenance_assignments', 'maintenance_timeline', 'maintenance_documents', 'maintenance_expenses') THEN 'Maintenance - depend des interventions et couts'
+    WHEN p.table_name IN ('employees', 'employee_contracts', 'employee_attendance', 'employee_monthly_attendance', 'salary_advances', 'leaves', 'payrolls') THEN 'RH - depend des employes, pointages et paies'
+    WHEN p.table_name IN ('workflow_instances', 'workflow_steps', 'workflow_actions') THEN 'Workflow runtime - depend des executions'
+    WHEN p.table_name IN ('notifications', 'email_logs', 'sms_logs', 'whatsapp_logs') THEN 'Communication runtime - depend des envois et notifications'
+    WHEN p.table_name IN ('automation_runs', 'automation_run_items') THEN 'Automation runtime - depend des executions automatiques'
+    WHEN p.table_name = 'audit_logs' THEN 'Audit transverse lie aux operations metier de demonstration'
+    ELSE 'Suppression ciblee par organization_id ou lien parent'
+  END AS dependency_note,
+  CASE
+    WHEN p.table_name = 'lease_contract_generations' THEN 'Storage potentiel: contrats DOCX/PDF generes'
+    WHEN p.table_name = 'lease_documents' THEN 'Storage potentiel: documents de bail'
+    WHEN p.table_name = 'maintenance_documents' THEN 'Storage potentiel: pieces jointes maintenance'
+    WHEN p.table_name = 'stock_documents' THEN 'Storage potentiel: pieces jointes stock'
+    WHEN p.table_name = 'employee_contracts' THEN 'Storage potentiel: contrats employes'
+    ELSE 'Pas de fichier Storage direct inventorie dans ce script'
+  END AS storage_scope
+FROM cleanup_preview p
+JOIN cleanup_totals t
+  ON t.sort_order = p.sort_order
+ AND t.table_name = p.table_name
+ORDER BY p.sort_order;
 
 SELECT
   'app_users_to_review_only' AS table_name,
@@ -810,15 +861,34 @@ DECLARE
   item RECORD;
   row_count BIGINT;
   sequence_row RECORD;
-  execute_cleanup BOOLEAN;
+  execute_cleanup_flag BOOLEAN;
+  confirmation_token_value TEXT;
+  expected_token TEXT;
+  target_org_id INTEGER;
+  planned_rows BIGINT;
 BEGIN
-  SELECT execute_cleanup INTO execute_cleanup
-  FROM cleanup_scope
+  SELECT cs.organization_id, cs.execute_cleanup, cs.confirmation_token
+  INTO target_org_id, execute_cleanup_flag, confirmation_token_value
+  FROM cleanup_scope cs
   LIMIT 1;
 
-  IF NOT execute_cleanup THEN
+  IF NOT execute_cleanup_flag THEN
     RAISE NOTICE 'Dry run only. No DELETE executed because cleanup_scope.execute_cleanup = FALSE.';
     RETURN;
+  END IF;
+
+  expected_token := format('DELETE_TEST_DATA_FOR_ORG_%s', target_org_id);
+
+  IF confirmation_token_value IS NULL OR confirmation_token_value <> expected_token THEN
+    RAISE EXCEPTION 'Cleanup blocked: confirmation_token must equal %', expected_token;
+  END IF;
+
+  SELECT COALESCE(SUM(rows_to_delete), 0)
+  INTO planned_rows
+  FROM cleanup_preview;
+
+  IF planned_rows = 0 THEN
+    RAISE EXCEPTION 'Cleanup blocked: dry run found 0 rows to delete. Possible second execution or wrong target.';
   END IF;
 
   DELETE FROM cleanup_deleted;

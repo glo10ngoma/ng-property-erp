@@ -827,7 +827,13 @@ export class AutomationsService {
   }
 
   private async nextInvoiceId(client: PoolClient) {
-    await client.query(`SELECT setval('invoices_id_seq', (SELECT COALESCE(MAX(id), 0) FROM invoices), true)`);
+    await client.query(
+      `SELECT setval(
+         'invoices_id_seq',
+         COALESCE((SELECT MAX(id) FROM invoices), 1),
+         EXISTS(SELECT 1 FROM invoices)
+       )`,
+    );
     const { rows } = await client.query(`SELECT nextval('invoices_id_seq')::INT AS value`);
     return Number(rows[0].value);
   }

@@ -2,7 +2,7 @@
 
 Date: 2026-07-13
 
-This guide prepares a client tenant for production by removing demonstration business data without touching the validated system setup.
+This guide prepares a client tenant for production by removing all current business data for the approved target organization without touching the validated enterprise foundation.
 
 Important: this cleanup is intended for a pre-production tenant that still contains demo business data. Do not run it on a tenant that already contains validated live operations.
 
@@ -14,6 +14,13 @@ Artifacts added for go-live:
 - `database/20260713_minimal_production_seed.sql`
 
 Nothing is deleted automatically. The cleanup SQL runs in dry-run mode by default because `execute_cleanup = FALSE`.
+The cleanup now also requires a matching `confirmation_token` before any real deletion can start.
+
+Current approved cleanup target:
+
+- `organization_id = 1`
+- `organization_slug = demo`
+- preserved company settings: `CATALYSE`
 
 ## Inventory
 
@@ -113,6 +120,7 @@ Buckets / paths already used by the app:
 Do not switch `execute_cleanup` to `TRUE` before validating:
 
 - target organization id and slug
+- confirmation token for the exact organization
 - definitive users to keep
 - official company files to preserve
 - latest active lease contract template
@@ -136,6 +144,9 @@ Then run the script.
 Review:
 
 - dry-run counts by table
+- current rows / rows to delete / rows to remain
+- dependency note per table
+- Storage impact note per table
 - users to review only
 - official files to preserve
 - business file candidates to remove from Storage
@@ -145,13 +156,16 @@ Review:
 Only after backup and dry-run validation:
 
 1. Change `execute_cleanup` to `TRUE`
-2. Re-run the same SQL script
-3. Review the deletion summary returned at the end
+2. Set `confirmation_token = 'DELETE_TEST_DATA_FOR_ORG_<ID>'`
+3. Re-run the same SQL script
+4. Review the deletion summary returned at the end
 
 The script:
 
 - deletes in dependency order
 - only targets the selected `organization_id`
+- validates the exact `organization_id + slug` pair
+- blocks accidental second execution if the dry run finds nothing to delete
 - preserves settings and template tables
 - resets business sequences when the cleanup really executes
 
@@ -248,7 +262,8 @@ Run this checklist after cleanup and minimal seed:
 4. Run cleanup script in dry-run mode
 5. Validate counts and preservation list
 6. Switch `execute_cleanup` to `TRUE`
-7. Run cleanup script again
-8. Remove business Storage files
-9. Run minimal production seed if needed
-10. Execute the post-cleanup QA checklist
+7. Set the matching `confirmation_token`
+8. Run cleanup script again
+9. Remove business Storage files
+10. Run minimal production seed if needed
+11. Execute the post-cleanup QA checklist
