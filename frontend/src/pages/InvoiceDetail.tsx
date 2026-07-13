@@ -17,8 +17,20 @@ type Invoice = {
   due_date: string;
   month: number;
   year: number;
+  billing_month?: number;
+  billing_year?: number;
+  period_start?: string;
+  period_end?: string;
   total: number;
   status: string;
+  invoice_type?: string;
+  generated_automatically?: boolean;
+  generation_source?: string;
+  email_delivery_status?: string;
+  email_delivery_reason?: string;
+  whatsapp_delivery_status?: string;
+  whatsapp_delivery_reason?: string;
+  automation_run_id?: number;
   tenant_name?: string;
   tenant_type?: string;
   first_name: string;
@@ -41,6 +53,9 @@ type Invoice = {
   items: { id: number; item_type?: string; description: string; amount: number }[];
   payments: { id: number; payment_date: string; amount: number; payment_method: string; receipt_number?: string; reference?: string; notes?: string; created_by?: number }[];
   reminders: { id: number; channel: string; message: string; status: string; reminded_at: string; reminded_by?: number }[];
+  email_logs: { id: number; recipient: string; subject?: string; message: string; status: string; sent_at?: string; created_at: string }[];
+  whatsapp_logs: { id: number; recipient: string; message: string; status: string; sent_at?: string; created_at: string }[];
+  automation_run?: { id: number; automation_code: string; execution_mode: string; billing_month: number; billing_year: number; status: string; started_at: string; completed_at?: string | null } | null;
 };
 
 type ExchangeRate = {
@@ -145,10 +160,15 @@ export function InvoiceDetail() {
 
   async function saveEdit(form: FormData) {
     await api.put(`/invoices/${id}`, {
+      invoice_type: invoice?.invoice_type ?? 'RENT',
       month: Number(form.get('month')),
       year: Number(form.get('year')),
+      billing_month: Number(form.get('month')),
+      billing_year: Number(form.get('year')),
       issue_date: form.get('issue_date'),
       due_date: form.get('due_date'),
+      period_start: periodStart(String(form.get('month')), String(form.get('year'))),
+      period_end: periodEnd(String(form.get('month')), String(form.get('year'))),
       discount_amount: Number(editDiscount || 0),
       public_notes: editPublicNotes || null,
       internal_notes: editInternalNotes || null,
@@ -208,6 +228,9 @@ export function InvoiceDetail() {
   const timeline = invoiceTimeline(invoice);
   const schedule = reminderSchedule(invoice);
   const documents = invoiceDocuments(invoice);
+  const billingMonth = invoice.billing_month ?? invoice.month;
+  const billingYear = invoice.billing_year ?? invoice.year;
+  const sendHistoryCount = (invoice.email_logs?.length ?? 0) + (invoice.whatsapp_logs?.length ?? 0);
 
   return (
     <section>
@@ -239,7 +262,7 @@ export function InvoiceDetail() {
             <strong>Facture {invoice.invoice_number}</strong>
             <span>Date: {shortDate(invoice.issue_date)}</span>
             <span>Echeance: {shortDate(invoice.due_date)}</span>
-            <span>Periode: {periodLabel(invoice.month, invoice.year)}</span>
+            <span>Periode: {periodLabel(billingMonth, billingYear)}</span>
             <span className={`badge ${displayStatus.toLowerCase()}`}>{clientInvoiceStatusLabel(displayStatus)}</span>
           </div>
         </header>
@@ -247,9 +270,13 @@ export function InvoiceDetail() {
         <div className="summary-band no-print">
           <div className="summary-item"><span>Date de facture</span><strong>{shortDate(invoice.issue_date)}</strong></div>
           <div className="summary-item"><span>Date d'echeance</span><strong>{shortDate(invoice.due_date)}</strong></div>
-          <div className="summary-item"><span>Mois du loyer</span><strong>{monthLabel(invoice.month)}</strong></div>
-          <div className="summary-item"><span>Annee du loyer</span><strong>{invoice.year}</strong></div>
-          <div className="summary-item summary-item-wide"><span>Periode facturee</span><strong>{periodLabel(invoice.month, invoice.year)}</strong></div>
+          <div className="summary-item"><span>Type</span><strong>{invoiceTypeLabel(invoice.invoice_type)}</strong></div>
+          <div className="summary-item"><span>Mois du loyer</span><strong>{monthLabel(billingMonth)}</strong></div>
+          <div className="summary-item"><span>Annee du loyer</span><strong>{billingYear}</strong></div>
+          <div className="summary-item"><span>Email</span><strong>{deliveryStatus(invoice.email_delivery_status)}</strong></div>
+          <div className="summary-item"><span>WhatsApp</span><strong>{deliveryStatus(invoice.whatsapp_delivery_status)}</strong></div>
+          <div className="summary-item summary-item-wide"><span>Periode facturee</span><strong>{periodLabel(billingMonth, billingYear)}</strong></div>
+          <div className="summary-item summary-item-wide"><span>Origine</span><strong>{invoice.generated_automatically ? 'Generation automatique de fin de mois' : 'Creation manuelle'}</strong></div>
         </div>
 
         <div className="invoice-parties">
@@ -318,6 +345,32 @@ export function InvoiceDetail() {
             </div>
           </details>
           <details>
+            <summary>Envois ({sendHistoryCount})</summary>
+            <div className="compact-list">
+              <div className="compact-item">
+                <span>Email courant</span>
+                <strong>{deliveryStatus(invoice.email_delivery_status)}</strong>
+              </div>
+              <div className="compact-item">
+                <span>WhatsApp courant</span>
+                <strong>{deliveryStatus(invoice.whatsapp_delivery_status)}</strong>
+              </div>
+              {invoice.email_logs?.map((log) => (
+                <div className="compact-item" key={`email-${log.id}`}>
+                  <span>Email - {shortDate(log.sent_at || log.created_at)} - {log.recipient}</span>
+                  <strong>{deliveryStatus(log.status)}</strong>
+                </div>
+              ))}
+              {invoice.whatsapp_logs?.map((log) => (
+                <div className="compact-item" key={`wa-${log.id}`}>
+                  <span>WhatsApp - {shortDate(log.sent_at || log.created_at)} - {log.recipient}</span>
+                  <strong>{deliveryStatus(log.status)}</strong>
+                </div>
+              ))}
+              {!sendHistoryCount && <div className="compact-empty">Aucun envoi enregistre.</div>}
+            </div>
+          </details>
+          <details>
             <summary>Documents ({documents.filter((document) => document.exists).length})</summary>
             <div className="compact-list">
               {documents.map((document) => (
@@ -330,8 +383,14 @@ export function InvoiceDetail() {
             </div>
           </details>
           <details>
-            <summary>Timeline ({timeline.length + schedule.length})</summary>
+            <summary>Timeline ({timeline.length + schedule.length + (invoice.automation_run ? 1 : 0)})</summary>
             <div className="compact-list">
+              {invoice.automation_run ? (
+                <div className="compact-item">
+                  <span>Automatisation #{invoice.automation_run.id}</span>
+                  <strong>{invoice.automation_run.status}</strong>
+                </div>
+              ) : null}
               {[...timeline, ...schedule.map((row) => ({ Date: row.Date, Evenement: row.Etape, Description: row.Statut }))].map((row, index) => (
                 <div className="compact-item" key={index}>
                   <span>{row.Date} - {row.Evenement}</span>
@@ -474,6 +533,14 @@ function monthLabel(month: number) {
 
 function amount(value: unknown) {
   return Number(value ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+}
+
+function invoiceTypeLabel(type?: string) {
+  return ({ RENT: 'Facture de loyer', MAINTENANCE: 'Facture de maintenance', OTHER: 'Autre facture' } as Record<string, string>)[String(type ?? 'OTHER').toUpperCase()] ?? String(type ?? 'Autre facture');
+}
+
+function deliveryStatus(status?: string) {
+  return String(status ?? 'NON ENVOYE').toUpperCase();
 }
 
 function displayStatusLabel(status: string) {

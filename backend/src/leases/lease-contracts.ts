@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { createHash } from 'crypto';
 import { BadRequestException } from '@nestjs/common';
 import Docxtemplater from 'docxtemplater';
 import PizZip from 'pizzip';
@@ -16,7 +17,14 @@ const PDF_MARGIN_TOP = 60;
 const PDF_MARGIN_BOTTOM = 54;
 const PDF_LINE_HEIGHT = 14;
 const PDF_MAX_CHARS = 96;
-const DOCX_TEMPLATE_PATH = path.resolve(__dirname, '..', '..', 'templates', 'leases', 'LEASE_RESIDENTIAL.docx');
+const DOCX_TEMPLATE_VERSION = 'DOCX_UTF8_V2';
+const DOCX_TEMPLATE_NAME = 'LEASE_RESIDENTIAL.docx';
+const DOCX_TEMPLATE_CANDIDATES = [
+  path.resolve(process.cwd(), 'dist', 'templates', 'leases', DOCX_TEMPLATE_NAME),
+  path.resolve(process.cwd(), 'templates', 'leases', DOCX_TEMPLATE_NAME),
+  path.resolve(__dirname, '..', '..', 'templates', 'leases', DOCX_TEMPLATE_NAME),
+];
+const DOCX_TEMPLATE_FORBIDDEN_SEQUENCES = ['Ãƒ', 'Ã‚', 'â€™', 'â€œ', 'â€\u009d', 'ï¿½'];
 
 const winAnsiMap: Record<string, number> = {
   '\u20ac': 128,
@@ -71,7 +79,49 @@ function flattenVariables(input: Record<string, unknown>, prefix = ''): Record<s
 
 function formatVariableValue(value: VariableValue) {
   if (value === null || value === undefined) return '';
-  return String(value).trim();
+  return String(value).normalize('NFC').trim();
+}
+
+function resolveDocxTemplatePath() {
+  const matchedPath = DOCX_TEMPLATE_CANDIDATES.find((candidate) => fs.existsSync(candidate));
+  if (!matchedPath) {
+    throw new BadRequestException(`Modele DOCX introuvable: ${DOCX_TEMPLATE_CANDIDATES[0]}`);
+  }
+  return matchedPath;
+}
+
+function fileSha256(buffer: Buffer) {
+  return createHash('sha256').update(buffer).digest('hex');
+}
+
+function readDocxDocumentXml(buffer: Buffer) {
+  const zip = new PizZip(buffer);
+  return zip.file('word/document.xml')?.asText() ?? '';
+}
+
+function assertDocxTemplateIntegrity(documentXml: string) {
+  const corruptedToken = DOCX_TEMPLATE_FORBIDDEN_SEQUENCES.find((token) => documentXml.includes(token));
+  if (corruptedToken) {
+    throw new BadRequestException('Le modele DOCX deploye est corrompu.');
+  }
+}
+
+export function getLeaseContractTemplateMetadata() {
+  const templatePath = resolveDocxTemplatePath();
+  const buffer = fs.readFileSync(templatePath);
+  const documentXml = readDocxDocumentXml(buffer);
+  assertDocxTemplateIntegrity(documentXml);
+  return {
+    version: DOCX_TEMPLATE_VERSION,
+    path: templatePath,
+    size: buffer.byteLength,
+    sha256: fileSha256(buffer),
+    documentXml,
+  };
+}
+
+export function getDocxBufferSha256(buffer: Buffer) {
+  return fileSha256(buffer);
 }
 
 function parseContractBlocks(content: string): ContractBlock[] {
@@ -136,11 +186,9 @@ export function buildLeaseContractPdfBase64(content: string, fileTitle = DEFAULT
 }
 
 export function buildLeaseContractDocxBuffer(variables: Record<string, unknown>) {
-  if (!fs.existsSync(DOCX_TEMPLATE_PATH)) {
-    throw new BadRequestException(`Modele DOCX introuvable: ${DOCX_TEMPLATE_PATH}`);
-  }
-
-  const zip = new PizZip(fs.readFileSync(DOCX_TEMPLATE_PATH));
+  const { path: templatePath, documentXml } = getLeaseContractTemplateMetadata();
+  assertDocxTemplateIntegrity(documentXml);
+  const zip = new PizZip(fs.readFileSync(templatePath));
   const doc = new Docxtemplater(zip, {
     paragraphLoop: true,
     linebreaks: true,

@@ -6,12 +6,40 @@ import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, SearchableSelect, StatusBadge, SuccessMessage, TenantSearchSelect } from '../components';
 import { useApiList } from '../hooks';
 
-type Invoice = { id: number; invoice_number: string; tenant_name?: string; first_name: string; last_name: string; building_name: string; unit_number: string; lease_number?: number; issue_date: string; due_date: string; month: number; year: number; total: number; paid_amount: number; remaining_amount: number; discount_amount?: number; attachment_file_name?: string; public_notes?: string; internal_notes?: string; status: string };
+type Invoice = {
+  id: number;
+  invoice_number: string;
+  tenant_name?: string;
+  first_name: string;
+  last_name: string;
+  building_name: string;
+  unit_number: string;
+  lease_number?: number;
+  issue_date: string;
+  due_date: string;
+  month: number;
+  year: number;
+  billing_month?: number;
+  billing_year?: number;
+  total: number;
+  paid_amount: number;
+  remaining_amount: number;
+  discount_amount?: number;
+  attachment_file_name?: string;
+  public_notes?: string;
+  internal_notes?: string;
+  status: string;
+  invoice_type?: string;
+  generated_automatically?: boolean;
+  generation_source?: string;
+  email_delivery_status?: string;
+  whatsapp_delivery_status?: string;
+};
 type Tenant = { id: number; tenant_type?: string; company_name?: string; first_name: string; last_name: string; post_name?: string; phone?: string; monthly_rent: number; building_name: string; unit_number: string };
 type Lease = { id: number; tenant_id: number; tenant_name: string; building_name: string; unit_number: string; monthly_rent: number; monthly_syndic_amount?: number; status: string };
 
 const lineTypes = ['Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Penalty', 'Other'];
-const emptyFilters = { month: '', year: '', status: '', building: '', tenant: '' };
+const emptyFilters = { month: '', year: '', status: '', building: '', tenant: '', type: '', automatic: '', email: '', whatsapp: '' };
 
 export function Invoices() {
   const { can } = useAuth();
@@ -66,11 +94,15 @@ export function Invoices() {
     if (params.get('filter') === 'impayes' && displayStatus === 'PAID') return false;
     const tenantName = invoiceTenantName(invoice);
     return includesText({ ...invoice, displayStatus: statusLabel(displayStatus), tenant: tenantName }, query)
-      && (!filters.month || Number(invoice.month) === Number(filters.month))
-      && (!filters.year || Number(invoice.year) === Number(filters.year))
+      && (!filters.month || Number(invoice.billing_month ?? invoice.month) === Number(filters.month))
+      && (!filters.year || Number(invoice.billing_year ?? invoice.year) === Number(filters.year))
       && (!filters.status || displayStatus === filters.status)
       && (!filters.building || invoice.building_name === filters.building)
-      && (!filters.tenant || tenantName === filters.tenant);
+      && (!filters.tenant || tenantName === filters.tenant)
+      && (!filters.type || invoiceType(invoice) === filters.type)
+      && (!filters.automatic || String(Boolean(invoice.generated_automatically)) === filters.automatic)
+      && (!filters.email || deliveryStatus(invoice.email_delivery_status) === filters.email)
+      && (!filters.whatsapp || deliveryStatus(invoice.whatsapp_delivery_status) === filters.whatsapp);
   });
 
   const kpis = {
@@ -94,10 +126,15 @@ export function Invoices() {
     const response = await api.post('/invoices', {
       tenant_id: tenant.id,
       lease_id: selectedLease.id,
+      invoice_type: 'RENT',
       month: Number(invoiceForm.month),
       year: Number(invoiceForm.year),
+      billing_month: Number(invoiceForm.month),
+      billing_year: Number(invoiceForm.year),
       issue_date: invoiceForm.issue_date,
       due_date: invoiceForm.due_date,
+      period_start: periodStart(invoiceForm.month, invoiceForm.year),
+      period_end: periodEnd(invoiceForm.month, invoiceForm.year),
       discount_amount: Number(discount || 0),
       public_notes: publicNotes || null,
       internal_notes: internalNotes || null,
@@ -135,9 +172,13 @@ export function Invoices() {
         <input placeholder="Recherche" value={query} onChange={(event) => setQuery(event.target.value)} />
         <input type="number" min="1" max="12" placeholder="Mois" value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })} />
         <input type="number" placeholder="Annee" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} />
+        <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}><option value="">Type</option><option value="RENT">Loyer</option><option value="MAINTENANCE">Maintenance</option><option value="OTHER">Autre</option></select>
         <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Statut</option><option value="PAID">Payee</option><option value="PARTIAL">Paiement partiel</option><option value="UNPAID">Non payee</option><option value="OVERDUE">En retard</option></select>
         <select value={filters.building} onChange={(event) => setFilters({ ...filters, building: event.target.value })}><option value="">Immeuble</option>{buildingOptions.map((building) => <option key={building} value={building}>{building}</option>)}</select>
         <select value={filters.tenant} onChange={(event) => setFilters({ ...filters, tenant: event.target.value })}><option value="">Locataire</option>{tenantOptions.map((tenantName) => <option key={tenantName} value={tenantName}>{tenantName}</option>)}</select>
+        <select value={filters.automatic} onChange={(event) => setFilters({ ...filters, automatic: event.target.value })}><option value="">Automatique</option><option value="true">Oui</option><option value="false">Non</option></select>
+        <select value={filters.email} onChange={(event) => setFilters({ ...filters, email: event.target.value })}><option value="">Etat Email</option><option value="SENT">SENT</option><option value="SIMULATED">SIMULATED</option><option value="SKIPPED">SKIPPED</option><option value="FAILED">FAILED</option></select>
+        <select value={filters.whatsapp} onChange={(event) => setFilters({ ...filters, whatsapp: event.target.value })}><option value="">Etat WhatsApp</option><option value="SENT">SENT</option><option value="SIMULATED">SIMULATED</option><option value="SKIPPED">SKIPPED</option><option value="FAILED">FAILED</option></select>
         <div className="filter-actions">
           <button type="button" className="secondary" onClick={() => { setQuery(''); setFilters(emptyFilters); }}>Reinitialiser</button>
           <button type="button" className="secondary" onClick={() => exportCsv('factures.csv', exportRows)}><Download size={16} />CSV</button>
@@ -147,22 +188,26 @@ export function Invoices() {
 
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Numero</th><th>Locataire</th><th>Bail</th><th>Immeuble</th><th>Unite</th><th>Emission</th><th>Echeance</th><th>Periode</th><th className="right">Total</th><th className="right">Paye</th><th className="right">Restant</th><th>Devise</th><th>Piece</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Numero</th><th>Type</th><th>Locataire</th><th>Bail</th><th>Immeuble</th><th>Unite</th><th>Emission</th><th>Echeance</th><th>Periode</th><th className="right">Total</th><th className="right">Paye</th><th className="right">Restant</th><th>Devise</th><th>Email</th><th>WhatsApp</th><th>Auto</th><th>Piece</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
             {filtered.map((invoice) => (
               <tr key={invoice.id} className="clickable-row" onClick={() => navigate(`/invoices/${invoice.id}`)}>
                 <td>{invoice.invoice_number}</td>
+                <td>{invoiceTypeLabel(invoiceType(invoice))}</td>
                 <td>{invoiceTenantName(invoice)}</td>
                 <td>{invoice.lease_number ? `B-${invoice.lease_number}` : '-'}</td>
                 <td>{invoice.building_name}</td>
                 <td>{invoice.unit_number}</td>
                 <td>{shortDate(invoice.issue_date)}</td>
                 <td>{shortDate(invoice.due_date)}</td>
-                <td>{periodLabel(invoice.month, invoice.year)}</td>
+                <td>{periodLabel(invoice.billing_month ?? invoice.month, invoice.billing_year ?? invoice.year)}</td>
                 <td className="right">{amount(invoice.total)}</td>
                 <td className="right">{amount(invoice.paid_amount)}</td>
                 <td className="right">{amount(invoice.remaining_amount)}</td>
                 <td>USD</td>
+                <td>{deliveryStatus(invoice.email_delivery_status)}</td>
+                <td>{deliveryStatus(invoice.whatsapp_delivery_status)}</td>
+                <td><span className={invoice.generated_automatically ? 'badge active' : 'badge'}>{invoice.generated_automatically ? 'Oui' : 'Non'}</span></td>
                 <td><span className={invoice.attachment_file_name ? 'badge active' : 'badge'}>{invoice.attachment_file_name ? 'Presente' : 'Absente'}</span></td>
                 <td><StatusBadge value={invoiceDisplayStatus(invoice.status, invoice.due_date)} /></td>
                 <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}>
@@ -243,11 +288,15 @@ function invoiceExportRow(invoice: Invoice) {
     unite: invoice.unit_number,
     emission: shortDate(invoice.issue_date),
     echeance: shortDate(invoice.due_date),
-    periode: periodLabel(invoice.month, invoice.year),
+    periode: periodLabel(invoice.billing_month ?? invoice.month, invoice.billing_year ?? invoice.year),
+    type: invoiceTypeLabel(invoiceType(invoice)),
     total: amount(invoice.total),
     paye: amount(invoice.paid_amount),
     restant: amount(invoice.remaining_amount),
     devise: 'USD',
+    email: deliveryStatus(invoice.email_delivery_status),
+    whatsapp: deliveryStatus(invoice.whatsapp_delivery_status),
+    automatique: invoice.generated_automatically ? 'Oui' : 'Non',
     piece_jointe: invoice.attachment_file_name ? 'Presente' : 'Absente',
     statut: statusLabel(invoiceDisplayStatus(invoice.status, invoice.due_date)),
   };
@@ -306,4 +355,16 @@ function buildInvoiceItems(
 
 function periodDescription(month: string, year: string) {
   return `${monthName(Number(month)).toLowerCase()} ${year}`;
+}
+
+function invoiceType(value: Pick<Invoice, 'invoice_type'>) {
+  return String(value.invoice_type ?? 'OTHER').toUpperCase();
+}
+
+function invoiceTypeLabel(type: string) {
+  return ({ RENT: 'Loyer', MAINTENANCE: 'Maintenance', OTHER: 'Autre' } as Record<string, string>)[type] ?? type;
+}
+
+function deliveryStatus(value?: string) {
+  return String(value ?? 'NON ENVOYE').toUpperCase();
 }

@@ -11,10 +11,15 @@ type Lease = Record<string, any>;
 type LeaseContractGeneration = {
   id: number;
   template_version?: number;
+  template_code?: string;
+  template_hash?: string;
   generated_content?: string;
   generated_html?: string;
   docx_file_name?: string;
   docx_file_url?: string;
+  docx_storage_path?: string;
+  docx_file_hash?: string;
+  docx_mime_type?: string;
   pdf_file_name?: string;
   pdf_file_url?: string;
   signed_contract_file_name?: string;
@@ -76,7 +81,17 @@ export function LeaseDetail() {
     if (!id) return null;
     const response = await api.get<LeaseContractGeneration | null>(`/leases/${id}/contracts/latest-docx`);
     const latestDocx = response.data;
-    setLease((current) => current ? { ...current, latest_contract: current.latest_contract ? { ...current.latest_contract, ...latestDocx } : latestDocx } : current);
+    setLease((current) => {
+      if (!current) return current;
+      const shouldMerge = Boolean(current.latest_contract && latestDocx && current.latest_contract.id === latestDocx.id);
+      const nextLatestContract: LeaseContractGeneration | null = shouldMerge && current.latest_contract && latestDocx
+        ? { ...current.latest_contract, ...latestDocx }
+        : (latestDocx ?? null);
+      return {
+        ...current,
+        latest_contract: nextLatestContract,
+      };
+    });
     return latestDocx;
   }
 
@@ -105,14 +120,22 @@ export function LeaseDetail() {
     setContractBusy(true);
     setError('');
     try {
-      await api.post(`/leases/${lease.id}/contracts/generate-docx`);
-      await loadLatestDocx();
+      const generatedResponse = await api.post<LeaseContractGeneration>(`/leases/${lease.id}/contracts/generate-docx`);
+      const generatedContractId = generatedResponse.data?.id;
+      const latestDocx = await loadLatestDocx();
+      if (generatedContractId && latestDocx?.id && generatedContractId !== latestDocx.id) {
+        throw new Error(`Le dernier contrat Word charge (${latestDocx.id}) ne correspond pas a la generation ${generatedContractId}.`);
+      }
       await load();
-      setSuccess('Contrat genere avec succes.');
+      setSuccess(
+        generatedContractId
+          ? `Contrat genere avec succes. ID ${generatedContractId}${latestDocx?.template_version ? ` - modele v${latestDocx.template_version}` : ''}.`
+          : 'Contrat genere avec succes.',
+      );
       if (openPreview) setPreviewOpen(true);
     } catch (err: any) {
       const responseMessage = err?.response?.data?.message;
-      const message = Array.isArray(responseMessage) ? responseMessage.join(' | ') : responseMessage;
+      const message = Array.isArray(responseMessage) ? responseMessage.join(' | ') : (responseMessage || err?.message);
       setError(message || 'Impossible de generer le contrat.');
     } finally {
       setContractBusy(false);
@@ -167,17 +190,18 @@ export function LeaseDetail() {
 
   async function downloadGeneratedDocx() {
     if (!lease) return;
-    await markPrinted();
     try {
       const latestDocx = await loadLatestDocx();
       if (!latestDocx?.id) {
         setError('Aucun contrat Word genere pour ce bail.');
         return;
       }
+      await api.post(`/leases/${lease.id}/contracts/${latestDocx.id}/printed`);
       const response = await api.get(`/leases/${lease.id}/contracts/${latestDocx.id}/download`, { responseType: 'blob' });
       const objectUrl = window.URL.createObjectURL(response.data);
       downloadFile(objectUrl, `Contrat_bail_${leaseReference(lease)}.docx`);
       window.URL.revokeObjectURL(objectUrl);
+      await load();
     } catch (err: any) {
       const responseMessage = err?.response?.data?.message;
       const message = Array.isArray(responseMessage) ? responseMessage.join(' | ') : responseMessage;
@@ -313,6 +337,14 @@ export function LeaseDetail() {
             <span>Contrat Word officiel</span>
             <strong>{hasGeneratedDocx ? (lease.latest_contract?.docx_file_name ?? `Contrat_bail_${leaseReference(lease)}.docx`) : 'Aucun DOCX genere'}</strong>
           </div>
+          {lease.latest_contract ? (
+            <>
+              <div className="compact-item"><span>ID</span><strong>{lease.latest_contract.id}</strong></div>
+              <div className="compact-item"><span>Version du modele</span><strong>v{lease.latest_contract.template_version ?? 1}</strong></div>
+              <div className="compact-item"><span>Genere le</span><strong>{dateText(lease.latest_contract.generated_at)}</strong></div>
+              <div className="compact-item"><span>Fichier</span><strong>{lease.latest_contract.docx_file_name ?? '-'}</strong></div>
+            </>
+          ) : null}
           <div className="actions" style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {canManageLeaseContract && (
               <button type="button" className="secondary" onClick={() => void generateContract(false)} disabled={contractBusy}>

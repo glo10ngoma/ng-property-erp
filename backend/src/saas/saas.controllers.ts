@@ -875,6 +875,7 @@ export class LeasesController {
     const downloadName = String(file.downloadName ?? 'contrat.docx').replace(/"/g, '');
     response.setHeader('Content-Type', file.mimeType);
     response.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+    response.setHeader('Cache-Control', 'no-store');
     return file.buffer;
   }
 

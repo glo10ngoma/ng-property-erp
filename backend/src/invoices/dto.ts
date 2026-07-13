@@ -27,6 +27,10 @@ export class CreateInvoiceDto {
   @IsString()
   status?: string;
 
+  @IsOptional()
+  @IsString()
+  invoice_type?: string;
+
   @IsInt()
   @Min(1)
   month: number;
@@ -40,6 +44,24 @@ export class CreateInvoiceDto {
 
   @IsDateString()
   due_date: string;
+
+  @IsOptional()
+  @IsDateString()
+  period_start?: string;
+
+  @IsOptional()
+  @IsDateString()
+  period_end?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  billing_month?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(2000)
+  billing_year?: number;
 
   @IsOptional()
   @IsNumber()
@@ -71,6 +93,10 @@ export class CreateInvoiceDto {
 
 export class UpdateInvoiceDto {
   @IsOptional()
+  @IsString()
+  invoice_type?: string;
+
+  @IsOptional()
   @IsInt()
   @Min(1)
   month?: number;
@@ -87,6 +113,24 @@ export class UpdateInvoiceDto {
   @IsOptional()
   @IsDateString()
   due_date?: string;
+
+  @IsOptional()
+  @IsDateString()
+  period_start?: string;
+
+  @IsOptional()
+  @IsDateString()
+  period_end?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  billing_month?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(2000)
+  billing_year?: number;
 
   @IsOptional()
   @IsNumber()

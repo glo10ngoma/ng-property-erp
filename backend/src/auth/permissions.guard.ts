@@ -30,6 +30,7 @@ const routePermissions: Array<[RegExp, string]> = [
   [/^\/api\/communications/, 'communication'],
   [/^\/api\/notifications/, 'notifications'],
   [/^\/api\/settings/, 'settings'],
+  [/^\/api\/automations/, 'automations'],
   [/^\/api\/reference-data/, 'reference_data'],
   [/^\/api\/reports/, 'reports'],
   [/^\/api\/leases/, 'documents'],
@@ -94,6 +95,11 @@ export class PermissionsGuard implements CanActivate {
     if (resource === 'settings') {
       if (path.includes('/restricted')) return 'publisher_settings.read';
       return method === 'GET' ? 'settings.read' : 'settings.update';
+    }
+    if (resource === 'automations') {
+      if (method === 'GET') return 'automations.read';
+      if (path.includes('/preview') || path.endsWith('/run')) return 'automations.run';
+      return 'automations.update';
     }
     if (resource === 'reference_data') {
       const action = method === 'GET' ? 'read' : method === 'POST' ? 'create' : method === 'PUT' || method === 'PATCH' ? 'update' : method === 'DELETE' ? 'delete' : 'read';

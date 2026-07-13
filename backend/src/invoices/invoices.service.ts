@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { RequestContext } from '../auth/request-context';
 import { requireRow } from '../common/not-found';
@@ -12,7 +12,7 @@ export class InvoicesService {
   async findAll() {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(`
-      SELECT i.*, t.first_name, t.last_name,
+      SELECT i.*, t.first_name, t.last_name, t.tenant_type, t.company_name,
              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
              END AS tenant_name,
@@ -35,7 +35,7 @@ export class InvoicesService {
   async findOne(id: number) {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(
-      `SELECT i.*, t.first_name, t.last_name,
+      `SELECT i.*, t.first_name, t.last_name, t.tenant_type, t.company_name,
               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
                    ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
               END AS tenant_name,
@@ -59,7 +59,43 @@ export class InvoicesService {
     const items = await this.db.query('SELECT * FROM invoice_items WHERE invoice_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY id', [id, organizationId]);
     const payments = await this.db.query('SELECT * FROM payments WHERE invoice_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY payment_date DESC', [id, organizationId]);
     const reminders = await this.db.query('SELECT * FROM invoice_reminders WHERE invoice_id = $1 AND organization_id = $2 ORDER BY reminded_at DESC', [id, organizationId]);
-    return { ...invoice, items: items.rows, payments: payments.rows, reminders: reminders.rows };
+    const emailLogs = await this.db.query(
+      `SELECT id, recipient, subject, message, status, provider_response, sent_at, created_at
+       FROM email_logs
+       WHERE organization_id = $1
+         AND related_entity_type = 'invoice'
+         AND related_entity_id = $2
+         AND deleted_at IS NULL
+       ORDER BY created_at DESC`,
+      [organizationId, id],
+    );
+    const whatsappLogs = await this.db.query(
+      `SELECT id, recipient, message, status, provider_response, sent_at, created_at
+       FROM whatsapp_logs
+       WHERE organization_id = $1
+         AND related_entity_type = 'invoice'
+         AND related_entity_id = $2
+         AND deleted_at IS NULL
+       ORDER BY created_at DESC`,
+      [organizationId, id],
+    );
+    const automationRun = invoice.automation_run_id
+      ? await this.db.query(
+          `SELECT id, automation_code, execution_mode, billing_month, billing_year, status, started_at, completed_at
+           FROM automation_runs
+           WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+          [invoice.automation_run_id, organizationId],
+        )
+      : { rows: [] as Record<string, unknown>[] };
+    return {
+      ...invoice,
+      items: items.rows,
+      payments: payments.rows,
+      reminders: reminders.rows,
+      email_logs: emailLogs.rows,
+      whatsapp_logs: whatsappLogs.rows,
+      automation_run: automationRun.rows[0] ?? null,
+    };
   }
 
   async create(dto: CreateInvoiceDto) {
@@ -67,13 +103,34 @@ export class InvoicesService {
       const lease = dto.lease_id ? await this.leaseForInvoice(client, dto.lease_id) : null;
       const tenantId = dto.tenant_id ?? lease?.tenant_id;
       if (!tenantId) throw new Error('tenant_id or lease_id is required');
+      const invoiceType = this.normalizeInvoiceType(dto.invoice_type, dto.items);
+      const billingMonth = Number(dto.billing_month ?? dto.month);
+      const billingYear = Number(dto.billing_year ?? dto.year);
+      const periodStart = dto.period_start ?? this.periodStart(billingMonth, billingYear);
+      const periodEnd = dto.period_end ?? this.periodEnd(billingMonth, billingYear);
+      if (invoiceType === 'RENT' && dto.lease_id) {
+        await this.assertNoDuplicateRentInvoice(client, dto.lease_id, billingMonth, billingYear);
+      }
       const nextId = await this.nextInvoiceId(client);
-      const invoiceNumber = await this.nextInvoiceNumber(client);
+      const invoiceNumber = await this.nextInvoiceNumber(client, billingYear);
       const total = this.calculateTotal(dto.items, dto.discount_amount);
       const organizationId = this.context.organizationId();
       const { rows } = await client.query(
-        `INSERT INTO invoices (id, tenant_id, lease_id, unit_id, building_id, invoice_number, month, year, issue_date, due_date, status, total, discount_amount, public_notes, internal_notes, attachment_file_name, attachment_file_url, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
+        `INSERT INTO invoices (
+           id, tenant_id, lease_id, unit_id, building_id, invoice_number,
+           month, year, issue_date, due_date, status, total, discount_amount,
+           public_notes, internal_notes, attachment_file_name, attachment_file_url, organization_id,
+           invoice_type, billing_month, billing_year, period_start, period_end, invoice_date,
+           generated_automatically, generation_source
+         )
+         VALUES (
+           $1, $2, $3, $4, $5, $6,
+           $7, $8, $9, $10, $11, $12, $13,
+           $14, $15, $16, $17, $18,
+           $19, $20, $21, $22, $23, $24,
+           FALSE, NULL
+         )
+         RETURNING *`,
         [
           nextId,
           tenantId,
@@ -93,6 +150,12 @@ export class InvoicesService {
           dto.attachment_file_name ?? null,
           dto.attachment_file_url ?? null,
           organizationId,
+          invoiceType,
+          billingMonth,
+          billingYear,
+          periodStart,
+          periodEnd,
+          dto.issue_date,
         ],
       );
       await this.insertItems(client, rows[0].id, dto.items, organizationId);
@@ -112,6 +175,15 @@ export class InvoicesService {
         await this.insertItems(client, id, dto.items, this.context.organizationId());
       }
       const current = await this.findOne(id) as unknown as { items: InvoiceItemDto[]; discount_amount?: number };
+      const targetMonth = Number(dto.billing_month ?? dto.month ?? (rowsafe(current, 'billing_month') ?? rowsafe(current, 'month') ?? 0));
+      const targetYear = Number(dto.billing_year ?? dto.year ?? (rowsafe(current, 'billing_year') ?? rowsafe(current, 'year') ?? 0));
+      const invoiceType = this.normalizeInvoiceType(dto.invoice_type ?? rowsafe(current, 'invoice_type'), dto.items ?? current.items);
+      if (invoiceType === 'RENT') {
+        const leaseId = Number(rowsafe(current, 'lease_id') ?? 0);
+        if (leaseId) {
+          await this.assertNoDuplicateRentInvoice(client, leaseId, targetMonth, targetYear, id);
+        }
+      }
       const total = dto.items || dto.discount_amount !== undefined
         ? this.calculateTotal(dto.items ?? current.items, dto.discount_amount ?? current.discount_amount ?? 0)
         : undefined;
@@ -126,10 +198,38 @@ export class InvoicesService {
              public_notes = COALESCE($8, public_notes),
              internal_notes = COALESCE($9, internal_notes),
              attachment_file_name = COALESCE($10, attachment_file_name),
-             attachment_file_url = COALESCE($11, attachment_file_url)
-         WHERE id = $1 AND organization_id = $12 AND deleted_at IS NULL RETURNING *`,
-        [id, dto.issue_date, dto.due_date, total, dto.month, dto.year, dto.discount_amount, dto.public_notes, dto.internal_notes, dto.attachment_file_name, dto.attachment_file_url, this.context.organizationId()],
+             attachment_file_url = COALESCE($11, attachment_file_url),
+             invoice_type = COALESCE($12, invoice_type),
+             billing_month = COALESCE($13, billing_month),
+             billing_year = COALESCE($14, billing_year),
+             period_start = COALESCE($15, period_start),
+             period_end = COALESCE($16, period_end),
+             invoice_date = COALESCE($17, invoice_date, issue_date)
+         WHERE id = $1 AND organization_id = $18 AND deleted_at IS NULL RETURNING *`,
+        [
+          id,
+          dto.issue_date,
+          dto.due_date,
+          total,
+          dto.month,
+          dto.year,
+          dto.discount_amount,
+          dto.public_notes,
+          dto.internal_notes,
+          dto.attachment_file_name,
+          dto.attachment_file_url,
+          invoiceType,
+          targetMonth || null,
+          targetYear || null,
+          dto.period_start ?? (targetMonth && targetYear ? this.periodStart(targetMonth, targetYear) : null),
+          dto.period_end ?? (targetMonth && targetYear ? this.periodEnd(targetMonth, targetYear) : null),
+          dto.issue_date ?? null,
+          this.context.organizationId(),
+        ],
       );
+      if (rows[0] && rows[0].invoice_type === 'RENT' && rows[0].lease_id) {
+        await this.assertNoDuplicateRentInvoice(client, Number(rows[0].lease_id), Number(rows[0].billing_month ?? rows[0].month), Number(rows[0].billing_year ?? rows[0].year), id);
+      }
       await this.refreshStatus(client, id);
       return rows[0];
     });
@@ -232,8 +332,7 @@ export class InvoicesService {
     return rows[0].value;
   }
 
-  private async nextInvoiceNumber(client: PoolClient) {
-    const year = new Date().getFullYear();
+  private async nextInvoiceNumber(client: PoolClient, year: number) {
     const { rows } = await client.query(
       `SELECT COALESCE(
          MAX((SUBSTRING(invoice_number FROM $1))::INT),
@@ -256,4 +355,63 @@ export class InvoicesService {
     );
     return requireRow(rows[0], 'Lease') as { tenant_id: number; unit_id: number; building_id: number; monthly_syndic_amount?: number };
   }
+
+  private normalizeInvoiceType(value: unknown, items: InvoiceItemDto[]) {
+    const normalized = String(value ?? '').trim().toUpperCase();
+    if (normalized === 'RENT' || normalized === 'MAINTENANCE' || normalized === 'OTHER') {
+      return normalized;
+    }
+    const hasRentLine = items.some((item) => {
+      const type = String(item.item_type ?? '').trim().toUpperCase();
+      const description = String(item.description ?? '').trim().toUpperCase();
+      return type === 'MONTHLY RENT' || type === 'SYNDIC' || description.startsWith('LOYER ') || description.startsWith('SYNDIC ');
+    });
+    if (hasRentLine) return 'RENT';
+    const hasMaintenanceLine = items.some((item) => {
+      const type = String(item.item_type ?? '').trim().toUpperCase();
+      const description = String(item.description ?? '').trim().toUpperCase();
+      return type === 'MAINTENANCE' || description.startsWith('MAINTENANCE');
+    });
+    return hasMaintenanceLine ? 'MAINTENANCE' : 'OTHER';
+  }
+
+  private periodStart(month: number, year: number) {
+    return `${year}-${String(month).padStart(2, '0')}-01`;
+  }
+
+  private periodEnd(month: number, year: number) {
+    const lastDay = new Date(year, month, 0).getDate();
+    return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  }
+
+  private async assertNoDuplicateRentInvoice(client: PoolClient, leaseId: number, month: number, year: number, excludeId?: number) {
+    const params: unknown[] = [this.context.organizationId(), leaseId, month, year];
+    const clauses = [
+      'organization_id = $1',
+      'lease_id = $2',
+      'billing_month = $3',
+      'billing_year = $4',
+      `invoice_type = 'RENT'`,
+      'deleted_at IS NULL',
+    ];
+    if (excludeId) {
+      params.push(excludeId);
+      clauses.push(`id <> $${params.length}`);
+    }
+    const { rows } = await client.query(
+      `SELECT id, invoice_number
+       FROM invoices
+       WHERE ${clauses.join(' AND ')}
+       LIMIT 1`,
+      params,
+    );
+    if (rows[0]) {
+      throw new BadRequestException(`Facture de loyer deja existante pour cette periode: ${rows[0].invoice_number}`);
+    }
+  }
+}
+
+function rowsafe(source: unknown, key: string) {
+  if (!source || typeof source !== 'object') return undefined;
+  return (source as Record<string, unknown>)[key];
 }

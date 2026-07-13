@@ -7,6 +7,8 @@ import { DatabaseService } from '../database/database.service';
 import {
   buildLeaseContractDocxBuffer,
   buildLeaseContractHtml,
+  getDocxBufferSha256,
+  getLeaseContractTemplateMetadata,
   renderLeaseContractTemplate,
   unresolvedPlaceholders,
 } from '../leases/lease-contracts';
@@ -2858,21 +2860,42 @@ export class SaasService {
   }
 
   async latestLeaseContractDocx(id: number) {
-    const contract = await this.latestLeaseContract(id);
+    const { rows } = await this.db.query(
+      `SELECT cg.id, cg.lease_id, cg.template_version, cg.template_code, cg.template_hash,
+              cg.generated_at, cg.status, cg.docx_file_name, cg.docx_file_url, cg.docx_storage_path,
+              cg.docx_file_hash, cg.docx_mime_type
+       FROM lease_contract_generations cg
+       WHERE cg.lease_id = $1
+         AND cg.organization_id = $2
+         AND cg.deleted_at IS NULL
+         AND cg.docx_file_name IS NOT NULL
+         AND cg.docx_file_url IS NOT NULL
+         AND cg.status IN ('GENERATED', 'PRINTED', 'SIGNED')
+       ORDER BY cg.generated_at DESC, cg.id DESC
+       LIMIT 1`,
+      [id, this.context.organizationId()],
+    );
+    const contract = rows[0];
     if (!contract) return null;
     return {
       id: contract.id,
       lease_id: contract.lease_id,
       template_version: contract.template_version,
+      template_code: contract.template_code ?? null,
+      template_hash: contract.template_hash ?? null,
       generated_at: contract.generated_at,
       status: contract.status,
       docx_file_name: contract.docx_file_name ?? null,
       docx_file_url: contract.docx_file_url ?? null,
+      docx_storage_path: contract.docx_storage_path ?? null,
+      docx_file_hash: contract.docx_file_hash ?? null,
+      docx_mime_type: contract.docx_mime_type ?? null,
     };
   }
 
   async generateLeaseContract(id: number) {
     return this.db.transaction(async (client) => {
+      const templateRuntime = getLeaseContractTemplateMetadata();
       const lease = await this.leaseDetail(id) as Record<string, any>;
       const company = await this.companySettings();
       const companyData = company as Record<string, any>;
@@ -2897,15 +2920,11 @@ export class SaasService {
         throw new BadRequestException(`Variables de contrat non resolues: ${placeholders.join(', ')}`);
       }
       const renderedHtml = buildLeaseContractHtml(renderedContent);
-      const safeTenant = this.slugify(snapshot.locataire.signature_nom || lease.tenant_name || `locataire-${lease.id}`);
-      const generatedDate = new Date().toISOString().slice(0, 10);
-      const docxFileName = `CONTRAT_BAIL_${this.leaseReferenceCode(lease.id)}_${safeTenant}_${generatedDate}.docx`;
-      const docxBuffer = buildLeaseContractDocxBuffer(snapshot);
       const { rows } = await client.query(
         `INSERT INTO lease_contract_generations
          (organization_id, lease_id, template_id, template_version, generated_content, generated_html, snapshot_json,
-          docx_file_name, docx_file_url, pdf_file_name, pdf_file_url, generated_by, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::JSONB, NULL, NULL, NULL, NULL, $8, 'GENERATED')
+          docx_file_name, docx_file_url, pdf_file_name, pdf_file_url, generated_by, status, template_code, template_hash)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::JSONB, NULL, NULL, NULL, NULL, $8, 'GENERATED', $9, $10)
          RETURNING *`,
         [
           this.context.organizationId(),
@@ -2916,17 +2935,40 @@ export class SaasService {
           renderedHtml,
           JSON.stringify(snapshot),
           this.context.userId() ?? 1,
+          template.code,
+          templateRuntime.sha256,
         ],
       );
       const contract = rows[0];
-      const storedDocx = await this.persistLeaseContractDocx(id, contract.id, docxFileName, docxBuffer);
+      const generatedAt = new Date(contract.generated_at ?? new Date().toISOString());
+      const generatedStamp = generatedAt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+      const docxFileName = `Contrat_bail_${this.leaseReferenceCode(lease.id)}_contract-${contract.id}-v${template.version}-${generatedStamp}.docx`;
+      const docxBuffer = buildLeaseContractDocxBuffer(snapshot);
+      const generatedFileHash = getDocxBufferSha256(docxBuffer);
+      const storedDocx = await this.persistLeaseContractDocx(id, contract.id, template.version, generatedAt, docxFileName, docxBuffer);
       const { rows: updatedRows } = await client.query(
         `UPDATE lease_contract_generations
          SET docx_file_name = $3,
-             docx_file_url = $4
-         WHERE id = $1 AND lease_id = $2 AND organization_id = $5
+             docx_file_url = $4,
+             docx_storage_path = $5,
+             docx_file_hash = $6,
+             docx_mime_type = $7,
+             template_code = $8,
+             template_hash = $9
+         WHERE id = $1 AND lease_id = $2 AND organization_id = $10
          RETURNING *`,
-        [contract.id, id, storedDocx.fileName, storedDocx.fileUrl, this.context.organizationId()],
+        [
+          contract.id,
+          id,
+          storedDocx.fileName,
+          storedDocx.fileUrl,
+          storedDocx.storagePath,
+          generatedFileHash,
+          storedDocx.mimeType,
+          template.code,
+          templateRuntime.sha256,
+          this.context.organizationId(),
+        ],
       );
       await client.query(
         `UPDATE leases
@@ -2943,13 +2985,29 @@ export class SaasService {
          VALUES ($1, 'GENERATED_CONTRACT', $2, $3, $4, $5)`,
         [id, storedDocx.fileName, storedDocx.fileUrl, this.context.userId() ?? 1, this.context.organizationId()],
       );
+      console.info(
+        '[lease-docx]',
+        JSON.stringify({
+          leaseId: id,
+          contractId: contract.id,
+          templateCode: template.code,
+          templateVersion: template.version,
+          templatePath: templateRuntime.path,
+          templateSize: templateRuntime.size,
+          templateHash: templateRuntime.sha256,
+          generatedFileHash,
+          storagePath: storedDocx.storagePath,
+          fileName: storedDocx.fileName,
+          mimeType: storedDocx.mimeType,
+        }),
+      );
       return updatedRows[0];
     });
   }
 
   async downloadLeaseContractDocx(leaseId: number, contractId: number) {
     const { rows } = await this.db.query(
-      `SELECT id, lease_id, docx_file_name, docx_file_url
+      `SELECT id, lease_id, docx_file_name, docx_file_url, docx_storage_path, docx_mime_type, docx_file_hash
        FROM lease_contract_generations
        WHERE id = $1 AND lease_id = $2 AND organization_id = $3 AND deleted_at IS NULL`,
       [contractId, leaseId, this.context.organizationId()],
@@ -2957,13 +3015,14 @@ export class SaasService {
     const contract = requireRow(rows[0], 'Lease contract generation');
     const fileName = String(contract.docx_file_name ?? '').trim();
     const fileUrl = String(contract.docx_file_url ?? '').trim();
+    const storagePath = String(contract.docx_storage_path ?? '').trim();
     if (!fileName || !fileUrl) {
       throw new BadRequestException('Aucun contrat Word genere pour ce bail');
     }
     if (fileUrl.startsWith('data:')) {
       return this.dataUrlFile(fileUrl, fileName);
     }
-    return this.downloadLeaseContractStorage(leaseId, contractId, fileName);
+    return this.downloadLeaseContractStorage(storagePath || this.legacyLeaseContractStoragePath(leaseId, contractId, fileName), fileName);
   }
 
   async markLeaseContractPrinted(leaseId: number, contractId: number) {
@@ -5930,19 +5989,22 @@ export class SaasService {
     return `/api/leases/${leaseId}/contracts/${contractId}/download`;
   }
 
-  private leaseContractStoragePath(leaseId: number, contractId: number, fileName: string) {
+  private leaseContractStoragePath(leaseId: number, contractId: number, templateVersion: number, generatedAt: Date, fileName: string) {
+    const timestamp = generatedAt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+    return `contracts/${this.context.organizationId()}/leases/${leaseId}/contract-${contractId}-v${templateVersion}-${timestamp}-${this.sanitizeStorageFileName(fileName)}`;
+  }
+
+  private legacyLeaseContractStoragePath(leaseId: number, contractId: number, fileName: string) {
     return `leases/${this.context.organizationId()}/contracts/${leaseId}/${contractId}/${this.sanitizeStorageFileName(fileName)}`;
   }
 
-  private async uploadLeaseContractDocxToStorage(leaseId: number, contractId: number, fileName: string, buffer: Buffer) {
+  private async uploadLeaseContractDocxToStorage(storagePath: string, buffer: Buffer) {
     const { supabaseUrl, serviceRoleKey } = this.storageConfig();
-    const storagePath = this.leaseContractStoragePath(leaseId, contractId, fileName);
     const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.leaseContractStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${serviceRoleKey}`,
         apikey: serviceRoleKey,
-        'x-upsert': 'true',
         'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       },
       body: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer,
@@ -5951,12 +6013,10 @@ export class SaasService {
       const details = await response.text();
       throw new BadRequestException(details || `Impossible de televerser le contrat Word (${response.status})`);
     }
-    return this.leaseContractDownloadRoute(leaseId, contractId);
   }
 
-  private async downloadLeaseContractStorage(leaseId: number, contractId: number, fileName: string) {
+  private async downloadLeaseContractStorage(storagePath: string, fileName: string) {
     const { supabaseUrl, serviceRoleKey } = this.storageConfig();
-    const storagePath = this.leaseContractStoragePath(leaseId, contractId, fileName);
     const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.leaseContractStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
       headers: {
         Authorization: `Bearer ${serviceRoleKey}`,
@@ -5974,16 +6034,29 @@ export class SaasService {
     };
   }
 
-  private async persistLeaseContractDocx(leaseId: number, contractId: number, fileName: string, buffer: Buffer) {
+  private async persistLeaseContractDocx(
+    leaseId: number,
+    contractId: number,
+    templateVersion: number,
+    generatedAt: Date,
+    fileName: string,
+    buffer: Buffer,
+  ) {
+    const storagePath = this.leaseContractStoragePath(leaseId, contractId, templateVersion, generatedAt, fileName);
     if (!this.hasStorageConfig()) {
       return {
         fileName,
+        storagePath,
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         fileUrl: `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${buffer.toString('base64')}`,
       };
     }
+    await this.uploadLeaseContractDocxToStorage(storagePath, buffer);
     return {
       fileName,
-      fileUrl: await this.uploadLeaseContractDocxToStorage(leaseId, contractId, fileName, buffer),
+      storagePath,
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      fileUrl: this.leaseContractDownloadRoute(leaseId, contractId),
     };
   }
 

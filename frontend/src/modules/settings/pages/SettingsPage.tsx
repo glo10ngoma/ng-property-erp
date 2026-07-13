@@ -71,6 +71,86 @@ type ExchangeRate = {
   updatedAt?: string;
 };
 
+type AutomationSummary = {
+  id: number;
+  automationCode: string;
+  isEnabled: boolean;
+  executionTime: string;
+  timezone: string;
+  dueDay: number;
+  emailEnabled: boolean;
+  whatsappEnabled: boolean;
+  nextExecutionAt: string;
+  lastRun?: {
+    id: number;
+    executionMode: string;
+    billingMonth: number;
+    billingYear: number;
+    startedAt: string;
+    completedAt?: string | null;
+    status: string;
+    eligibleCount: number;
+    createdCount: number;
+    skippedCount: number;
+    failedCount: number;
+  } | null;
+  explanation?: string;
+};
+
+type AutomationRun = {
+  id: number;
+  execution_mode: string;
+  billing_month: number;
+  billing_year: number;
+  started_at: string;
+  completed_at?: string | null;
+  status: string;
+  eligible_count: number;
+  created_count: number;
+  skipped_count: number;
+  failed_count: number;
+  error_summary?: string | null;
+};
+
+type AutomationPreview = {
+  billing_month: number;
+  billing_year: number;
+  period_start: string;
+  period_end: string;
+  eligible_count: number;
+  existing_count: number;
+  create_count: number;
+  skipped_count: number;
+  createable: Array<{
+    lease_id: number;
+    lease_reference: string;
+    tenant_name: string;
+    unit_number?: string;
+    building_name?: string;
+    monthly_rent: number;
+    monthly_syndic_amount: number;
+    total_amount: number;
+    email_status: string;
+    whatsapp_status: string;
+  }>;
+  existing_invoices: Array<{
+    lease_id: number;
+    lease_reference: string;
+    invoice_id: number;
+    invoice_number: string;
+    tenant_name: string;
+    unit_number?: string;
+    building_name?: string;
+  }>;
+  skipped: Array<{
+    lease_id: number;
+    lease_reference: string;
+    tenant_name: string;
+    unit_number?: string;
+    reason: string;
+  }>;
+};
+
 type SettingsDraft = {
   company_name: string;
   legal_name: string;
@@ -181,7 +261,13 @@ export function SettingsPage() {
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [exchangeRateDraft, setExchangeRateDraft] = useState('');
   const [exchangeRateDateDraft, setExchangeRateDateDraft] = useState(today());
-  const [savingSection, setSavingSection] = useState<'company' | 'location' | 'representative' | 'lease' | 'documents' | 'general' | 'rate' | null>(null);
+  const [automation, setAutomation] = useState<AutomationSummary | null>(null);
+  const [automationRuns, setAutomationRuns] = useState<AutomationRun[]>([]);
+  const [automationPreview, setAutomationPreview] = useState<AutomationPreview | null>(null);
+  const [automationMonthDraft, setAutomationMonthDraft] = useState(String(new Date().getMonth() + 1));
+  const [automationYearDraft, setAutomationYearDraft] = useState(String(new Date().getFullYear()));
+  const [savingSection, setSavingSection] = useState<'company' | 'location' | 'representative' | 'lease' | 'documents' | 'general' | 'rate' | 'automation' | null>(null);
+  const [automationAction, setAutomationAction] = useState<'preview' | 'run' | null>(null);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
 
@@ -196,15 +282,23 @@ export function SettingsPage() {
       const referencesPromise = api.get<ReferenceData[]>('/reference-data');
       const servicesPromise = api.get<PublisherService[]>('/settings/publisher-services');
       const exchangeRatePromise = api.get<ExchangeRate | null>('/settings/exchange-rate');
+      const automationPromise = can('automations.read')
+        ? api.get<AutomationSummary>('/automations/monthly-rent-billing')
+        : Promise.resolve({ data: null as AutomationSummary | null });
+      const automationRunsPromise = can('automations.read')
+        ? api.get<AutomationRun[]>('/automations/runs', { params: { automationCode: 'MONTHLY_RENT_BILLING', limit: 10 } })
+        : Promise.resolve({ data: [] as AutomationRun[] });
       const restrictedPromise = can('publisher_settings.read')
         ? api.get<RestrictedSetting[]>('/settings/restricted')
         : Promise.resolve({ data: [] as RestrictedSetting[] });
 
-      const [companyResult, referencesResult, servicesResult, exchangeRateResult, restrictedResult] = await Promise.allSettled([
+      const [companyResult, referencesResult, servicesResult, exchangeRateResult, automationResult, automationRunsResult, restrictedResult] = await Promise.allSettled([
         companyPromise,
         referencesPromise,
         servicesPromise,
         exchangeRatePromise,
+        automationPromise,
+        automationRunsPromise,
         restrictedPromise,
       ]);
 
@@ -240,6 +334,20 @@ export function SettingsPage() {
         setError((current) => current || extractErrorMessage(exchangeRateResult.reason, 'Impossible de charger le taux de change.'));
       }
 
+      if (automationResult.status === 'fulfilled') {
+        setAutomation(automationResult.value.data ?? null);
+      } else {
+        setAutomation(null);
+        setError((current) => current || extractErrorMessage(automationResult.reason, "Impossible de charger l'automatisation."));
+      }
+
+      if (automationRunsResult.status === 'fulfilled') {
+        setAutomationRuns(automationRunsResult.value.data ?? []);
+      } else {
+        setAutomationRuns([]);
+        setError((current) => current || extractErrorMessage(automationRunsResult.reason, "Impossible de charger l'historique d'automatisation."));
+      }
+
       if (restrictedResult.status === 'fulfilled') {
         setRestricted(restrictedResult.value.data);
       } else {
@@ -270,6 +378,7 @@ export function SettingsPage() {
   const documentsDisabled = !can('settings.update') || savingSection === 'documents';
   const generalDisabled = !can('settings.update') || savingSection === 'general';
   const rateDisabled = !can('settings.update') || savingSection === 'rate';
+  const automationDisabled = !can('automations.update') || savingSection === 'automation';
 
   function fieldProps<K extends keyof SettingsDraft>(key: K) {
     return {
@@ -294,6 +403,17 @@ export function SettingsPage() {
     setExchangeRateDraft(nextRate ? String(nextRate.rate) : '');
     setExchangeRateDateDraft(nextRate?.effectiveDate ?? today());
     return nextRate;
+  }
+
+  async function refreshAutomation() {
+    if (!can('automations.read')) return null;
+    const [settingResponse, runsResponse] = await Promise.all([
+      api.get<AutomationSummary>('/automations/monthly-rent-billing'),
+      api.get<AutomationRun[]>('/automations/runs', { params: { automationCode: 'MONTHLY_RENT_BILLING', limit: 10 } }),
+    ]);
+    setAutomation(settingResponse.data);
+    setAutomationRuns(runsResponse.data);
+    return settingResponse.data;
   }
 
   async function uploadOfficialFile(kind: OfficialFileKind, file: File) {
@@ -410,6 +530,71 @@ export function SettingsPage() {
       setError(extractErrorMessage(submissionError, "Impossible d’enregistrer le taux de change."));
     } finally {
       setSavingSection(null);
+    }
+  }
+
+  async function saveAutomationSection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!automation) return;
+    setError('');
+    setSuccess('');
+    setSavingSection('automation');
+    try {
+      await api.patch<AutomationSummary>('/automations/monthly-rent-billing', {
+        is_enabled: automation.isEnabled,
+        execution_time: automation.executionTime,
+        timezone: automation.timezone,
+        due_day: Number(automation.dueDay || 5),
+        email_enabled: automation.emailEnabled,
+        whatsapp_enabled: automation.whatsappEnabled,
+      });
+      await refreshAutomation();
+      setSuccess('Automatisation enregistree avec succes.');
+    } catch (submissionError) {
+      setError(extractErrorMessage(submissionError, "Impossible d'enregistrer l'automatisation."));
+    } finally {
+      setSavingSection(null);
+    }
+  }
+
+  async function previewAutomation() {
+    setError('');
+    setSuccess('');
+    setAutomationAction('preview');
+    try {
+      const response = await api.post<AutomationPreview>('/automations/monthly-rent-billing/preview', {
+        month: Number(automationMonthDraft),
+        year: Number(automationYearDraft),
+      });
+      setAutomationPreview(response.data);
+    } catch (previewError) {
+      setError(extractErrorMessage(previewError, 'Impossible de previsualiser la generation.'));
+    } finally {
+      setAutomationAction(null);
+    }
+  }
+
+  async function runAutomation() {
+    if (!window.confirm(`Generer les factures du mois ${automationMonthDraft}/${automationYearDraft} ?`)) return;
+    setError('');
+    setSuccess('');
+    setAutomationAction('run');
+    try {
+      await api.post('/automations/monthly-rent-billing/run', {
+        month: Number(automationMonthDraft),
+        year: Number(automationYearDraft),
+      });
+      await refreshAutomation();
+      const response = await api.post<AutomationPreview>('/automations/monthly-rent-billing/preview', {
+        month: Number(automationMonthDraft),
+        year: Number(automationYearDraft),
+      });
+      setAutomationPreview(response.data);
+      setSuccess('Execution manuelle terminee.');
+    } catch (runError) {
+      setError(extractErrorMessage(runError, "Impossible d'executer l'automatisation."));
+    } finally {
+      setAutomationAction(null);
     }
   }
 
@@ -639,6 +824,224 @@ export function SettingsPage() {
         </form>
       </SettingsSection>
 
+      {can('automations.read') && automation ? (
+        <SettingsSection
+          title="Automatisations"
+          description="Facturation automatique des loyers le dernier jour du mois, avec echeance sur le mois suivant."
+          icon={<Settings2 size={16} />}
+        >
+          <form className="settings-grid" onSubmit={saveAutomationSection}>
+            <SettingField label="Automatisation">
+              <input value="Facturation automatique des loyers" readOnly className="locked-field" />
+            </SettingField>
+            <SettingField label="Activation">
+              <select
+                value={automation.isEnabled ? 'true' : 'false'}
+                onChange={(event) => setAutomation((current) => current ? { ...current, isEnabled: event.target.value === 'true' } : current)}
+                disabled={automationDisabled}
+              >
+                <option value="false">Inactive</option>
+                <option value="true">Active</option>
+              </select>
+            </SettingField>
+            <SettingField label="Heure d'execution">
+              <input
+                type="time"
+                value={automation.executionTime}
+                onChange={(event) => setAutomation((current) => current ? { ...current, executionTime: event.target.value } : current)}
+                disabled={automationDisabled}
+              />
+            </SettingField>
+            <SettingField label="Fuseau horaire">
+              <input
+                value={automation.timezone}
+                onChange={(event) => setAutomation((current) => current ? { ...current, timezone: event.target.value } : current)}
+                disabled={automationDisabled}
+              />
+            </SettingField>
+            <SettingField label="Jour d'echeance">
+              <input
+                type="number"
+                min="1"
+                max="31"
+                value={automation.dueDay}
+                onChange={(event) => setAutomation((current) => current ? { ...current, dueDay: Number(event.target.value) || 5 } : current)}
+                disabled={automationDisabled}
+              />
+            </SettingField>
+            <SettingField label="Email automatique">
+              <select
+                value={automation.emailEnabled ? 'true' : 'false'}
+                onChange={(event) => setAutomation((current) => current ? { ...current, emailEnabled: event.target.value === 'true' } : current)}
+                disabled={automationDisabled}
+              >
+                <option value="true">Actif</option>
+                <option value="false">Inactif</option>
+              </select>
+            </SettingField>
+            <SettingField label="WhatsApp automatique">
+              <select
+                value={automation.whatsappEnabled ? 'true' : 'false'}
+                onChange={(event) => setAutomation((current) => current ? { ...current, whatsappEnabled: event.target.value === 'true' } : current)}
+                disabled={automationDisabled}
+              >
+                <option value="true">Actif</option>
+                <option value="false">Inactif</option>
+              </select>
+            </SettingField>
+            <SettingField label="Prochaine execution theorique">
+              <input value={automation.nextExecutionAt || '-'} readOnly className="locked-field" />
+            </SettingField>
+            <SettingField label="Derniere execution">
+              <input value={automation.lastRun?.startedAt ?? '-'} readOnly className="locked-field" />
+            </SettingField>
+            <SettingField label="Dernier statut">
+              <input value={automation.lastRun?.status ?? 'Aucun run'} readOnly className="locked-field" />
+            </SettingField>
+            <SettingField label="Regle de facturation" wide>
+              <input value="Facture du mois ecoule le dernier jour, echeance au jour configure du mois suivant." readOnly className="locked-field" />
+            </SettingField>
+            <SettingActions>
+              <button type="submit" disabled={automationDisabled}>
+                <Save size={16} />
+                {savingSection === 'automation' ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+            </SettingActions>
+          </form>
+
+          <div className="settings-grid" style={{ marginTop: 16 }}>
+            <SettingField label="Mois a previsualiser">
+              <input type="number" min="1" max="12" value={automationMonthDraft} onChange={(event) => setAutomationMonthDraft(event.target.value)} />
+            </SettingField>
+            <SettingField label="Annee a previsualiser">
+              <input type="number" min="2000" value={automationYearDraft} onChange={(event) => setAutomationYearDraft(event.target.value)} />
+            </SettingField>
+            <SettingActions>
+              <button type="button" className="secondary" onClick={() => void previewAutomation()} disabled={automationAction === 'preview' || automationAction === 'run'}>
+                {automationAction === 'preview' ? 'Previsualisation...' : 'Previsualiser'}
+              </button>
+              {can('automations.run') ? (
+                <button type="button" onClick={() => void runAutomation()} disabled={automationAction === 'preview' || automationAction === 'run'}>
+                  {automationAction === 'run' ? 'Execution...' : 'Generer les factures du mois'}
+                </button>
+              ) : null}
+            </SettingActions>
+          </div>
+
+          {automationPreview ? (
+            <>
+              <div className="summary-band" style={{ marginTop: 16 }}>
+                <div className="summary-item"><span>Periode</span><strong>{monthLabel(automationPreview.billing_month)} {automationPreview.billing_year}</strong></div>
+                <div className="summary-item"><span>Baux eligibles</span><strong>{automationPreview.eligible_count}</strong></div>
+                <div className="summary-item"><span>A creer</span><strong>{automationPreview.create_count}</strong></div>
+                <div className="summary-item"><span>Deja existantes</span><strong>{automationPreview.existing_count}</strong></div>
+                <div className="summary-item"><span>Ignorees</span><strong>{automationPreview.skipped_count}</strong></div>
+              </div>
+              <div className="table-wrap" style={{ marginTop: 16 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Bail</th>
+                      <th>Locataire</th>
+                      <th>Unite</th>
+                      <th className="right">Loyer</th>
+                      <th className="right">Syndic</th>
+                      <th className="right">Total</th>
+                      <th>Email</th>
+                      <th>WhatsApp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {automationPreview.createable.map((row) => (
+                      <tr key={`create-${row.lease_id}`}>
+                        <td>{row.lease_reference}</td>
+                        <td>{row.tenant_name}</td>
+                        <td>{row.unit_number || '-'}</td>
+                        <td className="right">{Number(row.monthly_rent).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="right">{Number(row.monthly_syndic_amount).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="right">{Number(row.total_amount).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td>{row.email_status}</td>
+                        <td>{row.whatsapp_status}</td>
+                      </tr>
+                    ))}
+                    {!automationPreview.createable.length ? (
+                      <tr>
+                        <td colSpan={8}>Aucune facture a creer pour cette periode.</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+              <div className="table-wrap" style={{ marginTop: 16 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Bail</th>
+                      <th>Locataire</th>
+                      <th>Unite</th>
+                      <th>Raison</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {automationPreview.skipped.map((row) => (
+                      <tr key={`skip-${row.lease_id}-${row.reason}`}>
+                        <td>{row.lease_reference}</td>
+                        <td>{row.tenant_name}</td>
+                        <td>{row.unit_number || '-'}</td>
+                        <td>{row.reason}</td>
+                      </tr>
+                    ))}
+                    {!automationPreview.skipped.length ? (
+                      <tr>
+                        <td colSpan={4}>Aucun bail ignore.</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : null}
+
+          <div className="table-wrap" style={{ marginTop: 16 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Run</th>
+                  <th>Mode</th>
+                  <th>Periode</th>
+                  <th>Statut</th>
+                  <th>Eligibles</th>
+                  <th>Creees</th>
+                  <th>Ignorees</th>
+                  <th>Echouees</th>
+                  <th>Demarre le</th>
+                </tr>
+              </thead>
+              <tbody>
+                {automationRuns.map((run) => (
+                  <tr key={run.id}>
+                    <td>#{run.id}</td>
+                    <td>{run.execution_mode}</td>
+                    <td>{monthLabel(run.billing_month)} {run.billing_year}</td>
+                    <td>{run.status}</td>
+                    <td>{run.eligible_count}</td>
+                    <td>{run.created_count}</td>
+                    <td>{run.skipped_count}</td>
+                    <td>{run.failed_count}</td>
+                    <td>{run.started_at}</td>
+                  </tr>
+                ))}
+                {!automationRuns.length ? (
+                  <tr>
+                    <td colSpan={9}>Aucune execution enregistree.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </SettingsSection>
+      ) : null}
+
       <SettingsSection
         title="Documents et impression"
         description="Logos, signatures et mentions visibles dans les documents générés."
@@ -830,6 +1233,10 @@ function normalizeSettings(data: CompanySettingsResponse): SettingsDraft {
     default_lease_usage: data.default_lease_usage ?? defaults.default_lease_usage,
     default_contract_template_code: data.default_contract_template_code ?? defaults.default_contract_template_code,
   };
+}
+
+function monthLabel(month: number) {
+  return ['Janvier', 'Fevrier', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre'][Number(month) - 1] ?? String(month ?? '-');
 }
 
 function cleanText(value: string) {
