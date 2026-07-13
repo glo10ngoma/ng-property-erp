@@ -500,6 +500,10 @@ textarea { min-height: 72px; resize: vertical; }
 .locked-file-name { display: grid; gap: 2px; align-content: center; border: 1px solid #e1e8ed; border-radius: 6px; background: #f1f4f6; padding: 7px 9px; color: #6b7f8b; }
 .locked-file-name span { font-size: 11px; text-transform: uppercase; }
 .locked-file-name strong { font-size: 13px; color: #334e68; }
+.tenant-file-field { grid-column: span 2; }
+.tenant-file-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tenant-file-row .secondary { min-height: 34px; }
+.tenant-file-hint { grid-column: 1 / -1; display: inline-flex; align-items: center; gap: 7px; min-height: 36px; color: #637783; font-size: 12px; }
 .tenants-filter-bar { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 .timeline-list { display: grid; gap: 7px; }
 .timeline-item { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: center; border: 1px solid #e1e8ed; border-radius: 6px; padding: 7px 9px; background: white; }

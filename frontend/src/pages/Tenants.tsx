@@ -1,4 +1,4 @@
-import { BarChart3, Eye, FilePlus, FileSpreadsheet, FileText, Pencil, Plus, ScrollText } from 'lucide-react';
+import { AlertTriangle, BarChart3, Eye, FilePlus, FileSpreadsheet, FileText, Pencil, Plus, ScrollText, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -73,6 +73,7 @@ export function Tenants() {
   const { data, reload } = useApiList<Tenant>('/tenants');
   const [editing, setEditing] = useState<Partial<Tenant> | null>(null);
   const [identityFileName, setIdentityFileName] = useState('');
+  const [tenantFormDirty, setTenantFormDirty] = useState(false);
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState({ status: '', building: '', unit: '', leaseType: '', paymentStatus: '', leaseExpiry: '', profession: '', nationality: '', reminder: '' });
   const [success, setSuccess] = useState('');
@@ -146,7 +147,9 @@ export function Tenants() {
     if (editing?.id) await api.put(`/tenants/${editing.id}`, payload);
     else await api.post('/tenants', payload);
     setSuccess(editing?.id ? 'Locataire modifie avec succes.' : 'Locataire cree avec succes.');
+    setTenantFormDirty(false);
     setEditing(null);
+    setIdentityFileName('');
     reload();
   }
 
@@ -166,7 +169,17 @@ export function Tenants() {
 
   function openForm(tenant?: Tenant) {
     setIdentityFileName(tenant?.tenant_type === 'COMPANY' ? tenant.company_document_name ?? '' : tenant?.id_document_file_name ?? '');
+    setTenantFormDirty(false);
     setEditing(tenant ?? { tenant_type: 'PHYSICAL' });
+  }
+
+  function closeForm() {
+    if (tenantFormDirty && !window.confirm('Vous avez des modifications non enregistrées. Voulez-vous vraiment quitter ?')) {
+      return;
+    }
+    setEditing(null);
+    setIdentityFileName('');
+    setTenantFormDirty(false);
   }
 
   return (
@@ -241,19 +254,61 @@ export function Tenants() {
       <div className="pagination-bar"><span className="table-meta">{sorted.length} locataires affiches</span></div>
 
       {editing && (
-        <Modal title={editing.id ? 'Modifier le locataire' : 'Nouveau locataire'} onClose={() => setEditing(null)}>
-          <TenantForm editing={editing} identityFileName={identityFileName} onIdentityFile={setIdentityFileName} onSubmit={save} />
+        <Modal title={editing.id ? 'Modifier le locataire' : 'Nouveau locataire'} onClose={closeForm}>
+          <TenantForm
+            editing={editing}
+            identityFileName={identityFileName}
+            onDirtyChange={setTenantFormDirty}
+            onIdentityFile={setIdentityFileName}
+            onSubmit={save}
+          />
         </Modal>
       )}
     </section>
   );
 }
 
-function TenantForm({ editing, identityFileName, onIdentityFile, onSubmit }: { editing: Partial<Tenant>; identityFileName: string; onIdentityFile: (value: string) => void; onSubmit: (form: FormData) => void }) {
+function TenantForm({
+  editing,
+  identityFileName,
+  onDirtyChange,
+  onIdentityFile,
+  onSubmit,
+}: {
+  editing: Partial<Tenant>;
+  identityFileName: string;
+  onDirtyChange: (value: boolean) => void;
+  onIdentityFile: (value: string) => void;
+  onSubmit: (form: FormData) => void;
+}) {
   const [tenantType, setTenantType] = useState(editing.tenant_type ?? 'PHYSICAL');
   const isCompany = tenantType === 'COMPANY';
+  const [fileInputKey, setFileInputKey] = useState(0);
+
+  function markDirty() {
+    onDirtyChange(true);
+  }
+
+  function handleIdentityFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    onIdentityFile(file?.name ?? '');
+    if (file) {
+      onDirtyChange(true);
+    }
+  }
+
+  function clearIdentityFile() {
+    onIdentityFile('');
+    onDirtyChange(true);
+    setFileInputKey((current) => current + 1);
+  }
+
   return (
-    <form className="tenant-form" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}>
+    <form
+      className="tenant-form"
+      onChangeCapture={markDirty}
+      onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}
+    >
       <FormSection title="Identite">
         <label><span>Type de locataire <em>*</em></span><select name="tenant_type" value={tenantType} onChange={(event) => setTenantType(event.target.value)}><option value="PHYSICAL">Personne physique</option><option value="COMPANY">Personne morale / Societe</option></select></label>
         {!isCompany && <label><span>Prenom <em>*</em></span><input name="first_name" defaultValue={editing.first_name ?? ''} required /></label>}
@@ -292,8 +347,23 @@ function TenantForm({ editing, identityFileName, onIdentityFile, onSubmit }: { e
       <FormSection title={isCompany ? 'Document societe' : "Piece d'identite"}>
         {!isCompany && <label><span>Type de piece <small>(optionnel)</small></span><select name="id_document_type" defaultValue={editing.id_document_type ?? ''}><option value="">Choisir</option>{idDocumentTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>}
         {!isCompany && <label><span>Numero de piece <small>(optionnel)</small></span><input name="id_number" defaultValue={editing.id_number ?? ''} /></label>}
-        <label><span>{isCompany ? 'Document societe / RCCM scanne' : 'Piece jointe identite'} <small>(optionnel)</small></span><input type="file" accept="application/pdf,image/*" onChange={(event) => onIdentityFile(event.target.files?.[0]?.name ?? '')} /></label>
-        {identityFileName && <div className="locked-file-name"><span>Fichier selectionne</span><strong>{identityFileName}</strong></div>}
+        <label className="tenant-file-field">
+          <span>{isCompany ? 'Document societe / RCCM scanne' : 'Piece jointe identite'} <small>(optionnel)</small></span>
+          <input key={fileInputKey} type="file" accept="application/pdf,image/*" onChange={handleIdentityFileChange} />
+        </label>
+        {identityFileName ? (
+          <div className="tenant-file-row">
+            <div className="locked-file-name"><span>Fichier selectionne</span><strong>{identityFileName}</strong></div>
+            <button className="secondary" type="button" onClick={clearIdentityFile}>
+              <Trash2 size={15} /> Supprimer
+            </button>
+          </div>
+        ) : (
+          <div className="tenant-file-hint">
+            <AlertTriangle size={14} />
+            <span>Le fichier reste local tant que vous n’avez pas cliqué sur Enregistrer.</span>
+          </div>
+        )}
       </FormSection>
       {!isCompany && <FormSection title="Contact d'urgence">
         <label><span>Contact d'urgence <small>(optionnel)</small></span><input name="emergency_contact_name" defaultValue={editing.emergency_contact_name ?? ''} /></label>
@@ -302,7 +372,7 @@ function TenantForm({ editing, identityFileName, onIdentityFile, onSubmit }: { e
       <FormSection title="Observations">
         <label className="form-field-full"><span>Observations <small>(optionnel)</small></span><textarea name="notes" defaultValue={editing.notes ?? ''} /></label>
       </FormSection>
-      <button>Enregistrer</button>
+      <button type="submit">Enregistrer</button>
     </form>
   );
 }

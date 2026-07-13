@@ -18,7 +18,7 @@ export function Modal({
       <section className={`modal ${className}`.trim()}>
         <div className="modal-head">
           <h3>{title}</h3>
-          <button className="icon-btn" onClick={onClose} aria-label="Fermer">
+          <button className="icon-btn" type="button" onClick={onClose} aria-label="Fermer">
             ×
           </button>
         </div>

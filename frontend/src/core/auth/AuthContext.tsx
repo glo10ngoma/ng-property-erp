@@ -54,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const sessionStartedAtRef = useRef(readSessionStartedAt() ?? Date.now());
   const lastPersistedActivityRef = useRef(0);
   const lastServerVerificationRef = useRef(0);
+  const hiddenAtRef = useRef<number | null>(null);
 
   const applySelectionRequirement = useCallback((nextUser: AuthUser, forceSelection = false) => {
     const activeOrganizations = (nextUser.organizations ?? []).filter((organization) => organization.is_active);
@@ -145,13 +146,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     lastServerVerificationRef.current = now;
-    setIsBootstrapping(true);
     try {
       await syncCurrentUser();
     } catch {
       logoutInternal({ skipServer: true });
-    } finally {
-      setIsBootstrapping(false);
     }
   }, [logoutInternal, syncCurrentUser, token, user]);
 
@@ -202,12 +200,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     recordActivity(true);
     const onActivity = () => recordActivity(false);
     const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAtRef.current = Date.now();
+        return;
+      }
       if (document.visibilityState === 'visible') {
-        void evaluateSession(true);
+        const hiddenFor = hiddenAtRef.current ? Date.now() - hiddenAtRef.current : 0;
+        hiddenAtRef.current = null;
+        const shouldVerifyServer = hiddenFor >= 60_000;
+        void evaluateSession(shouldVerifyServer);
       }
     };
     const onFocus = () => {
-      void evaluateSession(true);
+      const hiddenFor = hiddenAtRef.current ? Date.now() - hiddenAtRef.current : 0;
+      if (hiddenFor >= 60_000) {
+        void evaluateSession(true);
+      }
     };
     const interval = window.setInterval(() => {
       void evaluateSession(false);
