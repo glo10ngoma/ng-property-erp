@@ -149,11 +149,21 @@ replaceParagraphExact(
   'S’agissant de la durée, le présent contrat de bail est conclus pour une durée de {{LEASE_DURATION_TEXT}} et entre en vigueur à la date de sa signature. Il est renouvelable avec l’accord du bailleur par écrit. Chacune des deux parties peut y mettre fin moyennant un préavis de {{NOTICE_MONTHS}} mois ou par convention mutuelle. Dans ce cas, la partie qui prend l’initiative de mettre fin au contrat devra notifier à l’autre son intention écrite, transmise par la lettre recommandée ou par lettre avec accusé de réceptions sous peine d’indemnités pour rupture abusive.',
   document,
 );
-replaceParagraphExact(paragraphs, 'Le loyer mensuel du local est constitué de 2,150 USD le mois dont :', '{{MONTHLY_SECTION}}', document);
+replaceParagraphExact(
+  paragraphs,
+  'Le loyer mensuel du local est constitué de 2,150 USD le mois dont :',
+  '{{MONTHLY_SECTION}}',
+  document,
+);
 removeParagraphExact(paragraphs, '1,300 USD loyer');
 removeParagraphExact(paragraphs, '700 USD Entretien et Maintenance');
 removeParagraphExact(paragraphs, '150 USD syndic');
-replaceParagraphExact(paragraphs, 'La garantie locative équivaut à 3 mois (= 2150 x 3)', '{{GUARANTEE_SECTION}}', document);
+replaceParagraphExact(
+  paragraphs,
+  'La garantie locative équivaut à 3 mois (= 2150 x 3)',
+  '{{GUARANTEE_SECTION}}',
+  document,
+);
 replaceParagraphExact(
   paragraphs,
   'Le locataire n’est pas tenu de retenir l’impôt sur le Revenu Locative (IRL) ou de payer toutes autres taxes liées à ce bail, en tant que le loyer constitue le chiffre d’affaires de la Société Catalyse, en tant que telle comme le stipule son objectif social.',
