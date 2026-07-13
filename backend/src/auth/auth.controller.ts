@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Post, Req, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsInt, IsPositive, IsString } from 'class-validator';
 import { createHmac } from 'crypto';
 import { DatabaseService } from '../database/database.service';
 import { verifyPassword } from './password';
@@ -16,6 +17,9 @@ class LoginDto {
 }
 
 class SwitchOrganizationDto {
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
   organizationId: number;
 }
 
