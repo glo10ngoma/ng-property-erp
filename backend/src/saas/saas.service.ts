@@ -15,7 +15,7 @@ import { normalizeRole } from './permissions';
 @Injectable()
 export class SaasService {
   private readonly companyStorageBucket = 'company';
-  private readonly leaseContractStorageBucket = 'company';
+  private readonly leaseContractStorageBucket = 'contracts';
   private readonly allowedCompanyFileKinds = new Set(['logo', 'signature', 'stamp']);
   private readonly allowedCompanyFileMimeTypes = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml']);
 

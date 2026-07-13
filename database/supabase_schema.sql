@@ -1298,7 +1298,7 @@ END $$;
 -- Supabase Storage buckets.
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES
-  ('contracts', 'contracts', false, 10485760, ARRAY['application/pdf','image/png','image/jpeg','image/webp']),
+  ('contracts', 'contracts', false, 10485760, ARRAY['application/pdf','image/png','image/jpeg','image/webp','application/vnd.openxmlformats-officedocument.wordprocessingml.document']),
   ('tenant-documents', 'tenant-documents', false, 10485760, ARRAY['application/pdf','image/png','image/jpeg','image/webp']),
   ('maintenance', 'maintenance', false, 10485760, ARRAY['application/pdf','image/png','image/jpeg','image/webp']),
   ('employees', 'employees', false, 10485760, ARRAY['application/pdf','image/png','image/jpeg','image/webp']),
