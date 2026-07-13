@@ -156,7 +156,7 @@ export class OrganizationAccessService {
     const { rows } = await this.db.query<OrganizationRow>(
       `SELECT id, name, slug, status
        FROM organizations
-       WHERE status = 'ACTIVE'
+       WHERE COALESCE(status, 'ACTIVE') <> 'ARCHIVED'
        ORDER BY name ASC`,
     );
 
