@@ -38,6 +38,12 @@ type CompanySettingsDefaults = {
   default_contract_template_code?: string;
 };
 
+const LEASE_USAGE_OPTIONS = [
+  { value: 'RESIDENTIAL', label: 'Résidentiel' },
+  { value: 'COMMERCIAL', label: 'Commercial' },
+  { value: 'MIXED', label: 'Mixte' },
+] as const;
+
 export function LeaseNew() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -72,7 +78,7 @@ export function LeaseNew() {
   const selectedUnit = availableUnits.find((unit) => Number(unit.id) === Number(unitId)) ?? availableUnits[0];
   const selectedBuilding = buildings.data.find((building) => Number(building.id) === Number(buildingId));
   const totalMonthly = Number(rent || 0) + Number(maintenanceFee || 0) + Number(syndicAmount || 0) + Number(otherCharges || 0);
-  const guaranteeAmount = totalMonthly * Number(guaranteeMonths || 0);
+  const guaranteeAmount = Number(rent || 0) * Number(guaranteeMonths || 0);
 
   const buildingOptions = buildings.data.map((building) => ({
     value: building.id,
@@ -106,7 +112,7 @@ export function LeaseNew() {
         if (defaults.default_notice_months !== undefined) setNoticeMonths(String(defaults.default_notice_months));
         if (defaults.default_guarantee_months !== undefined) setGuaranteeMonths(String(defaults.default_guarantee_months));
         if (defaults.default_signature_place) setSignaturePlace(defaults.default_signature_place);
-        if (defaults.default_lease_usage) setLeaseUsage(defaults.default_lease_usage);
+        if (defaults.default_lease_usage) setLeaseUsage(normalizeLeaseUsage(defaults.default_lease_usage));
         if (defaults.default_contract_template_code) setContractTemplateCode(defaults.default_contract_template_code);
       })
       .catch(() => undefined);
@@ -120,7 +126,7 @@ export function LeaseNew() {
       setRent(Number(selectedUnit.monthly_rent ?? 0));
       setSyndicAmount(Number(selectedUnit.monthly_syndic_amount ?? 0));
       if (!leaseUsage) {
-        setLeaseUsage(selectedUnit.usage_type ?? 'Residentiel');
+        setLeaseUsage(normalizeLeaseUsage(selectedUnit.usage_type));
       }
     }
   }, [selectedUnit?.id]);
@@ -191,7 +197,7 @@ export function LeaseNew() {
     try {
       const response = await api.post('/leases', payload);
       setMessage('Bail cree avec succes.');
-      setTimeout(() => navigate(`/leases/${response.data.id}?previewContract=1`), 350);
+      setTimeout(() => navigate(`/leases/${response.data.id}`), 350);
     } catch (err: any) {
       const responseMessage = err?.response?.data?.message;
       const details = Array.isArray(responseMessage) ? responseMessage.filter(Boolean).map(String).join(' | ') : responseMessage;
@@ -230,7 +236,7 @@ export function LeaseNew() {
             <label>Autres charges<input name="other_charges_amount" type="number" min="0" value={otherCharges} onChange={(event) => setOtherCharges(Number(event.target.value))} /></label>
             <label>Total loyer<input className="locked-field" name="lease_total_amount" value={money(totalMonthly)} readOnly /></label>
             <label>Devise<input className="locked-field" value="USD" readOnly /></label>
-            <label>Usage du bail<input name="lease_usage" value={leaseUsage} onChange={(event) => setLeaseUsage(event.target.value)} placeholder="Residentiel" /></label>
+            <label>Usage du bail<select name="lease_usage" value={leaseUsage} onChange={(event) => setLeaseUsage(normalizeLeaseUsage(event.target.value))}>{LEASE_USAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <label>Statut<select name="status" defaultValue="DRAFT"><option value="DRAFT">Brouillon</option><option value="ACTIVE">Actif</option></select></label>
           </div>
         </div>
@@ -241,6 +247,7 @@ export function LeaseNew() {
             <label>Garantie (nombre de mois)<input name="guarantee_months" type="number" min="0" value={guaranteeMonths} onChange={(event) => setGuaranteeMonths(event.target.value)} /></label>
             <label>Montant garantie<input className="locked-field" name="rental_guarantee_amount" value={money(guaranteeAmount)} readOnly /></label>
             <label>Devise<input className="locked-field" value="USD" readOnly /></label>
+            <label className="lease-field-full">Formule<input className="locked-field" value={`${money(rent)} x ${Number(guaranteeMonths || 0)} mois = ${money(guaranteeAmount)}`} readOnly /></label>
           </div>
         </div>
 
@@ -280,4 +287,11 @@ function monthDiff(startValue: string, endValue: string) {
   const end = new Date(endValue);
   const diff = (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth();
   return Math.max(diff, 0);
+}
+
+function normalizeLeaseUsage(value?: string | null) {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  if (normalized === 'COMMERCIAL') return 'COMMERCIAL';
+  if (normalized === 'MIXED' || normalized === 'MIXTE') return 'MIXED';
+  return 'RESIDENTIAL';
 }

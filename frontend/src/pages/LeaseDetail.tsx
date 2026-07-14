@@ -274,7 +274,7 @@ export function LeaseDetail() {
         <SummaryItem label="Type" value={lease.tenant_type === 'COMPANY' ? 'Personne morale' : 'Personne physique'} />
         <SummaryItem label="Immeuble" value={lease.building_name} />
         <SummaryItem label="Unite" value={lease.unit_number} />
-        <SummaryItem label="Usage" value={lease.lease_usage ?? lease.usage_type ?? 'Residentiel'} />
+        <SummaryItem label="Usage" value={leaseUsageLabel(lease.lease_usage ?? lease.usage_type)} />
         <SummaryItem label="Loyer de base" value={money(lease.monthly_rent)} />
         <SummaryItem label="Total mensuel" value={money(totalMonthly)} />
         <SummaryItem label="Garantie" value={`${money(lease.guarantee?.paid_amount ?? lease.rental_guarantee_paid)} / ${money(lease.guarantee?.amount ?? lease.rental_guarantee_amount)}`} />
@@ -480,6 +480,19 @@ function contractStatusLabel(status?: string) {
       return 'Annule';
     default:
       return status || '-';
+  }
+}
+
+function leaseUsageLabel(value?: string | null) {
+  switch (String(value ?? '').trim().toUpperCase()) {
+    case 'COMMERCIAL':
+      return 'Commercial';
+    case 'MIXED':
+    case 'MIXTE':
+      return 'Mixte';
+    case 'RESIDENTIAL':
+    default:
+      return 'Résidentiel';
   }
 }
 
