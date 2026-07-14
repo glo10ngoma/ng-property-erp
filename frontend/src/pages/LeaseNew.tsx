@@ -62,6 +62,8 @@ export function LeaseNew() {
   const [syndicAmount, setSyndicAmount] = useState(0);
   const [otherCharges, setOtherCharges] = useState(0);
   const [guaranteeMonths, setGuaranteeMonths] = useState('3');
+  const [guaranteePaid, setGuaranteePaid] = useState(false);
+  const [guaranteePaymentDate, setGuaranteePaymentDate] = useState('');
   const [noticeMonths, setNoticeMonths] = useState('1');
   const [signaturePlace, setSignaturePlace] = useState('Kinshasa');
   const [signatureDate, setSignatureDate] = useState(new Date().toISOString().slice(0, 10));
@@ -75,7 +77,7 @@ export function LeaseNew() {
     () => units.data.filter((unit) => !buildingId || Number(unit.building_id) === Number(buildingId)),
     [units.data, buildingId],
   );
-  const selectedUnit = availableUnits.find((unit) => Number(unit.id) === Number(unitId)) ?? availableUnits[0];
+  const selectedUnit = availableUnits.find((unit) => Number(unit.id) === Number(unitId));
   const selectedBuilding = buildings.data.find((building) => Number(building.id) === Number(buildingId));
   const totalMonthly = Number(rent || 0) + Number(maintenanceFee || 0) + Number(syndicAmount || 0) + Number(otherCharges || 0);
   const guaranteeAmount = Number(rent || 0) * Number(guaranteeMonths || 0);
@@ -125,10 +127,10 @@ export function LeaseNew() {
     if (selectedUnit) {
       setRent(Number(selectedUnit.monthly_rent ?? 0));
       setSyndicAmount(Number(selectedUnit.monthly_syndic_amount ?? 0));
-      if (!leaseUsage) {
-        setLeaseUsage(normalizeLeaseUsage(selectedUnit.usage_type));
-      }
+      return;
     }
+    setRent(0);
+    setSyndicAmount(0);
   }, [selectedUnit?.id]);
 
   useEffect(() => {
@@ -163,10 +165,14 @@ export function LeaseNew() {
     const tenantValue = Number(form.get('tenant_id') ?? 0);
     const unitValue = Number(form.get('unit_id') ?? 0);
     const startValue = String(form.get('start_date') ?? '').trim();
+    const guaranteePaymentDateValue = guaranteePaid ? guaranteePaymentDate.trim() : '';
 
     if (!tenantValue) return setError('Selectionnez un locataire avant de creer le bail.');
     if (!unitValue) return setError('Selectionnez une unite avant de creer le bail.');
     if (!startValue) return setError('Selectionnez une date de debut.');
+    if (guaranteePaid && !guaranteePaymentDateValue) {
+      return setError('Renseignez la date de paiement de la garantie.');
+    }
 
     const payload = {
       tenant_id: tenantValue,
@@ -180,9 +186,9 @@ export function LeaseNew() {
       lease_total_amount: totalMonthly,
       guarantee_months: Number(guaranteeMonths || 0),
       rental_guarantee_amount: guaranteeAmount,
-      rental_guarantee_paid: 0,
-      rental_guarantee_payment_date: null,
-      rental_guarantee_status: 'NOT_PAID',
+      rental_guarantee_paid: guaranteePaid ? guaranteeAmount : 0,
+      rental_guarantee_payment_date: guaranteePaid ? guaranteePaymentDateValue : null,
+      rental_guarantee_status: guaranteePaid ? 'PAID' : 'NOT_PAID',
       notice_months: Number(noticeMonths || 0),
       signature_place: signaturePlace || null,
       signature_date: signatureDate || null,
@@ -217,7 +223,7 @@ export function LeaseNew() {
           <h4>Parties concernees</h4>
           <div className="lease-section-grid">
             <label className="lease-field-wide">Immeuble<SearchableSelect options={buildingOptions} value={buildingId ? Number(buildingId) : null} onChange={(value) => { setBuildingId(value ? String(value) : ''); setUnitId(''); }} placeholder="Rechercher un immeuble" emptyMessage="Aucun immeuble trouve" /></label>
-            <label className="lease-field-wide">Unite / Appartement<SearchableSelect options={unitOptions} value={unitId ? Number(unitId) : selectedUnit?.id ?? null} onChange={(value) => setUnitId(value ? String(value) : '')} placeholder="Rechercher une unite" emptyMessage="Aucune unite trouvee" /><input name="unit_id" value={unitId || selectedUnit?.id || ''} readOnly type="hidden" /></label>
+            <label className="lease-field-wide">Unite / Appartement<SearchableSelect options={unitOptions} value={unitId ? Number(unitId) : null} onChange={(value) => setUnitId(value ? String(value) : '')} placeholder="Selectionner un appartement" emptyMessage="Aucune unite trouvee" /><input name="unit_id" value={unitId || ''} readOnly type="hidden" /></label>
             <label className="lease-field-wide">Locataire<TenantSearchSelect tenants={tenantOptions} value={tenantId} onChange={setTenantId} required /></label>
             <input name="tenant_id" value={tenantId ?? ''} readOnly type="hidden" />
           </div>
@@ -246,6 +252,16 @@ export function LeaseNew() {
           <div className="lease-section-grid">
             <label>Garantie (nombre de mois)<input name="guarantee_months" type="number" min="0" value={guaranteeMonths} onChange={(event) => setGuaranteeMonths(event.target.value)} /></label>
             <label>Montant garantie<input className="locked-field" name="rental_guarantee_amount" value={money(guaranteeAmount)} readOnly /></label>
+            <label>Garantie payee<select value={guaranteePaid ? 'YES' : 'NO'} onChange={(event) => {
+              const nextPaid = event.target.value === 'YES';
+              setGuaranteePaid(nextPaid);
+              if (!nextPaid) setGuaranteePaymentDate('');
+            }}><option value="NO">Non</option><option value="YES">Oui</option></select></label>
+            {guaranteePaid ? (
+              <label>Date de paiement<input type="date" value={guaranteePaymentDate} onChange={(event) => setGuaranteePaymentDate(event.target.value)} required /></label>
+            ) : (
+              <label>Date de paiement<input className="locked-field" value="" placeholder="Renseignee si la garantie est payee" readOnly /></label>
+            )}
             <label>Devise<input className="locked-field" value="USD" readOnly /></label>
             <label className="lease-field-full">Formule<input className="locked-field" value={`${money(rent)} x ${Number(guaranteeMonths || 0)} mois = ${money(guaranteeAmount)}`} readOnly /></label>
           </div>

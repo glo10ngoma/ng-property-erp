@@ -6253,6 +6253,18 @@ export class SaasService {
     const leaseTotalAmount = monthlyRent + maintenanceFeeAmount + monthlySyndicAmount + otherChargesAmount;
     const guaranteeAmount = monthlyRent * guaranteeMonths;
     const guaranteePaid = Number(body.rental_guarantee_paid ?? body.guarantee_paid ?? 0);
+    const guaranteePaymentDateValue = String(body.rental_guarantee_payment_date ?? body.guarantee_payment_date ?? '').trim();
+    const rawGuaranteeStatus = String(body.rental_guarantee_status ?? body.guarantee_status ?? '').trim().toUpperCase();
+    const guaranteeMarkedPaid = rawGuaranteeStatus === 'PAID' || guaranteePaid > 0;
+
+    if (guaranteeMarkedPaid && !guaranteePaymentDateValue) {
+      throw new BadRequestException('Date de paiement de la garantie requise');
+    }
+
+    const guaranteePaymentDate = guaranteeMarkedPaid ? guaranteePaymentDateValue : null;
+    const guaranteeStatus = guaranteeMarkedPaid
+      ? (guaranteePaid >= guaranteeAmount ? 'PAID' : 'PARTIAL')
+      : 'NOT_PAID';
 
     return {
       tenantId,
@@ -6266,9 +6278,9 @@ export class SaasService {
       leaseTotalAmount,
       guaranteeMonths,
       guaranteeAmount,
-      guaranteePaid,
-      guaranteePaymentDate: body.rental_guarantee_payment_date ?? body.guarantee_payment_date ?? null,
-      guaranteeStatus: String(body.rental_guarantee_status ?? body.guarantee_status ?? (guaranteePaid <= 0 ? 'NOT_PAID' : guaranteePaid >= guaranteeAmount ? 'PAID' : 'PARTIAL')),
+      guaranteePaid: guaranteeMarkedPaid ? guaranteePaid : 0,
+      guaranteePaymentDate,
+      guaranteeStatus,
       noticeMonths: Number(body.notice_months ?? 0),
       signaturePlace: body.signature_place ? String(body.signature_place).trim() : null,
       signatureDate: body.signature_date ? String(body.signature_date).trim() : null,
