@@ -9,7 +9,7 @@ type VariableValue = string | number | null | undefined;
 type ContractBlock = { type: 'text'; lines: string[] } | { type: 'table'; rows: Array<[string, string]> };
 type PdfLine = { text: string; kind: 'normal' | 'title' | 'article' | 'table' | 'blank' };
 
-const DEFAULT_TITLE = 'CONTRAT DE BAIL A USAGE RESIDENTIEL';
+const DEFAULT_TITLE = 'CONTRAT DE BAIL À USAGE RÉSIDENTIEL';
 const PDF_PAGE_WIDTH = 595;
 const PDF_PAGE_HEIGHT = 842;
 const PDF_MARGIN_X = 50;
@@ -154,6 +154,7 @@ export function unresolvedPlaceholders(content: string) {
 
 export function buildLeaseContractHtml(content: string) {
   const blocks = parseContractBlocks(content);
+  const title = extractContractTitle(blocks) ?? DEFAULT_TITLE;
   const bodyBlocks = blocks.length && isTitleBlock(blocks[0]) ? blocks.slice(1) : blocks;
   const sections = bodyBlocks.map((block, index) => {
     if (block.type === 'table') {
@@ -173,14 +174,15 @@ export function buildLeaseContractHtml(content: string) {
   });
   return [
     '<article class="lease-contract-preview contract-document">',
-    `<header class="contract-header"><h1 class="contract-title">${DEFAULT_TITLE}</h1></header>`,
+    `<header class="contract-header"><h1 class="contract-title">${escapeHtml(title)}</h1></header>`,
     ...sections,
     '</article>',
   ].join('');
 }
 
 export function buildLeaseContractPdfBase64(content: string, fileTitle = DEFAULT_TITLE) {
-  const pages = paginateContent(content, fileTitle);
+  const resolvedTitle = fileTitle === DEFAULT_TITLE ? (extractContractTitle(parseContractBlocks(content)) ?? DEFAULT_TITLE) : fileTitle;
+  const pages = paginateContent(content, resolvedTitle);
   const pdf = buildPdfDocument(pages);
   return Buffer.from(pdf, 'binary').toString('base64');
 }
@@ -254,7 +256,13 @@ function wrapContractContent(content: string) {
 }
 
 function isTitleBlock(block: ContractBlock) {
-  return block.type === 'text' && block.lines.length === 1 && block.lines[0].trim().toUpperCase() === DEFAULT_TITLE;
+  return block.type === 'text' && block.lines.length === 1 && /^CONTRAT DE BAIL/i.test(block.lines[0].trim());
+}
+
+function extractContractTitle(blocks: ContractBlock[]) {
+  if (!blocks.length || blocks[0].type !== 'text' || blocks[0].lines.length !== 1) return null;
+  const title = blocks[0].lines[0].trim();
+  return /^CONTRAT DE BAIL/i.test(title) ? title : null;
 }
 
 function wrapLine(line: string, maxChars: number) {

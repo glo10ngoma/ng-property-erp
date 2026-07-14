@@ -6334,6 +6334,8 @@ export class SaasService {
     ].filter(Boolean).join(' ').trim();
     const tenantFullName = [lease.first_name, lease.last_name, lease.post_name].filter(Boolean).join(' ').trim();
     const buildingAddressParts = [lease.building_address, lease.building_commune, lease.building_neighborhood, lease.building_city].filter(Boolean);
+    const companyAddressParts = [company.company_address ?? company.address ?? '', company.company_commune ?? '', company.company_city ?? '', company.company_country ?? ''].filter(Boolean);
+    const tenantAddressParts = [lease.tenant_address ?? '', lease.tenant_commune ?? '', lease.tenant_city ?? '', lease.tenant_country ?? ''].filter(Boolean);
     const physicalPresentation = [
       `Monsieur/Madame ${tenantFullName || lease.tenant_name}`,
       lease.id_document_type ? `titulaire de la piece d'identite ${lease.id_document_type}` : null,
@@ -6368,6 +6370,17 @@ export class SaasService {
       otherChargesAmount > 0 ? `${this.formatMoney(otherChargesAmount)} USD autres charges` : null,
     ].filter(Boolean).join('\n');
     const guaranteeSection = `La garantie locative équivaut à ${guaranteeMonths} mois (= ${this.formatMoney(lease.monthly_rent)} x ${guaranteeMonths})`;
+    const autresChargesLigne = otherChargesAmount > 0 ? `- Autres charges : ${this.formatMoney(otherChargesAmount)} USD` : '';
+    const landlordSigle = String(company.company_acronym ?? '').trim();
+    const landlordLegalForm = String(company.company_legal_form ?? '').trim();
+    const tenantLegalForm = String(lease.legal_form ?? '').trim();
+    const tenantCompanyName = String(lease.company_name ?? lease.tenant_name ?? '').trim();
+    const nombreParkingsPhrase = parkingCount > 0
+      ? `Un total de ${parkingCount} emplacement(s) de parking est réservé au Preneur.`
+      : 'Aucun emplacement de parking n’est réservé au titre du présent bail, sauf accord contraire écrit des Parties.';
+    const tenantIdentificationParagraph = isCompanyTenant
+      ? `« ${tenantCompanyName}${tenantLegalForm ? `, ${tenantLegalForm}` : ''}${lease.rccm ? `, immatriculée au Registre du Commerce et du Crédit Mobilier sous le numéro ${lease.rccm}` : ''}${lease.national_id_number ? `, enregistrée à l’Identification Nationale sous le numéro ${lease.national_id_number}` : ''}${tenantAddressParts.length ? `, dont le siège social est établi à ${tenantAddressParts.join(', ')}` : ''}${tenantRepresentative ? `, représentée par ${tenantRepresentative}` : ''}${lease.legal_representative_role ? `, agissant en qualité de ${lease.legal_representative_role}` : ''} »`
+      : `« Monsieur/Madame ${tenantFullName || lease.tenant_name}${lease.id_document_type ? `, titulaire de ${lease.id_document_type}` : ''}${lease.id_number ? ` numéro ${lease.id_number}` : ''}${tenantAddressParts.length ? `, domicilié(e) à ${tenantAddressParts.join(', ')}` : ''} »`;
 
     return {
       LANDLORD_NAME: lessorName,
@@ -6437,10 +6450,14 @@ export class SaasService {
       bailleur: {
         raison_sociale: lessorName,
         sigle: company.company_acronym ?? '',
+        sigle_phrase: landlordSigle ? ` (${landlordSigle})` : '',
+        forme_juridique: landlordLegalForm,
+        forme_juridique_phrase: landlordLegalForm ? `${landlordLegalForm} ` : '',
         rccm: company.company_rccm ?? '',
         identification_nationale: company.company_national_id ?? '',
         numero_fiscal: company.company_tax_id ?? '',
         adresse: company.company_address ?? company.address ?? '',
+        adresse_complete: companyAddressParts.join(', '),
         commune: company.company_commune ?? '',
         ville: company.company_city ?? '',
         pays: company.company_country ?? '',
@@ -6464,14 +6481,18 @@ export class SaasService {
         forme_juridique: lease.legal_form ?? '',
         rccm: lease.rccm ?? '',
         identification_nationale: lease.national_id_number ?? '',
+        type_piece_identite: lease.id_document_type ?? '',
         numero_piece_identite: lease.id_number ?? '',
         adresse: lease.tenant_address ?? '',
+        adresse_complete: tenantAddressParts.join(', '),
         commune: lease.tenant_commune ?? '',
         ville: lease.tenant_city ?? '',
         pays: lease.tenant_country ?? '',
+        representant_nom: tenantRepresentative,
         representant_nom_complet: tenantRepresentative,
         representant_fonction: lease.legal_representative_role ?? '',
         signature_nom: isCompanyTenant ? (lease.company_name ?? lease.tenant_name) : (tenantFullName || lease.tenant_name),
+        paragraphe_identification: tenantIdentificationParagraph,
         presentation: isCompanyTenant ? companyPresentation : physicalPresentation,
       },
       bien: {
@@ -6483,6 +6504,7 @@ export class SaasService {
         ville: lease.building_city ?? '',
         nombre_chambres: String(bedroomCount),
         nombre_parkings: String(parkingCount),
+        nombre_parkings_phrase: nombreParkingsPhrase,
         meuble_label: lease.is_furnished ? 'Meuble' : 'Non meuble',
         appartement_label: apartmentLabel,
         usage: usageLabel,
@@ -6503,17 +6525,26 @@ export class SaasService {
         duree_texte: leaseDurationText,
         preavis_mois: String(lease.notice_months ?? company.default_notice_months ?? 0),
         loyer_base: this.formatMoney(lease.monthly_rent),
+        loyer_base_formate: `${this.formatMoney(lease.monthly_rent)} USD`,
         frais_entretien: this.formatMoney(lease.maintenance_fee_amount),
+        frais_entretien_formate: `${this.formatMoney(lease.maintenance_fee_amount)} USD`,
         frais_syndic: this.formatMoney(lease.monthly_syndic_amount),
+        frais_syndic_formate: `${this.formatMoney(lease.monthly_syndic_amount)} USD`,
         autres_charges: this.formatMoney(lease.other_charges_amount),
+        autres_charges_formate: `${this.formatMoney(lease.other_charges_amount)} USD`,
+        autres_charges_ligne: autresChargesLigne,
         loyer_total: this.formatMoney(totalMonthly),
+        loyer_total_formate: `${this.formatMoney(totalMonthly)} USD`,
         garantie_nombre_mois: String(guaranteeMonths),
         garantie_montant: this.formatMoney(guaranteeAmount),
+        garantie_montant_formate: `${this.formatMoney(guaranteeAmount)} USD`,
         garantie_base_montant: this.formatMoney(guaranteeBaseAmount),
         devise: 'USD',
         lieu_signature: lease.signature_place ?? company.default_signature_place ?? company.company_city ?? 'Kinshasa',
         date_signature: signatureDate,
         usage_label: usageLabel,
+        usage_label_upper: usageLabel.toUpperCase(),
+        usage_label_lower: usageLabel.toLowerCase(),
         type_contrat: lease.contract_template_code ?? company.default_contract_template_code ?? 'LEASE_RESIDENTIAL',
       },
     };
