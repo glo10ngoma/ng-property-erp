@@ -3452,68 +3452,95 @@ export class SaasService {
   }
 
   async updateLease(id: number, body: Record<string, unknown>) {
-    const current = await this.leaseDetail(id);
+    const current = await this.leaseDetail(id) as Record<string, unknown>;
     return this.db.transaction(async (client) => {
-      const normalized = this.normalizeLeasePayload({ ...current, ...body });
+      const hasLeaseActivityDescriptionColumn = await this.tableHasColumn(client, 'leases', 'lease_activity_description');
+      const currentUsage = this.normalizeLeaseUsageCode(current.lease_usage ?? current.usage_type);
+      const currentActivityDescription = String(current.lease_activity_description ?? '').trim();
+      const usageProvided = Object.prototype.hasOwnProperty.call(body, 'lease_usage');
+      const activityProvided = Object.prototype.hasOwnProperty.call(body, 'lease_activity_description');
+      const requestedUsage = usageProvided ? this.normalizeLeaseUsageCode(body.lease_usage) : currentUsage;
+      const requestedActivityDescription = activityProvided ? String(body.lease_activity_description ?? '').trim() : currentActivityDescription;
+      const requireBusinessActivity = (requestedUsage === 'COMMERCIAL' || requestedUsage === 'PROFESSIONAL')
+        && (usageProvided || activityProvided || Boolean(currentActivityDescription));
+
+      if (!hasLeaseActivityDescriptionColumn && (activityProvided || (usageProvided && (requestedUsage === 'COMMERCIAL' || requestedUsage === 'PROFESSIONAL')))) {
+        throw new BadRequestException("La base doit d'abord appliquer la migration 20260715_lease_commercial_professional_templates.sql pour modifier l'activité du bail.");
+      }
+
+      const normalized = this.normalizeLeasePayload(
+        { ...current, ...body, lease_usage: requestedUsage, lease_activity_description: requestedActivityDescription || null },
+        { requireBusinessActivity },
+      );
       if (normalized.status === 'ACTIVE') {
         await this.ensureNoLeaseConflict(client, normalized.unitId, normalized.startDate, normalized.endDate, id);
       }
+      const updateColumns = [
+        'tenant_id = $2',
+        'unit_id = $3',
+        'start_date = $4',
+        'end_date = $5',
+        'monthly_rent = $6',
+        'monthly_syndic_amount = $7',
+        'rental_guarantee_amount = $8',
+        'rental_guarantee_paid = $9',
+        'rental_guarantee_payment_date = $10',
+        'rental_guarantee_status = $11',
+        'contract_file_url = $12',
+        'contract_file_name = $13',
+        'status = $14',
+        'maintenance_fee_amount = $15',
+        'other_charges_amount = $16',
+        'lease_total_amount = $17',
+        'guarantee_months = $18',
+        'notice_months = $19',
+        'signature_place = $20',
+        'signature_date = $21',
+        'lease_usage = $22',
+      ];
+      const values: unknown[] = [
+        id,
+        normalized.tenantId,
+        normalized.unitId,
+        normalized.startDate,
+        normalized.endDate,
+        normalized.monthlyRent,
+        normalized.monthlySyndicAmount,
+        normalized.guaranteeAmount,
+        normalized.guaranteePaid,
+        normalized.guaranteePaymentDate,
+        normalized.guaranteeStatus,
+        normalized.contractFileUrl,
+        normalized.contractFileName,
+        normalized.status,
+        normalized.maintenanceFeeAmount,
+        normalized.otherChargesAmount,
+        normalized.leaseTotalAmount,
+        normalized.guaranteeMonths,
+        normalized.noticeMonths,
+        normalized.signaturePlace,
+        normalized.signatureDate,
+        normalized.leaseUsage,
+      ];
+      let nextPlaceholder = 23;
+      if (hasLeaseActivityDescriptionColumn) {
+        updateColumns.push(`lease_activity_description = $${nextPlaceholder}`);
+        values.push(normalized.leaseActivityDescription);
+        nextPlaceholder += 1;
+      }
+      updateColumns.push(`contract_template_code = $${nextPlaceholder}`);
+      values.push(normalized.contractTemplateCode);
+      nextPlaceholder += 1;
+      updateColumns.push(`notes = $${nextPlaceholder}`);
+      values.push(normalized.notes);
+      nextPlaceholder += 1;
+      updateColumns.push('updated_at = NOW()');
+      values.push(this.context.organizationId());
       await client.query(
         `UPDATE leases
-         SET tenant_id = $2,
-             unit_id = $3,
-             start_date = $4,
-             end_date = $5,
-             monthly_rent = $6,
-             monthly_syndic_amount = $7,
-             rental_guarantee_amount = $8,
-             rental_guarantee_paid = $9,
-             rental_guarantee_payment_date = $10,
-             rental_guarantee_status = $11,
-             contract_file_url = $12,
-             contract_file_name = $13,
-             status = $14,
-             maintenance_fee_amount = $15,
-             other_charges_amount = $16,
-             lease_total_amount = $17,
-             guarantee_months = $18,
-             notice_months = $19,
-             signature_place = $20,
-             signature_date = $21,
-             lease_usage = $22,
-             lease_activity_description = $23,
-             contract_template_code = $24,
-             notes = $25,
-             updated_at = NOW()
-         WHERE id = $1 AND organization_id = $26 AND deleted_at IS NULL`,
-        [
-          id,
-          normalized.tenantId,
-          normalized.unitId,
-          normalized.startDate,
-          normalized.endDate,
-          normalized.monthlyRent,
-          normalized.monthlySyndicAmount,
-          normalized.guaranteeAmount,
-          normalized.guaranteePaid,
-          normalized.guaranteePaymentDate,
-          normalized.guaranteeStatus,
-          normalized.contractFileUrl,
-          normalized.contractFileName,
-          normalized.status,
-          normalized.maintenanceFeeAmount,
-          normalized.otherChargesAmount,
-          normalized.leaseTotalAmount,
-          normalized.guaranteeMonths,
-          normalized.noticeMonths,
-          normalized.signaturePlace,
-          normalized.signatureDate,
-          normalized.leaseUsage,
-          normalized.leaseActivityDescription,
-          normalized.contractTemplateCode,
-          normalized.notes,
-          this.context.organizationId(),
-        ],
+         SET ${updateColumns.join(',\n             ')}
+         WHERE id = $1 AND organization_id = $${nextPlaceholder} AND deleted_at IS NULL`,
+        values,
       );
       await this.upsertLeaseGuarantee(client, id, {
         amount: normalized.guaranteeAmount,
@@ -6251,7 +6278,7 @@ export class SaasService {
     return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => String(variables[key] ?? ''));
   }
 
-  private normalizeLeasePayload(body: Record<string, unknown>) {
+  private normalizeLeasePayload(body: Record<string, unknown>, options?: { requireBusinessActivity?: boolean }) {
     const tenantId = Number(body.tenant_id ?? body.tenantId ?? 0);
     const unitId = Number(body.unit_id ?? body.unitId ?? 0);
     const startDate = String(body.start_date ?? '').trim();
@@ -6274,7 +6301,8 @@ export class SaasService {
     const rawGuaranteeStatus = String(body.rental_guarantee_status ?? body.guarantee_status ?? '').trim().toUpperCase();
     const guaranteeMarkedPaid = rawGuaranteeStatus === 'PAID' || guaranteePaid > 0;
 
-    if ((leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL') && !leaseActivityDescription) {
+    const requireBusinessActivity = options?.requireBusinessActivity ?? true;
+    if (requireBusinessActivity && (leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL') && !leaseActivityDescription) {
       throw new BadRequestException("Activite ou destination des lieux requise");
     }
 
@@ -6355,6 +6383,19 @@ export class SaasService {
       [this.context.organizationId(), code],
     );
     return rows[0]?.version ?? null;
+  }
+
+  private async tableHasColumn(client: PoolClient, tableName: string, columnName: string) {
+    const { rows } = await client.query(
+      `SELECT 1
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = $1
+         AND column_name = $2
+       LIMIT 1`,
+      [tableName, columnName],
+    );
+    return Boolean(rows[0]);
   }
 
   private resolveLeaseTemplateCodeForUsage(value: unknown) {
