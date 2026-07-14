@@ -452,25 +452,22 @@ textarea { min-height: 72px; resize: vertical; }
 .lease-contract-preview-html .contract-table-wrap { margin: 0 0 12px; }
 .lease-contract-preview-html .contract-intro p,
 .lease-contract-preview-html .contract-paragraph p,
-.lease-contract-preview-html .contract-article p,
-.lease-contract-preview-html .contract-signatures p { margin: 0 0 6px; color: #111827; line-height: 1.15; text-align: justify; text-indent: 18px; white-space: pre-wrap; font-size: 11pt; }
+.lease-contract-preview-html .contract-article p { margin: 0 0 6px; color: #111827; line-height: 1.15; text-align: justify; text-indent: 18px; white-space: pre-wrap; font-size: 11pt; }
 .lease-contract-preview-html .contract-intro p:first-child,
-.lease-contract-preview-html .contract-paragraph p:first-child,
-.lease-contract-preview-html .contract-signatures p:first-child { text-indent: 0; }
+.lease-contract-preview-html .contract-paragraph p:first-child { text-indent: 0; }
 .lease-contract-preview-html .contract-article h3 { margin: 0 0 6px; color: #111827; text-align: left; font-size: 11pt; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .lease-contract-preview-html .contract-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 8px 0 12px; }
 .lease-contract-preview-html .contract-table th,
 .lease-contract-preview-html .contract-table td { border: 1px solid #9aa7b1; padding: 6px 8px; text-align: left; vertical-align: top; font-size: 10.5pt; line-height: 1.15; }
 .lease-contract-preview-html .contract-table th { width: 42%; background: #fff; color: #111827; font-weight: 700; }
 .lease-contract-preview-html .contract-table td { color: #111827; }
-.lease-contract-preview-html .contract-signatures { min-height: 96px; display: grid; align-items: end; }
-.lease-contract-preview-html .contract-signatures p { text-indent: 0; text-align: left; }
-.lease-contract-preview-html .contract-signatures::after { content: ''; display: block; height: 84px; }
-.lease-contract-preview-html .contract-signature-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 8px; }
+.lease-contract-preview-html .contract-signatures { margin-top: 8px; }
+.lease-contract-preview-html .contract-signature-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .lease-contract-preview-html .contract-signature-table th,
-.lease-contract-preview-html .contract-signature-table td { border: 1px solid #9aa7b1; padding: 10px 8px; vertical-align: top; text-align: center; }
-.lease-contract-preview-html .contract-signature-table th { font-size: 11pt; font-weight: 700; }
-.lease-contract-preview-html .contract-signature-table td { font-size: 11pt; line-height: 1.15; }
+.lease-contract-preview-html .contract-signature-table td { border: 1px solid #9aa7b1; padding: 10px 8px; text-align: center; vertical-align: top; }
+.lease-contract-preview-html .contract-signature-table th { font-size: 11pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0; color: #111827; }
+.lease-contract-preview-html .contract-signature-table td { min-height: 84px; }
+.lease-contract-preview-html .contract-signature-space { min-height: 84px; width: 100%; }
 .lease-contract-preview-html .contract-footer { display: flex; gap: 12px; justify-content: space-between; align-items: center; border-top: 1px solid #dce5eb; padding-top: 10px; margin-top: 16px; color: #637783; font-size: 10pt; font-weight: 700; text-transform: uppercase; }
 .storage-note { margin: 6px 0 0; color: #637783; font-size: 12px; }
 .search-select { display: grid; gap: 8px; }

@@ -6,7 +6,7 @@ import PizZip from 'pizzip';
 
 type VariableValue = string | number | null | undefined;
 type ContractBlock = { type: 'text'; lines: string[] } | { type: 'table'; rows: Array<[string, string]> };
-type PdfLine = { text: string; kind: 'normal' | 'title' | 'article' | 'table' | 'blank' };
+type PdfLine = { text: string; kind: 'normal' | 'title' | 'article' | 'table' | 'signature' | 'blank' };
 type LeaseContractHeaderRow = { label: string; value: string };
 type LeaseContractDocumentContext = {
   title: string;
@@ -190,7 +190,6 @@ export function buildLeaseContractDocxBuffer(variables: Record<string, unknown>,
     buildContractHeaderTableXml(context),
     buildParagraphXml(context.title, { align: 'center', bold: true, underline: true, size: 32, spacingAfter: 220, keepWithNext: true }),
     ...renderContractBlocksToDocxXml(context.blocks, context.snapshot),
-    buildContractFooterXml(context),
     sectPr,
   ].join('');
   zip.file('word/document.xml', buildDocumentXml(bodyXml));
@@ -274,6 +273,13 @@ function wrapContractContent(context: LeaseContractDocumentContext) {
       lines.push({ text: '', kind: 'blank' });
       continue;
     }
+    if (looksLikeSignatureBlock(block.lines)) {
+      lines.push({ text: `LE PRENEUR${' '.repeat(28)}LE BAILLEUR`, kind: 'signature' });
+      for (let index = 0; index < 8; index += 1) {
+        lines.push({ text: '', kind: 'blank' });
+      }
+      continue;
+    }
     block.lines.forEach((line) => {
       const wrapped = wrapLine(line.trim(), PDF_MAX_CHARS);
       wrapped.forEach((entry) => {
@@ -295,13 +301,11 @@ function buildLeaseContractHtmlFromContext(context: LeaseContractDocumentContext
   const headerHtml = context.headerRows.length
     ? `<section class="contract-header">${logoHtml}<div class="contract-header-grid">${context.headerRows.map((row) => `<div class="contract-header-item"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong></div>`).join('')}</div></section>`
     : '';
-  const footerHtml = `<footer class="contract-footer"><span>${escapeHtml(context.footer.companyName)}</span>${context.footer.contractNumber ? `<span>Contrat ${escapeHtml(context.footer.contractNumber)}</span>` : ''}${context.footer.generatedAt ? `<span>Généré le ${escapeHtml(context.footer.generatedAt)}</span>` : ''}</footer>`;
   return [
     '<article class="lease-contract-preview contract-document">',
     headerHtml,
     `<header class="contract-title-wrap"><h1 class="contract-title">${escapeHtml(context.title)}</h1></header>`,
     ...renderContractBlocksToHtml(context.blocks, context.snapshot),
-    footerHtml,
     '</article>',
   ].join('');
 }
@@ -331,11 +335,7 @@ function looksLikeSignatureBlock(lines: string[]) {
 }
 
 function renderSignatureHtml(snapshot: Record<string, unknown>) {
-  const bailleur = (snapshot.bailleur ?? {}) as Record<string, unknown>;
-  const locataire = (snapshot.locataire ?? {}) as Record<string, unknown>;
-  const preneur = cleanText(locataire.signature_nom ?? locataire.nom_complet ?? locataire.raison_sociale, 'LE PRENEUR');
-  const bailleurName = cleanText(bailleur.signature_nom ?? bailleur.representant_nom ?? bailleur.raison_sociale, 'LE BAILLEUR');
-  return `<section class="contract-signatures"><table class="contract-signature-table"><tbody><tr><th>LE PRENEUR</th><th>LE BAILLEUR</th></tr><tr><td><strong>${escapeHtml(preneur)}</strong></td><td><strong>${escapeHtml(bailleurName)}</strong></td></tr><tr><td><span>Signature : ____________________</span></td><td><span>Signature : ____________________</span></td></tr></tbody></table></section>`;
+  return `<section class="contract-signatures"><table class="contract-signature-table"><tbody><tr><th>LE PRENEUR</th><th>LE BAILLEUR</th></tr><tr><td><div class="contract-signature-space"></div></td><td><div class="contract-signature-space"></div></td></tr></tbody></table></section>`;
 }
 
 function renderContractBlocksToDocxXml(blocks: ContractBlock[], snapshot: Record<string, unknown>) {
@@ -421,43 +421,38 @@ function buildTableXml(rows: Array<[string, string]>) {
 }
 
 function buildSignatureTableXml(snapshot: Record<string, unknown>) {
-  const bailleur = (snapshot.bailleur ?? {}) as Record<string, unknown>;
-  const locataire = (snapshot.locataire ?? {}) as Record<string, unknown>;
-  const preneur = cleanText(locataire.signature_nom ?? locataire.nom_complet ?? locataire.raison_sociale, ' ');
-  const bailleurName = cleanText(bailleur.signature_nom ?? bailleur.representant_nom ?? bailleur.raison_sociale, ' ');
   return `
     <w:tbl>
       <w:tblPr>
         <w:tblW w:w="0" w:type="auto"/>
         <w:tblLayout w:type="fixed"/>
         <w:tblBorders>
-          <w:top w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
-          <w:left w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
-          <w:bottom w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
-          <w:right w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
-          <w:insideH w:val="single" w:sz="6" w:space="0" w:color="9aa7b1"/>
-          <w:insideV w:val="single" w:sz="6" w:space="0" w:color="9aa7b1"/>
+          <w:top w:val="nil"/>
+          <w:left w:val="nil"/>
+          <w:bottom w:val="nil"/>
+          <w:right w:val="nil"/>
+          <w:insideH w:val="nil"/>
+          <w:insideV w:val="nil"/>
         </w:tblBorders>
-        <w:tblLook w:firstRow="1" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/>
+        <w:tblLook w:firstRow="0" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:noHBand="1" w:noVBand="1"/>
       </w:tblPr>
       <w:tblGrid><w:gridCol w:w="4500"/><w:gridCol w:w="4500"/></w:tblGrid>
       <w:tr>
-        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('LE PRENEUR', true)}</w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('LE BAILLEUR', true)}</w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('LE PRENEUR', true, { align: 'center', spacingAfter: 80 })}</w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('LE BAILLEUR', true, { align: 'center', spacingAfter: 80 })}</w:tc>
       </w:tr>
       <w:tr>
-        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml(preneur || ' ', false)}</w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml(bailleurName || ' ', false)}</w:tc>
-      </w:tr>
-      <w:tr>
-        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('Signature : ______________', false)}</w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('Signature : ______________', false)}</w:tc>
+        <w:trPr><w:trHeight w:val="3200" w:hRule="atLeast"/></w:trPr>
+        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml(' ', false, { spacingAfter: 150 })}</w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml(' ', false, { spacingAfter: 150 })}</w:tc>
       </w:tr>
     </w:tbl>`;
 }
 
-function buildTableCellParagraphXml(text: string, bold = false) {
-  return `<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="276" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>${bold ? '<w:b/>' : ''}<w:sz w:val="22"/></w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
+function buildTableCellParagraphXml(text: string, bold = false, options: { align?: 'left' | 'center' | 'right' | 'both'; spacingAfter?: number } = {}) {
+  const align = options.align ?? 'left';
+  const spacingAfter = options.spacingAfter ?? 0;
+  return `<w:p><w:pPr><w:jc w:val="${align}"/><w:spacing w:before="0" w:after="${spacingAfter}" w:line="276" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>${bold ? '<w:b/>' : ''}<w:sz w:val="22"/></w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
 }
 
 function buildDocumentXml(bodyXml: string) {
@@ -573,8 +568,8 @@ function buildPdfPageStream(lines: PdfLine[], pageNumber: number, totalPages: nu
   const commands: string[] = ['BT', '/F1 11 Tf', `${PDF_MARGIN_X} ${PDF_PAGE_HEIGHT - PDF_MARGIN_TOP} Td`, `${PDF_LINE_HEIGHT} TL`];
   lines.forEach((line, index) => {
     const kind = line.kind;
-    const fontSize = kind === 'title' ? 14 : kind === 'article' ? 12 : kind === 'table' ? 10 : 11;
-    const fontName = kind === 'title' || kind === 'article' ? '/F2' : kind === 'table' ? '/F3' : '/F1';
+    const fontSize = kind === 'title' ? 14 : kind === 'article' ? 12 : kind === 'table' ? 10 : kind === 'signature' ? 11 : 11;
+    const fontName = kind === 'title' || kind === 'article' || kind === 'signature' ? '/F2' : kind === 'table' ? '/F3' : '/F1';
     if (index > 0) commands.push('T*');
     commands.push(`${fontName} ${fontSize} Tf`);
     commands.push(`(${escapePdfString(toWinAnsi(line.text))}) Tj`);
