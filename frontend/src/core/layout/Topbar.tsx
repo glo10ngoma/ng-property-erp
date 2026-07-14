@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, KeyRound, LogOut, UserCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
@@ -12,8 +12,34 @@ export function Topbar() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
+
+  function closeMenu() {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setOpen(false);
+  }
+
+  function openMenu() {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setOpen(true);
+  }
+
+  function closeMenuWithDelay() {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+    }
+    closeTimerRef.current = window.setTimeout(() => setOpen(false), 180);
+  }
 
   function handleLogout() {
+    closeMenu();
     logout();
     navigate('/login', { replace: true });
   }
@@ -36,7 +62,7 @@ export function Topbar() {
     try {
       const response = await changePassword({ currentPassword, newPassword, confirmPassword });
       setPasswordSuccess(response.message);
-      setOpen(false);
+      closeMenu();
       window.setTimeout(() => {
         logout();
         navigate('/login', { replace: true });
@@ -47,6 +73,33 @@ export function Topbar() {
       setPasswordSubmitting(false);
     }
   }
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        closeMenu();
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu();
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <header className="topbar">
@@ -60,8 +113,18 @@ export function Topbar() {
       </div>
 
       {user ? (
-        <div className="user-menu">
-          <button className="operator" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu">
+        <div className="user-menu" ref={menuRef} onMouseEnter={openMenu} onMouseLeave={closeMenuWithDelay}>
+          <button
+            className="operator"
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') closeMenu();
+            }}
+            aria-expanded={open}
+            aria-haspopup="menu"
+            aria-controls="user-menu-panel"
+          >
             <UserCircle size={18} />
             <span>
               <strong>{user.name}</strong>
@@ -70,14 +133,16 @@ export function Topbar() {
             <ChevronDown size={16} />
           </button>
           {open ? (
-            <div className="user-menu-panel" role="menu">
-              <button className="menu-item" onClick={() => { setOpen(false); navigate('/settings'); }}>
+            <div id="user-menu-panel" className="user-menu-panel" role="menu" onMouseEnter={openMenu} onMouseLeave={closeMenuWithDelay}>
+              <button className="menu-item" type="button" role="menuitem" onClick={() => { closeMenu(); navigate('/profile'); }}>
                 <UserCircle size={16} /> Mon profil
               </button>
               <button
                 className="menu-item"
+                type="button"
+                role="menuitem"
                 onClick={() => {
-                  setOpen(false);
+                  closeMenu();
                   setPasswordError('');
                   setPasswordSuccess('');
                   setChangingPassword(true);
@@ -85,7 +150,7 @@ export function Topbar() {
               >
                 <KeyRound size={16} /> Changer mon mot de passe
               </button>
-              <button className="menu-item danger" onClick={handleLogout}>
+              <button className="menu-item danger" type="button" role="menuitem" onClick={handleLogout}>
                 <LogOut size={16} /> Déconnexion
               </button>
             </div>

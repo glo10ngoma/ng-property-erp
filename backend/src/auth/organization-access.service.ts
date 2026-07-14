@@ -12,6 +12,7 @@ type AppUserRow = {
   platform_role: string | null;
   status: string;
   organization_id: number | null;
+  created_at: string | null;
 };
 
 type MembershipRow = {
@@ -75,12 +76,15 @@ export class OrganizationAccessService {
       id: context.sub,
       name: [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim() || context.email,
       email: context.email,
+      status: user?.status ?? 'ACTIVE',
       role: context.role,
       platform_role: context.platform_role,
       organization_role: context.organization_role,
       organization_id: context.organization_id,
       organization_name: context.organization_name,
       organization_slug: context.organization_slug,
+      created_at: user?.created_at ?? null,
+      last_login_at: null,
       organizations: context.organizations,
       permissions: context.permissions,
     };
@@ -88,7 +92,7 @@ export class OrganizationAccessService {
 
   private async findUser(userId: number) {
     const { rows } = await this.db.query<AppUserRow>(
-      `SELECT id, first_name, last_name, email, role, platform_role, status, organization_id
+      `SELECT id, first_name, last_name, email, role, platform_role, status, organization_id, created_at
        FROM app_users
        WHERE id = $1 AND deleted_at IS NULL
        LIMIT 1`,

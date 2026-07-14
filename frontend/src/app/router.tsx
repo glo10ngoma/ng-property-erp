@@ -36,6 +36,7 @@ import { LeaseDetail } from '../pages/LeaseDetail';
 import { LeaseNew } from '../pages/LeaseNew';
 import { Login } from '../pages/Login';
 import { PaymentDetail } from '../pages/PaymentDetail';
+import { ProfilePage } from '../pages/ProfilePage';
 import { SelectOrganization } from '../pages/SelectOrganization';
 import { BuildingStatementPage, TenantStatementPage, UnitStatementPage } from '../pages/StatementPage';
 import { StockDetailPage } from '../pages/StockDetailPage';
@@ -100,6 +101,7 @@ export function AppRouter() {
           <Route path="/invoices/:id/print" element={guarded('invoices.read', <InvoicePrintPage />)} />
           <Route path="/payments" element={guarded('payments.read', <PaymentsPage />)} />
           <Route path="/payments/:id" element={guarded('payments.read', <PaymentDetail />)} />
+          <Route path="/profile" element={<ProfilePage />} />
           <Route path="/cash" element={guarded('cash.read', <CashPage />)} />
           <Route path="/cash/:id" element={guarded('cash.read', <CashDetailPage />)} />
           <Route path="/staff" element={guarded('staff.read', <StaffPage />)} />

@@ -16,12 +16,15 @@ export type AuthUser = {
   id: number;
   name: string;
   email: string;
+  status?: string;
   role: string;
   platform_role?: string | null;
   organization_role?: string | null;
   organization_id?: number;
   organization_name?: string;
   organization_slug?: string;
+  created_at?: string | null;
+  last_login_at?: string | null;
   organizations?: Array<{
     organization_id: number;
     organization_name: string;
