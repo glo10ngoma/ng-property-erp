@@ -1,49 +1,20 @@
-import { KeyRound, RefreshCw, ShieldCheck, UserCircle } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { KeyRound, ShieldCheck, UserCircle } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { appConfig } from '../app/config';
 import { useAuth } from '../auth';
-import { LoadingState, Modal, PageHeader, StatusBadge } from '../components';
-import type { AuthUser } from '../core/api/api.types';
-import { changePassword as changePasswordRequest, me as meRequest } from '../core/auth/auth.service';
+import { Modal, PageHeader, StatusBadge } from '../components';
+import { changePassword as changePasswordRequest } from '../core/auth/auth.service';
 
 export function ProfilePage() {
-  const { user, refreshUser, logout } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [profile, setProfile] = useState<AuthUser | null>(user);
-  const [loading, setLoading] = useState(true);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const initialUserRef = useRef(user);
 
-  useEffect(() => {
-    let active = true;
-
-    async function load() {
-      setLoading(true);
-      setError('');
-      try {
-        const response = await meRequest();
-        if (!active) return;
-        setProfile(response);
-        await refreshUser();
-      } catch (err) {
-        if (!active) return;
-        setProfile(initialUserRef.current);
-        setError(extractMessage(err, 'Impossible de charger le profil.'));
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-
-    void load();
-    return () => {
-      active = false;
-    };
-  }, [refreshUser]);
-
+  const profile = user;
   const organizations = useMemo(() => profile?.organizations ?? [], [profile]);
 
   async function submitPassword(formData: FormData) {
@@ -76,17 +47,15 @@ export function ProfilePage() {
         title="Mon profil"
         action={
           <button className="secondary" type="button" onClick={() => navigate(appConfig.defaultRoute)}>
-            <RefreshCw size={16} />
             Retour à l'application
           </button>
         }
       />
 
-      {loading ? <LoadingState message="Chargement du profil..." /> : null}
       {error ? <div className="error-message">{error}</div> : null}
       {success ? <div className="success-message">{success}</div> : null}
 
-      {!loading && profile ? (
+      {profile ? (
         <div className="profile-grid">
           <div className="detail-section report-section">
             <h4>
