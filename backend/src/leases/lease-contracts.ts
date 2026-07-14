@@ -206,9 +206,14 @@ function buildLeaseContractDocumentContext(content: string, variables: Record<st
     title,
     headerRows: buildHeaderRows(variables),
     footer: buildFooterContext(variables),
-    blocks: blocks.length && isTitleBlock(blocks[0]) ? blocks.slice(1) : blocks,
+    blocks: normalizeContractBlocks(blocks),
     snapshot: variables,
   };
+}
+
+function normalizeContractBlocks(blocks: ContractBlock[]) {
+  const withoutTitle = blocks.length && isTitleBlock(blocks[0]) ? blocks.slice(1) : blocks;
+  return withoutTitle.filter((block) => block.type !== 'text' || !looksLikeSignatureBlock(block.lines));
 }
 
 function buildHeaderRows(variables: Record<string, unknown>): LeaseContractHeaderRow[] {
@@ -273,13 +278,6 @@ function wrapContractContent(context: LeaseContractDocumentContext) {
       lines.push({ text: '', kind: 'blank' });
       continue;
     }
-    if (looksLikeSignatureBlock(block.lines)) {
-      lines.push({ text: `LE PRENEUR${' '.repeat(28)}LE BAILLEUR`, kind: 'signature' });
-      for (let index = 0; index < 8; index += 1) {
-        lines.push({ text: '', kind: 'blank' });
-      }
-      continue;
-    }
     block.lines.forEach((line) => {
       const wrapped = wrapLine(line.trim(), PDF_MAX_CHARS);
       wrapped.forEach((entry) => {
@@ -290,6 +288,10 @@ function wrapContractContent(context: LeaseContractDocumentContext) {
       });
     });
   }
+  if (lines.length && lines[lines.length - 1].kind !== 'blank') {
+    lines.push({ text: '', kind: 'blank' });
+  }
+  lines.push({ text: 'SIGNATURE_BLOCK', kind: 'signature' });
   while (lines.length && lines[lines.length - 1].kind === 'blank') lines.pop();
   return lines;
 }
@@ -306,6 +308,7 @@ function buildLeaseContractHtmlFromContext(context: LeaseContractDocumentContext
     headerHtml,
     `<header class="contract-title-wrap"><h1 class="contract-title">${escapeHtml(context.title)}</h1></header>`,
     ...renderContractBlocksToHtml(context.blocks, context.snapshot),
+    renderSignatureHtml(),
     '</article>',
   ].join('');
 }
@@ -317,9 +320,6 @@ function renderContractBlocksToHtml(blocks: ContractBlock[], snapshot: Record<st
     }
     const lines = block.lines;
     if (!lines.length) return '';
-    if (looksLikeSignatureBlock(lines)) {
-      return renderSignatureHtml(snapshot);
-    }
     const first = escapeHtml(lines[0]);
     if (first.toUpperCase().startsWith('ARTICLE ')) {
       return `<section class="contract-article"><h3>${first}</h3>${lines.slice(1).map((line) => `<p>${escapeHtml(line)}</p>`).join('')}</section>`;
@@ -334,8 +334,8 @@ function looksLikeSignatureBlock(lines: string[]) {
   return joined.includes('LE PRENEUR') && joined.includes('LE BAILLEUR');
 }
 
-function renderSignatureHtml(snapshot: Record<string, unknown>) {
-  return `<section class="contract-signatures"><table class="contract-signature-table"><tbody><tr><th>LE PRENEUR</th><th>LE BAILLEUR</th></tr><tr><td><div class="contract-signature-space"></div></td><td><div class="contract-signature-space"></div></td></tr></tbody></table></section>`;
+function renderSignatureHtml() {
+  return `<section class="lease-signatures"><table class="lease-signature-table"><tbody><tr><th>LE PRENEUR</th><th>LE BAILLEUR</th></tr><tr><td><div class="lease-signature-space"></div></td><td><div class="lease-signature-space"></div></td></tr></tbody></table></section>`;
 }
 
 function renderContractBlocksToDocxXml(blocks: ContractBlock[], snapshot: Record<string, unknown>) {
@@ -345,15 +345,12 @@ function renderContractBlocksToDocxXml(blocks: ContractBlock[], snapshot: Record
     }
     const lines = block.lines;
     if (!lines.length) return '';
-    if (looksLikeSignatureBlock(lines)) {
-      return buildSignatureTableXml(snapshot);
-    }
     const first = lines[0];
     if (/^ARTICLE\s+\d+/i.test(first)) {
       return [buildParagraphXml(first, { bold: true, underline: true, size: 22, spacingBefore: 160, spacingAfter: 80 }), ...lines.slice(1).map((line) => buildParagraphXml(line, { spacingAfter: 0 }))].join('');
     }
     return lines.map((line, lineIndex) => buildParagraphXml(line, { indentFirstLine: index === 0 && lineIndex === 0 ? 720 : 0, spacingAfter: 0 })).join('');
-  }).filter(Boolean);
+  }).filter(Boolean).join('') + buildSignatureTableXml();
 }
 
 function buildContractHeaderTableXml(context: LeaseContractDocumentContext) {
@@ -420,7 +417,7 @@ function buildTableXml(rows: Array<[string, string]>) {
     </w:tbl>`;
 }
 
-function buildSignatureTableXml(snapshot: Record<string, unknown>) {
+function buildSignatureTableXml() {
   return `
     <w:tbl>
       <w:tblPr>
@@ -566,15 +563,37 @@ function buildPdfDocument(pages: PdfLine[][]) {
 
 function buildPdfPageStream(lines: PdfLine[], pageNumber: number, totalPages: number) {
   const commands: string[] = ['BT', '/F1 11 Tf', `${PDF_MARGIN_X} ${PDF_PAGE_HEIGHT - PDF_MARGIN_TOP} Td`, `${PDF_LINE_HEIGHT} TL`];
+  let textModeOpen = true;
   lines.forEach((line, index) => {
     const kind = line.kind;
     const fontSize = kind === 'title' ? 14 : kind === 'article' ? 12 : kind === 'table' ? 10 : kind === 'signature' ? 11 : 11;
     const fontName = kind === 'title' || kind === 'article' || kind === 'signature' ? '/F2' : kind === 'table' ? '/F3' : '/F1';
+    if (kind === 'signature') {
+      if (textModeOpen) {
+        commands.push('ET');
+        textModeOpen = false;
+      }
+      const tableX = PDF_MARGIN_X;
+      const tableWidth = PDF_PAGE_WIDTH - PDF_MARGIN_X * 2;
+      const tableHeight = 108;
+      const tableY = Math.max(PDF_MARGIN_BOTTOM + 28, PDF_PAGE_HEIGHT - PDF_MARGIN_TOP - (index * PDF_LINE_HEIGHT) - tableHeight + 24);
+      const halfWidth = tableWidth / 2;
+      commands.push('q');
+      commands.push('1 w');
+      commands.push(`${tableX} ${tableY} ${tableWidth} ${tableHeight} re S`);
+      commands.push(`${tableX + halfWidth} ${tableY} m ${tableX + halfWidth} ${tableY + tableHeight} l S`);
+      commands.push(`BT /F2 11 Tf ${tableX + 24} ${tableY + tableHeight - 24} Td (LE PRENEUR) Tj ET`);
+      commands.push(`BT /F2 11 Tf ${tableX + halfWidth + 24} ${tableY + tableHeight - 24} Td (LE BAILLEUR) Tj ET`);
+      commands.push('Q');
+      return;
+    }
     if (index > 0) commands.push('T*');
     commands.push(`${fontName} ${fontSize} Tf`);
     commands.push(`(${escapePdfString(toWinAnsi(line.text))}) Tj`);
   });
-  commands.push('ET');
+  if (textModeOpen) {
+    commands.push('ET');
+  }
   commands.push(`BT /F1 9 Tf ${PDF_MARGIN_X} ${PDF_MARGIN_BOTTOM - 14} Td (${escapePdfString(toWinAnsi(`Page ${pageNumber}/${totalPages}`))}) Tj ET`);
   return commands.join('\n');
 }

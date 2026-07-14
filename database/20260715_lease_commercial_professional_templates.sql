@@ -1,4 +1,4 @@
-BEGIN;
+﻿BEGIN;
 
 ALTER TABLE leases
   ADD COLUMN IF NOT EXISTS lease_activity_description TEXT;
@@ -23,132 +23,128 @@ INSERT INTO lease_contract_templates (
 SELECT
   organization_id,
   CASE
-    WHEN slug = 'ng-property-sandbox' THEN 'Contrat de bail à usage commercial - SANDBOX'
-    WHEN slug = 'magic-construction' THEN 'Contrat de bail à usage commercial - MAGIC CONSTRUCTION'
-    ELSE 'Contrat de bail à usage commercial'
+    WHEN slug = 'ng-property-sandbox' THEN 'Contrat de bail Ã  usage commercial - SANDBOX'
+    WHEN slug = 'magic-construction' THEN 'Contrat de bail Ã  usage commercial - MAGIC CONSTRUCTION'
+    ELSE 'Contrat de bail Ã  usage commercial'
   END,
   'LEASE_COMMERCIAL',
   1,
   'COMMERCIAL',
-  $$CONTRAT DE BAIL À USAGE COMMERCIAL
+  $$CONTRAT DE BAIL Ã€ USAGE COMMERCIAL
 
-ENTRE LES SOUSSIGNÉS :
+ENTRE LES SOUSSIGNÃ‰S :
 
-{{bailleur.raison_sociale}}{{bailleur.sigle_phrase}}, {{bailleur.forme_juridique_phrase}}immatriculée au Registre du Commerce et du Crédit Mobilier sous le numéro {{bailleur.rccm}}, enregistrée à l’Identification Nationale sous le numéro {{bailleur.identification_nationale}}, dont le siège social est établi à {{bailleur.adresse_complete}}, représentée par {{bailleur.representant_nom}}, agissant en qualité de {{bailleur.representant_fonction}}, ci-après dénommée « le Bailleur » ;
+{{bailleur.raison_sociale}}{{bailleur.sigle_phrase}}, {{bailleur.forme_juridique_phrase}}immatriculÃ©e au Registre du Commerce et du CrÃ©dit Mobilier sous le numÃ©ro {{bailleur.rccm}}, enregistrÃ©e Ã  lâ€™Identification Nationale sous le numÃ©ro {{bailleur.identification_nationale}}, dont le siÃ¨ge social est Ã©tabli Ã  {{bailleur.adresse_complete}}, reprÃ©sentÃ©e par {{bailleur.representant_nom}}, agissant en qualitÃ© de {{bailleur.representant_fonction}}, ci-aprÃ¨s dÃ©nommÃ©e Â« le Bailleur Â» ;
 
-D’une part,
+Dâ€™une part,
 
 {{locataire.paragraphe_identification}}
 
-Ci-après dénommé(e) « le Preneur » ;
+Ci-aprÃ¨s dÃ©nommÃ©(e) Â« le Preneur Â» ;
 
-D’autre part,
+Dâ€™autre part,
 
-Le Bailleur et le Preneur étant ci-après collectivement dénommés « les Parties ».
+Le Bailleur et le Preneur Ã©tant ci-aprÃ¨s collectivement dÃ©nommÃ©s Â« les Parties Â».
 
-PRÉCISIONS SUR LE BIEN LOUÉ
+PRÃ‰CISIONS SUR LE BIEN LOUÃ‰
 
 Type | Local commercial
-Unité | {{bien.numero_unite}}
+UnitÃ© | {{bien.numero_unite}}
 Immeuble | {{bien.immeuble}}
 Adresse | {{bien.adresse_complete}}
 Destination commerciale | {{bail.activite_destination}}
-Date de début du bail | {{bail.date_debut}}
+Date de dÃ©but du bail | {{bail.date_debut}}
 
-ARTICLE 01 — DESCRIPTION DES LIEUX
+ARTICLE 01 â€” DESCRIPTION DES LIEUX
 
-Le Bailleur donne à bail au Preneur, qui accepte, l’unité {{bien.numero_unite}}, située dans l’immeuble {{bien.immeuble}}, à l’adresse suivante : {{bien.adresse_complete}}.
+Le Bailleur donne Ã  bail au Preneur, qui accepte, lâ€™unitÃ© {{bien.numero_unite}}, situÃ©e dans lâ€™immeuble {{bien.immeuble}}, Ã  lâ€™adresse suivante : {{bien.adresse_complete}}.
 
-Le Preneur reconnaît avoir visité les lieux loués et les connaître parfaitement.
+Le Preneur reconnaÃ®t avoir visitÃ© les lieux louÃ©s et les connaÃ®tre parfaitement.
 
-Un état des lieux contradictoire sera établi avant la remise des clés au Preneur.
+Un Ã©tat des lieux contradictoire sera Ã©tabli avant la remise des clÃ©s au Preneur.
 
 {{bail.destination_phrase}}
 
-ARTICLE 02 — DURÉE DU BAIL ET LOYER
+ARTICLE 02 â€” DURÃ‰E DU BAIL ET LOYER
 
-a) Durée du bail
+a) DurÃ©e du bail
 
-Le présent contrat est conclu pour une durée de {{bail.duree_texte}}, prenant effet le {{bail.date_debut}} et arrivant à échéance le {{bail.date_fin}}.
+    Le prÃ©sent contrat est conclu pour une durÃ©e de {{bail.duree_texte}}, prenant effet le {{bail.date_debut}} et arrivant Ã  Ã©chÃ©ance le {{bail.date_fin}}.
 
-Il peut être renouvelé avec l’accord écrit du Bailleur.
+    Il peut Ãªtre renouvelÃ© avec lâ€™accord Ã©crit du Bailleur.
 
-Chacune des Parties peut y mettre fin moyennant un préavis écrit de {{bail.preavis_mois}} mois ou par accord mutuel.
+    Chacune des Parties peut y mettre fin moyennant un prÃ©avis Ã©crit de {{bail.preavis_mois}} mois ou par accord mutuel.
 
 b) Composition du loyer mensuel
 
-Le montant mensuel total dû par le Preneur s’élève à {{bail.loyer_total_formate}}, composé comme suit :
+    Le montant mensuel total dÃ» par le Preneur sâ€™Ã©lÃ¨ve Ã  {{bail.loyer_total_formate}}, composÃ© comme suit :
 
-- Loyer de base : {{bail.loyer_base_formate}}
-- Entretien et maintenance : {{bail.frais_entretien_formate}}
-- Frais de syndic : {{bail.frais_syndic_formate}}
-{{bail.autres_charges_ligne}}
+    - Loyer de base : {{bail.loyer_base_formate}}
+    - Entretien et maintenance : {{bail.frais_entretien_formate}}
+    - Frais de syndic : {{bail.frais_syndic_formate}}
+    {{bail.autres_charges_ligne}}
 
 c) Services compris
 
-Le montant convenu comprend les services communs assurés par le Bailleur selon les équipements de l’immeuble et les stipulations convenues entre les Parties.
+    Le montant convenu comprend les services communs assurÃ©s par le Bailleur selon les Ã©quipements de lâ€™immeuble et les stipulations convenues entre les Parties.
 
-d) Révision
+d) RÃ©vision
 
-Les Parties conviennent que les montants prévus au présent contrat peuvent être révisés par accord écrit, notamment en fonction des fluctuations économiques et des réalités du marché immobilier.
+Les Parties conviennent que les montants prÃ©vus au prÃ©sent contrat peuvent Ãªtre rÃ©visÃ©s par accord Ã©crit, notamment en fonction des fluctuations Ã©conomiques et des rÃ©alitÃ©s du marchÃ© immobilier.
 
-ARTICLE 03 — GARANTIE LOCATIVE ET PREMIER PAIEMENT
+ARTICLE 03 â€” GARANTIE LOCATIVE ET PREMIER PAIEMENT
 
-a) La garantie locative correspond à {{bail.garantie_nombre_mois}} mois de loyer de base, soit :
+a) La garantie locative correspond Ã  {{bail.garantie_nombre_mois}} mois de loyer de base, soit :
 
-{{bail.loyer_base_formate}} × {{bail.garantie_nombre_mois}} = {{bail.garantie_montant_formate}}.
+{{bail.loyer_base_formate}} Ã— {{bail.garantie_nombre_mois}} = {{bail.garantie_montant_formate}}.
 
-b) Le Preneur est tenu de verser la totalité de la garantie locative au Bailleur lors de la signature du présent contrat, contre quittance.
+b) Le Preneur est tenu de verser la totalitÃ© de la garantie locative au Bailleur lors de la signature du prÃ©sent contrat, contre quittance.
 
-c) La garantie locative ne produit aucun intérêt. Elle est remboursable à la fin du bail, après déduction des sommes restant dues au Bailleur.
+c) La garantie locative ne produit aucun intÃ©rÃªt. Elle est remboursable Ã  la fin du bail, aprÃ¨s dÃ©duction des sommes restant dues au Bailleur.
 
-ARTICLE 04 — IMPÔTS ET TAXES
+ARTICLE 04 â€” IMPÃ”TS ET TAXES
 
-Chaque Partie supporte les impôts, taxes et obligations légales mis à sa charge par la réglementation applicable.
+Chaque Partie supporte les impÃ´ts, taxes et obligations lÃ©gales mis Ã  sa charge par la rÃ©glementation applicable.
 
-ARTICLE 05 — DESTINATION COMMERCIALE, CESSION ET SOUS-LOCATION
+ARTICLE 05 â€” DESTINATION COMMERCIALE, CESSION ET SOUS-LOCATION
 
-Le Preneur exerce dans les lieux l’activité commerciale déclarée suivante : {{bail.activite_destination}}.
+Le Preneur exerce dans les lieux lâ€™activitÃ© commerciale dÃ©clarÃ©e suivante : {{bail.activite_destination}}.
 
-Toute modification substantielle de cette destination doit faire l’objet d’un accord écrit préalable du Bailleur.
+Toute modification substantielle de cette destination doit faire lâ€™objet dâ€™un accord Ã©crit prÃ©alable du Bailleur.
 
-La cession du bail, la sous-location totale ou partielle, ainsi que la mise à disposition des lieux à un tiers, sont interdites sans l’autorisation écrite préalable du Bailleur.
+La cession du bail, la sous-location totale ou partielle, ainsi que la mise Ã  disposition des lieux Ã  un tiers, sont interdites sans lâ€™autorisation Ã©crite prÃ©alable du Bailleur.
 
-ARTICLE 06 — ENTRETIEN, AMÉNAGEMENTS ET EXPLOITATION
+ARTICLE 06 â€” ENTRETIEN, AMÃ‰NAGEMENTS ET EXPLOITATION
 
-Le Preneur maintient les lieux loués, leurs aménagements et leurs accessoires en bon état d’entretien, de fonctionnement et de propreté.
+Le Preneur maintient les lieux louÃ©s, leurs amÃ©nagements et leurs accessoires en bon Ã©tat dâ€™entretien, de fonctionnement et de propretÃ©.
 
-Les travaux d’aménagement, d’enseigne, d’installation technique ou de transformation ne peuvent être exécutés sans autorisation écrite préalable du Bailleur.
+Les travaux dâ€™amÃ©nagement, dâ€™enseigne, dâ€™installation technique ou de transformation ne peuvent Ãªtre exÃ©cutÃ©s sans autorisation Ã©crite prÃ©alable du Bailleur.
 
-Le Preneur répond des dégradations causées par lui-même, son personnel, ses préposés, ses clients ou ses fournisseurs.
+Le Preneur rÃ©pond des dÃ©gradations causÃ©es par lui-mÃªme, son personnel, ses prÃ©posÃ©s, ses clients ou ses fournisseurs.
 
-ARTICLE 07 — ASSURANCE ET RESPONSABILITÉ
+ARTICLE 07 â€” ASSURANCE ET RESPONSABILITÃ‰
 
-Le Preneur souscrit les assurances nécessaires à l’exploitation de son activité et à la couverture des risques liés à son occupation des lieux.
+Le Preneur souscrit les assurances nÃ©cessaires Ã  lâ€™exploitation de son activitÃ© et Ã  la couverture des risques liÃ©s Ã  son occupation des lieux.
 
-ARTICLE 08 — NON-RESPECT DES CLAUSES
+ARTICLE 08 â€” NON-RESPECT DES CLAUSES
 
-En cas de non-respect des obligations du présent contrat, la Partie lésée peut mettre en demeure l’autre Partie d’y remédier, sans préjudice des droits et actions prévus par la loi.
+En cas de non-respect des obligations du prÃ©sent contrat, la Partie lÃ©sÃ©e peut mettre en demeure lâ€™autre Partie dâ€™y remÃ©dier, sans prÃ©judice des droits et actions prÃ©vus par la loi.
 
-ARTICLE 09 — MODIFICATION DU CONTRAT
+ARTICLE 09 â€” MODIFICATION DU CONTRAT
 
-Toute modification du présent contrat fait l’objet d’un avenant écrit signé par les deux Parties.
+Toute modification du prÃ©sent contrat fait lâ€™objet dâ€™un avenant Ã©crit signÃ© par les deux Parties.
 
-ARTICLE 10 — RÈGLEMENT DES LITIGES ET DISPOSITIONS FINALES
+ARTICLE 10 â€” RÃˆGLEMENT DES LITIGES ET DISPOSITIONS FINALES
 
-Les Parties s’engagent à rechercher un règlement amiable de tout différend relatif à l’exécution ou à l’interprétation du présent contrat avant toute saisine judiciaire.
+Les Parties sâ€™engagent Ã  rechercher un rÃ¨glement amiable de tout diffÃ©rend relatif Ã  lâ€™exÃ©cution ou Ã  lâ€™interprÃ©tation du prÃ©sent contrat avant toute saisine judiciaire.
 
-À défaut de règlement amiable, les juridictions compétentes de Kinshasa sont seules compétentes, sous réserve des règles légales de compétence applicables.
+Ã€ dÃ©faut de rÃ¨glement amiable, les juridictions compÃ©tentes de Kinshasa sont seules compÃ©tentes, sous rÃ©serve des rÃ¨gles lÃ©gales de compÃ©tence applicables.
 
-Le présent contrat est établi à {{bail.lieu_signature}}, en deux exemplaires originaux, un pour chacune des Parties.
+Le prÃ©sent contrat est Ã©tabli Ã  {{bail.lieu_signature}}, en deux exemplaires originaux, un pour chacune des Parties.
 
-Fait à {{bail.lieu_signature}}, le {{bail.date_signature}}.
+Fait Ã  {{bail.lieu_signature}}, le {{bail.date_signature}}.
 
-LE PRENEUR                                      LE BAILLEUR
-
-Nom : ____________________                      Nom : ____________________
-
-Signature : ______________                     Signature : ______________$$,
+$$,
   TRUE,
   1
 FROM target_orgs
@@ -181,124 +177,120 @@ INSERT INTO lease_contract_templates (
 SELECT
   organization_id,
   CASE
-    WHEN slug = 'ng-property-sandbox' THEN 'Contrat de bail à usage professionnel - SANDBOX'
-    WHEN slug = 'magic-construction' THEN 'Contrat de bail à usage professionnel - MAGIC CONSTRUCTION'
-    ELSE 'Contrat de bail à usage professionnel'
+    WHEN slug = 'ng-property-sandbox' THEN 'Contrat de bail Ã  usage professionnel - SANDBOX'
+    WHEN slug = 'magic-construction' THEN 'Contrat de bail Ã  usage professionnel - MAGIC CONSTRUCTION'
+    ELSE 'Contrat de bail Ã  usage professionnel'
   END,
   'LEASE_PROFESSIONAL',
   1,
   'PROFESSIONAL',
-  $$CONTRAT DE BAIL À USAGE PROFESSIONNEL
+  $$CONTRAT DE BAIL Ã€ USAGE PROFESSIONNEL
 
-ENTRE LES SOUSSIGNÉS :
+ENTRE LES SOUSSIGNÃ‰S :
 
-{{bailleur.raison_sociale}}{{bailleur.sigle_phrase}}, {{bailleur.forme_juridique_phrase}}immatriculée au Registre du Commerce et du Crédit Mobilier sous le numéro {{bailleur.rccm}}, enregistrée à l’Identification Nationale sous le numéro {{bailleur.identification_nationale}}, dont le siège social est établi à {{bailleur.adresse_complete}}, représentée par {{bailleur.representant_nom}}, agissant en qualité de {{bailleur.representant_fonction}}, ci-après dénommée « le Bailleur » ;
+{{bailleur.raison_sociale}}{{bailleur.sigle_phrase}}, {{bailleur.forme_juridique_phrase}}immatriculÃ©e au Registre du Commerce et du CrÃ©dit Mobilier sous le numÃ©ro {{bailleur.rccm}}, enregistrÃ©e Ã  lâ€™Identification Nationale sous le numÃ©ro {{bailleur.identification_nationale}}, dont le siÃ¨ge social est Ã©tabli Ã  {{bailleur.adresse_complete}}, reprÃ©sentÃ©e par {{bailleur.representant_nom}}, agissant en qualitÃ© de {{bailleur.representant_fonction}}, ci-aprÃ¨s dÃ©nommÃ©e Â« le Bailleur Â» ;
 
-D’une part,
+Dâ€™une part,
 
 {{locataire.paragraphe_identification}}
 
-Ci-après dénommé(e) « le Preneur » ;
+Ci-aprÃ¨s dÃ©nommÃ©(e) Â« le Preneur Â» ;
 
-D’autre part,
+Dâ€™autre part,
 
-Le Bailleur et le Preneur étant ci-après collectivement dénommés « les Parties ».
+Le Bailleur et le Preneur Ã©tant ci-aprÃ¨s collectivement dÃ©nommÃ©s Â« les Parties Â».
 
-PRÉCISIONS SUR LE BIEN LOUÉ
+PRÃ‰CISIONS SUR LE BIEN LOUÃ‰
 
 Type | Local professionnel
-Unité | {{bien.numero_unite}}
+UnitÃ© | {{bien.numero_unite}}
 Immeuble | {{bien.immeuble}}
 Adresse | {{bien.adresse_complete}}
-Activité professionnelle | {{bail.activite_destination}}
-Date de début du bail | {{bail.date_debut}}
+ActivitÃ© professionnelle | {{bail.activite_destination}}
+Date de dÃ©but du bail | {{bail.date_debut}}
 
-ARTICLE 01 — DESCRIPTION DES LIEUX
+ARTICLE 01 â€” DESCRIPTION DES LIEUX
 
-Le Bailleur donne à bail au Preneur, qui accepte, l’unité {{bien.numero_unite}}, située dans l’immeuble {{bien.immeuble}}, à l’adresse suivante : {{bien.adresse_complete}}.
+Le Bailleur donne Ã  bail au Preneur, qui accepte, lâ€™unitÃ© {{bien.numero_unite}}, situÃ©e dans lâ€™immeuble {{bien.immeuble}}, Ã  lâ€™adresse suivante : {{bien.adresse_complete}}.
 
-Le Preneur reconnaît avoir visité les lieux loués et les connaître parfaitement.
+Le Preneur reconnaÃ®t avoir visitÃ© les lieux louÃ©s et les connaÃ®tre parfaitement.
 
-Un état des lieux contradictoire sera établi avant la remise des clés au Preneur.
+Un Ã©tat des lieux contradictoire sera Ã©tabli avant la remise des clÃ©s au Preneur.
 
 {{bail.destination_phrase}}
 
-ARTICLE 02 — DURÉE DU BAIL ET LOYER
+ARTICLE 02 â€” DURÃ‰E DU BAIL ET LOYER
 
-a) Durée du bail
+a) DurÃ©e du bail
 
-Le présent contrat est conclu pour une durée de {{bail.duree_texte}}, prenant effet le {{bail.date_debut}} et arrivant à échéance le {{bail.date_fin}}.
+Le prÃ©sent contrat est conclu pour une durÃ©e de {{bail.duree_texte}}, prenant effet le {{bail.date_debut}} et arrivant Ã  Ã©chÃ©ance le {{bail.date_fin}}.
 
-Il peut être renouvelé avec l’accord écrit du Bailleur.
+Il peut Ãªtre renouvelÃ© avec lâ€™accord Ã©crit du Bailleur.
 
-Chacune des Parties peut y mettre fin moyennant un préavis écrit de {{bail.preavis_mois}} mois ou par accord mutuel.
+Chacune des Parties peut y mettre fin moyennant un prÃ©avis Ã©crit de {{bail.preavis_mois}} mois ou par accord mutuel.
 
 b) Composition du loyer mensuel
 
-Le montant mensuel total dû par le Preneur s’élève à {{bail.loyer_total_formate}}, composé comme suit :
+Le montant mensuel total dÃ» par le Preneur sâ€™Ã©lÃ¨ve Ã  {{bail.loyer_total_formate}}, composÃ© comme suit :
 
 - Loyer de base : {{bail.loyer_base_formate}}
 - Entretien et maintenance : {{bail.frais_entretien_formate}}
 - Frais de syndic : {{bail.frais_syndic_formate}}
 {{bail.autres_charges_ligne}}
 
-ARTICLE 03 — GARANTIE LOCATIVE ET PREMIER PAIEMENT
+ARTICLE 03 â€” GARANTIE LOCATIVE ET PREMIER PAIEMENT
 
-a) La garantie locative correspond à {{bail.garantie_nombre_mois}} mois de loyer de base, soit :
+a) La garantie locative correspond Ã  {{bail.garantie_nombre_mois}} mois de loyer de base, soit :
 
-{{bail.loyer_base_formate}} × {{bail.garantie_nombre_mois}} = {{bail.garantie_montant_formate}}.
+{{bail.loyer_base_formate}} Ã— {{bail.garantie_nombre_mois}} = {{bail.garantie_montant_formate}}.
 
-b) Le Preneur est tenu de verser la totalité de la garantie locative au Bailleur lors de la signature du présent contrat, contre quittance.
+b) Le Preneur est tenu de verser la totalitÃ© de la garantie locative au Bailleur lors de la signature du prÃ©sent contrat, contre quittance.
 
-c) La garantie locative ne produit aucun intérêt. Elle est remboursable à la fin du bail, après déduction des sommes restant dues au Bailleur.
+c) La garantie locative ne produit aucun intÃ©rÃªt. Elle est remboursable Ã  la fin du bail, aprÃ¨s dÃ©duction des sommes restant dues au Bailleur.
 
-ARTICLE 04 — DESTINATION PROFESSIONNELLE
+ARTICLE 04 â€” DESTINATION PROFESSIONNELLE
 
-Les lieux loués sont affectés à l’activité professionnelle déclarée suivante : {{bail.activite_destination}}.
+Les lieux louÃ©s sont affectÃ©s Ã  lâ€™activitÃ© professionnelle dÃ©clarÃ©e suivante : {{bail.activite_destination}}.
 
-Toute modification de cette destination professionnelle requiert l’accord écrit préalable du Bailleur.
+Toute modification de cette destination professionnelle requiert lâ€™accord Ã©crit prÃ©alable du Bailleur.
 
-ARTICLE 05 — PERSONNEL, VISITEURS, SOUS-LOCATION ET MODIFICATIONS
+ARTICLE 05 â€” PERSONNEL, VISITEURS, SOUS-LOCATION ET MODIFICATIONS
 
-Le Preneur demeure responsable de son personnel, de ses visiteurs, de ses préposés et de toute personne qu’il introduit dans les lieux.
+Le Preneur demeure responsable de son personnel, de ses visiteurs, de ses prÃ©posÃ©s et de toute personne quâ€™il introduit dans les lieux.
 
-La cession, la sous-location totale ou partielle ainsi que la mise à disposition à un tiers sont interdites sans l’autorisation écrite préalable du Bailleur.
+La cession, la sous-location totale ou partielle ainsi que la mise Ã  disposition Ã  un tiers sont interdites sans lâ€™autorisation Ã©crite prÃ©alable du Bailleur.
 
-Les travaux, aménagements et transformations des lieux nécessitent également l’accord écrit préalable du Bailleur.
+Les travaux, amÃ©nagements et transformations des lieux nÃ©cessitent Ã©galement lâ€™accord Ã©crit prÃ©alable du Bailleur.
 
-ARTICLE 06 — ENTRETIEN, ASSURANCE ET RESPONSABILITÉ
+ARTICLE 06 â€” ENTRETIEN, ASSURANCE ET RESPONSABILITÃ‰
 
-Le Preneur maintient les lieux loués, leurs aménagements et leurs accessoires en bon état d’entretien, de fonctionnement et de propreté.
+Le Preneur maintient les lieux louÃ©s, leurs amÃ©nagements et leurs accessoires en bon Ã©tat dâ€™entretien, de fonctionnement et de propretÃ©.
 
-Il souscrit les assurances nécessaires à l’exercice de son activité professionnelle.
+Il souscrit les assurances nÃ©cessaires Ã  lâ€™exercice de son activitÃ© professionnelle.
 
-ARTICLE 07 — IMPÔTS, TAXES ET CHARGES LÉGALES
+ARTICLE 07 â€” IMPÃ”TS, TAXES ET CHARGES LÃ‰GALES
 
-Chaque Partie supporte les impôts, taxes et obligations légales mis à sa charge par la réglementation applicable.
+Chaque Partie supporte les impÃ´ts, taxes et obligations lÃ©gales mis Ã  sa charge par la rÃ©glementation applicable.
 
-ARTICLE 08 — NON-RESPECT DES CLAUSES
+ARTICLE 08 â€” NON-RESPECT DES CLAUSES
 
-En cas de non-respect des obligations du présent contrat, la Partie lésée peut mettre en demeure l’autre Partie d’y remédier, sans préjudice des droits et actions prévus par la loi.
+En cas de non-respect des obligations du prÃ©sent contrat, la Partie lÃ©sÃ©e peut mettre en demeure lâ€™autre Partie dâ€™y remÃ©dier, sans prÃ©judice des droits et actions prÃ©vus par la loi.
 
-ARTICLE 09 — MODIFICATION DU CONTRAT
+ARTICLE 09 â€” MODIFICATION DU CONTRAT
 
-Toute modification du présent contrat fait l’objet d’un avenant écrit signé par les deux Parties.
+Toute modification du prÃ©sent contrat fait lâ€™objet dâ€™un avenant Ã©crit signÃ© par les deux Parties.
 
-ARTICLE 10 — RÈGLEMENT DES LITIGES ET DISPOSITIONS FINALES
+ARTICLE 10 â€” RÃˆGLEMENT DES LITIGES ET DISPOSITIONS FINALES
 
-Les Parties s’engagent à rechercher un règlement amiable de tout différend relatif à l’exécution ou à l’interprétation du présent contrat avant toute saisine judiciaire.
+Les Parties sâ€™engagent Ã  rechercher un rÃ¨glement amiable de tout diffÃ©rend relatif Ã  lâ€™exÃ©cution ou Ã  lâ€™interprÃ©tation du prÃ©sent contrat avant toute saisine judiciaire.
 
-À défaut de règlement amiable, les juridictions compétentes de Kinshasa sont seules compétentes, sous réserve des règles légales de compétence applicables.
+Ã€ dÃ©faut de rÃ¨glement amiable, les juridictions compÃ©tentes de Kinshasa sont seules compÃ©tentes, sous rÃ©serve des rÃ¨gles lÃ©gales de compÃ©tence applicables.
 
-Le présent contrat est établi à {{bail.lieu_signature}}, en deux exemplaires originaux, un pour chacune des Parties.
+Le prÃ©sent contrat est Ã©tabli Ã  {{bail.lieu_signature}}, en deux exemplaires originaux, un pour chacune des Parties.
 
-Fait à {{bail.lieu_signature}}, le {{bail.date_signature}}.
+Fait Ã  {{bail.lieu_signature}}, le {{bail.date_signature}}.
 
-LE PRENEUR                                      LE BAILLEUR
-
-Nom : ____________________                      Nom : ____________________
-
-Signature : ______________                     Signature : ______________$$,
+$$,
   TRUE,
   1
 FROM target_orgs

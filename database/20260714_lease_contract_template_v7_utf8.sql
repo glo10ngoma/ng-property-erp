@@ -1,4 +1,4 @@
-BEGIN;
+﻿BEGIN;
 
 WITH target_orgs AS (
   SELECT id AS organization_id
@@ -19,62 +19,62 @@ inserted AS (
   SELECT
     target_orgs.organization_id,
     CASE
-      WHEN target_orgs.organization_id = 6 THEN 'Contrat de bail à usage résidentiel - modèle UTF-8 v7 SANDBOX'
-      ELSE 'Contrat de bail à usage résidentiel - modèle UTF-8 v7'
+      WHEN target_orgs.organization_id = 6 THEN 'Contrat de bail Ã  usage rÃ©sidentiel - modÃ¨le UTF-8 v7 SANDBOX'
+      ELSE 'Contrat de bail Ã  usage rÃ©sidentiel - modÃ¨le UTF-8 v7'
     END,
     'LEASE_RESIDENTIAL',
     7,
     'RESIDENTIAL',
-    $$CONTRAT DE BAIL À USAGE {{bail.usage_label_upper}}
+    $$CONTRAT DE BAIL Ã€ USAGE {{bail.usage_label_upper}}
 
-ENTRE LES SOUSSIGNÉS :
+ENTRE LES SOUSSIGNÃ‰S :
 
-{{bailleur.raison_sociale}}{{bailleur.sigle_phrase}}, {{bailleur.forme_juridique_phrase}}immatriculée au Registre du Commerce et du Crédit Mobilier sous le numéro {{bailleur.rccm}}, enregistrée à l’Identification Nationale sous le numéro {{bailleur.identification_nationale}}, dont le siège social est établi à {{bailleur.adresse_complete}}, représentée par {{bailleur.representant_nom}}, agissant en qualité de {{bailleur.representant_fonction}}, ci-après dénommée « le Bailleur » ;
+{{bailleur.raison_sociale}}{{bailleur.sigle_phrase}}, {{bailleur.forme_juridique_phrase}}immatriculÃ©e au Registre du Commerce et du CrÃ©dit Mobilier sous le numÃ©ro {{bailleur.rccm}}, enregistrÃ©e Ã  lâ€™Identification Nationale sous le numÃ©ro {{bailleur.identification_nationale}}, dont le siÃ¨ge social est Ã©tabli Ã  {{bailleur.adresse_complete}}, reprÃ©sentÃ©e par {{bailleur.representant_nom}}, agissant en qualitÃ© de {{bailleur.representant_fonction}}, ci-aprÃ¨s dÃ©nommÃ©e Â« le Bailleur Â» ;
 
-D’une part,
+Dâ€™une part,
 
 {{locataire.paragraphe_identification}}
 
-Ci-après dénommé(e) « le Preneur » ;
+Ci-aprÃ¨s dÃ©nommÃ©(e) Â« le Preneur Â» ;
 
-D’autre part,
+Dâ€™autre part,
 
-Le Bailleur et le Preneur étant ci-après collectivement dénommés « les Parties ».
+Le Bailleur et le Preneur Ã©tant ci-aprÃ¨s collectivement dÃ©nommÃ©s Â« les Parties Â».
 
-PRÉCISIONS SUR LE BIEN LOUÉ
+PRÃ‰CISIONS SUR LE BIEN LOUÃ‰
 
 Type | Appartement {{bien.meuble_label}}
 Appartement | {{bien.numero_unite}}
 Immeuble | {{bien.immeuble}}
 Nombre de chambres | {{bien.nombre_chambres}}
 Nombre de parkings | {{bien.nombre_parkings}}
-Date de début du bail | {{bail.date_debut}}
+Date de dÃ©but du bail | {{bail.date_debut}}
 
-ARTICLE 01 — DESCRIPTION DES LIEUX
+ARTICLE 01 â€” DESCRIPTION DES LIEUX
 
-Le Bailleur donne à bail au Preneur, qui accepte, l’appartement {{bien.numero_unite}}, situé dans l’immeuble {{bien.immeuble}}, à l’adresse suivante : {{bien.adresse_complete}}.
+Le Bailleur donne Ã  bail au Preneur, qui accepte, lâ€™appartement {{bien.numero_unite}}, situÃ© dans lâ€™immeuble {{bien.immeuble}}, Ã  lâ€™adresse suivante : {{bien.adresse_complete}}.
 
-Le Preneur reconnaît avoir visité les lieux loués et les connaître parfaitement, sans qu’il soit nécessaire d’en faire une description plus détaillée.
+Le Preneur reconnaÃ®t avoir visitÃ© les lieux louÃ©s et les connaÃ®tre parfaitement, sans quâ€™il soit nÃ©cessaire dâ€™en faire une description plus dÃ©taillÃ©e.
 
-Toutefois, un état des lieux contradictoire, dressé avec ou sans témoin, sera établi avant la remise des clés au Preneur.
+Toutefois, un Ã©tat des lieux contradictoire, dressÃ© avec ou sans tÃ©moin, sera Ã©tabli avant la remise des clÃ©s au Preneur.
 
-Les lieux loués sont destinés à un usage {{bail.usage_label_lower}}.
+Les lieux louÃ©s sont destinÃ©s Ã  un usage {{bail.usage_label_lower}}.
 
-ARTICLE 02 — DURÉE DU BAIL ET LOYER
+ARTICLE 02 â€” DURÃ‰E DU BAIL ET LOYER
 
-a) Durée du bail
+a) DurÃ©e du bail
 
-Le présent contrat est conclu pour une durée de {{bail.duree_texte}}, prenant effet le {{bail.date_debut}} et arrivant à échéance le {{bail.date_fin}}.
+Le prÃ©sent contrat est conclu pour une durÃ©e de {{bail.duree_texte}}, prenant effet le {{bail.date_debut}} et arrivant Ã  Ã©chÃ©ance le {{bail.date_fin}}.
 
-Il peut être renouvelé avec l’accord écrit du Bailleur.
+Il peut Ãªtre renouvelÃ© avec lâ€™accord Ã©crit du Bailleur.
 
-Chacune des Parties peut y mettre fin moyennant un préavis écrit de {{bail.preavis_mois}} mois ou par accord mutuel.
+Chacune des Parties peut y mettre fin moyennant un prÃ©avis Ã©crit de {{bail.preavis_mois}} mois ou par accord mutuel.
 
-La Partie qui prend l’initiative de mettre fin au contrat doit notifier son intention à l’autre Partie par lettre recommandée ou par lettre avec accusé de réception, sous peine des indemnités éventuellement dues pour rupture abusive.
+La Partie qui prend lâ€™initiative de mettre fin au contrat doit notifier son intention Ã  lâ€™autre Partie par lettre recommandÃ©e ou par lettre avec accusÃ© de rÃ©ception, sous peine des indemnitÃ©s Ã©ventuellement dues pour rupture abusive.
 
 b) Composition du loyer mensuel
 
-Le montant mensuel total dû par le Preneur s’élève à {{bail.loyer_total_formate}}, composé comme suit :
+Le montant mensuel total dÃ» par le Preneur sâ€™Ã©lÃ¨ve Ã  {{bail.loyer_total_formate}}, composÃ© comme suit :
 
 - Loyer de base : {{bail.loyer_base_formate}}
 - Entretien et maintenance : {{bail.frais_entretien_formate}}
@@ -83,97 +83,93 @@ Le montant mensuel total dû par le Preneur s’élève à {{bail.loyer_total_fo
 
 c) Services compris
 
-Le montant convenu comprend l’entretien des parties communes, les factures d’eau et d’électricité lorsque celles-ci sont expressément incluses, les caméras de surveillance ainsi que les autres services communs prévus par le Bailleur.
+Le montant convenu comprend lâ€™entretien des parties communes, les factures dâ€™eau et dâ€™Ã©lectricitÃ© lorsque celles-ci sont expressÃ©ment incluses, les camÃ©ras de surveillance ainsi que les autres services communs prÃ©vus par le Bailleur.
 
-Il ne comprend pas l’entretien des climatiseurs ni la réparation ou le remplacement des accessoires privatifs, sauf disposition contraire expressément convenue entre les Parties.
+Il ne comprend pas lâ€™entretien des climatiseurs ni la rÃ©paration ou le remplacement des accessoires privatifs, sauf disposition contraire expressÃ©ment convenue entre les Parties.
 
-d) Révision
+d) RÃ©vision
 
-Les Parties conviennent que les montants prévus au présent contrat peuvent être révisés par accord écrit, notamment en fonction des fluctuations économiques et des réalités du marché immobilier.
+Les Parties conviennent que les montants prÃ©vus au prÃ©sent contrat peuvent Ãªtre rÃ©visÃ©s par accord Ã©crit, notamment en fonction des fluctuations Ã©conomiques et des rÃ©alitÃ©s du marchÃ© immobilier.
 
-ARTICLE 03 — GARANTIE LOCATIVE ET PREMIER PAIEMENT
+ARTICLE 03 â€” GARANTIE LOCATIVE ET PREMIER PAIEMENT
 
-a) La garantie locative correspond à {{bail.garantie_nombre_mois}} mois de loyer de base, soit :
+a) La garantie locative correspond Ã  {{bail.garantie_nombre_mois}} mois de loyer de base, soit :
 
-{{bail.loyer_base_formate}} × {{bail.garantie_nombre_mois}} = {{bail.garantie_montant_formate}}.
+{{bail.loyer_base_formate}} Ã— {{bail.garantie_nombre_mois}} = {{bail.garantie_montant_formate}}.
 
-b) Le Preneur est tenu de verser la totalité de la garantie locative au Bailleur lors de la signature du présent contrat, contre quittance.
+b) Le Preneur est tenu de verser la totalitÃ© de la garantie locative au Bailleur lors de la signature du prÃ©sent contrat, contre quittance.
 
-c) La garantie locative ne produit aucun intérêt. Elle est remboursable à la fin du bail, après déduction de toutes les sommes restant dues au Bailleur, à quelque titre que ce soit.
+c) La garantie locative ne produit aucun intÃ©rÃªt. Elle est remboursable Ã  la fin du bail, aprÃ¨s dÃ©duction de toutes les sommes restant dues au Bailleur, Ã  quelque titre que ce soit.
 
-d) Le Preneur demeure tenu de payer régulièrement le loyer, indépendamment de la garantie locative.
+d) Le Preneur demeure tenu de payer rÃ©guliÃ¨rement le loyer, indÃ©pendamment de la garantie locative.
 
-La garantie locative ne peut servir au paiement du loyer ni être consommée pendant la durée du bail.
+La garantie locative ne peut servir au paiement du loyer ni Ãªtre consommÃ©e pendant la durÃ©e du bail.
 
-ARTICLE 04 — IMPÔTS ET TAXES
+ARTICLE 04 â€” IMPÃ”TS ET TAXES
 
-Le Preneur n’est pas tenu de retenir l’Impôt sur les Revenus Locatifs ni de supporter les taxes qui, conformément à la législation applicable, sont à la charge du Bailleur.
+Le Preneur nâ€™est pas tenu de retenir lâ€™ImpÃ´t sur les Revenus Locatifs ni de supporter les taxes qui, conformÃ©ment Ã  la lÃ©gislation applicable, sont Ã  la charge du Bailleur.
 
-L’impôt foncier demeure à la charge du Bailleur.
+Lâ€™impÃ´t foncier demeure Ã  la charge du Bailleur.
 
-ARTICLE 05 — INTERDICTION DE CESSION, DE SOUS-LOCATION ET DE MODIFICATION
+ARTICLE 05 â€” INTERDICTION DE CESSION, DE SOUS-LOCATION ET DE MODIFICATION
 
-a) Il est interdit au Preneur de céder tout ou partie du présent contrat ou de sous-louer tout ou partie des lieux loués à un tiers sans l’autorisation écrite préalable du Bailleur.
+a) Il est interdit au Preneur de cÃ©der tout ou partie du prÃ©sent contrat ou de sous-louer tout ou partie des lieux louÃ©s Ã  un tiers sans lâ€™autorisation Ã©crite prÃ©alable du Bailleur.
 
-b) Il est interdit au Preneur de modifier tout ou partie des lieux loués, y compris d’enfoncer des clous dans les murs ou d’effectuer des travaux, sans l’autorisation écrite préalable du Bailleur.
+b) Il est interdit au Preneur de modifier tout ou partie des lieux louÃ©s, y compris dâ€™enfoncer des clous dans les murs ou dâ€™effectuer des travaux, sans lâ€™autorisation Ã©crite prÃ©alable du Bailleur.
 
-ARTICLE 06 — ENTRETIEN DES LIEUX ET NOMBRE D’OCCUPANTS
+ARTICLE 06 â€” ENTRETIEN DES LIEUX ET NOMBRE Dâ€™OCCUPANTS
 
-1. Le Preneur maintient les lieux loués, leurs aménagements et leurs accessoires en bon état d’entretien, de fonctionnement, de propreté et de réparation locative. Il jouit des lieux loués de manière paisible et responsable.
+1. Le Preneur maintient les lieux louÃ©s, leurs amÃ©nagements et leurs accessoires en bon Ã©tat dâ€™entretien, de fonctionnement, de propretÃ© et de rÃ©paration locative. Il jouit des lieux louÃ©s de maniÃ¨re paisible et responsable.
 
-2. En cas de besoin, le Preneur procède, à ses frais, au remplacement des accessoires électriques et de plomberie relevant de l’usage courant, notamment les ampoules, prises, douilles, interrupteurs et robinets, sous le contrôle du Bailleur pendant toute la durée du bail.
+2. En cas de besoin, le Preneur procÃ¨de, Ã  ses frais, au remplacement des accessoires Ã©lectriques et de plomberie relevant de lâ€™usage courant, notamment les ampoules, prises, douilles, interrupteurs et robinets, sous le contrÃ´le du Bailleur pendant toute la durÃ©e du bail.
 
-3. Le Preneur autorise le Bailleur ou son représentant à visiter les lieux, à condition d’en être informé au moins deux jours à l’avance, sauf situation d’urgence.
+3. Le Preneur autorise le Bailleur ou son reprÃ©sentant Ã  visiter les lieux, Ã  condition dâ€™en Ãªtre informÃ© au moins deux jours Ã  lâ€™avance, sauf situation dâ€™urgence.
 
-4. Pour un appartement de {{bien.nombre_chambres}} chambre(s), l’occupation autorisée correspond à une seule famille. En cas d’occupation individuelle partagée, le nombre d’occupants doit rester conforme aux conditions convenues entre les Parties et aux capacités du logement.
+4. Pour un appartement de {{bien.nombre_chambres}} chambre(s), lâ€™occupation autorisÃ©e correspond Ã  une seule famille. En cas dâ€™occupation individuelle partagÃ©e, le nombre dâ€™occupants doit rester conforme aux conditions convenues entre les Parties et aux capacitÃ©s du logement.
 
 5. {{bien.nombre_parkings_phrase}}
 
-À la fin du bail, après établissement de l’état des lieux de sortie, le Preneur est tenu de restituer l’appartement dans l’état dans lequel il l’a reçu, sous réserve de l’usure normale.
+Ã€ la fin du bail, aprÃ¨s Ã©tablissement de lâ€™Ã©tat des lieux de sortie, le Preneur est tenu de restituer lâ€™appartement dans lâ€™Ã©tat dans lequel il lâ€™a reÃ§u, sous rÃ©serve de lâ€™usure normale.
 
-Les réparations rendues nécessaires par des dégradations imputables au Preneur sont effectuées à ses frais.
+Les rÃ©parations rendues nÃ©cessaires par des dÃ©gradations imputables au Preneur sont effectuÃ©es Ã  ses frais.
 
-À défaut, le Bailleur peut retenir sur la garantie locative les frais correspondants, après expertise et évaluation du coût des travaux.
+Ã€ dÃ©faut, le Bailleur peut retenir sur la garantie locative les frais correspondants, aprÃ¨s expertise et Ã©valuation du coÃ»t des travaux.
 
-La fin du bail ne devient effective qu’après la remise au Bailleur de toutes les clés des lieux loués.
+La fin du bail ne devient effective quâ€™aprÃ¨s la remise au Bailleur de toutes les clÃ©s des lieux louÃ©s.
 
-ARTICLE 07 — ASSURANCE ET RESPONSABILITÉ RELATIVE AUX ÉQUIPEMENTS
+ARTICLE 07 â€” ASSURANCE ET RESPONSABILITÃ‰ RELATIVE AUX Ã‰QUIPEMENTS
 
-Avec l’accord des Parties, le Preneur souscrit une assurance incendie auprès d’une compagnie d’assurance de son choix légalement établie, afin de couvrir les lieux loués contre les risques concernés.
+Avec lâ€™accord des Parties, le Preneur souscrit une assurance incendie auprÃ¨s dâ€™une compagnie dâ€™assurance de son choix lÃ©galement Ã©tablie, afin de couvrir les lieux louÃ©s contre les risques concernÃ©s.
 
-Les réparations et le remplacement des climatiseurs, ampoules, prises et autres accessoires relevant de l’usage du Preneur restent à sa charge lorsqu’ils résultent de son utilisation ou d’un défaut d’entretien.
+Les rÃ©parations et le remplacement des climatiseurs, ampoules, prises et autres accessoires relevant de lâ€™usage du Preneur restent Ã  sa charge lorsquâ€™ils rÃ©sultent de son utilisation ou dâ€™un dÃ©faut dâ€™entretien.
 
-Le Preneur doit informer le Bailleur dès qu’il constate un dysfonctionnement.
+Le Preneur doit informer le Bailleur dÃ¨s quâ€™il constate un dysfonctionnement.
 
-Après évaluation du coût par un expert désigné par le Bailleur, le Preneur verse les sommes nécessaires à la remise en état dans le délai convenu entre les Parties.
+AprÃ¨s Ã©valuation du coÃ»t par un expert dÃ©signÃ© par le Bailleur, le Preneur verse les sommes nÃ©cessaires Ã  la remise en Ã©tat dans le dÃ©lai convenu entre les Parties.
 
-ARTICLE 08 — NON-RESPECT DES CLAUSES
+ARTICLE 08 â€” NON-RESPECT DES CLAUSES
 
-a) En cas de non-respect de l’une des clauses du présent contrat, le Bailleur peut engager la procédure de résiliation du bail moyennant le préavis prévu, sauf faute grave justifiant une mesure immédiate conformément à la loi.
+a) En cas de non-respect de lâ€™une des clauses du prÃ©sent contrat, le Bailleur peut engager la procÃ©dure de rÃ©siliation du bail moyennant le prÃ©avis prÃ©vu, sauf faute grave justifiant une mesure immÃ©diate conformÃ©ment Ã  la loi.
 
-b) Pour toute disposition non prévue par le présent contrat, les Parties conviennent de se référer à la législation congolaise applicable aux baux à loyer non professionnels, notamment la loi n° 15/025 du 31 décembre 2015, sous réserve de son applicabilité au présent bail.
+b) Pour toute disposition non prÃ©vue par le prÃ©sent contrat, les Parties conviennent de se rÃ©fÃ©rer Ã  la lÃ©gislation congolaise applicable aux baux Ã  loyer non professionnels, notamment la loi nÂ° 15/025 du 31 dÃ©cembre 2015, sous rÃ©serve de son applicabilitÃ© au prÃ©sent bail.
 
-c) En cas de manquement grave, le Bailleur peut demander la résiliation immédiate du contrat dans les conditions prévues par la loi.
+c) En cas de manquement grave, le Bailleur peut demander la rÃ©siliation immÃ©diate du contrat dans les conditions prÃ©vues par la loi.
 
-ARTICLE 09 — MODIFICATION DU CONTRAT
+ARTICLE 09 â€” MODIFICATION DU CONTRAT
 
-Toute modification du présent contrat fait l’objet d’un avenant écrit, signé par les deux Parties et annexé au présent contrat de bail.
+Toute modification du prÃ©sent contrat fait lâ€™objet dâ€™un avenant Ã©crit, signÃ© par les deux Parties et annexÃ© au prÃ©sent contrat de bail.
 
-ARTICLE 10 — RÈGLEMENT DES LITIGES ET DISPOSITIONS FINALES
+ARTICLE 10 â€” RÃˆGLEMENT DES LITIGES ET DISPOSITIONS FINALES
 
-Les Parties s’engagent à fournir leurs meilleurs efforts afin de régler à l’amiable tout différend relatif à l’exécution ou à l’interprétation du présent contrat avant toute saisine judiciaire.
+Les Parties sâ€™engagent Ã  fournir leurs meilleurs efforts afin de rÃ©gler Ã  lâ€™amiable tout diffÃ©rend relatif Ã  lâ€™exÃ©cution ou Ã  lâ€™interprÃ©tation du prÃ©sent contrat avant toute saisine judiciaire.
 
-À défaut de règlement amiable, les juridictions compétentes de Kinshasa sont seules compétentes, sous réserve des règles légales de compétence applicables.
+Ã€ dÃ©faut de rÃ¨glement amiable, les juridictions compÃ©tentes de Kinshasa sont seules compÃ©tentes, sous rÃ©serve des rÃ¨gles lÃ©gales de compÃ©tence applicables.
 
-Le présent contrat est établi à {{bail.lieu_signature}}, en deux exemplaires originaux, un pour chacune des Parties.
+Le prÃ©sent contrat est Ã©tabli Ã  {{bail.lieu_signature}}, en deux exemplaires originaux, un pour chacune des Parties.
 
-Fait à {{bail.lieu_signature}}, le {{bail.date_signature}}.
+Fait Ã  {{bail.lieu_signature}}, le {{bail.date_signature}}.
 
-LE PRENEUR                                      LE BAILLEUR
-
-Nom : ____________________                      Nom : ____________________
-
-Signature : ______________                     Signature : ______________$$,
+$$,
     TRUE,
     1
   FROM target_orgs
