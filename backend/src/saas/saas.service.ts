@@ -3375,7 +3375,11 @@ export class SaasService {
       [id, this.context.organizationId()],
     );
     const row = requireRow(lease.rows[0], 'Lease');
-    const activeContractTemplateVersion = await this.activeLeaseContractTemplateVersion(row.contract_template_code ?? 'LEASE_RESIDENTIAL');
+    const activeContractTemplateCode = this.resolveLeaseTemplateCodeForUsage(row.lease_usage ?? row.usage_type)
+      ?? (row.contract_template_code ? String(row.contract_template_code).trim() : null);
+    const activeContractTemplateVersion = activeContractTemplateCode
+      ? await this.activeLeaseContractTemplateVersion(activeContractTemplateCode)
+      : null;
     return {
       ...row,
       guarantee: await this.leaseGuarantee(id),
@@ -3394,12 +3398,12 @@ export class SaasService {
         await this.ensureNoLeaseConflict(client, normalized.unitId, normalized.startDate, normalized.endDate);
       }
       const { rows } = await client.query(
-        `INSERT INTO leases
+       `INSERT INTO leases
          (tenant_id, unit_id, start_date, end_date, monthly_rent, monthly_syndic_amount, rental_guarantee_amount, rental_guarantee_paid,
           rental_guarantee_payment_date, rental_guarantee_status, contract_file_url, contract_file_name, status,
           maintenance_fee_amount, other_charges_amount, lease_total_amount, guarantee_months, notice_months,
-          signature_place, signature_date, lease_usage, contract_template_code, organization_id, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+          signature_place, signature_date, lease_usage, lease_activity_description, contract_template_code, organization_id, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
          RETURNING *`,
         [
           normalized.tenantId,
@@ -3423,6 +3427,7 @@ export class SaasService {
           normalized.signaturePlace,
           normalized.signatureDate,
           normalized.leaseUsage,
+          normalized.leaseActivityDescription,
           normalized.contractTemplateCode,
           organizationId,
           normalized.notes,
@@ -3476,10 +3481,11 @@ export class SaasService {
              signature_place = $20,
              signature_date = $21,
              lease_usage = $22,
-             contract_template_code = $23,
-             notes = $24,
+             lease_activity_description = $23,
+             contract_template_code = $24,
+             notes = $25,
              updated_at = NOW()
-         WHERE id = $1 AND organization_id = $25 AND deleted_at IS NULL`,
+         WHERE id = $1 AND organization_id = $26 AND deleted_at IS NULL`,
         [
           id,
           normalized.tenantId,
@@ -3503,6 +3509,7 @@ export class SaasService {
           normalized.signaturePlace,
           normalized.signatureDate,
           normalized.leaseUsage,
+          normalized.leaseActivityDescription,
           normalized.contractTemplateCode,
           normalized.notes,
           this.context.organizationId(),
@@ -3654,7 +3661,15 @@ export class SaasService {
       if (!landlordName || !landlordRccm || !landlordAddress || !landlordRepresentative || !landlordRepresentativeTitle || !tenantName || !unitNumber || !buildingName || !startDate || !Number.isFinite(monthlyRent) || monthlyRent <= 0) {
         throw new BadRequestException('Informations insuffisantes pour generer le contrat');
       }
-      const templateCode = String(lease.contract_template_code ?? companyData.default_contract_template_code ?? 'LEASE_RESIDENTIAL').trim() || 'LEASE_RESIDENTIAL';
+      const templateCode = this.resolveLeaseTemplateCodeForUsage(lease.lease_usage ?? companyData.default_lease_usage ?? lease.usage_type)
+        ?? (lease.contract_template_code ? String(lease.contract_template_code).trim() : '');
+      if (!templateCode) {
+        throw new BadRequestException(this.missingLeaseTemplateMessage(lease.lease_usage ?? companyData.default_lease_usage ?? lease.usage_type));
+      }
+      if ((templateCode === 'LEASE_COMMERCIAL' || templateCode === 'LEASE_PROFESSIONAL')
+        && !String(lease.lease_activity_description ?? '').trim()) {
+        throw new BadRequestException("Activite ou destination des lieux requise pour generer ce contrat.");
+      }
       const template = await this.activeLeaseContractTemplate(client, templateCode);
       const snapshot = this.buildLeaseContractSnapshot(lease, company);
       const renderedContent = renderLeaseContractTemplate(template.content, snapshot);
@@ -6253,9 +6268,15 @@ export class SaasService {
     const leaseTotalAmount = monthlyRent + maintenanceFeeAmount + monthlySyndicAmount + otherChargesAmount;
     const guaranteeAmount = monthlyRent * guaranteeMonths;
     const guaranteePaid = Number(body.rental_guarantee_paid ?? body.guarantee_paid ?? 0);
+    const leaseUsage = this.normalizeLeaseUsageCode(body.lease_usage);
+    const leaseActivityDescription = body.lease_activity_description ? String(body.lease_activity_description).trim() : null;
     const guaranteePaymentDateValue = String(body.rental_guarantee_payment_date ?? body.guarantee_payment_date ?? '').trim();
     const rawGuaranteeStatus = String(body.rental_guarantee_status ?? body.guarantee_status ?? '').trim().toUpperCase();
     const guaranteeMarkedPaid = rawGuaranteeStatus === 'PAID' || guaranteePaid > 0;
+
+    if ((leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL') && !leaseActivityDescription) {
+      throw new BadRequestException("Activite ou destination des lieux requise");
+    }
 
     if (guaranteeMarkedPaid && !guaranteePaymentDateValue) {
       throw new BadRequestException('Date de paiement de la garantie requise');
@@ -6284,8 +6305,9 @@ export class SaasService {
       noticeMonths: Number(body.notice_months ?? 0),
       signaturePlace: body.signature_place ? String(body.signature_place).trim() : null,
       signatureDate: body.signature_date ? String(body.signature_date).trim() : null,
-      leaseUsage: this.normalizeLeaseUsageCode(body.lease_usage),
-      contractTemplateCode: body.contract_template_code ? String(body.contract_template_code).trim() : 'LEASE_RESIDENTIAL',
+      leaseUsage,
+      leaseActivityDescription,
+      contractTemplateCode: this.resolveLeaseTemplateCodeForPersistence(leaseUsage, body.contract_template_code),
       contractFileName: body.contract_file_name ? String(body.contract_file_name).trim() : null,
       contractFileUrl: body.contract_file_url ? String(body.contract_file_url).trim() : null,
       notes: body.notes ? String(body.notes) : null,
@@ -6306,7 +6328,16 @@ export class SaasService {
       [this.context.organizationId(), code],
     );
     if (!rows[0]) {
-      throw new BadRequestException(`Aucun modele de contrat actif ${code} n'est configure pour l'organisation ${this.context.organizationId()}.`);
+      switch (String(code).trim().toUpperCase()) {
+        case 'LEASE_COMMERCIAL':
+          throw new BadRequestException("Le modèle de contrat commercial n'est pas configuré pour cette organisation.");
+        case 'LEASE_PROFESSIONAL':
+          throw new BadRequestException("Le modèle de contrat professionnel n'est pas configuré pour cette organisation.");
+        case 'LEASE_RESIDENTIAL':
+          throw new BadRequestException("Le modèle de contrat résidentiel n'est pas configuré pour cette organisation.");
+        default:
+          throw new BadRequestException(`Aucun modele de contrat actif ${code} n'est configure pour l'organisation ${this.context.organizationId()}.`);
+      }
     }
     return rows[0];
   }
@@ -6326,6 +6357,41 @@ export class SaasService {
     return rows[0]?.version ?? null;
   }
 
+  private resolveLeaseTemplateCodeForUsage(value: unknown) {
+    switch (this.normalizeLeaseUsageCode(value)) {
+      case 'COMMERCIAL':
+        return 'LEASE_COMMERCIAL';
+      case 'PROFESSIONAL':
+        return 'LEASE_PROFESSIONAL';
+      case 'MIXED':
+        return null;
+      case 'RESIDENTIAL':
+      default:
+        return 'LEASE_RESIDENTIAL';
+    }
+  }
+
+  private resolveLeaseTemplateCodeForPersistence(usage: string, explicitValue: unknown) {
+    const mappedCode = this.resolveLeaseTemplateCodeForUsage(usage);
+    if (mappedCode) return mappedCode;
+    const explicitCode = explicitValue ? String(explicitValue).trim() : '';
+    return explicitCode || null;
+  }
+
+  private missingLeaseTemplateMessage(usage: unknown) {
+    switch (this.normalizeLeaseUsageCode(usage)) {
+      case 'COMMERCIAL':
+        return "Le modèle de contrat commercial n'est pas configuré pour cette organisation.";
+      case 'PROFESSIONAL':
+        return "Le modèle de contrat professionnel n'est pas configuré pour cette organisation.";
+      case 'MIXED':
+        return "Aucun modèle de contrat mixte n'est encore configuré pour cette organisation.";
+      case 'RESIDENTIAL':
+      default:
+        return "Le modèle de contrat résidentiel n'est pas configuré pour cette organisation.";
+    }
+  }
+
   private buildLeaseContractSnapshot(lease: Record<string, any>, company: Record<string, any>) {
     const totalMonthly = Number(lease.lease_total_amount ?? 0);
     const guaranteeMonths = Number(lease.guarantee_months ?? company.default_guarantee_months ?? 0);
@@ -6334,6 +6400,10 @@ export class SaasService {
     const durationMonths = this.leaseDurationMonths(lease.start_date, lease.end_date) || Number(company.default_lease_duration_months ?? 0);
     const usageCode = this.normalizeLeaseUsageCode(lease.lease_usage ?? company.default_lease_usage ?? lease.usage_type);
     const usageLabel = this.leaseUsageLabel(usageCode);
+    const activityDescription = String(lease.lease_activity_description ?? '').trim();
+    const destinationPhrase = activityDescription
+      ? `Les lieux loués sont exclusivement destinés à l'exercice de ${usageCode === 'COMMERCIAL' ? "l'activité commerciale" : usageCode === 'PROFESSIONAL' ? "l'activité professionnelle" : "l'usage"} déclarée par le Preneur : ${activityDescription}.`
+      : `Les lieux loués sont destinés à un usage ${usageLabel.toLowerCase()}.`;
     const isCompanyTenant = String(lease.tenant_type ?? 'PHYSICAL') === 'COMPANY';
     const bedroomCount = Number(lease.bedrooms_count ?? 0);
     const parkingCount = Number(lease.parking_spaces_count ?? (lease.has_parking ? 1 : 0));
@@ -6557,6 +6627,8 @@ export class SaasService {
         usage_label: usageLabel,
         usage_label_upper: usageLabel.toUpperCase(),
         usage_label_lower: usageLabel.toLowerCase(),
+        activite_destination: activityDescription,
+        destination_phrase: destinationPhrase,
         type_contrat: lease.contract_template_code ?? company.default_contract_template_code ?? 'LEASE_RESIDENTIAL',
       },
     };
@@ -6565,6 +6637,7 @@ export class SaasService {
   private normalizeLeaseUsageCode(value: unknown) {
     const normalized = String(value ?? '').trim().toUpperCase();
     if (normalized === 'COMMERCIAL') return 'COMMERCIAL';
+    if (normalized === 'PROFESSIONAL' || normalized === 'PROFESSIONNEL') return 'PROFESSIONAL';
     if (normalized === 'MIXED' || normalized === 'MIXTE') return 'MIXED';
     return 'RESIDENTIAL';
   }
@@ -6573,6 +6646,8 @@ export class SaasService {
     switch (this.normalizeLeaseUsageCode(value)) {
       case 'COMMERCIAL':
         return 'Commercial';
+      case 'PROFESSIONAL':
+        return 'Professionnel';
       case 'MIXED':
         return 'Mixte';
       case 'RESIDENTIAL':

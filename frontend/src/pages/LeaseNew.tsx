@@ -35,12 +35,12 @@ type CompanySettingsDefaults = {
   default_guarantee_months?: number;
   default_signature_place?: string;
   default_lease_usage?: string;
-  default_contract_template_code?: string;
 };
 
 const LEASE_USAGE_OPTIONS = [
-  { value: 'RESIDENTIAL', label: 'Résidentiel' },
+  { value: 'RESIDENTIAL', label: 'Residentiel' },
   { value: 'COMMERCIAL', label: 'Commercial' },
+  { value: 'PROFESSIONAL', label: 'Professionnel' },
   { value: 'MIXED', label: 'Mixte' },
 ] as const;
 
@@ -68,7 +68,7 @@ export function LeaseNew() {
   const [signaturePlace, setSignaturePlace] = useState('Kinshasa');
   const [signatureDate, setSignatureDate] = useState(new Date().toISOString().slice(0, 10));
   const [leaseUsage, setLeaseUsage] = useState('RESIDENTIAL');
-  const [contractTemplateCode, setContractTemplateCode] = useState('LEASE_RESIDENTIAL');
+  const [leaseActivityDescription, setLeaseActivityDescription] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -81,6 +81,13 @@ export function LeaseNew() {
   const selectedBuilding = buildings.data.find((building) => Number(building.id) === Number(buildingId));
   const totalMonthly = Number(rent || 0) + Number(maintenanceFee || 0) + Number(syndicAmount || 0) + Number(otherCharges || 0);
   const guaranteeAmount = Number(rent || 0) * Number(guaranteeMonths || 0);
+  const contractTemplateCode = leaseTemplateCode(leaseUsage);
+  const contractTemplateLabel = leaseTemplateLabel(leaseUsage);
+  const activityLabel = leaseUsage === 'COMMERCIAL' ? 'Activite ou destination commerciale' : 'Activite ou destination professionnelle';
+  const activityPlaceholder = leaseUsage === 'COMMERCIAL'
+    ? 'Ex: Boutique de vente, restaurant, depot'
+    : 'Ex: Cabinet de conseil, bureau administratif, agence';
+  const requiresActivity = leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL';
 
   const buildingOptions = buildings.data.map((building) => ({
     value: building.id,
@@ -115,7 +122,6 @@ export function LeaseNew() {
         if (defaults.default_guarantee_months !== undefined) setGuaranteeMonths(String(defaults.default_guarantee_months));
         if (defaults.default_signature_place) setSignaturePlace(defaults.default_signature_place);
         if (defaults.default_lease_usage) setLeaseUsage(normalizeLeaseUsage(defaults.default_lease_usage));
-        if (defaults.default_contract_template_code) setContractTemplateCode(defaults.default_contract_template_code);
       })
       .catch(() => undefined);
     return () => {
@@ -138,6 +144,12 @@ export function LeaseNew() {
       setSignaturePlace(selectedBuilding.city);
     }
   }, [selectedBuilding?.city, signaturePlace]);
+
+  useEffect(() => {
+    if (leaseUsage !== 'COMMERCIAL' && leaseUsage !== 'PROFESSIONAL') {
+      setLeaseActivityDescription('');
+    }
+  }, [leaseUsage]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -166,12 +178,19 @@ export function LeaseNew() {
     const unitValue = Number(form.get('unit_id') ?? 0);
     const startValue = String(form.get('start_date') ?? '').trim();
     const guaranteePaymentDateValue = guaranteePaid ? guaranteePaymentDate.trim() : '';
+    const activityDescriptionValue = requiresActivity ? leaseActivityDescription.trim() : '';
 
     if (!tenantValue) return setError('Selectionnez un locataire avant de creer le bail.');
     if (!unitValue) return setError('Selectionnez une unite avant de creer le bail.');
     if (!startValue) return setError('Selectionnez une date de debut.');
     if (guaranteePaid && !guaranteePaymentDateValue) {
       return setError('Renseignez la date de paiement de la garantie.');
+    }
+    if (requiresActivity && !activityDescriptionValue) {
+      return setError('Renseignez l activite ou la destination des lieux.');
+    }
+    if (leaseUsage === 'MIXED') {
+      return setError('Aucun modele de contrat mixte n est encore configure pour cette organisation.');
     }
 
     const payload = {
@@ -193,7 +212,8 @@ export function LeaseNew() {
       signature_place: signaturePlace || null,
       signature_date: signatureDate || null,
       lease_usage: leaseUsage || null,
-      contract_template_code: contractTemplateCode || 'LEASE_RESIDENTIAL',
+      lease_activity_description: activityDescriptionValue || null,
+      contract_template_code: contractTemplateCode || null,
       status: form.get('status') || 'DRAFT',
       notes: form.get('notes') || null,
     };
@@ -243,6 +263,12 @@ export function LeaseNew() {
             <label>Total loyer<input className="locked-field" name="lease_total_amount" value={money(totalMonthly)} readOnly /></label>
             <label>Devise<input className="locked-field" value="USD" readOnly /></label>
             <label>Usage du bail<select name="lease_usage" value={leaseUsage} onChange={(event) => setLeaseUsage(normalizeLeaseUsage(event.target.value))}>{LEASE_USAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            {requiresActivity ? (
+              <label className="lease-field-wide">{activityLabel}<input name="lease_activity_description" value={leaseActivityDescription} onChange={(event) => setLeaseActivityDescription(event.target.value)} placeholder={activityPlaceholder} required /></label>
+            ) : null}
+            {leaseUsage === 'MIXED' ? (
+              <label className="lease-field-wide">Modele mixte<input className="locked-field" value="Aucun modele mixte configure pour le moment" readOnly /></label>
+            ) : null}
             <label>Statut<select name="status" defaultValue="DRAFT"><option value="DRAFT">Brouillon</option><option value="ACTIVE">Actif</option></select></label>
           </div>
         </div>
@@ -273,6 +299,7 @@ export function LeaseNew() {
             <label>Lieu signature<input name="signature_place" value={signaturePlace} onChange={(event) => setSignaturePlace(event.target.value)} /></label>
             <label>Date signature<input name="signature_date" type="date" value={signatureDate} onChange={(event) => setSignatureDate(event.target.value)} /></label>
             <label>Modele<input className="locked-field" name="contract_template_code" value={contractTemplateCode} readOnly /></label>
+            <label className="lease-field-wide">Contrat prevu<input className="locked-field" value={contractTemplateLabel} readOnly /></label>
           </div>
         </div>
 
@@ -308,6 +335,35 @@ function monthDiff(startValue: string, endValue: string) {
 function normalizeLeaseUsage(value?: string | null) {
   const normalized = String(value ?? '').trim().toUpperCase();
   if (normalized === 'COMMERCIAL') return 'COMMERCIAL';
+  if (normalized === 'PROFESSIONAL' || normalized === 'PROFESSIONNEL') return 'PROFESSIONAL';
   if (normalized === 'MIXED' || normalized === 'MIXTE') return 'MIXED';
   return 'RESIDENTIAL';
+}
+
+function leaseTemplateCode(value?: string | null) {
+  switch (normalizeLeaseUsage(value)) {
+    case 'COMMERCIAL':
+      return 'LEASE_COMMERCIAL';
+    case 'PROFESSIONAL':
+      return 'LEASE_PROFESSIONAL';
+    case 'MIXED':
+      return '';
+    case 'RESIDENTIAL':
+    default:
+      return 'LEASE_RESIDENTIAL';
+  }
+}
+
+function leaseTemplateLabel(value?: string | null) {
+  switch (normalizeLeaseUsage(value)) {
+    case 'COMMERCIAL':
+      return 'Contrat commercial';
+    case 'PROFESSIONAL':
+      return 'Contrat professionnel';
+    case 'MIXED':
+      return 'Modele mixte non configure';
+    case 'RESIDENTIAL':
+    default:
+      return 'Contrat residentiel';
+  }
 }

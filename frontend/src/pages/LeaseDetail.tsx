@@ -275,6 +275,7 @@ export function LeaseDetail() {
         <SummaryItem label="Immeuble" value={lease.building_name} />
         <SummaryItem label="Unite" value={lease.unit_number} />
         <SummaryItem label="Usage" value={leaseUsageLabel(lease.lease_usage ?? lease.usage_type)} />
+        <SummaryItem label="Activite / destination" value={lease.lease_activity_description || '-'} />
         <SummaryItem label="Loyer de base" value={money(lease.monthly_rent)} />
         <SummaryItem label="Total mensuel" value={money(totalMonthly)} />
         <SummaryItem label="Garantie" value={`${money(lease.guarantee?.paid_amount ?? lease.rental_guarantee_paid)} / ${money(lease.guarantee?.amount ?? lease.rental_guarantee_amount)}`} />
@@ -302,6 +303,7 @@ export function LeaseDetail() {
           <SummaryItem label="Commune" value={lease.building_commune || '-'} />
           <SummaryItem label="Quartier" value={lease.building_neighborhood || '-'} />
           <SummaryItem label="Ville" value={lease.building_city || '-'} />
+          <SummaryItem label="Destination" value={lease.lease_activity_description || '-'} />
           <SummaryItem label="Chambres" value={lease.bedrooms_count ?? 0} />
           <SummaryItem label="Parkings" value={lease.parking_spaces_count ?? (lease.has_parking ? 1 : 0)} />
           <SummaryItem label="Meuble" value={lease.is_furnished ? 'Oui' : 'Non'} />
@@ -411,7 +413,7 @@ export function LeaseDetail() {
           ) : (
             <div className="lease-contract-preview-wrap">
               <div className="summary-band">
-                <SummaryItem label="Modele" value={`Residentiel v${lease.latest_contract.template_version ?? 1}${contractVersionOutdated ? ' (obsolete)' : ''}`} />
+                <SummaryItem label="Modele" value={`${contractTemplateLabel(lease.latest_contract.template_code)} v${lease.latest_contract.template_version ?? 1}${contractVersionOutdated ? ' (obsolete)' : ''}`} />
                 <SummaryItem label="Genere le" value={dateText(lease.latest_contract.generated_at)} />
                 <SummaryItem label="Statut" value={contractStatusLabel(lease.latest_contract.status)} />
                 <SummaryItem label="Word" value={lease.latest_contract.docx_file_name ?? '-'} />
@@ -487,12 +489,28 @@ function leaseUsageLabel(value?: string | null) {
   switch (String(value ?? '').trim().toUpperCase()) {
     case 'COMMERCIAL':
       return 'Commercial';
+    case 'PROFESSIONAL':
+    case 'PROFESSIONNEL':
+      return 'Professionnel';
     case 'MIXED':
     case 'MIXTE':
       return 'Mixte';
     case 'RESIDENTIAL':
     default:
-      return 'Résidentiel';
+      return 'Residentiel';
+  }
+}
+
+function contractTemplateLabel(value?: string | null) {
+  switch (String(value ?? '').trim().toUpperCase()) {
+    case 'LEASE_COMMERCIAL':
+      return 'Commercial';
+    case 'LEASE_PROFESSIONAL':
+      return 'Professionnel';
+    case 'LEASE_RESIDENTIAL':
+      return 'Residentiel';
+    default:
+      return String(value ?? '-') || '-';
   }
 }
 
