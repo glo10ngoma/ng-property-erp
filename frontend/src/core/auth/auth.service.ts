@@ -20,9 +20,18 @@ export async function me() {
 }
 
 export async function switchOrganization(organizationId: number) {
-  const response = await api.post<AuthUser & { organization_id: number }>('/auth/switch-organization', {
+  const response = await api.post<LoginResponse>('/auth/switch-organization', {
     organizationId,
   });
+  return response.data;
+}
+
+export async function changePassword(payload: {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}) {
+  const response = await api.patch<{ message: string; forceLogout?: boolean }>('/auth/change-password', payload);
   return response.data;
 }
 

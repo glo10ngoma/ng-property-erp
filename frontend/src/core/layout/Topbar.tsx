@@ -1,52 +1,61 @@
-import { useState } from 'react';
-import { ChevronDown, LogOut, UserCircle } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { ChevronDown, KeyRound, LogOut, UserCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { Modal } from '../components/Modal';
 
 export function Topbar() {
-  const { user, logout, setActiveOrganization } = useAuth();
+  const { user, logout, changePassword } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
   const [open, setOpen] = useState(false);
-  const [switchingOrganization, setSwitchingOrganization] = useState(false);
-
-  async function handleOrganizationChange(value: string) {
-    const organizationId = Number(value);
-    if (!Number.isFinite(organizationId) || !user || organizationId === user.organization_id) return;
-    setSwitchingOrganization(true);
-    try {
-      await setActiveOrganization(organizationId);
-    } finally {
-      setSwitchingOrganization(false);
-    }
-  }
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
 
   function handleLogout() {
     logout();
     navigate('/login', { replace: true });
   }
 
-  const organizations = (user?.organizations ?? []).filter((organization) => organization.is_active);
-  const isPlatformSpace = location.pathname.startsWith('/platform');
+  const activeOrganizationLabel = user?.organization_name ?? `Organisation ${user?.organization_id ?? 1}`;
+  const organizationRoleLabel = useMemo(
+    () => roleLabel(user?.organization_role ?? user?.role ?? ''),
+    [user?.organization_role, user?.role],
+  );
+
+  async function handlePasswordSubmit(formData: FormData) {
+    const currentPassword = String(formData.get('currentPassword') ?? '');
+    const newPassword = String(formData.get('newPassword') ?? '');
+    const confirmPassword = String(formData.get('confirmPassword') ?? '');
+
+    setPasswordError('');
+    setPasswordSuccess('');
+    setPasswordSubmitting(true);
+
+    try {
+      const response = await changePassword({ currentPassword, newPassword, confirmPassword });
+      setPasswordSuccess(response.message);
+      setOpen(false);
+      window.setTimeout(() => {
+        logout();
+        navigate('/login', { replace: true });
+      }, 900);
+    } catch (error) {
+      setPasswordError(extractApiError(error));
+    } finally {
+      setPasswordSubmitting(false);
+    }
+  }
 
   return (
     <header className="topbar">
       <div className="topbar-org-slot">
-        {user && organizations.length > 1 && !isPlatformSpace ? (
-          <label className="topbar-org-switcher">
+        {user ? (
+          <div className="topbar-org-readonly" aria-label="Organisation active">
             <span>Organisation active</span>
-            <select
-              value={String(user.organization_id ?? '')}
-              onChange={(event) => void handleOrganizationChange(event.target.value)}
-              disabled={switchingOrganization}
-            >
-              {organizations.map((organization) => (
-                <option key={organization.organization_id} value={organization.organization_id}>
-                  {organization.organization_name}
-                </option>
-              ))}
-            </select>
-          </label>
+            <strong>{activeOrganizationLabel}</strong>
+          </div>
         ) : null}
       </div>
 
@@ -56,7 +65,7 @@ export function Topbar() {
             <UserCircle size={18} />
             <span>
               <strong>{user.name}</strong>
-              <small>{roleLabel(user.role)} - {user.organization_name ?? `Organisation ${user.organization_id ?? 1}`}</small>
+              <small>{organizationRoleLabel} - {activeOrganizationLabel}</small>
             </span>
             <ChevronDown size={16} />
           </button>
@@ -65,12 +74,79 @@ export function Topbar() {
               <button className="menu-item" onClick={() => { setOpen(false); navigate('/settings'); }}>
                 <UserCircle size={16} /> Mon profil
               </button>
+              <button
+                className="menu-item"
+                onClick={() => {
+                  setOpen(false);
+                  setPasswordError('');
+                  setPasswordSuccess('');
+                  setChangingPassword(true);
+                }}
+              >
+                <KeyRound size={16} /> Changer mon mot de passe
+              </button>
               <button className="menu-item danger" onClick={handleLogout}>
                 <LogOut size={16} /> Déconnexion
               </button>
             </div>
           ) : null}
         </div>
+      ) : null}
+
+      {changingPassword ? (
+        <Modal
+          title="Changer mon mot de passe"
+          className="change-password-modal"
+          onClose={() => {
+            if (passwordSubmitting) return;
+            setChangingPassword(false);
+            setPasswordError('');
+            setPasswordSuccess('');
+          }}
+        >
+          <form
+            className="form-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handlePasswordSubmit(new FormData(event.currentTarget));
+            }}
+          >
+            {passwordError ? <div className="error-message">{passwordError}</div> : null}
+            {passwordSuccess ? <div className="success-message">{passwordSuccess}</div> : null}
+            <label>
+              Mot de passe actuel
+              <input name="currentPassword" type="password" autoComplete="current-password" required />
+            </label>
+            <label>
+              Nouveau mot de passe
+              <input name="newPassword" type="password" autoComplete="new-password" minLength={12} required />
+            </label>
+            <label>
+              Confirmer le nouveau mot de passe
+              <input name="confirmPassword" type="password" autoComplete="new-password" minLength={12} required />
+            </label>
+            <div className="change-password-hint">
+              Au moins 12 caractères avec majuscule, minuscule, chiffre et caractère spécial.
+            </div>
+            <div className="modal-footer modal-footer-sticky">
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => {
+                  setChangingPassword(false);
+                  setPasswordError('');
+                  setPasswordSuccess('');
+                }}
+                disabled={passwordSubmitting}
+              >
+                Annuler
+              </button>
+              <button type="submit" disabled={passwordSubmitting}>
+                {passwordSubmitting ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+            </div>
+          </form>
+        </Modal>
       ) : null}
     </header>
   );
@@ -96,4 +172,11 @@ function roleLabel(role: string) {
       COMPTABLE: 'Utilisateur en écriture',
     }[role.toUpperCase()] ?? role
   );
+}
+
+function extractApiError(error: unknown) {
+  const response = (error as { response?: { data?: { message?: string | string[] } } })?.response?.data;
+  if (Array.isArray(response?.message)) return response.message.join(' | ');
+  if (typeof response?.message === 'string') return response.message;
+  return 'Impossible de modifier le mot de passe.';
 }

@@ -55,6 +55,9 @@ button, .icon-btn {
 .topbar-org-switcher { display: grid; gap: 4px; min-width: min(320px, 100%); color: #637783; font-size: 12px; font-weight: 700; }
 .topbar-org-switcher span { color: #637783; font-size: 11px; text-transform: uppercase; }
 .topbar-org-switcher select { min-width: 220px; max-width: 320px; background: white; }
+.topbar-org-readonly { display: grid; gap: 4px; min-width: min(280px, 100%); padding: 8px 12px; background: #fff; border: 1px solid #d8e1e8; border-radius: 8px; }
+.topbar-org-readonly span { color: #637783; font-size: 11px; text-transform: uppercase; font-weight: 700; }
+.topbar-org-readonly strong { color: #203845; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .operator { background: white; border: 1px solid #d8e1e8; border-radius: 6px; padding: 7px 10px; color: #1f2933; }
 .user-menu { position: relative; }
 .user-menu .operator { min-height: 42px; }
@@ -62,6 +65,9 @@ button, .icon-btn {
 .user-menu .operator strong { font-size: 13px; }
 .user-menu .operator small { color: #637783; font-size: 12px; }
 .user-menu-panel { position: absolute; right: 0; top: calc(100% + 8px); width: 220px; background: white; border: 1px solid #d8e1e8; border-radius: 8px; box-shadow: 0 16px 42px rgba(31,41,51,.14); padding: 6px; z-index: 5; }
+.change-password-modal { width: min(540px, calc(100vw - 32px)); }
+.change-password-modal .form-grid { gap: 12px; }
+.change-password-hint { color: #637783; font-size: 12px; line-height: 1.45; }
 .menu-item { width: 100%; min-height: 36px; justify-content: flex-start; background: white; color: #334e68; padding: 0 10px; }
 .menu-item:hover { background: #f4f7f9; }
 .menu-item.danger { color: #a4343a; }
@@ -611,6 +617,7 @@ textarea { min-height: 72px; resize: vertical; }
   .topbar-org-slot { width: 100%; }
   .topbar-org-switcher { width: 100%; min-width: 0; }
   .topbar-org-switcher select { max-width: none; }
+  .topbar-org-readonly { width: 100%; min-width: 0; }
 }
 
 @media (min-width: 981px) and (max-width: 1240px) {

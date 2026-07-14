@@ -3,10 +3,12 @@ import { useLocation } from 'react-router-dom';
 import { appConfig } from '../../app/config';
 import type { AuthUser } from '../api/api.types';
 import {
+  changePassword as changePasswordRequest,
   clearSession,
   login as loginRequest,
   logoutRequest,
   me as meRequest,
+  persistSession,
   persistUser,
   readActiveOrganizationId,
   readLastActivityAt,
@@ -29,6 +31,7 @@ type AuthState = {
   login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => void;
   setActiveOrganization: (organizationId: number) => Promise<void>;
+  changePassword: (payload: { currentPassword: string; newPassword: string; confirmPassword: string }) => Promise<{ message: string; forceLogout?: boolean }>;
   refreshUser: () => Promise<void>;
   continueSession: () => void;
   can: (permission: string) => boolean;
@@ -299,9 +302,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const previousOrganizationId = user?.organization_id ?? readActiveOrganizationId();
       writeActiveOrganizationId(organizationId);
       try {
-        const nextUser = await switchOrganizationRequest(organizationId);
-        setUser(nextUser);
-        persistUser(nextUser);
+        const response = await switchOrganizationRequest(organizationId);
+        setToken(response.token);
+        setUser(response.user);
+        persistSession(response.token, response.user);
         writeOrganizationSelectionRequired(false);
         setRequiresOrganizationSelection(false);
         recordActivity(true);
@@ -312,6 +316,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         writeActiveOrganizationId(previousOrganizationId ?? null);
         throw error;
       }
+    },
+    async changePassword(payload) {
+      return changePasswordRequest(payload);
     },
     continueSession() {
       setWarningBusy(true);

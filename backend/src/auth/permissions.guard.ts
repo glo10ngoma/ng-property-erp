@@ -15,6 +15,8 @@ type TokenPayload = {
   sub: number;
   email: string;
   role?: string;
+  organization_id?: number;
+  organization_confirmed?: boolean;
   iat?: number;
   exp?: number;
 };
@@ -61,9 +63,20 @@ export class PermissionsGuard implements CanActivate {
     if (request.path === '/api/auth/login' || request.path === '/api/auth/logout' || request.path === '/api/health') return true;
 
     const tokenPayload = this.decode(request);
-    const requestedOrganizationId = this.readRequestedOrganizationId(request);
+    const lockedOrganizationId =
+      tokenPayload.organization_confirmed && Number.isFinite(Number(tokenPayload.organization_id))
+        ? Number(tokenPayload.organization_id)
+        : undefined;
+    const requestedOrganizationId = lockedOrganizationId ?? this.readRequestedOrganizationId(request);
     const user = await this.organizationAccess.resolveUserContext(tokenPayload.sub, requestedOrganizationId);
-    request.user = user;
+    request.user = {
+      ...user,
+      organization_confirmed: Boolean(tokenPayload.organization_confirmed),
+    };
+
+    if (!tokenPayload.organization_confirmed && !this.isPreSelectionRoute(request.path)) {
+      throw new ForbiddenException('Sélectionnez une organisation pour terminer la connexion.');
+    }
 
     const permission = this.permissionFor(request.path, request.method);
     if (!permission || user.permissions.includes('*') || user.permissions.includes(permission)) return true;
@@ -145,5 +158,9 @@ export class PermissionsGuard implements CanActivate {
     if (resource === 'cash' && path.includes('/close')) return 'cash.close';
     const action = method === 'GET' ? 'read' : method === 'POST' ? 'create' : method === 'PUT' || method === 'PATCH' ? 'update' : method === 'DELETE' ? 'delete' : 'read';
     return `${resource}.${action}`;
+  }
+
+  private isPreSelectionRoute(path: string) {
+    return path === '/api/auth/me' || path === '/api/auth/switch-organization' || path === '/api/auth/logout';
   }
 }

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../../../core/api/axios';
+import { useAuth } from '../../../core/auth/AuthContext';
 import { EmptyState, Modal, PageHeader, SuccessMessage } from '../../../components';
 
 type PlatformOrganization = {
@@ -49,6 +50,11 @@ type PlatformOverviewResponse = {
   latestOrganizations: PlatformOrganization[];
   latestActivity: Array<Record<string, unknown>>;
 };
+
+function useIsSuperAdmin() {
+  const { user } = useAuth();
+  return String(user?.platform_role ?? user?.role ?? '').trim().toUpperCase() === 'SUPER_ADMIN';
+}
 
 export function PlatformOverviewPage() {
   const [data, setData] = useState<PlatformOverviewResponse | null>(null);
@@ -129,7 +135,9 @@ export function PlatformOrganizationsPage() {
 
   async function load() {
     setLoading(true);
-    const response = await api.get<PlatformOrganization[]>('/platform/organizations', { params: { search: search || undefined, status: status === 'ALL' ? undefined : status } });
+    const response = await api.get<PlatformOrganization[]>('/platform/organizations', {
+      params: { search: search || undefined, status: status === 'ALL' ? undefined : status },
+    });
     setItems(response.data);
     setLoading(false);
   }
@@ -190,7 +198,7 @@ export function PlatformOrganizationsPage() {
           {!items.length && <EmptyState message="Aucune organisation trouvée." />}
         </div>
       )}
-      {creating && (
+      {creating ? (
         <Modal title="Créer une organisation" onClose={() => { setCreating(false); setError(''); }}>
           <form className="form-grid" onSubmit={(event) => { event.preventDefault(); void submit(new FormData(event.currentTarget)); }}>
             <label>Nom<input name="name" required /></label>
@@ -207,12 +215,13 @@ export function PlatformOrganizationsPage() {
             </div>
           </form>
         </Modal>
-      )}
+      ) : null}
     </section>
   );
 }
 
 export function PlatformUsersPage() {
+  const isSuperAdmin = useIsSuperAdmin();
   const [items, setItems] = useState<PlatformUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [success, setSuccess] = useState('');
@@ -242,7 +251,7 @@ export function PlatformUsersPage() {
 
   return (
     <section>
-      <PageHeader title="Utilisateurs plateforme" action={<button onClick={() => setCreating(true)}>Créer utilisateur</button>} />
+      <PageHeader title="Utilisateurs plateforme" action={isSuperAdmin ? <button onClick={() => setCreating(true)}>Créer utilisateur</button> : undefined} />
       <SuccessMessage message={success} />
       {error ? <div className="error-message">{error}</div> : null}
       {loading ? <div className="loading-state"><span className="spinner" />Chargement...</div> : (
@@ -266,7 +275,7 @@ export function PlatformUsersPage() {
           {!items.length && <EmptyState message="Aucun utilisateur trouvé." />}
         </div>
       )}
-      {creating && (
+      {creating && isSuperAdmin ? (
         <Modal title="Créer un utilisateur plateforme" onClose={() => { setCreating(false); setError(''); }}>
           <form className="form-grid" onSubmit={(event) => { event.preventDefault(); void submit(new FormData(event.currentTarget)); }}>
             <label>Prénom<input name="first_name" required /></label>
@@ -292,12 +301,13 @@ export function PlatformUsersPage() {
             </div>
           </form>
         </Modal>
-      )}
+      ) : null}
     </section>
   );
 }
 
 export function PlatformMembershipsPage() {
+  const isSuperAdmin = useIsSuperAdmin();
   const [items, setItems] = useState<PlatformMembership[]>([]);
   const [users, setUsers] = useState<PlatformUser[]>([]);
   const [organizations, setOrganizations] = useState<PlatformOrganization[]>([]);
@@ -339,32 +349,34 @@ export function PlatformMembershipsPage() {
       <PageHeader title="Adhésions" />
       <SuccessMessage message={success} />
       {error ? <div className="error-message">{error}</div> : null}
-      <div className="detail-section">
-        <h4>Ajouter ou mettre à jour une adhésion</h4>
-        <form className="quick-form" onSubmit={(event) => { event.preventDefault(); void submit(new FormData(event.currentTarget)); }}>
-          <label>Utilisateur
-            <select name="user_id" required defaultValue="">
-              <option value="" disabled>Sélectionner</option>
-              {users.map((item) => <option key={item.id} value={item.id}>{`${item.first_name} ${item.last_name}`.trim()} - {item.email}</option>)}
-            </select>
-          </label>
-          <label>Organisation
-            <select name="organization_id" required defaultValue="">
-              <option value="" disabled>Sélectionner</option>
-              {organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-          </label>
-          <label>Rôle
-            <select name="role_code" defaultValue="VIEWER_CLIENT">
-              <option value="ADMIN_CLIENT">ADMIN_CLIENT</option>
-              <option value="EDITOR_CLIENT">EDITOR_CLIENT</option>
-              <option value="VIEWER_CLIENT">VIEWER_CLIENT</option>
-            </select>
-          </label>
-          <label><span>Organisation par défaut</span><input name="is_default" type="checkbox" /></label>
-          <button type="submit">Enregistrer</button>
-        </form>
-      </div>
+      {isSuperAdmin ? (
+        <div className="detail-section">
+          <h4>Ajouter ou mettre à jour une adhésion</h4>
+          <form className="quick-form" onSubmit={(event) => { event.preventDefault(); void submit(new FormData(event.currentTarget)); }}>
+            <label>Utilisateur
+              <select name="user_id" required defaultValue="">
+                <option value="" disabled>Sélectionner</option>
+                {users.map((item) => <option key={item.id} value={item.id}>{`${item.first_name} ${item.last_name}`.trim()} - {item.email}</option>)}
+              </select>
+            </label>
+            <label>Organisation
+              <select name="organization_id" required defaultValue="">
+                <option value="" disabled>Sélectionner</option>
+                {organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </label>
+            <label>Rôle
+              <select name="role_code" defaultValue="VIEWER_CLIENT">
+                <option value="ADMIN_CLIENT">ADMIN_CLIENT</option>
+                <option value="EDITOR_CLIENT">EDITOR_CLIENT</option>
+                <option value="VIEWER_CLIENT">VIEWER_CLIENT</option>
+              </select>
+            </label>
+            <label><span>Organisation par défaut</span><input name="is_default" type="checkbox" /></label>
+            <button type="submit">Enregistrer</button>
+          </form>
+        </div>
+      ) : null}
       <div className="table-wrap">
         <table>
           <thead><tr><th>Utilisateur</th><th>Email</th><th>Organisation</th><th>Rôle</th><th>Active</th><th>Défaut</th><th>Créée le</th></tr></thead>

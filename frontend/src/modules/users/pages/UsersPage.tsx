@@ -45,6 +45,7 @@ export function UsersPage() {
   const [creating, setCreating] = useState(false);
 
   const activeOrganizationName = user?.organization_name ?? `Organisation ${user?.organization_id ?? 1}`;
+  const isSuperAdmin = String(user?.platform_role ?? user?.role ?? '').trim().toUpperCase() === 'SUPER_ADMIN';
 
   const filtered = useMemo(
     () =>
@@ -132,7 +133,7 @@ export function UsersPage() {
         <div className="toolbar-actions">
           <button className="secondary" onClick={() => { setQuery(''); setRoleFilter('ALL'); setStatusFilter('ALL'); }}>Réinitialiser</button>
           <button className="secondary" onClick={() => exportExcel('utilisateurs.xlsx', filtered)}>Excel</button>
-          {can('users.create') && (
+          {can('users.create') && isSuperAdmin && (
             <button onClick={() => setCreating(true)}>
               <UserPlus size={16} /> Nouvel utilisateur
             </button>

@@ -6,6 +6,7 @@ export type AuthPayload = {
   email: string;
   role: string;
   platform_role?: string | null;
+  organization_confirmed?: boolean;
   organization_role?: string | null;
   organization_id: number;
   organization_name?: string | null;

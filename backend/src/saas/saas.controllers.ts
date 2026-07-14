@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PlatformRoleGuard } from '../auth/platform-role.guard';
+import { SuperAdminOnly, SuperAdminOnlyGuard } from '../auth/super-admin-only.guard';
 import { PERMISSIONS, ROLE_LABELS, ROLE_PERMISSIONS } from './permissions';
 import { SaasService } from './saas.service';
 import { UpdateCompanySettingsDto, UpdateExchangeRateDto } from './settings.dto';
@@ -15,6 +16,8 @@ export class UsersController {
   }
 
   @Post()
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut créer un utilisateur.')
   createUser(@Body() body: Record<string, unknown>) {
     return this.service.createScopedUser(body);
   }
@@ -1094,6 +1097,8 @@ export class PlatformController {
   }
 
   @Post('users')
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut créer un utilisateur.')
   createUser(@Body() body: Record<string, unknown>) {
     return this.service.platformCreateUser(body);
   }
@@ -1112,11 +1117,15 @@ export class PlatformController {
   }
 
   @Post('memberships')
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut gérer les adhésions utilisateur.')
   upsertMembership(@Body() body: Record<string, unknown>) {
     return this.service.platformUpsertMembership(body);
   }
 
   @Patch('memberships/:id')
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut gérer les adhésions utilisateur.')
   updateMembership(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
     return this.service.platformUpdateMembership(id, body);
   }
