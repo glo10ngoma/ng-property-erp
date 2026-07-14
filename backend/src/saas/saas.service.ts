@@ -3576,6 +3576,84 @@ export class SaasService {
     });
   }
 
+  async deleteLease(id: number) {
+    return this.db.transaction(async (client) => {
+      const organizationId = this.context.organizationId();
+      const userId = this.context.userId();
+      const leaseResult = await client.query(
+        `SELECT id, unit_id, tenant_id, status
+         FROM leases
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+        [id, organizationId],
+      );
+      const lease = requireRow(leaseResult.rows[0], 'Lease') as Record<string, unknown>;
+      const leaseStatus = String(lease.status ?? '').trim().toUpperCase();
+      if (leaseStatus !== 'DRAFT' && leaseStatus !== 'BROUILLON') {
+        throw new ConflictException('Seuls les baux en brouillon peuvent être supprimés.');
+      }
+
+      const [invoices, contracts, documents] = await Promise.all([
+        client.query(
+          `SELECT COUNT(*)::INT AS total
+           FROM invoices
+           WHERE lease_id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+          [id, organizationId],
+        ),
+        client.query(
+          `SELECT COUNT(*)::INT AS total
+           FROM lease_contract_generations
+           WHERE lease_id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+          [id, organizationId],
+        ),
+        client.query(
+          `SELECT COUNT(*)::INT AS total
+           FROM lease_documents
+           WHERE lease_id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+          [id, organizationId],
+        ),
+      ]);
+
+      const invoicesCount = Number(invoices.rows[0]?.total ?? 0);
+      const contractsCount = Number(contracts.rows[0]?.total ?? 0);
+      const documentsCount = Number(documents.rows[0]?.total ?? 0);
+      if (invoicesCount > 0 || contractsCount > 0 || documentsCount > 0) {
+        throw new ConflictException(
+          'Ce bail possède déjà un historique financier ou contractuel et ne peut pas être supprimé.',
+        );
+      }
+
+      await client.query(
+        `UPDATE lease_guarantees
+         SET deleted_at = NOW(), deleted_by = $2
+         WHERE lease_id = $1 AND organization_id = $3 AND deleted_at IS NULL`,
+        [id, userId ?? null, organizationId],
+      );
+      await client.query(
+        `UPDATE leases
+         SET deleted_at = NOW(), deleted_by = $2, updated_at = NOW()
+         WHERE id = $1 AND organization_id = $3 AND deleted_at IS NULL`,
+        [id, userId ?? null, organizationId],
+      );
+      await client.query(
+        `UPDATE units
+         SET status = 'VACANT'
+         WHERE id = $1
+           AND organization_id = $2
+           AND NOT EXISTS (
+             SELECT 1
+             FROM leases
+             WHERE unit_id = $1
+               AND organization_id = $2
+               AND status = 'ACTIVE'
+               AND deleted_at IS NULL
+           )`,
+        [Number(lease.unit_id), organizationId],
+      );
+
+      return { deleted: true, id };
+    });
+  }
+
   async activateLease(id: number) {
     return this.db.transaction((client) => this.activateLeaseInTransaction(client, id));
   }

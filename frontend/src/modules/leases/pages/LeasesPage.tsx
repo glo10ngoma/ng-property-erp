@@ -59,6 +59,7 @@ export function LeasesPage() {
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState(emptyFilters);
   const [editing, setEditing] = useState<LeaseDetail | null>(null);
+  const [deletingLeaseId, setDeletingLeaseId] = useState<number | null>(null);
   const [success, setSuccess] = useState('');
 
   const buildingOptions = useMemo(() => Array.from(new Set(data.map((lease) => lease.building_name).filter(Boolean))).sort(), [data]);
@@ -105,6 +106,22 @@ export function LeasesPage() {
   async function invoice(id: number) {
     const response = await api.post(`/leases/${id}/invoice`);
     setSuccess(`Facture ${response.data.invoice_number} creee depuis le bail.`);
+  }
+
+  async function removeLease(id: number) {
+    if (!window.confirm('Supprimer definitivement ce bail en brouillon ?')) return;
+    setDeletingLeaseId(id);
+    try {
+      await api.delete(`/leases/${id}`);
+      setSuccess('Bail en brouillon supprime avec succes.');
+      await reload();
+    } catch (err: any) {
+      const message = err?.response?.data?.message;
+      const text = Array.isArray(message) ? message.join(' | ') : message || 'Impossible de supprimer ce bail.';
+      window.alert(text);
+    } finally {
+      setDeletingLeaseId(null);
+    }
   }
 
   function exportExcel() {
@@ -176,6 +193,16 @@ export function LeasesPage() {
                   <button className="icon-btn" title="Voir" onClick={() => navigate(`/leases/${lease.id}`)}><Eye size={16} /></button>
                   {can('documents.upload') && <button className="icon-btn" title="Modifier" onClick={() => void openEdit(lease.id)}><Pencil size={16} /></button>}
                   {can('documents.upload') && lease.status === 'ACTIVE' && <button className="icon-btn danger" title="Resilier" onClick={() => void terminate(lease.id)}><Trash2 size={16} /></button>}
+                  {can('documents.upload') && lease.status === 'DRAFT' && (
+                    <button
+                      className="icon-btn danger"
+                      title={deletingLeaseId === lease.id ? 'Suppression en cours' : 'Supprimer'}
+                      onClick={() => void removeLease(lease.id)}
+                      disabled={deletingLeaseId === lease.id}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                   {can('invoices.create') && <button className="icon-btn" title="Facturer" onClick={() => void invoice(lease.id)}><Receipt size={16} /></button>}
                   {lease.contract_file_name && <button className="icon-btn" title="Telecharger contrat" onClick={() => downloadContract(lease)}><ScrollText size={16} /></button>}
                 </td>

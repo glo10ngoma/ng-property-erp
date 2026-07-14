@@ -48,6 +48,10 @@ type Tenant = {
   active_lease_id?: number;
   active_lease_end_date?: string;
   active_lease_status?: string;
+  active_leases_count?: number;
+  occupied_units_count?: number;
+  occupied_unit_labels?: string;
+  occupied_building_names?: string;
   last_payment_date?: string;
   remaining_amount?: number;
   last_reminder_at?: string;
@@ -78,16 +82,16 @@ export function Tenants() {
   const [filters, setFilters] = useState({ status: '', building: '', unit: '', leaseType: '', paymentStatus: '', leaseExpiry: '', profession: '', nationality: '', reminder: '' });
   const [success, setSuccess] = useState('');
 
-  const buildings = uniqueValues(data.map((tenant) => tenant.building_name));
-  const units = uniqueValues(data.map((tenant) => tenant.unit_number));
+  const buildings = uniqueValues(data.flatMap((tenant) => splitLabels(tenant.occupied_building_names ?? tenant.building_name)));
+  const units = uniqueValues(data.flatMap((tenant) => splitLabels(tenant.occupied_unit_labels ?? tenant.unit_number)));
   const professions = uniqueValues(data.map((tenant) => tenant.profession ?? tenant.business_sector));
   const nationalities = uniqueValues(data.map((tenant) => tenant.nationality));
 
   const filtered = data
     .filter((tenant) => includesText(tenant, query))
     .filter((tenant) => !filters.status || tenant.status === filters.status)
-    .filter((tenant) => !filters.building || tenant.building_name === filters.building)
-    .filter((tenant) => !filters.unit || tenant.unit_number === filters.unit)
+    .filter((tenant) => !filters.building || matchesLabelFilter(tenant.occupied_building_names ?? tenant.building_name, filters.building))
+    .filter((tenant) => !filters.unit || matchesLabelFilter(tenant.occupied_unit_labels ?? tenant.unit_number, filters.unit))
     .filter((tenant) => !filters.leaseType || leaseType(tenant) === filters.leaseType)
     .filter((tenant) => !filters.paymentStatus || paymentStatus(tenant) === filters.paymentStatus)
     .filter((tenant) => !filters.leaseExpiry || matchesLeaseExpiry(tenant, filters.leaseExpiry))
@@ -228,8 +232,8 @@ export function Tenants() {
                 <td>{tenantTypeLabel(tenant.tenant_type)}</td>
                 <td>{tenantName(tenant)}</td>
                 <td>{tenant.phone}</td>
-                <td>{tenant.unit_number ?? '-'}</td>
-                <td>{tenant.building_name ?? '-'}</td>
+                <td>{tenant.occupied_unit_labels ?? tenant.unit_number ?? '-'}</td>
+                <td>{tenant.occupied_building_names ?? tenant.building_name ?? '-'}</td>
                 <td className="right">{amount(tenant.monthly_rent)}</td>
                 <td>USD</td>
                 <td>{dateText(tenant.active_lease_end_date)}</td>
@@ -391,8 +395,8 @@ function exportTenantRows(rows: Tenant[]) {
     email: tenant.email ?? '',
     profession: tenant.profession ?? tenant.business_sector ?? '',
     nationalite: tenant.nationality ?? '',
-    immeuble: tenant.building_name ?? '',
-    appartement: tenant.unit_number ?? '',
+    immeuble: tenant.occupied_building_names ?? tenant.building_name ?? '',
+    appartement: tenant.occupied_unit_labels ?? tenant.unit_number ?? '',
     loyer: tenant.monthly_rent ?? 0,
     devise: 'USD',
     statut: statusLabel(tenant.status),
@@ -421,6 +425,15 @@ function exportTenantListWorkbook(rows: Tenant[]) {
 
 function uniqueValues(values: Array<string | undefined>) {
   return Array.from(new Set(values.filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b));
+}
+
+function splitLabels(value?: string) {
+  if (!value) return [];
+  return value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function matchesLabelFilter(value: string | undefined, expected: string) {
+  return splitLabels(value).includes(expected);
 }
 
 function tenantName(tenant: Tenant) {

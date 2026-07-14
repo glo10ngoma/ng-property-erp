@@ -819,6 +819,11 @@ export class LeasesController {
     return this.service.updateLease(id, body);
   }
 
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.service.deleteLease(id);
+  }
+
   @Post(':id/activate')
   activate(@Param('id', ParseIntPipe) id: number) {
     return this.service.activateLease(id);
