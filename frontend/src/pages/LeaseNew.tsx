@@ -83,11 +83,17 @@ export function LeaseNew() {
   const guaranteeAmount = Number(rent || 0) * Number(guaranteeMonths || 0);
   const contractTemplateCode = leaseTemplateCode(leaseUsage);
   const contractTemplateLabel = leaseTemplateLabel(leaseUsage);
-  const activityLabel = leaseUsage === 'COMMERCIAL' ? 'Activite ou destination commerciale' : 'Activite ou destination professionnelle';
+  const activityLabel = leaseUsage === 'COMMERCIAL'
+    ? 'Activite ou destination commerciale'
+    : leaseUsage === 'PROFESSIONAL'
+      ? 'Activite ou destination professionnelle'
+      : 'Activite ou destination mixte';
   const activityPlaceholder = leaseUsage === 'COMMERCIAL'
     ? 'Ex: Boutique de vente, restaurant, depot'
-    : 'Ex: Cabinet de conseil, bureau administratif, agence';
-  const requiresActivity = leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL';
+    : leaseUsage === 'PROFESSIONAL'
+      ? 'Ex: Cabinet de conseil, bureau administratif, agence'
+      : 'Ex: Activites commerciales et professionnelles';
+  const requiresActivity = leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL' || leaseUsage === 'MIXED';
 
   const buildingOptions = buildings.data.map((building) => ({
     value: building.id,
@@ -146,7 +152,7 @@ export function LeaseNew() {
   }, [selectedBuilding?.city, signaturePlace]);
 
   useEffect(() => {
-    if (leaseUsage !== 'COMMERCIAL' && leaseUsage !== 'PROFESSIONAL') {
+    if (leaseUsage !== 'COMMERCIAL' && leaseUsage !== 'PROFESSIONAL' && leaseUsage !== 'MIXED') {
       setLeaseActivityDescription('');
     }
   }, [leaseUsage]);
@@ -188,9 +194,6 @@ export function LeaseNew() {
     }
     if (requiresActivity && !activityDescriptionValue) {
       return setError('Renseignez l activite ou la destination des lieux.');
-    }
-    if (leaseUsage === 'MIXED') {
-      return setError('Aucun modele de contrat mixte n est encore configure pour cette organisation.');
     }
 
     const payload = {
@@ -265,9 +268,6 @@ export function LeaseNew() {
             <label>Usage du bail<select name="lease_usage" value={leaseUsage} onChange={(event) => setLeaseUsage(normalizeLeaseUsage(event.target.value))}>{LEASE_USAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             {requiresActivity ? (
               <label className="lease-field-wide">{activityLabel}<input name="lease_activity_description" value={leaseActivityDescription} onChange={(event) => setLeaseActivityDescription(event.target.value)} placeholder={activityPlaceholder} required /></label>
-            ) : null}
-            {leaseUsage === 'MIXED' ? (
-              <label className="lease-field-wide">Modele mixte<input className="locked-field" value="Aucun modele mixte configure pour le moment" readOnly /></label>
             ) : null}
             <label>Statut<select name="status" defaultValue="DRAFT"><option value="DRAFT">Brouillon</option><option value="ACTIVE">Actif</option></select></label>
           </div>
@@ -347,7 +347,7 @@ function leaseTemplateCode(value?: string | null) {
     case 'PROFESSIONAL':
       return 'LEASE_PROFESSIONAL';
     case 'MIXED':
-      return '';
+      return 'LEASE_MIXED';
     case 'RESIDENTIAL':
     default:
       return 'LEASE_RESIDENTIAL';
@@ -361,7 +361,7 @@ function leaseTemplateLabel(value?: string | null) {
     case 'PROFESSIONAL':
       return 'Contrat professionnel';
     case 'MIXED':
-      return 'Modele mixte non configure';
+      return 'Contrat mixte';
     case 'RESIDENTIAL':
     default:
       return 'Contrat residentiel';

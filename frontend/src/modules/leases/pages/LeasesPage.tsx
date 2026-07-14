@@ -344,11 +344,8 @@ function LeaseEditModal({
   async function submit() {
     if (!tenantId) return setError('Selectionnez un locataire.');
     if (!unitId) return setError('Selectionnez une unite.');
-    if ((leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL') && !leaseActivityDescription.trim()) {
+    if ((leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL' || leaseUsage === 'MIXED') && !leaseActivityDescription.trim()) {
       return setError('Renseignez l activite ou la destination des lieux.');
-    }
-    if (leaseUsage === 'MIXED') {
-      return setError('Aucun modele de contrat mixte n est encore configure pour cette organisation.');
     }
     if (guaranteeStatusValue === 'PAID' && !guaranteePaymentDate) {
       return setError('Renseignez la date de paiement de la garantie.');
@@ -371,7 +368,7 @@ function LeaseEditModal({
         other_charges_amount: Number(lease.other_charges_amount ?? 0),
         guarantee_months: guaranteeMonthsValue,
         lease_usage: leaseUsage,
-        lease_activity_description: (leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL') ? leaseActivityDescription.trim() : null,
+        lease_activity_description: (leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL' || leaseUsage === 'MIXED') ? leaseActivityDescription.trim() : null,
         rental_guarantee_amount: calculatedGuaranteeAmount,
         rental_guarantee_paid: normalizedGuaranteePaid,
         rental_guarantee_payment_date: normalizedGuaranteeStatus === 'PAID' ? (guaranteePaymentDate || null) : null,
@@ -416,8 +413,8 @@ function LeaseEditModal({
             <label>Loyer<input type="number" value={rent} onChange={(event) => setRent(Number(event.target.value))} required /></label>
             <label>Montant syndic<input type="number" min="0" value={syndicAmount} onChange={(event) => setSyndicAmount(Number(event.target.value))} /></label>
             <label>Usage du bail<select value={leaseUsage} onChange={(event) => setLeaseUsage(normalizeLeaseUsageCode(event.target.value))}><option value="RESIDENTIAL">Residentiel</option><option value="COMMERCIAL">Commercial</option><option value="PROFESSIONAL">Professionnel</option><option value="MIXED">Mixte</option></select></label>
-            {(leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL') ? (
-              <label className="lease-field-wide">{leaseUsage === 'COMMERCIAL' ? 'Activite ou destination commerciale' : 'Activite ou destination professionnelle'}<input value={leaseActivityDescription} onChange={(event) => setLeaseActivityDescription(event.target.value)} placeholder={leaseUsage === 'COMMERCIAL' ? 'Ex: Boutique de vente' : 'Ex: Cabinet de conseil'} /></label>
+            {(leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL' || leaseUsage === 'MIXED') ? (
+              <label className="lease-field-wide">{leaseUsage === 'COMMERCIAL' ? 'Activite ou destination commerciale' : leaseUsage === 'PROFESSIONAL' ? 'Activite ou destination professionnelle' : 'Activite ou destination mixte'}<input value={leaseActivityDescription} onChange={(event) => setLeaseActivityDescription(event.target.value)} placeholder={leaseUsage === 'COMMERCIAL' ? 'Ex: Boutique de vente' : leaseUsage === 'PROFESSIONAL' ? 'Ex: Cabinet de conseil' : 'Ex: Activites commerciales et professionnelles'} /></label>
             ) : null}
             <label>Total mensuel<input className="locked-field" value={`${amount(Number(rent ?? 0) + Number(syndicAmount ?? 0))} USD`} readOnly /></label>
             <label>Devise<input className="locked-field" value="USD" readOnly /></label>

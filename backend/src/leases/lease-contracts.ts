@@ -1,13 +1,24 @@
-import * as fs from 'fs';
+﻿import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { BadRequestException } from '@nestjs/common';
-import Docxtemplater from 'docxtemplater';
 import PizZip from 'pizzip';
 
 type VariableValue = string | number | null | undefined;
 type ContractBlock = { type: 'text'; lines: string[] } | { type: 'table'; rows: Array<[string, string]> };
 type PdfLine = { text: string; kind: 'normal' | 'title' | 'article' | 'table' | 'blank' };
+type LeaseContractHeaderRow = { label: string; value: string };
+type LeaseContractDocumentContext = {
+  title: string;
+  headerRows: LeaseContractHeaderRow[];
+  footer: {
+    companyName: string;
+    contractNumber: string;
+    generatedAt: string;
+  };
+  blocks: ContractBlock[];
+  snapshot: Record<string, unknown>;
+};
 
 const DEFAULT_TITLE = 'CONTRAT DE BAIL À USAGE RÉSIDENTIEL';
 const PDF_PAGE_WIDTH = 595;
@@ -24,7 +35,7 @@ const DOCX_TEMPLATE_CANDIDATES = [
   path.resolve(process.cwd(), 'templates', 'leases', DOCX_TEMPLATE_NAME),
   path.resolve(__dirname, '..', '..', 'templates', 'leases', DOCX_TEMPLATE_NAME),
 ];
-const DOCX_TEMPLATE_FORBIDDEN_SEQUENCES = ['Ãƒ', 'Ã‚', 'â€™', 'â€œ', 'â€\u009d', 'ï¿½'];
+const DOCX_TEMPLATE_FORBIDDEN_SEQUENCES = ['ÃƒÆ’', 'Ãƒâ€š', 'Ã¢â‚¬â„¢', 'Ã¢â‚¬Å“', 'Ã¢â‚¬\u009d', 'Ã¯Â¿Â½'];
 
 const winAnsiMap: Record<string, number> = {
   '\u20ac': 128,
@@ -80,6 +91,11 @@ function flattenVariables(input: Record<string, unknown>, prefix = ''): Record<s
 function formatVariableValue(value: VariableValue) {
   if (value === null || value === undefined) return '';
   return String(value).normalize('NFC').trim();
+}
+
+function cleanText(value: unknown, fallback = '') {
+  const normalized = formatVariableValue(value as VariableValue);
+  return normalized || fallback;
 }
 
 function resolveDocxTemplatePath() {
@@ -152,81 +168,98 @@ export function unresolvedPlaceholders(content: string) {
   return content.match(/\{\{[^}]+\}\}/g) ?? [];
 }
 
-export function buildLeaseContractHtml(content: string) {
-  const blocks = parseContractBlocks(content);
-  const title = extractContractTitle(blocks) ?? DEFAULT_TITLE;
-  const bodyBlocks = blocks.length && isTitleBlock(blocks[0]) ? blocks.slice(1) : blocks;
-  const sections = bodyBlocks.map((block, index) => {
-    if (block.type === 'table') {
-      return `<section class="contract-table-wrap"><table class="contract-table"><tbody>${block.rows.map(([left, right]) => `<tr><th>${escapeHtml(left)}</th><td>${escapeHtml(right)}</td></tr>`).join('')}</tbody></table></section>`;
-    }
-    const lines = block.lines;
-    if (!lines.length) return '';
-    const first = escapeHtml(lines[0]);
-    if (first.toUpperCase().startsWith('ARTICLE ')) {
-      return `<section class="contract-article"><h3>${first}</h3>${lines.slice(1).map((line) => `<p>${escapeHtml(line)}</p>`).join('')}</section>`;
-    }
-    if (lines.length === 1 && /^LE PRENEUR\b/i.test(first)) {
-      return `<section class="contract-signatures"><p>${first}</p></section>`;
-    }
-    const className = index === 0 ? 'contract-intro' : 'contract-paragraph';
-    return `<section class="${className}">${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}</section>`;
-  });
-  return [
-    '<article class="lease-contract-preview contract-document">',
-    `<header class="contract-header"><h1 class="contract-title">${escapeHtml(title)}</h1></header>`,
-    ...sections,
-    '</article>',
-  ].join('');
+export function buildLeaseContractHtml(content: string, variables: Record<string, unknown> = {}) {
+  return buildLeaseContractHtmlFromContext(buildLeaseContractDocumentContext(content, variables));
 }
 
-export function buildLeaseContractPdfBase64(content: string, fileTitle = DEFAULT_TITLE) {
-  const resolvedTitle = fileTitle === DEFAULT_TITLE ? (extractContractTitle(parseContractBlocks(content)) ?? DEFAULT_TITLE) : fileTitle;
-  const pages = paginateContent(content, resolvedTitle);
+export function buildLeaseContractPdfBase64(content: string, fileTitle = DEFAULT_TITLE, variables: Record<string, unknown> = {}) {
+  const context = buildLeaseContractDocumentContext(content, variables);
+  const pages = paginateContent(context, fileTitle);
   const pdf = buildPdfDocument(pages);
   return Buffer.from(pdf, 'binary').toString('base64');
 }
 
-export function buildLeaseContractDocxBuffer(variables: Record<string, unknown>) {
+export function buildLeaseContractDocxBuffer(variables: Record<string, unknown>, renderedContent: string) {
+  const context = buildLeaseContractDocumentContext(renderedContent, variables);
   const { path: templatePath, documentXml } = getLeaseContractTemplateMetadata();
   assertDocxTemplateIntegrity(documentXml);
   const zip = new PizZip(fs.readFileSync(templatePath));
-  const doc = new Docxtemplater(zip, {
-    paragraphLoop: true,
-    linebreaks: true,
-    delimiters: { start: '{{', end: '}}' },
-    nullGetter: () => '',
-  });
-
-  try {
-    doc.render(variables);
-  } catch (error: any) {
-    const details = error?.properties?.errors?.map((entry: any) => entry?.properties?.explanation).filter(Boolean).join(' | ');
-    throw new BadRequestException(details || error?.message || 'Impossible de generer le contrat Word');
-  }
-
-  return doc.getZip().generate({
+  const baseDocumentXml = zip.file('word/document.xml')?.asText() ?? '';
+  const sectPr = extractSectionProperties(baseDocumentXml) ?? defaultSectionProperties();
+  const bodyXml = [
+    buildContractHeaderTableXml(context),
+    buildParagraphXml(context.title, { align: 'center', bold: true, underline: true, size: 32, spacingAfter: 220, keepWithNext: true }),
+    ...renderContractBlocksToDocxXml(context.blocks, context.snapshot),
+    buildContractFooterXml(context),
+    sectPr,
+  ].join('');
+  zip.file('word/document.xml', buildDocumentXml(bodyXml));
+  return zip.generate({
     type: 'nodebuffer',
     compression: 'DEFLATE',
   }) as Buffer;
 }
 
-function paginateContent(content: string, title: string) {
-  const wrapped = wrapContractContent(content);
+function buildLeaseContractDocumentContext(content: string, variables: Record<string, unknown>): LeaseContractDocumentContext {
+  const blocks = parseContractBlocks(content);
+  const title = extractContractTitle(blocks) ?? DEFAULT_TITLE;
+  return {
+    title,
+    headerRows: buildHeaderRows(variables),
+    footer: buildFooterContext(variables),
+    blocks: blocks.length && isTitleBlock(blocks[0]) ? blocks.slice(1) : blocks,
+    snapshot: variables,
+  };
+}
+
+function buildHeaderRows(variables: Record<string, unknown>): LeaseContractHeaderRow[] {
+  const company = (variables.bailleur ?? variables.company ?? {}) as Record<string, unknown>;
+  const rows: LeaseContractHeaderRow[] = [
+    { label: 'Société', value: cleanText(company.raison_sociale ?? variables.LANDLORD_NAME ?? '', 'NG Property ERP') },
+    { label: 'Sigle', value: cleanText(company.sigle ?? variables.LANDLORD_ACRONYM ?? '', '—') },
+    { label: 'RCCM', value: cleanText(company.rccm ?? variables.LANDLORD_RCCM ?? '', '—') },
+    { label: 'ID Nat', value: cleanText(company.identification_nationale ?? variables.LANDLORD_NATIONAL_ID ?? '', '—') },
+    { label: 'NIF', value: cleanText(company.numero_fiscal ?? variables.LANDLORD_TAX_ID ?? '', '—') },
+    { label: 'Adresse', value: cleanText(company.adresse_complete ?? variables.LANDLORD_ADDRESS ?? '', '—') },
+    { label: 'Téléphone', value: cleanText(company.telephone ?? variables.company_phone ?? '', '—') },
+    { label: 'Email', value: cleanText(company.email ?? variables.company_email ?? '', '—') },
+  ];
+  return rows.filter((row) => row.value !== '—' || row.label === 'Société');
+}
+
+function buildFooterContext(variables: Record<string, unknown>) {
+  const company = (variables.bailleur ?? variables.company ?? {}) as Record<string, unknown>;
+  return {
+    companyName: cleanText(company.raison_sociale ?? variables.LANDLORD_NAME ?? '', 'NG Property ERP'),
+    contractNumber: cleanText(variables.LEASE_REFERENCE ?? variables.lease_reference ?? '', ''),
+    generatedAt: cleanText(new Date().toISOString().slice(0, 10), ''),
+  };
+}
+
+function paginateContent(context: LeaseContractDocumentContext, title?: string) {
+  const wrapped = wrapContractContent(context);
   const linesPerPage = Math.floor((PDF_PAGE_HEIGHT - PDF_MARGIN_TOP - PDF_MARGIN_BOTTOM) / PDF_LINE_HEIGHT);
   const pages: PdfLine[][] = [];
   for (let index = 0; index < wrapped.length; index += linesPerPage - 2) {
     const chunk = wrapped.slice(index, index + (linesPerPage - 2));
-    pages.push([{ text: title, kind: 'title' }, { text: '', kind: 'blank' }, ...chunk]);
+    pages.push([{ text: title ?? context.title, kind: 'title' }, { text: '', kind: 'blank' }, ...chunk]);
   }
   return pages;
 }
 
-function wrapContractContent(content: string) {
+function wrapContractContent(context: LeaseContractDocumentContext) {
   const lines: PdfLine[] = [];
-  const blocks = parseContractBlocks(content);
-  const bodyBlocks = blocks.length && isTitleBlock(blocks[0]) ? blocks.slice(1) : blocks;
-  for (const block of bodyBlocks) {
+  const headerLine = [context.footer.companyName, context.footer.contractNumber ? `Contrat ${context.footer.contractNumber}` : null, context.footer.generatedAt ? `Généré le ${context.footer.generatedAt}` : null].filter(Boolean).join(' | ');
+  if (headerLine) {
+    lines.push({ text: headerLine, kind: 'normal' });
+  }
+  context.headerRows.forEach((row) => {
+    lines.push({ text: `${row.label} | ${row.value}`, kind: 'table' });
+  });
+  if (context.headerRows.length) {
+    lines.push({ text: '', kind: 'blank' });
+  }
+  for (const block of context.blocks) {
     if (lines.length && lines[lines.length - 1].kind !== 'blank') {
       lines.push({ text: '', kind: 'blank' });
     }
@@ -253,6 +286,209 @@ function wrapContractContent(content: string) {
   }
   while (lines.length && lines[lines.length - 1].kind === 'blank') lines.pop();
   return lines;
+}
+
+function buildLeaseContractHtmlFromContext(context: LeaseContractDocumentContext) {
+  const companySnapshot = (context.snapshot.bailleur ?? context.snapshot.company ?? {}) as Record<string, unknown>;
+  const logoUrl = cleanText(context.snapshot.company_logo_file_url ?? companySnapshot.logo_file_url ?? '', '');
+  const logoHtml = logoUrl ? `<div class="contract-logo"><img src="${escapeHtml(logoUrl)}" alt="Logo société" /></div>` : '';
+  const headerHtml = context.headerRows.length
+    ? `<section class="contract-header">${logoHtml}<div class="contract-header-grid">${context.headerRows.map((row) => `<div class="contract-header-item"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong></div>`).join('')}</div></section>`
+    : '';
+  const footerHtml = `<footer class="contract-footer"><span>${escapeHtml(context.footer.companyName)}</span>${context.footer.contractNumber ? `<span>Contrat ${escapeHtml(context.footer.contractNumber)}</span>` : ''}${context.footer.generatedAt ? `<span>Généré le ${escapeHtml(context.footer.generatedAt)}</span>` : ''}</footer>`;
+  return [
+    '<article class="lease-contract-preview contract-document">',
+    headerHtml,
+    `<header class="contract-title-wrap"><h1 class="contract-title">${escapeHtml(context.title)}</h1></header>`,
+    ...renderContractBlocksToHtml(context.blocks, context.snapshot),
+    footerHtml,
+    '</article>',
+  ].join('');
+}
+
+function renderContractBlocksToHtml(blocks: ContractBlock[], snapshot: Record<string, unknown>) {
+  return blocks.map((block, index) => {
+    if (block.type === 'table') {
+      return `<section class="contract-table-wrap"><table class="contract-table"><tbody>${block.rows.map(([left, right]) => `<tr><th>${escapeHtml(left)}</th><td>${escapeHtml(right)}</td></tr>`).join('')}</tbody></table></section>`;
+    }
+    const lines = block.lines;
+    if (!lines.length) return '';
+    if (looksLikeSignatureBlock(lines)) {
+      return renderSignatureHtml(snapshot);
+    }
+    const first = escapeHtml(lines[0]);
+    if (first.toUpperCase().startsWith('ARTICLE ')) {
+      return `<section class="contract-article"><h3>${first}</h3>${lines.slice(1).map((line) => `<p>${escapeHtml(line)}</p>`).join('')}</section>`;
+    }
+    const className = index === 0 ? 'contract-intro' : 'contract-paragraph';
+    return `<section class="${className}">${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}</section>`;
+  }).filter(Boolean);
+}
+
+function looksLikeSignatureBlock(lines: string[]) {
+  const joined = lines.join(' ').toUpperCase();
+  return joined.includes('LE PRENEUR') && joined.includes('LE BAILLEUR');
+}
+
+function renderSignatureHtml(snapshot: Record<string, unknown>) {
+  const bailleur = (snapshot.bailleur ?? {}) as Record<string, unknown>;
+  const locataire = (snapshot.locataire ?? {}) as Record<string, unknown>;
+  const preneur = cleanText(locataire.signature_nom ?? locataire.nom_complet ?? locataire.raison_sociale, 'LE PRENEUR');
+  const bailleurName = cleanText(bailleur.signature_nom ?? bailleur.representant_nom ?? bailleur.raison_sociale, 'LE BAILLEUR');
+  return `<section class="contract-signatures"><table class="contract-signature-table"><tbody><tr><th>LE PRENEUR</th><th>LE BAILLEUR</th></tr><tr><td><strong>${escapeHtml(preneur)}</strong></td><td><strong>${escapeHtml(bailleurName)}</strong></td></tr><tr><td><span>Signature : ____________________</span></td><td><span>Signature : ____________________</span></td></tr></tbody></table></section>`;
+}
+
+function renderContractBlocksToDocxXml(blocks: ContractBlock[], snapshot: Record<string, unknown>) {
+  return blocks.map((block, index) => {
+    if (block.type === 'table') {
+      return buildTableXml(block.rows);
+    }
+    const lines = block.lines;
+    if (!lines.length) return '';
+    if (looksLikeSignatureBlock(lines)) {
+      return buildSignatureTableXml(snapshot);
+    }
+    const first = lines[0];
+    if (/^ARTICLE\s+\d+/i.test(first)) {
+      return [buildParagraphXml(first, { bold: true, underline: true, size: 22, spacingBefore: 160, spacingAfter: 80 }), ...lines.slice(1).map((line) => buildParagraphXml(line, { spacingAfter: 0 }))].join('');
+    }
+    return lines.map((line, lineIndex) => buildParagraphXml(line, { indentFirstLine: index === 0 && lineIndex === 0 ? 720 : 0, spacingAfter: 0 })).join('');
+  }).filter(Boolean);
+}
+
+function buildContractHeaderTableXml(context: LeaseContractDocumentContext) {
+  return [
+    buildParagraphXml(`${context.footer.companyName}${context.footer.contractNumber ? ` | Contrat ${context.footer.contractNumber}` : ''}${context.footer.generatedAt ? ` | Généré le ${context.footer.generatedAt}` : ''}`, { align: 'center', bold: true, size: 18, spacingAfter: 120 }),
+    buildTableXml(context.headerRows.map((row) => [row.label, row.value] as [string, string])),
+  ].join('');
+}
+
+function buildContractFooterXml(context: LeaseContractDocumentContext) {
+  const footerLines = [context.footer.companyName, context.footer.contractNumber ? `Contrat ${context.footer.contractNumber}` : '', context.footer.generatedAt ? `Généré le ${context.footer.generatedAt}` : ''].filter(Boolean);
+  return footerLines.length ? buildParagraphXml(footerLines.join('  |  '), { align: 'center', size: 18, spacingBefore: 180, spacingAfter: 60 }) : '';
+}
+
+function buildParagraphXml(text: string, options: { align?: 'left' | 'center' | 'right' | 'both'; bold?: boolean; underline?: boolean; size?: number; spacingBefore?: number; spacingAfter?: number; indentFirstLine?: number; keepWithNext?: boolean } = {}) {
+  const align = options.align ?? 'both';
+  const size = options.size ?? 22;
+  const pPr = [
+    `<w:jc w:val="${align}"/>`,
+    `<w:spacing w:before="${options.spacingBefore ?? 0}" w:after="${options.spacingAfter ?? 0}" w:line="276" w:lineRule="auto"/>`,
+    options.indentFirstLine ? `<w:ind w:firstLine="${options.indentFirstLine}"/>` : '',
+    options.keepWithNext ? '<w:keepNext/>' : '',
+  ].filter(Boolean).join('');
+  const rPr = [
+    `<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>`,
+    `<w:sz w:val="${size}"/>`,
+    options.bold ? '<w:b/>' : '',
+    options.underline ? '<w:u w:val="single"/>' : '',
+  ].filter(Boolean).join('');
+  return `<w:p><w:pPr>${pPr}</w:pPr><w:r><w:rPr>${rPr}</w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
+}
+
+function buildTableXml(rows: Array<[string, string]>) {
+  const leftWidth = 3150;
+  const rightWidth = 6150;
+  const tableRows = rows.map(([left, right]) => `
+    <w:tr>
+      <w:tc>
+        <w:tcPr><w:tcW w:w="${leftWidth}" w:type="dxa"/></w:tcPr>
+        ${buildTableCellParagraphXml(left, true)}
+      </w:tc>
+      <w:tc>
+        <w:tcPr><w:tcW w:w="${rightWidth}" w:type="dxa"/></w:tcPr>
+        ${buildTableCellParagraphXml(right, false)}
+      </w:tc>
+    </w:tr>`).join('');
+  return `
+    <w:tbl>
+      <w:tblPr>
+        <w:tblW w:w="0" w:type="auto"/>
+        <w:tblLayout w:type="fixed"/>
+        <w:tblBorders>
+          <w:top w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
+          <w:left w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
+          <w:bottom w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
+          <w:right w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
+          <w:insideH w:val="single" w:sz="6" w:space="0" w:color="9aa7b1"/>
+          <w:insideV w:val="single" w:sz="6" w:space="0" w:color="9aa7b1"/>
+        </w:tblBorders>
+        <w:tblLook w:firstRow="0" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/>
+      </w:tblPr>
+      <w:tblGrid><w:gridCol w:w="${leftWidth}"/><w:gridCol w:w="${rightWidth}"/></w:tblGrid>
+      ${tableRows}
+    </w:tbl>`;
+}
+
+function buildSignatureTableXml(snapshot: Record<string, unknown>) {
+  const bailleur = (snapshot.bailleur ?? {}) as Record<string, unknown>;
+  const locataire = (snapshot.locataire ?? {}) as Record<string, unknown>;
+  const preneur = cleanText(locataire.signature_nom ?? locataire.nom_complet ?? locataire.raison_sociale, ' ');
+  const bailleurName = cleanText(bailleur.signature_nom ?? bailleur.representant_nom ?? bailleur.raison_sociale, ' ');
+  return `
+    <w:tbl>
+      <w:tblPr>
+        <w:tblW w:w="0" w:type="auto"/>
+        <w:tblLayout w:type="fixed"/>
+        <w:tblBorders>
+          <w:top w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
+          <w:left w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
+          <w:bottom w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
+          <w:right w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
+          <w:insideH w:val="single" w:sz="6" w:space="0" w:color="9aa7b1"/>
+          <w:insideV w:val="single" w:sz="6" w:space="0" w:color="9aa7b1"/>
+        </w:tblBorders>
+        <w:tblLook w:firstRow="1" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/>
+      </w:tblPr>
+      <w:tblGrid><w:gridCol w:w="4500"/><w:gridCol w:w="4500"/></w:tblGrid>
+      <w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('LE PRENEUR', true)}</w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('LE BAILLEUR', true)}</w:tc>
+      </w:tr>
+      <w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml(preneur || ' ', false)}</w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml(bailleurName || ' ', false)}</w:tc>
+      </w:tr>
+      <w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('Signature : ______________', false)}</w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('Signature : ______________', false)}</w:tc>
+      </w:tr>
+    </w:tbl>`;
+}
+
+function buildTableCellParagraphXml(text: string, bold = false) {
+  return `<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="276" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>${bold ? '<w:b/>' : ''}<w:sz w:val="22"/></w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
+}
+
+function buildDocumentXml(bodyXml: string) {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+ xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+ xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"
+ xmlns:v="urn:schemas-microsoft-com:vml"
+ xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing"
+ xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+ xmlns:w10="urn:schemas-microsoft-com:office:word"
+ xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+ xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
+ xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
+ xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk"
+ xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml"
+ xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+ mc:Ignorable="w14 wp14">
+  <w:body>${bodyXml}</w:body>
+</w:document>`;
+}
+
+function extractSectionProperties(documentXml: string) {
+  const match = documentXml.match(/<w:sectPr[\s\S]*<\/w:sectPr>/i);
+  return match ? match[0] : null;
+}
+
+function defaultSectionProperties() {
+  return '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1134" w:bottom="1134" w:left="1417" w:header="708" w:footer="708" w:gutter="0"/><w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>';
 }
 
 function isTitleBlock(block: ContractBlock) {
@@ -368,4 +604,13 @@ function escapeHtml(value: string) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }

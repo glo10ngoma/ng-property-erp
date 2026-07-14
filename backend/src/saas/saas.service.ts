@@ -3771,7 +3771,7 @@ export class SaasService {
       if (!templateCode) {
         throw new BadRequestException(this.missingLeaseTemplateMessage(lease.lease_usage ?? companyData.default_lease_usage ?? lease.usage_type));
       }
-      if ((templateCode === 'LEASE_COMMERCIAL' || templateCode === 'LEASE_PROFESSIONAL')
+      if ((templateCode === 'LEASE_COMMERCIAL' || templateCode === 'LEASE_PROFESSIONAL' || templateCode === 'LEASE_MIXED')
         && !String(lease.lease_activity_description ?? '').trim()) {
         throw new BadRequestException("Activite ou destination des lieux requise pour generer ce contrat.");
       }
@@ -3782,7 +3782,7 @@ export class SaasService {
       if (placeholders.length) {
         throw new BadRequestException(`Variables de contrat non resolues: ${placeholders.join(', ')}`);
       }
-      const renderedHtml = buildLeaseContractHtml(renderedContent);
+      const renderedHtml = buildLeaseContractHtml(renderedContent, snapshot);
       const { rows } = await client.query(
         `INSERT INTO lease_contract_generations
          (organization_id, lease_id, template_id, template_version, generated_content, generated_html, snapshot_json,
@@ -3806,7 +3806,7 @@ export class SaasService {
       const generatedAt = new Date(contract.generated_at ?? new Date().toISOString());
       const generatedStamp = generatedAt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
       const docxFileName = `Contrat_bail_${this.leaseReferenceCode(lease.id)}_contract-${contract.id}-v${template.version}-${generatedStamp}.docx`;
-      const docxBuffer = buildLeaseContractDocxBuffer(snapshot);
+      const docxBuffer = buildLeaseContractDocxBuffer(snapshot, renderedContent);
       const generatedFileHash = getDocxBufferSha256(docxBuffer);
       const storedDocx = await this.persistLeaseContractDocx(id, contract.id, template.version, generatedAt, docxFileName, docxBuffer);
       const { rows: updatedRows } = await client.query(
@@ -6380,7 +6380,7 @@ export class SaasService {
     const guaranteeMarkedPaid = rawGuaranteeStatus === 'PAID' || guaranteePaid > 0;
 
     const requireBusinessActivity = options?.requireBusinessActivity ?? true;
-    if (requireBusinessActivity && (leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL') && !leaseActivityDescription) {
+    if (requireBusinessActivity && (leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL' || leaseUsage === 'MIXED') && !leaseActivityDescription) {
       throw new BadRequestException("Activite ou destination des lieux requise");
     }
 
@@ -6434,11 +6434,13 @@ export class SaasService {
       [this.context.organizationId(), code],
     );
     if (!rows[0]) {
-      switch (String(code).trim().toUpperCase()) {
+    switch (String(code).trim().toUpperCase()) {
         case 'LEASE_COMMERCIAL':
           throw new BadRequestException("Le modèle de contrat commercial n'est pas configuré pour cette organisation.");
         case 'LEASE_PROFESSIONAL':
           throw new BadRequestException("Le modèle de contrat professionnel n'est pas configuré pour cette organisation.");
+        case 'LEASE_MIXED':
+          throw new BadRequestException("Le modèle de contrat mixte n'est pas configuré pour cette organisation.");
         case 'LEASE_RESIDENTIAL':
           throw new BadRequestException("Le modèle de contrat résidentiel n'est pas configuré pour cette organisation.");
         default:
@@ -6483,7 +6485,7 @@ export class SaasService {
       case 'PROFESSIONAL':
         return 'LEASE_PROFESSIONAL';
       case 'MIXED':
-        return null;
+        return 'LEASE_MIXED';
       case 'RESIDENTIAL':
       default:
         return 'LEASE_RESIDENTIAL';
@@ -6521,7 +6523,7 @@ export class SaasService {
     const usageLabel = this.leaseUsageLabel(usageCode);
     const activityDescription = String(lease.lease_activity_description ?? '').trim();
     const destinationPhrase = activityDescription
-      ? `Les lieux loués sont exclusivement destinés à l'exercice de ${usageCode === 'COMMERCIAL' ? "l'activité commerciale" : usageCode === 'PROFESSIONAL' ? "l'activité professionnelle" : "l'usage"} déclarée par le Preneur : ${activityDescription}.`
+      ? `Les lieux loués sont exclusivement destinés à l'exercice de ${usageCode === 'COMMERCIAL' ? "l'activité commerciale" : usageCode === 'PROFESSIONAL' ? "l'activité professionnelle" : usageCode === 'MIXED' ? "l'activité mixte" : "l'usage"} déclarée par le Preneur : ${activityDescription}.`
       : `Les lieux loués sont destinés à un usage ${usageLabel.toLowerCase()}.`;
     const isCompanyTenant = String(lease.tenant_type ?? 'PHYSICAL') === 'COMPANY';
     const bedroomCount = Number(lease.bedrooms_count ?? 0);
@@ -6648,6 +6650,12 @@ export class SaasService {
       GUARANTEE_SECTION: guaranteeSection,
       SIGNATURE_PLACE: lease.signature_place ?? company.default_signature_place ?? company.company_city ?? 'Kinshasa',
       SIGNATURE_DATE: signatureDate,
+      LEASE_REFERENCE: this.leaseReferenceCode(lease.id),
+      company_phone: company.phone ?? company.primary_phone ?? '',
+      company_email: company.email ?? company.primary_email ?? '',
+      company_logo_file_url: company.logo_file_url ?? company.logo_url ?? null,
+      company_signature_file_url: company.signature_file_url ?? company.signature_url ?? null,
+      company_stamp_file_url: company.stamp_file_url ?? company.stamp_url ?? null,
       bailleur: {
         raison_sociale: lessorName,
         sigle: company.company_acronym ?? '',
