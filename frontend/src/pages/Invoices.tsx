@@ -6,6 +6,7 @@ import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, SearchableSelect, StatusBadge, SuccessMessage, TenantSearchSelect } from '../components';
 import { useApiList } from '../hooks';
 import { OtherChargeInvoiceModal } from '../modules/invoices/components/OtherChargeInvoiceModal';
+import { addDaysToDateInputValue, todayDateInputValue } from '../modules/invoices/utils/dueDate';
 
 type Invoice = {
   id: number;
@@ -53,13 +54,7 @@ export function Invoices() {
   const [leaseId, setLeaseId] = useState<number | null>(null);
   const [rent, setRent] = useState(0);
   const [syndicAmount, setSyndicAmount] = useState(0);
-  const now = new Date();
-  const [invoiceForm, setInvoiceForm] = useState({
-    issue_date: formatLocalDate(now),
-    due_date: dueDateFromBillingPeriod(String(now.getMonth() + 1), String(now.getFullYear())),
-    month: String(now.getMonth() + 1),
-    year: String(now.getFullYear()),
-  });
+  const [invoiceForm, setInvoiceForm] = useState(() => createRentInvoiceFormDefaults());
   const [extraLines, setExtraLines] = useState([{ item_type: 'Water', amount: 0 }]);
   const [discount, setDiscount] = useState(0);
   const [publicNotes, setPublicNotes] = useState('');
@@ -90,6 +85,11 @@ export function Invoices() {
       if (!leaseId) setLeaseId(selectedLease.id);
     }
   }, [selectedLease?.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    setInvoiceForm(createRentInvoiceFormDefaults());
+  }, [open]);
 
   const filtered = data.filter((invoice) => {
     const displayStatus = invoiceDisplayStatus(invoice.status, invoice.due_date);
@@ -243,10 +243,10 @@ export function Invoices() {
               <label className="invoice-field-full">Bail actif<SearchableSelect options={leaseOptions} value={selectedLease?.id ?? null} onChange={(value) => { setLeaseId(value ? Number(value) : null); const lease = leases.data.find((item) => item.id === value); if (lease) { setRent(Number(lease.monthly_rent)); setSyndicAmount(Number(lease.monthly_syndic_amount ?? 0)); } }} placeholder="Rechercher un bail" emptyMessage="Aucun bail actif trouve" /></label>
               {selectedLease && <div className="summary-band invoice-field-full"><div className="summary-item"><span>Immeuble</span><strong>{selectedLease.building_name}</strong></div><div className="summary-item"><span>Unite</span><strong>{selectedLease.unit_number}</strong></div><div className="summary-item"><span>Loyer bail</span><strong>{money(selectedLease.monthly_rent)}</strong></div><div className="summary-item"><span>Syndic bail</span><strong>{money(selectedLease.monthly_syndic_amount ?? 0)}</strong></div><div className="summary-item"><span>Total mensuel</span><strong>{money(Number(selectedLease.monthly_rent ?? 0) + Number(selectedLease.monthly_syndic_amount ?? 0))}</strong></div></div>}
               <div className="invoice-compact-grid invoice-field-full">
-                <label>Date de facture<input type="date" value={invoiceForm.issue_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, issue_date: event.target.value })} required /></label>
+                <label>Date de facture<input type="date" value={invoiceForm.issue_date} onChange={(event) => setInvoiceForm((current) => ({ ...current, issue_date: event.target.value, due_date: addDaysToDateInputValue(event.target.value, 5) }))} required /></label>
                 <label>Date d'echeance<input type="date" value={invoiceForm.due_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, due_date: event.target.value })} required /></label>
-                <label>Mois du loyer<input type="number" min="1" max="12" value={invoiceForm.month} onChange={(event) => setInvoiceForm((current) => ({ ...current, month: event.target.value, due_date: dueDateFromBillingPeriod(event.target.value, current.year) }))} required /></label>
-                <label>Annee du loyer<input type="number" min="2000" max="2100" value={invoiceForm.year} onChange={(event) => setInvoiceForm((current) => ({ ...current, year: event.target.value, due_date: dueDateFromBillingPeriod(current.month, event.target.value) }))} required /></label>
+                <label>Mois du loyer<input type="number" min="1" max="12" value={invoiceForm.month} onChange={(event) => setInvoiceForm((current) => ({ ...current, month: event.target.value }))} required /></label>
+                <label>Annee du loyer<input type="number" min="2000" max="2100" value={invoiceForm.year} onChange={(event) => setInvoiceForm((current) => ({ ...current, year: event.target.value }))} required /></label>
                 <label>Periode debut<input className="locked-field" type="date" value={periodStart(invoiceForm.month, invoiceForm.year)} readOnly /></label>
                 <label>Periode fin<input className="locked-field" type="date" value={periodEnd(invoiceForm.month, invoiceForm.year)} readOnly /></label>
                 <label>Loyer contractuel<input type="number" value={invoiceRent} onChange={(event) => setRent(Number(event.target.value))} /></label>
@@ -352,35 +352,18 @@ function periodStart(month: string, year: string) {
 function periodEnd(month: string, year: string) {
   if (!month || !year) return '';
   const date = new Date(Number(year), Number(month), 0);
-  return formatLocalDate(date);
+  const issueDate = todayDateInputValue(date);
+  return issueDate;
 }
 
-function dueDateFromBillingPeriod(month: string, year: string) {
-  if (!month || !year) return '';
-  const billingMonth = Number(month);
-  const billingYear = Number(year);
-  if (!Number.isInteger(billingMonth) || billingMonth < 1 || billingMonth > 12 || !Number.isInteger(billingYear) || billingYear < 2000) {
-    return '';
-  }
-  return addDaysToDateString(`${billingYear}-${String(billingMonth).padStart(2, '0')}-01`, 5);
-}
-
-function addDaysToDateString(value: string, days: number) {
-  const [yearText, monthText, dayText] = value.split('-');
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return '';
-  const date = new Date(year, month - 1, day);
-  date.setDate(date.getDate() + days);
-  return formatLocalDate(date);
-}
-
-function formatLocalDate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+function createRentInvoiceFormDefaults(referenceDate = new Date()) {
+  const issueDate = todayDateInputValue(referenceDate);
+  return {
+    issue_date: issueDate,
+    due_date: addDaysToDateInputValue(issueDate, 5),
+    month: String(referenceDate.getMonth() + 1),
+    year: String(referenceDate.getFullYear()),
+  };
 }
 
 function buildInvoiceItems(

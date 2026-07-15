@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../../api';
 import { Modal, SearchableSelect, TenantSearchSelect } from '../../../components';
+import { addDaysToDateInputValue, todayDateInputValue } from '../utils/dueDate';
 
 type Tenant = {
   id: number;
@@ -84,11 +85,11 @@ export function OtherChargeInvoiceModal({
 
   useEffect(() => {
     if (!open) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayDateInputValue();
     setTenantId(null);
     setLeaseId(null);
     setIssueDate(today);
-    setDueDate(today);
+    setDueDate(addDaysToDateInputValue(today, 5));
     setStatus('UNPAID');
     setCurrency('USD');
     setNotes('');
@@ -203,7 +204,7 @@ export function OtherChargeInvoiceModal({
             />
           </label>
           <div className="invoice-compact-grid invoice-field-full">
-            <label>Date de facture<input type="date" value={issueDate} onChange={(event) => setIssueDate(event.target.value)} required /></label>
+            <label>Date de facture<input type="date" value={issueDate} onChange={(event) => { setIssueDate(event.target.value); setDueDate(addDaysToDateInputValue(event.target.value, 5)); }} required /></label>
             <label>Date d'echeance<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label>
             <label>Devise
               <select value={currency} onChange={(event) => setCurrency(event.target.value)}>
