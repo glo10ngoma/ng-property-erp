@@ -63,10 +63,24 @@ type ExchangeRate = {
   effectiveDate?: string;
 };
 
+type CompanySettingsHeader = {
+  logo_url?: string;
+  logo_file_url?: string;
+  company_name?: string;
+  legal_name?: string;
+  company_legal_name?: string;
+  company_legal_name_resolved?: string;
+  address?: string;
+  company_address?: string;
+  company_address_resolved?: string;
+  phone?: string;
+  email?: string;
+};
+
 const lineTypes = ['Monthly rent', 'Syndic', 'Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Penalty', 'Other'];
 
 export function InvoiceDetail() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -82,6 +96,7 @@ export function InvoiceDetail() {
   const [editAttachmentName, setEditAttachmentName] = useState('');
   const [success, setSuccess] = useState('');
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
+  const [companySettings, setCompanySettings] = useState<CompanySettingsHeader | null>(null);
   const [paymentCurrency, setPaymentCurrency] = useState<'USD' | 'CDF' | 'MIXED'>('USD');
   const [usdAmount, setUsdAmount] = useState('');
   const [cdfAmount, setCdfAmount] = useState('');
@@ -107,6 +122,10 @@ export function InvoiceDetail() {
 
   useEffect(() => {
     api.get<ExchangeRate | null>('/settings/exchange-rate').then((response) => setExchangeRate(response.data ?? null)).catch(() => setExchangeRate(null));
+  }, []);
+
+  useEffect(() => {
+    api.get<CompanySettingsHeader>('/settings/company').then((response) => setCompanySettings(response.data ?? null)).catch(() => setCompanySettings(null));
   }, []);
 
   useEffect(() => {
@@ -232,6 +251,13 @@ export function InvoiceDetail() {
   const billingYear = invoice.billing_year ?? invoice.year;
   const sendHistoryCount = (invoice.email_logs?.length ?? 0) + (invoice.whatsapp_logs?.length ?? 0);
   const isRentInvoice = String(invoice.invoice_type ?? 'RENT').toUpperCase() === 'RENT';
+  const organizationName = companyDisplayName(companySettings, user?.organization_name);
+  const organizationAddress = companyAddressLine(companySettings);
+  const organizationContact = companyContactLine(companySettings);
+  const issueMonthLabel = issueDateMonthLabel(invoice.issue_date);
+  const issueMonthYearLabel = issueDateMonthYearLabel(invoice.issue_date);
+  const issueYearLabel = issueDateYearLabel(invoice.issue_date);
+  const logoUrl = cleanPrintValue(companySettings?.logo_file_url ?? companySettings?.logo_url);
 
   return (
     <section>
@@ -253,17 +279,24 @@ export function InvoiceDetail() {
 
       <article className="print-invoice">
         <header>
-          <div className="invoice-logo">PE</div>
+          <div className="invoice-logo">
+            {logoUrl ? (
+              <img src={logoUrl} alt={organizationName ? `Logo ${organizationName}` : 'Logo organisation'} className="invoice-logo-image" />
+            ) : (
+              <span>{companyInitials(companySettings, user?.organization_name)}</span>
+            )}
+          </div>
           <div>
-            <h2>Property ERP Management</h2>
-            <p>12 Avenue Lumumba, Kinshasa</p>
-            <p>+243 89 000 0000 | billing@property-erp.local</p>
+            <h2>{organizationName || '—'}</h2>
+            {organizationAddress && <p>{organizationAddress}</p>}
+            {organizationContact && <p>{organizationContact}</p>}
           </div>
           <div className="invoice-meta">
             <strong>Facture {invoice.invoice_number}</strong>
             <span>Date: {shortDate(invoice.issue_date)}</span>
             <span>Echeance: {shortDate(invoice.due_date)}</span>
             {isRentInvoice && <span>Periode: {periodLabel(billingMonth, billingYear)}</span>}
+            {!isRentInvoice && <span>Mois de facture: {issueMonthYearLabel}</span>}
             <span className={`badge ${displayStatus.toLowerCase()}`}>{clientInvoiceStatusLabel(displayStatus)}</span>
           </div>
         </header>
@@ -273,7 +306,9 @@ export function InvoiceDetail() {
           <div className="summary-item"><span>Date d'echeance</span><strong>{shortDate(invoice.due_date)}</strong></div>
           <div className="summary-item"><span>Type</span><strong>{invoiceTypeLabel(invoice.invoice_type)}</strong></div>
           {isRentInvoice && <div className="summary-item"><span>Mois du loyer</span><strong>{monthLabel(billingMonth)}</strong></div>}
+          {!isRentInvoice && <div className="summary-item"><span>Mois de facture</span><strong>{issueMonthLabel}</strong></div>}
           {isRentInvoice && <div className="summary-item"><span>Annee du loyer</span><strong>{billingYear}</strong></div>}
+          {!isRentInvoice && <div className="summary-item"><span>Annee de facture</span><strong>{issueYearLabel}</strong></div>}
           <div className="summary-item"><span>Email</span><strong>{deliveryStatus(invoice.email_delivery_status)}</strong></div>
           <div className="summary-item"><span>WhatsApp</span><strong>{deliveryStatus(invoice.whatsapp_delivery_status)}</strong></div>
           {isRentInvoice && <div className="summary-item summary-item-wide"><span>Periode facturee</span><strong>{periodLabel(billingMonth, billingYear)}</strong></div>}
@@ -296,8 +331,8 @@ export function InvoiceDetail() {
             <p>Immeuble: {invoice.building_name}</p>
             <p>Appartement: {invoice.unit_number}</p>
             <p>Adresse: {invoice.building_address}, {invoice.building_city}</p>
-            <p>Loyer contractuel: {invoice.monthly_rent ? money(invoice.monthly_rent) : '-'}</p>
-            <p>Syndic contractuel: {invoice.monthly_syndic_amount ? money(invoice.monthly_syndic_amount) : money(0)}</p>
+            {isRentInvoice && <p>Loyer contractuel: {invoice.monthly_rent ? money(invoice.monthly_rent) : '-'}</p>}
+            {isRentInvoice && <p>Syndic contractuel: {invoice.monthly_syndic_amount ? money(invoice.monthly_syndic_amount) : money(0)}</p>}
           </div>
         </div>
 
@@ -532,6 +567,69 @@ function apiErrorMessage(error: unknown) {
 
 function monthLabel(month: number) {
   return ['Janvier', 'Fevrier', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre'][Number(month) - 1] ?? String(month ?? '-');
+}
+
+function issueDateMonthLabel(value?: string) {
+  const parsed = parseDateParts(value);
+  if (!parsed) return '-';
+  return monthLabel(parsed.month);
+}
+
+function issueDateYearLabel(value?: string) {
+  const parsed = parseDateParts(value);
+  if (!parsed) return '-';
+  return String(parsed.year);
+}
+
+function issueDateMonthYearLabel(value?: string) {
+  const parsed = parseDateParts(value);
+  if (!parsed) return '-';
+  return `${monthLabel(parsed.month)} ${parsed.year}`;
+}
+
+function parseDateParts(value?: string) {
+  const match = String(value ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+  };
+}
+
+function cleanPrintValue(value?: string | null) {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed || trimmed.toLowerCase() === 'null' || trimmed.toLowerCase() === 'undefined') {
+    return '';
+  }
+  return trimmed;
+}
+
+function companyDisplayName(companySettings?: CompanySettingsHeader | null, organizationName?: string) {
+  return (
+    cleanPrintValue(companySettings?.company_legal_name)
+    || cleanPrintValue(companySettings?.company_name)
+    || cleanPrintValue(companySettings?.company_legal_name_resolved)
+    || cleanPrintValue(companySettings?.legal_name)
+    || cleanPrintValue(organizationName)
+  );
+}
+
+function companyAddressLine(companySettings?: CompanySettingsHeader | null) {
+  return cleanPrintValue(companySettings?.company_address) || cleanPrintValue(companySettings?.company_address_resolved) || cleanPrintValue(companySettings?.address);
+}
+
+function companyContactLine(companySettings?: CompanySettingsHeader | null) {
+  const parts = [cleanPrintValue(companySettings?.phone), cleanPrintValue(companySettings?.email)].filter(Boolean);
+  return parts.join(' | ');
+}
+
+function companyInitials(companySettings?: CompanySettingsHeader | null, organizationName?: string) {
+  const label = companyDisplayName(companySettings, organizationName);
+  if (!label) return '—';
+  const parts = label.split(/\s+/).filter(Boolean).slice(0, 2);
+  const initials = parts.map((part) => part[0]?.toUpperCase() ?? '').join('');
+  return initials || label.slice(0, 2).toUpperCase();
 }
 
 function amount(value: unknown) {
