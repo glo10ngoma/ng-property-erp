@@ -30,9 +30,7 @@ const PDF_LINE_HEIGHT = 14;
 const PDF_MAX_CHARS = 96;
 const SIGNATURE_TABLE_WIDTH = 4500;
 const SIGNATURE_TABLE_TITLE_HEIGHT = 380;
-const SIGNATURE_TABLE_BODY_ROW_HEIGHT = 560;
-const SIGNATURE_TABLE_BODY_ROWS = 5;
-const SIGNATURE_TABLE_GAP = 12;
+const SIGNATURE_TABLE_BODY_HEIGHT = 3600;
 const DOCX_TEMPLATE_VERSION = 'DOCX_UTF8_V2';
 const DOCX_TEMPLATE_NAME = 'LEASE_RESIDENTIAL.docx';
 const DOCX_TEMPLATE_CANDIDATES = [
@@ -348,7 +346,7 @@ function looksLikeSignatureTable(rows: Array<[string, string]>) {
 }
 
 function renderSignatureHtml() {
-  return `<section class="lease-signatures">${renderSignatureTitleTableHtml()}${renderSignatureBodyTableHtml()}</section>`;
+  return `<section class="lease-signatures">${renderSignatureTableHtml()}</section>`;
 }
 
 function renderContractBlocksToDocxXml(blocks: ContractBlock[], snapshot: Record<string, unknown>) {
@@ -363,7 +361,7 @@ function renderContractBlocksToDocxXml(blocks: ContractBlock[], snapshot: Record
       return [buildParagraphXml(first, { bold: true, underline: true, size: 22, spacingBefore: 160, spacingAfter: 80 }), ...lines.slice(1).map((line) => buildParagraphXml(line, { spacingAfter: 0 }))].join('');
     }
     return lines.map((line, lineIndex) => buildParagraphXml(line, { indentFirstLine: index === 0 && lineIndex === 0 ? 720 : 0, spacingAfter: 0 })).join('');
-  }).filter(Boolean).join('') + buildSignatureTablesXml();
+  }).filter(Boolean).join('') + buildSignatureTableXml();
 }
 
 function buildContractHeaderTableXml(context: LeaseContractDocumentContext) {
@@ -430,51 +428,11 @@ function buildTableXml(rows: Array<[string, string]>) {
     </w:tbl>`;
 }
 
-function renderSignatureTitleTableHtml() {
-  return `<table class="lease-signature-table lease-signature-title-table"><tbody><tr><th>LE PRENEUR</th><th>LE BAILLEUR</th></tr></tbody></table>`;
+function renderSignatureTableHtml() {
+  return `<table class="lease-signature-table"><thead><tr><th>LE PRENEUR</th><th>LE BAILLEUR</th></tr></thead><tbody><tr><td><div class="lease-signature-space"></div></td><td><div class="lease-signature-space"></div></td></tr></tbody></table>`;
 }
 
-function renderSignatureBodyTableHtml() {
-  const rows = Array.from({ length: SIGNATURE_TABLE_BODY_ROWS }, () => '<tr><td><div class="lease-signature-space"></div></td><td><div class="lease-signature-space"></div></td></tr>').join('');
-  return `<table class="lease-signature-table lease-signature-body-table"><tbody>${rows}</tbody></table>`;
-}
-
-function buildSignatureTablesXml() {
-  return `${buildSignatureTitleTableXml()}${buildSignatureBodyTableXml()}`;
-}
-
-function buildSignatureTitleTableXml() {
-  return `
-    <w:tbl>
-      <w:tblPr>
-        <w:tblW w:w="0" w:type="auto"/>
-        <w:tblLayout w:type="fixed"/>
-        <w:tblBorders>
-          <w:top w:val="nil"/>
-          <w:left w:val="nil"/>
-          <w:bottom w:val="nil"/>
-          <w:right w:val="nil"/>
-          <w:insideH w:val="nil"/>
-          <w:insideV w:val="nil"/>
-        </w:tblBorders>
-        <w:tblLook w:firstRow="0" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:noHBand="1" w:noVBand="1"/>
-      </w:tblPr>
-      <w:tblGrid><w:gridCol w:w="${SIGNATURE_TABLE_WIDTH}"/><w:gridCol w:w="${SIGNATURE_TABLE_WIDTH}"/></w:tblGrid>
-      <w:tr>
-        <w:trPr><w:trHeight w:val="${SIGNATURE_TABLE_TITLE_HEIGHT}" w:hRule="atLeast"/></w:trPr>
-        <w:tc><w:tcPr><w:tcW w:w="${SIGNATURE_TABLE_WIDTH}" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('LE PRENEUR', true, { align: 'center', spacingAfter: 80 })}</w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="${SIGNATURE_TABLE_WIDTH}" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('LE BAILLEUR', true, { align: 'center', spacingAfter: 80 })}</w:tc>
-      </w:tr>
-    </w:tbl>`;
-}
-
-function buildSignatureBodyTableXml() {
-  const rows = Array.from({ length: SIGNATURE_TABLE_BODY_ROWS }, () => `
-      <w:tr>
-        <w:trPr><w:trHeight w:val="${SIGNATURE_TABLE_BODY_ROW_HEIGHT}" w:hRule="atLeast"/></w:trPr>
-        <w:tc><w:tcPr><w:tcW w:w="${SIGNATURE_TABLE_WIDTH}" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml(' ', false, { spacingAfter: 120 })}</w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="${SIGNATURE_TABLE_WIDTH}" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml(' ', false, { spacingAfter: 120 })}</w:tc>
-      </w:tr>`).join('');
+function buildSignatureTableXml() {
   return `
     <w:tbl>
       <w:tblPr>
@@ -488,10 +446,19 @@ function buildSignatureBodyTableXml() {
           <w:insideH w:val="single" w:sz="6" w:space="0" w:color="9aa7b1"/>
           <w:insideV w:val="single" w:sz="6" w:space="0" w:color="9aa7b1"/>
         </w:tblBorders>
-        <w:tblLook w:firstRow="0" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/>
+        <w:tblLook w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="1" w:noVBand="1"/>
       </w:tblPr>
       <w:tblGrid><w:gridCol w:w="${SIGNATURE_TABLE_WIDTH}"/><w:gridCol w:w="${SIGNATURE_TABLE_WIDTH}"/></w:tblGrid>
-      ${rows}
+      <w:tr>
+        <w:trPr><w:trHeight w:val="${SIGNATURE_TABLE_TITLE_HEIGHT}" w:hRule="atLeast"/></w:trPr>
+        <w:tc><w:tcPr><w:tcW w:w="${SIGNATURE_TABLE_WIDTH}" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('LE PRENEUR', true, { align: 'center', spacingAfter: 80 })}</w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="${SIGNATURE_TABLE_WIDTH}" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('LE BAILLEUR', true, { align: 'center', spacingAfter: 80 })}</w:tc>
+      </w:tr>
+      <w:tr>
+        <w:trPr><w:trHeight w:val="${SIGNATURE_TABLE_BODY_HEIGHT}" w:hRule="atLeast"/></w:trPr>
+        <w:tc><w:tcPr><w:tcW w:w="${SIGNATURE_TABLE_WIDTH}" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml(' ', false, { spacingAfter: 120 })}</w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="${SIGNATURE_TABLE_WIDTH}" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml(' ', false, { spacingAfter: 120 })}</w:tc>
+      </w:tr>
     </w:tbl>`;
 }
 
@@ -624,25 +591,20 @@ function buildPdfPageStream(lines: PdfLine[], pageNumber: number, totalPages: nu
       }
       const tableX = PDF_MARGIN_X;
       const tableWidth = PDF_PAGE_WIDTH - PDF_MARGIN_X * 2;
-      const titleHeight = 26;
-      const bodyHeight = SIGNATURE_TABLE_BODY_ROWS * 30;
-      const totalHeight = titleHeight + SIGNATURE_TABLE_GAP + bodyHeight;
+      const titleHeight = 24;
+      const bodyHeight = 175;
+      const totalHeight = titleHeight + bodyHeight;
       const tableY = Math.max(PDF_MARGIN_BOTTOM + 28, PDF_PAGE_HEIGHT - PDF_MARGIN_TOP - (index * PDF_LINE_HEIGHT) - totalHeight + 24);
       const halfWidth = tableWidth / 2;
-      const titleY = tableY + bodyHeight + SIGNATURE_TABLE_GAP;
-      const bodyRowHeight = bodyHeight / SIGNATURE_TABLE_BODY_ROWS;
+      const titleY = tableY + bodyHeight;
       commands.push('q');
       commands.push('1 w');
-      commands.push(`${tableX} ${titleY} ${tableWidth} ${titleHeight} re S`);
+      commands.push(`${tableX} ${tableY} ${tableWidth} ${totalHeight} re S`);
       commands.push(`${tableX + halfWidth} ${titleY} m ${tableX + halfWidth} ${titleY + titleHeight} l S`);
-      commands.push(`BT /F2 11 Tf ${tableX + 24} ${titleY + 8} Td (LE PRENEUR) Tj ET`);
-      commands.push(`BT /F2 11 Tf ${tableX + halfWidth + 24} ${titleY + 8} Td (LE BAILLEUR) Tj ET`);
-      commands.push(`${tableX} ${tableY} ${tableWidth} ${bodyHeight} re S`);
-      commands.push(`${tableX + halfWidth} ${tableY} m ${tableX + halfWidth} ${tableY + bodyHeight} l S`);
-      for (let rowIndex = 1; rowIndex < SIGNATURE_TABLE_BODY_ROWS; rowIndex += 1) {
-        const y = tableY + rowIndex * bodyRowHeight;
-        commands.push(`${tableX} ${y} m ${tableX + tableWidth} ${y} l S`);
-      }
+      commands.push(`${tableX + halfWidth} ${tableY} m ${tableX + halfWidth} ${tableY + totalHeight} l S`);
+      commands.push(`${tableX} ${titleY} m ${tableX + tableWidth} ${titleY} l S`);
+      commands.push(`BT /F2 11 Tf ${tableX + 62} ${titleY + 8} Td (LE PRENEUR) Tj ET`);
+      commands.push(`BT /F2 11 Tf ${tableX + halfWidth + 54} ${titleY + 8} Td (LE BAILLEUR) Tj ET`);
       commands.push('Q');
       return;
     }
