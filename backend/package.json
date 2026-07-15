@@ -7,7 +7,6 @@
     "start:prod": "node dist/main.js",
     "start:dev": "nest start --watch",
     "build": "nest build",
-    "postinstall": "playwright install chromium",
     "test:db": "node scripts/test-db.js",
     "lint": "eslint \"src/**/*.ts\""
   },
