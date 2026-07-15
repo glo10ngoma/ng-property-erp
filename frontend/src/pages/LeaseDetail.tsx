@@ -91,7 +91,7 @@ export function LeaseDetail() {
     setError('');
     setPdfPreviewUrl('');
     setPdfPreviewBlob(null);
-    api.get(`/leases/${lease.id}/contracts/${lease.latest_contract.id}/download?disposition=inline`, { responseType: 'blob' })
+    api.get(`/leases/${lease.id}/contracts/${lease.latest_contract.id}/download?disposition=inline`, { responseType: 'arraybuffer' })
       .then(async (response) => {
         if (cancelled) return;
         const blob = await pdfBlobFromResponse(response);
@@ -105,7 +105,8 @@ export function LeaseDetail() {
       })
       .catch((err: any) => {
         const responseMessage = err?.response?.data?.message;
-        setError(Array.isArray(responseMessage) ? responseMessage.join(' | ') : responseMessage || err?.message || 'Impossible de charger le PDF du contrat.');
+        const message = Array.isArray(responseMessage) ? responseMessage.join(' | ') : responseMessage;
+        setError(message || formatPdfPreviewError(err));
       });
     return () => {
       cancelled = true;
@@ -234,12 +235,18 @@ export function LeaseDetail() {
       await load();
       return;
     }
-    const response = await api.get(`/leases/${lease.id}/contracts/${lease.latest_contract.id}/download`, { responseType: 'blob' });
-    const blob = await pdfBlobFromResponse(response);
-    const objectUrl = window.URL.createObjectURL(blob);
-    downloadFile(objectUrl, fileName);
-    window.URL.revokeObjectURL(objectUrl);
-    await load();
+    try {
+      const response = await api.get(`/leases/${lease.id}/contracts/${lease.latest_contract.id}/download`, { responseType: 'arraybuffer' });
+      const blob = await pdfBlobFromResponse(response);
+      const objectUrl = window.URL.createObjectURL(blob);
+      downloadFile(objectUrl, fileName);
+      window.URL.revokeObjectURL(objectUrl);
+      await load();
+    } catch (err: any) {
+      const responseMessage = err?.response?.data?.message;
+      const message = Array.isArray(responseMessage) ? responseMessage.join(' | ') : responseMessage;
+      setError(message || formatPdfPreviewError(err));
+    }
   }
 
   async function downloadGeneratedDocx() {
@@ -272,11 +279,17 @@ export function LeaseDetail() {
         window.open(pdfPreviewUrl, '_blank', 'noopener,noreferrer');
         return;
       }
-      const response = await api.get(`/leases/${lease.id}/contracts/${contract.id}/download?disposition=inline`, { responseType: 'blob' });
-      const blob = await pdfBlobFromResponse(response);
-      const objectUrl = window.URL.createObjectURL(blob);
-      window.open(objectUrl, '_blank', 'noopener,noreferrer');
-      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60000);
+      try {
+        const response = await api.get(`/leases/${lease.id}/contracts/${contract.id}/download?disposition=inline`, { responseType: 'arraybuffer' });
+        const blob = await pdfBlobFromResponse(response);
+        const objectUrl = window.URL.createObjectURL(blob);
+        window.open(objectUrl, '_blank', 'noopener,noreferrer');
+        window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60000);
+      } catch (err: any) {
+        const responseMessage = err?.response?.data?.message;
+        const message = Array.isArray(responseMessage) ? responseMessage.join(' | ') : responseMessage;
+        setError(message || formatPdfPreviewError(err));
+      }
       return;
     }
     if (!contract?.generated_html) return;
@@ -615,22 +628,59 @@ function downloadFile(url: string, fileName: string) {
 
 async function pdfBlobFromResponse(response: any) {
   const contentType = String(response.headers?.['content-type'] ?? '').toLowerCase();
-  const sourceBlob = response.data instanceof Blob
-    ? response.data
-    : new Blob([response.data], { type: contentType || 'application/pdf' });
-  if (!sourceBlob.size) {
-    throw new Error('Impossible de charger le PDF du contrat: fichier vide.');
+  const bytes = response.data instanceof ArrayBuffer
+    ? new Uint8Array(response.data)
+    : response.data instanceof Blob
+      ? new Uint8Array(await response.data.arrayBuffer())
+      : response.data?.buffer instanceof ArrayBuffer
+        ? new Uint8Array(response.data.buffer)
+        : new Uint8Array([]);
+
+  const headerBytes = bytes.slice(0, 16);
+  const headerHex = Array.from(headerBytes).map((value) => value.toString(16).padStart(2, '0')).join(' ');
+  const headerAscii = new TextDecoder('ascii').decode(headerBytes).replace(/[^\x20-\x7E]/g, '.');
+  const devInfo = {
+    status: response.status,
+    contentType,
+    contentLength: String(response.headers?.['content-length'] ?? ''),
+    isBlob: response.data instanceof Blob,
+    constructorName: response.data?.constructor?.name ?? typeof response.data,
+    byteLength: bytes.byteLength,
+    blobType: response.data instanceof Blob ? response.data.type : '',
+    headerHex,
+    headerAscii,
+  };
+
+  if (import.meta.env.DEV) {
+    console.debug('[lease-pdf-preview]', devInfo);
   }
+
+  if (!bytes.byteLength) {
+    throw new Error('PDF_EMPTY');
+  }
+
   if (contentType && !contentType.includes('application/pdf')) {
-    throw new Error(`Impossible de charger le PDF du contrat: reponse ${contentType}.`);
+    if (contentType.includes('application/json') || contentType.includes('text/json')) {
+      throw new Error('PDF_RESPONSE_IS_JSON');
+    }
+    throw new Error('PDF_HTTP_CONTENT_TYPE_INVALID');
   }
-  const header = await sourceBlob.slice(0, 4).text();
-  if (header !== '%PDF') {
-    throw new Error('Impossible de charger le PDF du contrat: contenu invalide.');
+
+  const headerText = new TextDecoder('ascii').decode(bytes.slice(0, 5));
+  if (!headerText.startsWith('%PDF')) {
+    throw new Error('PDF_SIGNATURE_INVALID');
   }
-  return sourceBlob.type.includes('application/pdf')
-    ? sourceBlob
-    : new Blob([sourceBlob], { type: 'application/pdf' });
+
+  return new Blob([bytes], { type: 'application/pdf' });
+}
+
+function formatPdfPreviewError(error: any) {
+  const code = String(error?.message ?? '').trim();
+  if (code === 'PDF_EMPTY') return 'Impossible de charger le PDF du contrat.';
+  if (code === 'PDF_RESPONSE_IS_JSON') return 'Impossible de charger le PDF du contrat.';
+  if (code === 'PDF_SIGNATURE_INVALID') return 'Impossible de charger le PDF du contrat.';
+  if (code === 'PDF_HTTP_CONTENT_TYPE_INVALID') return 'Impossible de charger le PDF du contrat.';
+  return 'Impossible de charger le PDF du contrat.';
 }
 
 function exportLeaseDetail(lease: LeaseDetailData, totalMonthly: number) {
