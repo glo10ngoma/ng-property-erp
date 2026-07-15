@@ -28,6 +28,11 @@ const PDF_MARGIN_TOP = 60;
 const PDF_MARGIN_BOTTOM = 54;
 const PDF_LINE_HEIGHT = 14;
 const PDF_MAX_CHARS = 96;
+const SIGNATURE_TABLE_WIDTH = 4500;
+const SIGNATURE_TABLE_TITLE_HEIGHT = 380;
+const SIGNATURE_TABLE_BODY_ROW_HEIGHT = 560;
+const SIGNATURE_TABLE_BODY_ROWS = 5;
+const SIGNATURE_TABLE_GAP = 12;
 const DOCX_TEMPLATE_VERSION = 'DOCX_UTF8_V2';
 const DOCX_TEMPLATE_NAME = 'LEASE_RESIDENTIAL.docx';
 const DOCX_TEMPLATE_CANDIDATES = [
@@ -213,7 +218,10 @@ function buildLeaseContractDocumentContext(content: string, variables: Record<st
 
 function normalizeContractBlocks(blocks: ContractBlock[]) {
   const withoutTitle = blocks.length && isTitleBlock(blocks[0]) ? blocks.slice(1) : blocks;
-  return withoutTitle.filter((block) => block.type !== 'text' || !looksLikeSignatureBlock(block.lines));
+  return withoutTitle.filter((block) => {
+    if (block.type === 'text') return !looksLikeSignatureBlock(block.lines);
+    return !looksLikeSignatureTable(block.rows);
+  });
 }
 
 function buildHeaderRows(variables: Record<string, unknown>): LeaseContractHeaderRow[] {
@@ -334,8 +342,13 @@ function looksLikeSignatureBlock(lines: string[]) {
   return joined.includes('LE PRENEUR') && joined.includes('LE BAILLEUR');
 }
 
+function looksLikeSignatureTable(rows: Array<[string, string]>) {
+  const joined = rows.map((row) => row.join(' ')).join(' ').toUpperCase();
+  return joined.includes('LE PRENEUR') && joined.includes('LE BAILLEUR');
+}
+
 function renderSignatureHtml() {
-  return `<section class="lease-signatures"><table class="lease-signature-table"><tbody><tr><th>LE PRENEUR</th><th>LE BAILLEUR</th></tr><tr><td><div class="lease-signature-space"></div></td><td><div class="lease-signature-space"></div></td></tr></tbody></table></section>`;
+  return `<section class="lease-signatures">${renderSignatureTitleTableHtml()}${renderSignatureBodyTableHtml()}</section>`;
 }
 
 function renderContractBlocksToDocxXml(blocks: ContractBlock[], snapshot: Record<string, unknown>) {
@@ -350,7 +363,7 @@ function renderContractBlocksToDocxXml(blocks: ContractBlock[], snapshot: Record
       return [buildParagraphXml(first, { bold: true, underline: true, size: 22, spacingBefore: 160, spacingAfter: 80 }), ...lines.slice(1).map((line) => buildParagraphXml(line, { spacingAfter: 0 }))].join('');
     }
     return lines.map((line, lineIndex) => buildParagraphXml(line, { indentFirstLine: index === 0 && lineIndex === 0 ? 720 : 0, spacingAfter: 0 })).join('');
-  }).filter(Boolean).join('') + buildSignatureTableXml();
+  }).filter(Boolean).join('') + buildSignatureTablesXml();
 }
 
 function buildContractHeaderTableXml(context: LeaseContractDocumentContext) {
@@ -417,7 +430,20 @@ function buildTableXml(rows: Array<[string, string]>) {
     </w:tbl>`;
 }
 
-function buildSignatureTableXml() {
+function renderSignatureTitleTableHtml() {
+  return `<table class="lease-signature-table lease-signature-title-table"><tbody><tr><th>LE PRENEUR</th><th>LE BAILLEUR</th></tr></tbody></table>`;
+}
+
+function renderSignatureBodyTableHtml() {
+  const rows = Array.from({ length: SIGNATURE_TABLE_BODY_ROWS }, () => '<tr><td><div class="lease-signature-space"></div></td><td><div class="lease-signature-space"></div></td></tr>').join('');
+  return `<table class="lease-signature-table lease-signature-body-table"><tbody>${rows}</tbody></table>`;
+}
+
+function buildSignatureTablesXml() {
+  return `${buildSignatureTitleTableXml()}${buildSignatureBodyTableXml()}`;
+}
+
+function buildSignatureTitleTableXml() {
   return `
     <w:tbl>
       <w:tblPr>
@@ -433,16 +459,39 @@ function buildSignatureTableXml() {
         </w:tblBorders>
         <w:tblLook w:firstRow="0" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:noHBand="1" w:noVBand="1"/>
       </w:tblPr>
-      <w:tblGrid><w:gridCol w:w="4500"/><w:gridCol w:w="4500"/></w:tblGrid>
+      <w:tblGrid><w:gridCol w:w="${SIGNATURE_TABLE_WIDTH}"/><w:gridCol w:w="${SIGNATURE_TABLE_WIDTH}"/></w:tblGrid>
       <w:tr>
-        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('LE PRENEUR', true, { align: 'center', spacingAfter: 80 })}</w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('LE BAILLEUR', true, { align: 'center', spacingAfter: 80 })}</w:tc>
+        <w:trPr><w:trHeight w:val="${SIGNATURE_TABLE_TITLE_HEIGHT}" w:hRule="atLeast"/></w:trPr>
+        <w:tc><w:tcPr><w:tcW w:w="${SIGNATURE_TABLE_WIDTH}" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('LE PRENEUR', true, { align: 'center', spacingAfter: 80 })}</w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="${SIGNATURE_TABLE_WIDTH}" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml('LE BAILLEUR', true, { align: 'center', spacingAfter: 80 })}</w:tc>
       </w:tr>
+    </w:tbl>`;
+}
+
+function buildSignatureBodyTableXml() {
+  const rows = Array.from({ length: SIGNATURE_TABLE_BODY_ROWS }, () => `
       <w:tr>
-        <w:trPr><w:trHeight w:val="3200" w:hRule="atLeast"/></w:trPr>
-        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml(' ', false, { spacingAfter: 150 })}</w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml(' ', false, { spacingAfter: 150 })}</w:tc>
-      </w:tr>
+        <w:trPr><w:trHeight w:val="${SIGNATURE_TABLE_BODY_ROW_HEIGHT}" w:hRule="atLeast"/></w:trPr>
+        <w:tc><w:tcPr><w:tcW w:w="${SIGNATURE_TABLE_WIDTH}" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml(' ', false, { spacingAfter: 120 })}</w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="${SIGNATURE_TABLE_WIDTH}" w:type="dxa"/></w:tcPr>${buildTableCellParagraphXml(' ', false, { spacingAfter: 120 })}</w:tc>
+      </w:tr>`).join('');
+  return `
+    <w:tbl>
+      <w:tblPr>
+        <w:tblW w:w="0" w:type="auto"/>
+        <w:tblLayout w:type="fixed"/>
+        <w:tblBorders>
+          <w:top w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
+          <w:left w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
+          <w:bottom w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
+          <w:right w:val="single" w:sz="8" w:space="0" w:color="9aa7b1"/>
+          <w:insideH w:val="single" w:sz="6" w:space="0" w:color="9aa7b1"/>
+          <w:insideV w:val="single" w:sz="6" w:space="0" w:color="9aa7b1"/>
+        </w:tblBorders>
+        <w:tblLook w:firstRow="0" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/>
+      </w:tblPr>
+      <w:tblGrid><w:gridCol w:w="${SIGNATURE_TABLE_WIDTH}"/><w:gridCol w:w="${SIGNATURE_TABLE_WIDTH}"/></w:tblGrid>
+      ${rows}
     </w:tbl>`;
 }
 
@@ -575,15 +624,25 @@ function buildPdfPageStream(lines: PdfLine[], pageNumber: number, totalPages: nu
       }
       const tableX = PDF_MARGIN_X;
       const tableWidth = PDF_PAGE_WIDTH - PDF_MARGIN_X * 2;
-      const tableHeight = 108;
-      const tableY = Math.max(PDF_MARGIN_BOTTOM + 28, PDF_PAGE_HEIGHT - PDF_MARGIN_TOP - (index * PDF_LINE_HEIGHT) - tableHeight + 24);
+      const titleHeight = 26;
+      const bodyHeight = SIGNATURE_TABLE_BODY_ROWS * 30;
+      const totalHeight = titleHeight + SIGNATURE_TABLE_GAP + bodyHeight;
+      const tableY = Math.max(PDF_MARGIN_BOTTOM + 28, PDF_PAGE_HEIGHT - PDF_MARGIN_TOP - (index * PDF_LINE_HEIGHT) - totalHeight + 24);
       const halfWidth = tableWidth / 2;
+      const titleY = tableY + bodyHeight + SIGNATURE_TABLE_GAP;
+      const bodyRowHeight = bodyHeight / SIGNATURE_TABLE_BODY_ROWS;
       commands.push('q');
       commands.push('1 w');
-      commands.push(`${tableX} ${tableY} ${tableWidth} ${tableHeight} re S`);
-      commands.push(`${tableX + halfWidth} ${tableY} m ${tableX + halfWidth} ${tableY + tableHeight} l S`);
-      commands.push(`BT /F2 11 Tf ${tableX + 24} ${tableY + tableHeight - 24} Td (LE PRENEUR) Tj ET`);
-      commands.push(`BT /F2 11 Tf ${tableX + halfWidth + 24} ${tableY + tableHeight - 24} Td (LE BAILLEUR) Tj ET`);
+      commands.push(`${tableX} ${titleY} ${tableWidth} ${titleHeight} re S`);
+      commands.push(`${tableX + halfWidth} ${titleY} m ${tableX + halfWidth} ${titleY + titleHeight} l S`);
+      commands.push(`BT /F2 11 Tf ${tableX + 24} ${titleY + 8} Td (LE PRENEUR) Tj ET`);
+      commands.push(`BT /F2 11 Tf ${tableX + halfWidth + 24} ${titleY + 8} Td (LE BAILLEUR) Tj ET`);
+      commands.push(`${tableX} ${tableY} ${tableWidth} ${bodyHeight} re S`);
+      commands.push(`${tableX + halfWidth} ${tableY} m ${tableX + halfWidth} ${tableY + bodyHeight} l S`);
+      for (let rowIndex = 1; rowIndex < SIGNATURE_TABLE_BODY_ROWS; rowIndex += 1) {
+        const y = tableY + rowIndex * bodyRowHeight;
+        commands.push(`${tableX} ${y} m ${tableX + tableWidth} ${y} l S`);
+      }
       commands.push('Q');
       return;
     }
