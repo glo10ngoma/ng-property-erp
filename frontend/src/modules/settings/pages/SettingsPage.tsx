@@ -1,6 +1,6 @@
 import { Building2, FileCog, Image as ImageIcon, MapPin, Percent, Save, Settings2, ShieldCheck, Trash2, Upload, User } from 'lucide-react';
 import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../../../api';
+import { api, shortDate } from '../../../api';
 import { useAuth } from '../../../auth';
 import { EmptyState, LoadingState, PageHeader, SuccessMessage } from '../../../components';
 
@@ -76,6 +76,7 @@ type AutomationSummary = {
   automationCode: string;
   isEnabled: boolean;
   executionTime: string;
+  generationDay?: number;
   timezone: string;
   dueDay: number;
   emailEnabled: boolean;
@@ -115,6 +116,8 @@ type AutomationRun = {
 type AutomationPreview = {
   billing_month: number;
   billing_year: number;
+  issue_date: string;
+  due_date: string;
   period_start: string;
   period_end: string;
   eligible_count: number;
@@ -827,7 +830,7 @@ export function SettingsPage() {
       {can('automations.read') && automation ? (
         <SettingsSection
           title="Automatisations"
-          description="Facturation automatique des loyers le dernier jour du mois, avec echeance sur le mois suivant."
+          description="Facturation automatique des loyers le 25 du mois courant, avec echeance fixee au mois suivant."
           icon={<Settings2 size={16} />}
         >
           <form className="settings-grid" onSubmit={saveAutomationSection}>
@@ -852,6 +855,9 @@ export function SettingsPage() {
                 disabled={automationDisabled}
               />
             </SettingField>
+            <SettingField label="Jour de generation">
+              <input value={String(automation.generationDay ?? 25)} readOnly className="locked-field" />
+            </SettingField>
             <SettingField label="Fuseau horaire">
               <input
                 value={automation.timezone}
@@ -859,15 +865,8 @@ export function SettingsPage() {
                 disabled={automationDisabled}
               />
             </SettingField>
-            <SettingField label="Jour d'echeance">
-              <input
-                type="number"
-                min="1"
-                max="31"
-                value={automation.dueDay}
-                onChange={(event) => setAutomation((current) => current ? { ...current, dueDay: Number(event.target.value) || 5 } : current)}
-                disabled={automationDisabled}
-              />
+            <SettingField label="Jour d'echeance (mois suivant)">
+              <input value={String(automation.dueDay || 5)} readOnly className="locked-field" />
             </SettingField>
             <SettingField label="Email automatique">
               <select
@@ -899,7 +898,7 @@ export function SettingsPage() {
               <input value={automation.lastRun?.status ?? 'Aucun run'} readOnly className="locked-field" />
             </SettingField>
             <SettingField label="Regle de facturation" wide>
-              <input value="Facture du mois ecoule le dernier jour, echeance au jour configure du mois suivant." readOnly className="locked-field" />
+              <input value="Le 25 du mois M : facture du mois M, date de facture = 25, echeance = 05 du mois M+1." readOnly className="locked-field" />
             </SettingField>
             <SettingActions>
               <button type="submit" disabled={automationDisabled}>
@@ -931,7 +930,10 @@ export function SettingsPage() {
           {automationPreview ? (
             <>
               <div className="summary-band" style={{ marginTop: 16 }}>
-                <div className="summary-item"><span>Periode</span><strong>{monthLabel(automationPreview.billing_month)} {automationPreview.billing_year}</strong></div>
+                <div className="summary-item"><span>Mois facture</span><strong>{monthLabel(automationPreview.billing_month)} {automationPreview.billing_year}</strong></div>
+                <div className="summary-item"><span>Date facture</span><strong>{shortDate(automationPreview.issue_date)}</strong></div>
+                <div className="summary-item"><span>Echeance</span><strong>{shortDate(automationPreview.due_date)}</strong></div>
+                <div className="summary-item summary-item-wide"><span>Periode</span><strong>{shortDate(automationPreview.period_start)} au {shortDate(automationPreview.period_end)}</strong></div>
                 <div className="summary-item"><span>Baux eligibles</span><strong>{automationPreview.eligible_count}</strong></div>
                 <div className="summary-item"><span>A creer</span><strong>{automationPreview.create_count}</strong></div>
                 <div className="summary-item"><span>Deja existantes</span><strong>{automationPreview.existing_count}</strong></div>
