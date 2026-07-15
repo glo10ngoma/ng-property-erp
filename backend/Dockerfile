@@ -12,6 +12,8 @@ COPY . .
 
 RUN npm run build
 
+RUN find /app/dist/templates -maxdepth 4 -type f -print
+
 RUN node -e 'const { chromium } = require("playwright"); console.log(chromium.executablePath())'
 
 RUN CHROMIUM_PATH=$(node -e 'const { chromium } = require("playwright"); process.stdout.write(chromium.executablePath())') && test -x "$CHROMIUM_PATH"

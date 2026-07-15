@@ -74,15 +74,19 @@ export class PdfRendererService {
         throw error;
       }
       if (String(error?.message ?? '').toLowerCase().includes('timeout')) {
-        throw new ServiceUnavailableException({
+        const timeoutError = new ServiceUnavailableException({
           code: 'PDF_RENDER_FAILED',
           message: 'PDF generation timed out',
         });
+        (timeoutError as any).cause = error;
+        throw timeoutError;
       }
-      throw new InternalServerErrorException({
+      const renderError = new InternalServerErrorException({
         code: 'PDF_RENDER_FAILED',
         message: error?.message || 'PDF generation failed',
       });
+      (renderError as any).cause = error;
+      throw renderError;
     } finally {
       await browser?.close().catch(() => undefined);
     }

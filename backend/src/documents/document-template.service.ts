@@ -29,6 +29,17 @@ export class DocumentTemplateService {
     return [...this.rootCandidates];
   }
 
+  getRuntimeInfo() {
+    return {
+      cwd: process.cwd(),
+      dirname: __dirname,
+      rootCandidates: this.rootCandidates.map((candidate) => ({
+        path: candidate,
+        exists: fs.existsSync(candidate),
+      })),
+    };
+  }
+
   renderLeaseTemplate(context: LeaseDocumentRenderContext) {
     const root = this.resolveTemplateRoot();
     const usage = context.lease.usage;

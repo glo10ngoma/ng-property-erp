@@ -3767,6 +3767,7 @@ export class SaasService {
     const organizationId = this.context.organizationId();
     let leaseId = id;
     let templateCode = 'LEASE_RESIDENTIAL';
+    let currentStep = 'started';
 
     try {
       const lease = await this.leaseDetail(id) as Record<string, any>;
@@ -3790,20 +3791,31 @@ export class SaasService {
       }
 
       const snapshot = this.buildLeaseContractSnapshot(lease, company);
+      currentStep = 'context_loaded';
       this.logLeasePdfV9('context_loaded', { leaseId, organizationId, templateCode });
 
       const renderContext = this.documentRenderer.buildLeaseRenderContext(snapshot);
       const rendered = this.documentTemplate.renderLeaseTemplate(renderContext);
       templateCode = rendered.templateCode;
+      currentStep = 'template_loaded';
       this.logLeasePdfV9('template_loaded', {
         leaseId,
         organizationId,
         templateCode,
         templateSource: rendered.templateSource,
         templateRoot: rendered.templateRoot,
+        templateRuntime: this.documentTemplate.getRuntimeInfo(),
+      });
+      currentStep = 'html_rendered';
+      this.logLeasePdfV9('html_rendered', {
+        leaseId,
+        organizationId,
+        templateCode,
+        htmlBytes: Buffer.byteLength(rendered.html, 'utf8'),
       });
 
       const chromium = await this.pdfRenderer.getRuntimeInfo();
+      currentStep = 'chromium_started';
       this.logLeasePdfV9('chromium_started', {
         leaseId,
         organizationId,
@@ -3814,6 +3826,7 @@ export class SaasService {
 
       const pdfBuffer = await this.pdfRenderer.renderA4Pdf(rendered.html);
       const pdfHash = getDocxBufferSha256(pdfBuffer);
+      currentStep = 'pdf_generated';
       this.logLeasePdfV9('pdf_generated', {
         leaseId,
         organizationId,
@@ -3824,6 +3837,12 @@ export class SaasService {
 
       return this.db.transaction(async (client) => {
         const template = await this.activeLeaseContractTemplate(client, rendered.templateCode);
+        currentStep = 'db_persist_started';
+        this.logLeasePdfV9('db_persist_started', {
+          leaseId,
+          organizationId,
+          templateCode,
+        });
         const { rows } = await client.query(
           `INSERT INTO lease_contract_generations
            (organization_id, lease_id, template_id, template_version, generated_content, generated_html, snapshot_json,
@@ -3847,7 +3866,16 @@ export class SaasService {
         const generatedAt = new Date(contract.generated_at ?? new Date().toISOString());
         const generatedStamp = generatedAt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
         const pdfFileName = `Contrat_bail_${this.leaseReferenceCode(lease.id)}_contract-${contract.id}-v9-${generatedStamp}.pdf`;
+        currentStep = 'storage_upload_started';
+        this.logLeasePdfV9('storage_upload_started', {
+          leaseId,
+          organizationId,
+          templateCode,
+          contractId: contract.id,
+          fileName: pdfFileName,
+        });
         const storedPdf = await this.persistLeaseContractPdf(id, contract.id, 9, generatedAt, pdfFileName, pdfBuffer);
+        currentStep = 'storage_uploaded';
         this.logLeasePdfV9('storage_uploaded', {
           leaseId,
           organizationId,
@@ -3890,7 +3918,15 @@ export class SaasService {
            VALUES ($1, 'GENERATED_CONTRACT_PDF', $2, $3, $4, $5)`,
           [id, storedPdf.fileName, storedPdf.fileUrl, this.context.userId() ?? 1, organizationId],
         );
+        currentStep = 'db_persisted';
         this.logLeasePdfV9('db_persisted', {
+          leaseId,
+          organizationId,
+          templateCode,
+          contractId: contract.id,
+        });
+        currentStep = 'response_sent';
+        this.logLeasePdfV9('response_sent', {
           leaseId,
           organizationId,
           templateCode,
@@ -3900,11 +3936,17 @@ export class SaasService {
       });
     } catch (error: any) {
       this.logger.error(
-        `[LEASE_PDF_V9] failed leaseId=${leaseId} organizationId=${organizationId} templateCode=${templateCode} message=${error?.message ?? '(empty)'}`,
+        `[LEASE_PDF_V9] failed leaseId=${leaseId} organizationId=${organizationId} templateCode=${templateCode} step=${currentStep} errorName=${error?.name ?? 'Error'} message=${error?.message ?? '(empty)'} code=${error?.code ?? error?.response?.code ?? '(none)'} status=${error?.status ?? error?.response?.statusCode ?? '(none)'}`,
         error?.stack,
       );
       if (error?.cause) {
-        this.logger.error(`[LEASE_PDF_V9] cause=${String(error.cause)}`);
+        this.logger.error(
+          `[LEASE_PDF_V9] causeName=${error.cause?.name ?? 'Error'} causeMessage=${error.cause?.message ?? String(error.cause)} causeCode=${error.cause?.code ?? '(none)'}`,
+          error.cause?.stack,
+        );
+      }
+      if (error?.response) {
+        this.logger.error(`[LEASE_PDF_V9] response=${JSON.stringify(error.response)}`);
       }
       throw this.mapLeasePdfV9Error(error);
     }
@@ -6699,10 +6741,12 @@ export class SaasService {
     if (error instanceof HttpException) {
       return error;
     }
-    return new InternalServerErrorException({
+    const persistError = new InternalServerErrorException({
       code: 'PDF_GENERATION_PERSIST_FAILED',
       message: error?.message || 'Lease PDF generation failed',
     });
+    (persistError as any).cause = error;
+    return persistError;
   }
 
   private buildLeaseContractSnapshot(lease: Record<string, any>, company: Record<string, any>) {
