@@ -236,6 +236,15 @@ textarea { min-height: 72px; resize: vertical; }
 .invoice-field-span-2 { grid-column: span 2; }
 .invoice-compact-grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 8px; align-items: end; }
 .invoice-two-col { display: grid; grid-template-columns: repeat(2, minmax(160px, 1fr)); gap: 8px; }
+.invoice-charge-lines { display: grid; gap: 8px; }
+.invoice-charge-lines-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.invoice-charge-lines-head strong { color: #203845; font-size: 13px; }
+.invoice-charge-lines-table { border: 1px solid #dce5eb; border-radius: 8px; overflow: auto; background: white; }
+.invoice-charge-lines-table table { min-width: 760px; }
+.invoice-charge-lines-table th, .invoice-charge-lines-table td { padding-top: 8px; padding-bottom: 8px; white-space: nowrap; }
+.invoice-charge-lines-table td input, .invoice-charge-lines-table td select { min-width: 110px; }
+.invoice-charge-line-total { color: #203845; font-weight: 700; }
+.invoice-charge-lines-table .icon-btn[disabled] { opacity: .5; cursor: not-allowed; }
 .invoice-form-grid textarea { min-height: 54px; }
 .invoice-add-line { justify-self: start; }
 .modal-sticky-actions { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 8px; background: white; border-top: 1px solid #dce5eb; padding-top: 10px; margin-top: 10px; }
@@ -623,6 +632,7 @@ textarea { min-height: 72px; resize: vertical; }
   .invoice-form-grid, .invoice-two-col { grid-template-columns: 1fr; }
   .invoice-compact-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .invoice-field-span-2 { grid-column: 1 / -1; }
+  .invoice-charge-lines-head { align-items: stretch; }
   .buildings-filter-bar, .leases-filter-bar, .invoices-filter-bar { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .invoice-toolbar { align-items: stretch; }
   .invoice-filters { flex-basis: 100%; grid-template-columns: repeat(2, minmax(150px, 1fr)); }
@@ -671,6 +681,7 @@ textarea { min-height: 72px; resize: vertical; }
   .invoice-amount-cards, .invoice-accordion-grid, .invoice-parties, .print-invoice header { grid-template-columns: 1fr; }
   .invoice-form-grid, .invoice-compact-grid, .invoice-two-col { grid-template-columns: 1fr; }
   .invoice-field-span-2 { grid-column: auto; }
+  .invoice-charge-lines-table table { min-width: 640px; }
   .invoice-meta { justify-items: start; }
   .invoice-detail-actions { flex-wrap: wrap; }
   .invoice-chart-row strong { text-align: left; }

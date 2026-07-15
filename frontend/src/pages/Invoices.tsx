@@ -161,7 +161,7 @@ export function Invoices() {
         action={can('invoices.create') ? (
           <div className="actions">
             <button onClick={() => setOpen(true)}><Plus size={16} />Nouvelle facture</button>
-            <button className="secondary" onClick={() => setOtherChargeOpen(true)}><Plus size={16} />Nouvelle autres charges</button>
+            <button className="secondary" aria-label="Nouvelle facture autres charges" onClick={() => setOtherChargeOpen(true)}><Plus size={16} />Nouvelle facture autres charges</button>
           </div>
         ) : undefined}
       />

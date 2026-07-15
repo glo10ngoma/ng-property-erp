@@ -6,12 +6,27 @@ export class InvoiceItemDto {
   @IsString()
   item_type?: string;
 
+  @IsOptional()
+  @IsString()
+  charge_type?: string;
+
   @IsString()
   description: string;
 
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  amount: number;
+  amount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  quantity?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  unit_price?: number;
 }
 
 export class CreateInvoiceDto {

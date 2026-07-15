@@ -311,15 +311,19 @@ export class InvoicesService {
   }
 
   private calculateTotal(items: InvoiceItemDto[], discountAmount = 0) {
-    const subtotal = items.reduce((sum, item) => sum + Number(item.amount), 0);
+    const subtotal = items.reduce((sum, item) => sum + this.itemAmount(item), 0);
     return Math.max(0, subtotal - Number(discountAmount ?? 0));
   }
 
   private async insertItems(client: PoolClient, invoiceId: number, items: InvoiceItemDto[], organizationId: number) {
     for (const item of items) {
+      const description = String(item.description ?? '').trim();
+      if (!description) {
+        throw new BadRequestException('Chaque ligne de facture doit contenir une description.');
+      }
       await client.query(
         'INSERT INTO invoice_items (invoice_id, item_type, description, amount, organization_id) VALUES ($1, $2, $3, $4, $5)',
-        [invoiceId, item.item_type ?? item.description, item.description, item.amount, organizationId],
+        [invoiceId, item.charge_type ?? item.item_type ?? description, description, this.itemAmount(item), organizationId],
       );
     }
   }
@@ -377,6 +381,21 @@ export class InvoicesService {
       return type === 'MAINTENANCE' || description.startsWith('MAINTENANCE');
     });
     return 'OTHER_CHARGE';
+  }
+
+  private itemAmount(item: InvoiceItemDto) {
+    const quantity = Number(item.quantity);
+    const unitPrice = Number(item.unit_price);
+    if (Number.isFinite(quantity) && Number.isFinite(unitPrice)) {
+      if (quantity <= 0) throw new BadRequestException('La quantite doit etre strictement superieure a 0.');
+      if (unitPrice < 0) throw new BadRequestException('Le prix unitaire doit etre superieur ou egal a 0.');
+      return Number((quantity * unitPrice).toFixed(2));
+    }
+    const amount = Number(item.amount ?? 0);
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw new BadRequestException('Montant de ligne invalide.');
+    }
+    return amount;
   }
 
   private periodStart(month: number, year: number) {
