@@ -362,7 +362,7 @@ export class InvoicesService {
 
   private normalizeInvoiceType(value: unknown, items: InvoiceItemDto[]) {
     const normalized = String(value ?? '').trim().toUpperCase();
-    if (normalized === 'RENT' || normalized === 'MAINTENANCE' || normalized === 'OTHER') {
+    if (normalized === 'RENT' || normalized === 'MAINTENANCE' || normalized === 'OTHER' || normalized === 'OTHER_CHARGE') {
       return normalized;
     }
     const hasRentLine = items.some((item) => {
@@ -376,7 +376,7 @@ export class InvoicesService {
       const description = String(item.description ?? '').trim().toUpperCase();
       return type === 'MAINTENANCE' || description.startsWith('MAINTENANCE');
     });
-    return hasMaintenanceLine ? 'MAINTENANCE' : 'OTHER';
+    return 'OTHER_CHARGE';
   }
 
   private periodStart(month: number, year: number) {

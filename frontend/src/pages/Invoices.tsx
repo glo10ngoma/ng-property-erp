@@ -5,6 +5,7 @@ import { api, exportCsv, exportXlsxWorkbook, includesText, invoiceDisplayStatus,
 import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, SearchableSelect, StatusBadge, SuccessMessage, TenantSearchSelect } from '../components';
 import { useApiList } from '../hooks';
+import { OtherChargeInvoiceModal } from '../modules/invoices/components/OtherChargeInvoiceModal';
 
 type Invoice = {
   id: number;
@@ -47,6 +48,7 @@ export function Invoices() {
   const tenants = useApiList<Tenant>('/tenants');
   const leases = useApiList<Lease>('/leases');
   const [open, setOpen] = useState(false);
+  const [otherChargeOpen, setOtherChargeOpen] = useState(false);
   const [tenantId, setTenantId] = useState<number | null>(null);
   const [leaseId, setLeaseId] = useState<number | null>(null);
   const [rent, setRent] = useState(0);
@@ -99,7 +101,7 @@ export function Invoices() {
       && (!filters.status || displayStatus === filters.status)
       && (!filters.building || invoice.building_name === filters.building)
       && (!filters.tenant || tenantName === filters.tenant)
-      && (!filters.type || invoiceType(invoice) === filters.type)
+      && (!filters.type || invoiceTypeGroup(invoice) === filters.type)
       && (!filters.automatic || String(Boolean(invoice.generated_automatically)) === filters.automatic)
       && (!filters.email || deliveryStatus(invoice.email_delivery_status) === filters.email)
       && (!filters.whatsapp || deliveryStatus(invoice.whatsapp_delivery_status) === filters.whatsapp);
@@ -154,7 +156,15 @@ export function Invoices() {
 
   return (
     <section>
-      <PageHeader title="Factures" action={can('invoices.create') ? <button onClick={() => setOpen(true)}><Plus size={16} />Nouvelle facture</button> : undefined} />
+      <PageHeader
+        title="Factures"
+        action={can('invoices.create') ? (
+          <div className="actions">
+            <button onClick={() => setOpen(true)}><Plus size={16} />Nouvelle facture</button>
+            <button className="secondary" onClick={() => setOtherChargeOpen(true)}><Plus size={16} />Nouvelle autres charges</button>
+          </div>
+        ) : undefined}
+      />
       <SuccessMessage message={success} />
 
       <div className="mini-stats">
@@ -173,7 +183,7 @@ export function Invoices() {
           <input placeholder="Recherche" value={query} onChange={(event) => setQuery(event.target.value)} />
           <input type="number" min="1" max="12" placeholder="Mois" value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })} />
           <input type="number" placeholder="Annee" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} />
-          <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}><option value="">Type</option><option value="RENT">Loyer</option><option value="MAINTENANCE">Maintenance</option><option value="OTHER">Autre</option></select>
+          <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}><option value="">Type</option><option value="RENT">Loyer</option><option value="OTHER_CHARGE">Autres charges</option></select>
           <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Statut</option><option value="PAID">Payee</option><option value="PARTIAL">Paiement partiel</option><option value="UNPAID">Non payee</option><option value="OVERDUE">En retard</option></select>
           <select value={filters.building} onChange={(event) => setFilters({ ...filters, building: event.target.value })}><option value="">Immeuble</option>{buildingOptions.map((building) => <option key={building} value={building}>{building}</option>)}</select>
           <select value={filters.tenant} onChange={(event) => setFilters({ ...filters, tenant: event.target.value })}><option value="">Locataire</option>{tenantOptions.map((tenantName) => <option key={tenantName} value={tenantName}>{tenantName}</option>)}</select>
@@ -195,7 +205,7 @@ export function Invoices() {
             {filtered.map((invoice) => (
               <tr key={invoice.id} className="clickable-row" onClick={() => navigate(`/invoices/${invoice.id}`)}>
                 <td>{invoice.invoice_number}</td>
-                <td>{invoiceTypeLabel(invoiceType(invoice))}</td>
+                <td>{invoiceTypeLabel(invoiceTypeGroup(invoice))}</td>
                 <td>{invoiceTenantName(invoice)}</td>
                 <td>{invoice.lease_number ? `B-${invoice.lease_number}` : '-'}</td>
                 <td>{invoice.building_name}</td>
@@ -273,6 +283,13 @@ export function Invoices() {
           </div>
         </Modal>
       )}
+
+      <OtherChargeInvoiceModal
+        open={otherChargeOpen}
+        onClose={() => setOtherChargeOpen(false)}
+        tenants={tenants.data}
+        leases={leases.data}
+      />
     </section>
   );
 }
@@ -291,7 +308,7 @@ function invoiceExportRow(invoice: Invoice) {
     emission: shortDate(invoice.issue_date),
     echeance: shortDate(invoice.due_date),
     periode: periodLabel(invoice.billing_month ?? invoice.month, invoice.billing_year ?? invoice.year),
-    type: invoiceTypeLabel(invoiceType(invoice)),
+    type: invoiceTypeLabel(invoiceTypeGroup(invoice)),
     total: amount(invoice.total),
     paye: amount(invoice.paid_amount),
     restant: amount(invoice.remaining_amount),
@@ -359,12 +376,12 @@ function periodDescription(month: string, year: string) {
   return `${monthName(Number(month)).toLowerCase()} ${year}`;
 }
 
-function invoiceType(value: Pick<Invoice, 'invoice_type'>) {
-  return String(value.invoice_type ?? 'OTHER').toUpperCase();
+function invoiceTypeGroup(value: Pick<Invoice, 'invoice_type'>) {
+  return String(value.invoice_type ?? '').toUpperCase() === 'RENT' ? 'RENT' : 'OTHER_CHARGE';
 }
 
 function invoiceTypeLabel(type: string) {
-  return ({ RENT: 'Loyer', MAINTENANCE: 'Maintenance', OTHER: 'Autre' } as Record<string, string>)[type] ?? type;
+  return ({ RENT: 'Loyer', OTHER_CHARGE: 'Autres charges' } as Record<string, string>)[type] ?? type;
 }
 
 function deliveryStatus(value?: string) {

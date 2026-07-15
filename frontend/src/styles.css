@@ -233,6 +233,7 @@ textarea { min-height: 72px; resize: vertical; }
 .invoice-modal-body { max-height: 68vh; overflow-y: auto; padding-right: 4px; }
 .invoice-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .invoice-field-full { grid-column: 1 / -1; }
+.invoice-field-span-2 { grid-column: span 2; }
 .invoice-compact-grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 8px; align-items: end; }
 .invoice-two-col { display: grid; grid-template-columns: repeat(2, minmax(160px, 1fr)); gap: 8px; }
 .invoice-form-grid textarea { min-height: 54px; }
@@ -619,6 +620,9 @@ textarea { min-height: 72px; resize: vertical; }
   .document-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
   .invoice-chart-row { grid-template-columns: 150px 1fr 90px; }
   .invoice-amount-cards, .invoice-accordion-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+  .invoice-form-grid, .invoice-two-col { grid-template-columns: 1fr; }
+  .invoice-compact-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+  .invoice-field-span-2 { grid-column: 1 / -1; }
   .buildings-filter-bar, .leases-filter-bar, .invoices-filter-bar { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .invoice-toolbar { align-items: stretch; }
   .invoice-filters { flex-basis: 100%; grid-template-columns: repeat(2, minmax(150px, 1fr)); }
@@ -665,6 +669,8 @@ textarea { min-height: 72px; resize: vertical; }
   .statement-filters .filter-actions { grid-column: auto; }
   .document-grid, .invoice-print-codes, .invoice-signature-row, .invoice-chart-row { grid-template-columns: 1fr; }
   .invoice-amount-cards, .invoice-accordion-grid, .invoice-parties, .print-invoice header { grid-template-columns: 1fr; }
+  .invoice-form-grid, .invoice-compact-grid, .invoice-two-col { grid-template-columns: 1fr; }
+  .invoice-field-span-2 { grid-column: auto; }
   .invoice-meta { justify-items: start; }
   .invoice-detail-actions { flex-wrap: wrap; }
   .invoice-chart-row strong { text-align: left; }

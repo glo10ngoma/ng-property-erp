@@ -536,7 +536,9 @@ function amount(value: unknown) {
 }
 
 function invoiceTypeLabel(type?: string) {
-  return ({ RENT: 'Facture de loyer', MAINTENANCE: 'Facture de maintenance', OTHER: 'Autre facture' } as Record<string, string>)[String(type ?? 'OTHER').toUpperCase()] ?? String(type ?? 'Autre facture');
+  const normalized = String(type ?? 'OTHER').toUpperCase();
+  if (normalized === 'RENT') return 'Facture de loyer';
+  return 'Facture autres charges';
 }
 
 function deliveryStatus(status?: string) {
