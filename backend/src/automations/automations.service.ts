@@ -891,7 +891,7 @@ export class AutomationsService {
             failedCount: Number(lastRun.failed_count ?? 0),
           }
         : null,
-      explanation: 'Facturation du dernier jour du mois ecoule, echeance sur le mois suivant.',
+      explanation: 'Facturation du dernier jour du mois ecoule, echeance calculee a partir du debut de periode.',
     };
   }
 
@@ -924,10 +924,9 @@ export class AutomationsService {
   }
 
   private computeDueDate(year: number, month: number, dueDay: number) {
-    const nextMonth = month === 12 ? 1 : month + 1;
-    const nextYear = month === 12 ? year + 1 : year;
-    const lastDay = this.daysInMonth(nextYear, nextMonth);
-    return `${nextYear}-${this.two(nextMonth)}-${this.two(Math.min(dueDay, lastDay))}`;
+    const periodStart = new Date(Date.UTC(year, month - 1, 1));
+    periodStart.setUTCDate(periodStart.getUTCDate() + Math.max(0, dueDay));
+    return periodStart.toISOString().slice(0, 10);
   }
 
   private shouldRunAt(setting: MonthlyRentBillingSettingRecord, now: Date) {

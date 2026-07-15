@@ -231,6 +231,7 @@ export function InvoiceDetail() {
   const billingMonth = invoice.billing_month ?? invoice.month;
   const billingYear = invoice.billing_year ?? invoice.year;
   const sendHistoryCount = (invoice.email_logs?.length ?? 0) + (invoice.whatsapp_logs?.length ?? 0);
+  const isRentInvoice = String(invoice.invoice_type ?? 'RENT').toUpperCase() === 'RENT';
 
   return (
     <section>
@@ -262,7 +263,7 @@ export function InvoiceDetail() {
             <strong>Facture {invoice.invoice_number}</strong>
             <span>Date: {shortDate(invoice.issue_date)}</span>
             <span>Echeance: {shortDate(invoice.due_date)}</span>
-            <span>Periode: {periodLabel(billingMonth, billingYear)}</span>
+            {isRentInvoice && <span>Periode: {periodLabel(billingMonth, billingYear)}</span>}
             <span className={`badge ${displayStatus.toLowerCase()}`}>{clientInvoiceStatusLabel(displayStatus)}</span>
           </div>
         </header>
@@ -271,11 +272,11 @@ export function InvoiceDetail() {
           <div className="summary-item"><span>Date de facture</span><strong>{shortDate(invoice.issue_date)}</strong></div>
           <div className="summary-item"><span>Date d'echeance</span><strong>{shortDate(invoice.due_date)}</strong></div>
           <div className="summary-item"><span>Type</span><strong>{invoiceTypeLabel(invoice.invoice_type)}</strong></div>
-          <div className="summary-item"><span>Mois du loyer</span><strong>{monthLabel(billingMonth)}</strong></div>
-          <div className="summary-item"><span>Annee du loyer</span><strong>{billingYear}</strong></div>
+          {isRentInvoice && <div className="summary-item"><span>Mois du loyer</span><strong>{monthLabel(billingMonth)}</strong></div>}
+          {isRentInvoice && <div className="summary-item"><span>Annee du loyer</span><strong>{billingYear}</strong></div>}
           <div className="summary-item"><span>Email</span><strong>{deliveryStatus(invoice.email_delivery_status)}</strong></div>
           <div className="summary-item"><span>WhatsApp</span><strong>{deliveryStatus(invoice.whatsapp_delivery_status)}</strong></div>
-          <div className="summary-item summary-item-wide"><span>Periode facturee</span><strong>{periodLabel(billingMonth, billingYear)}</strong></div>
+          {isRentInvoice && <div className="summary-item summary-item-wide"><span>Periode facturee</span><strong>{periodLabel(billingMonth, billingYear)}</strong></div>}
           <div className="summary-item summary-item-wide"><span>Origine</span><strong>{invoice.generated_automatically ? 'Generation automatique de fin de mois' : 'Creation manuelle'}</strong></div>
         </div>
 
@@ -309,10 +310,12 @@ export function InvoiceDetail() {
           </tfoot>
         </table>
 
-        <div className="invoice-balance-line">
-          <span>Paye : <strong>{amount(invoice.paid_amount)} USD</strong></span>
-          <span>Restant du : <strong>{amount(invoice.remaining_amount)} USD</strong></span>
-        </div>
+        {isRentInvoice && (
+          <div className="invoice-balance-line">
+            <span>Paye : <strong>{amount(invoice.paid_amount)} USD</strong></span>
+            <span>Restant du : <strong>{amount(invoice.remaining_amount)} USD</strong></span>
+          </div>
+        )}
         {invoice.public_notes && <p className="thanks">{invoice.public_notes}</p>}
         <p className="thanks">Merci pour votre confiance.</p>
       </article>
@@ -551,12 +554,12 @@ function displayStatusLabel(status: string) {
 
 function clientInvoiceStatusLabel(status: string) {
   return ({
-    PAID: 'Facture acquittÃ©e',
+    PAID: 'Facture acquittée',
     PARTIAL: 'Paiement partiel',
-    UNPAID: 'Ã€ payer',
+    UNPAID: 'À payer',
     OVERDUE: 'En retard',
     DRAFT: 'Brouillon',
-    CANCELLED: 'AnnulÃ©e',
+    CANCELLED: 'Annulée',
   } as Record<string, string>)[status] ?? status;
 }
 

@@ -55,8 +55,8 @@ export function Invoices() {
   const [syndicAmount, setSyndicAmount] = useState(0);
   const now = new Date();
   const [invoiceForm, setInvoiceForm] = useState({
-    issue_date: now.toISOString().slice(0, 10),
-    due_date: new Date(now.getFullYear(), now.getMonth(), 10).toISOString().slice(0, 10),
+    issue_date: formatLocalDate(now),
+    due_date: dueDateFromBillingPeriod(String(now.getMonth() + 1), String(now.getFullYear())),
     month: String(now.getMonth() + 1),
     year: String(now.getFullYear()),
   });
@@ -245,8 +245,8 @@ export function Invoices() {
               <div className="invoice-compact-grid invoice-field-full">
                 <label>Date de facture<input type="date" value={invoiceForm.issue_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, issue_date: event.target.value })} required /></label>
                 <label>Date d'echeance<input type="date" value={invoiceForm.due_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, due_date: event.target.value })} required /></label>
-                <label>Mois du loyer<input type="number" min="1" max="12" value={invoiceForm.month} onChange={(event) => setInvoiceForm({ ...invoiceForm, month: event.target.value })} required /></label>
-                <label>Annee du loyer<input type="number" min="2000" max="2100" value={invoiceForm.year} onChange={(event) => setInvoiceForm({ ...invoiceForm, year: event.target.value })} required /></label>
+                <label>Mois du loyer<input type="number" min="1" max="12" value={invoiceForm.month} onChange={(event) => setInvoiceForm((current) => ({ ...current, month: event.target.value, due_date: dueDateFromBillingPeriod(event.target.value, current.year) }))} required /></label>
+                <label>Annee du loyer<input type="number" min="2000" max="2100" value={invoiceForm.year} onChange={(event) => setInvoiceForm((current) => ({ ...current, year: event.target.value, due_date: dueDateFromBillingPeriod(current.month, event.target.value) }))} required /></label>
                 <label>Periode debut<input className="locked-field" type="date" value={periodStart(invoiceForm.month, invoiceForm.year)} readOnly /></label>
                 <label>Periode fin<input className="locked-field" type="date" value={periodEnd(invoiceForm.month, invoiceForm.year)} readOnly /></label>
                 <label>Loyer contractuel<input type="number" value={invoiceRent} onChange={(event) => setRent(Number(event.target.value))} /></label>
@@ -352,7 +352,35 @@ function periodStart(month: string, year: string) {
 function periodEnd(month: string, year: string) {
   if (!month || !year) return '';
   const date = new Date(Number(year), Number(month), 0);
-  return date.toISOString().slice(0, 10);
+  return formatLocalDate(date);
+}
+
+function dueDateFromBillingPeriod(month: string, year: string) {
+  if (!month || !year) return '';
+  const billingMonth = Number(month);
+  const billingYear = Number(year);
+  if (!Number.isInteger(billingMonth) || billingMonth < 1 || billingMonth > 12 || !Number.isInteger(billingYear) || billingYear < 2000) {
+    return '';
+  }
+  return addDaysToDateString(`${billingYear}-${String(billingMonth).padStart(2, '0')}-01`, 5);
+}
+
+function addDaysToDateString(value: string, days: number) {
+  const [yearText, monthText, dayText] = value.split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return '';
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + days);
+  return formatLocalDate(date);
+}
+
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function buildInvoiceItems(

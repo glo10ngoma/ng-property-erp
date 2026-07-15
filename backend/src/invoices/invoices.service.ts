@@ -29,7 +29,7 @@ export class InvoicesService {
       WHERE i.organization_id = $1 AND i.deleted_at IS NULL
       ORDER BY i.issue_date DESC, i.id DESC
     `, [organizationId]);
-    return rows;
+    return rows.map((row) => this.normalizeInvoiceDateFields(row));
   }
 
   async findOne(id: number) {
@@ -87,7 +87,7 @@ export class InvoicesService {
           [invoice.automation_run_id, organizationId],
         )
       : { rows: [] as Record<string, unknown>[] };
-    return {
+    return this.normalizeInvoiceDateFields({
       ...invoice,
       items: items.rows,
       payments: payments.rows,
@@ -95,7 +95,7 @@ export class InvoicesService {
       email_logs: emailLogs.rows,
       whatsapp_logs: whatsappLogs.rows,
       automation_run: automationRun.rows[0] ?? null,
-    };
+    });
   }
 
   async create(dto: CreateInvoiceDto) {
@@ -159,7 +159,7 @@ export class InvoicesService {
         ],
       );
       await this.insertItems(client, rows[0].id, dto.items, organizationId);
-      return rows[0];
+      return this.findOne(Number(rows[0].id));
     });
   }
 
@@ -231,7 +231,7 @@ export class InvoicesService {
         await this.assertNoDuplicateRentInvoice(client, Number(rows[0].lease_id), Number(rows[0].billing_month ?? rows[0].month), Number(rows[0].billing_year ?? rows[0].year), id);
       }
       await this.refreshStatus(client, id);
-      return rows[0];
+      return this.findOne(id);
     });
   }
 
@@ -269,7 +269,7 @@ export class InvoicesService {
           );
         }
       }
-      return invoice;
+      return this.findOne(Number(invoice.id));
     });
   }
 
@@ -281,7 +281,7 @@ export class InvoicesService {
        RETURNING *`,
       [id, this.context.organizationId(), reason],
     );
-    return rows[0];
+    return this.findOne(id);
   }
 
   async refreshStatus(client: PoolClient, invoiceId: number) {
@@ -405,6 +405,55 @@ export class InvoicesService {
   private periodEnd(month: number, year: number) {
     const lastDay = new Date(year, month, 0).getDate();
     return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  }
+
+  private normalizeInvoiceDateFields<T extends Record<string, any>>(row: T): T {
+    const dateKeys = [
+      'issue_date',
+      'due_date',
+      'period_start',
+      'period_end',
+      'invoice_date',
+      'lease_start_date',
+      'lease_end_date',
+      'payment_date',
+      'reminded_at',
+      'sent_at',
+      'validated_at',
+      'cancelled_at',
+    ];
+    const normalized: Record<string, any> = { ...row };
+    for (const key of dateKeys) {
+      if (normalized[key] instanceof Date) {
+        normalized[key] = this.formatDateOnly(normalized[key] as Date);
+      }
+    }
+    if (Array.isArray(normalized.items)) {
+      normalized.items = normalized.items.map((item: Record<string, any>) => this.normalizeInvoiceDateFields(item));
+    }
+    if (Array.isArray(normalized.payments)) {
+      normalized.payments = normalized.payments.map((payment: Record<string, any>) => this.normalizeInvoiceDateFields(payment));
+    }
+    if (Array.isArray(normalized.reminders)) {
+      normalized.reminders = normalized.reminders.map((reminder: Record<string, any>) => this.normalizeInvoiceDateFields(reminder));
+    }
+    if (Array.isArray(normalized.email_logs)) {
+      normalized.email_logs = normalized.email_logs.map((log: Record<string, any>) => this.normalizeInvoiceDateFields(log));
+    }
+    if (Array.isArray(normalized.whatsapp_logs)) {
+      normalized.whatsapp_logs = normalized.whatsapp_logs.map((log: Record<string, any>) => this.normalizeInvoiceDateFields(log));
+    }
+    if (normalized.automation_run && typeof normalized.automation_run === 'object') {
+      normalized.automation_run = this.normalizeInvoiceDateFields(normalized.automation_run);
+    }
+    return normalized as T;
+  }
+
+  private formatDateOnly(value: Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
   private async assertNoDuplicateRentInvoice(client: PoolClient, leaseId: number, month: number, year: number, excludeId?: number) {
