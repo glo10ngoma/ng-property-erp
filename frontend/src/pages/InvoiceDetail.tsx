@@ -331,8 +331,6 @@ export function InvoiceDetail() {
             <p>Immeuble: {invoice.building_name}</p>
             <p>Appartement: {invoice.unit_number}</p>
             <p>Adresse: {invoice.building_address}, {invoice.building_city}</p>
-            {isRentInvoice && <p>Loyer contractuel: {invoice.monthly_rent ? money(invoice.monthly_rent) : '-'}</p>}
-            {isRentInvoice && <p>Syndic contractuel: {invoice.monthly_syndic_amount ? money(invoice.monthly_syndic_amount) : money(0)}</p>}
           </div>
         </div>
 
@@ -345,12 +343,6 @@ export function InvoiceDetail() {
           </tfoot>
         </table>
 
-        {isRentInvoice && (
-          <div className="invoice-balance-line">
-            <span>Paye : <strong>{amount(invoice.paid_amount)} USD</strong></span>
-            <span>Restant du : <strong>{amount(invoice.remaining_amount)} USD</strong></span>
-          </div>
-        )}
         {invoice.public_notes && <p className="thanks">{invoice.public_notes}</p>}
         <p className="thanks">Merci pour votre confiance.</p>
       </article>
