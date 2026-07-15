@@ -1,5 +1,6 @@
 ﻿import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
+import { HttpException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { RequestContext } from '../auth/request-context';
 import { hashPassword } from '../auth/password';
 import { requireRow } from '../common/not-found';
@@ -20,6 +21,7 @@ import { isPlatformRole, normalizeRole } from './permissions';
 
 @Injectable()
 export class SaasService {
+  private readonly logger = new Logger(SaasService.name);
   private readonly companyStorageBucket = 'company';
   private readonly leaseContractStorageBucket = 'contracts';
   private readonly allowedCompanyFileKinds = new Set(['logo', 'signature', 'stamp']);
@@ -3762,105 +3764,150 @@ export class SaasService {
   }
 
   private async generateLeaseContractPdfV9(id: number) {
-    const lease = await this.leaseDetail(id) as Record<string, any>;
-    const company = await this.companySettings();
-    const companyData = company as Record<string, any>;
-    const landlordName = String(companyData.company_legal_name_resolved ?? companyData.company_legal_name ?? companyData.legal_name ?? companyData.company_name ?? '').trim();
-    const tenantName = String(lease.tenant_name ?? '').trim();
-    const unitNumber = String(lease.unit_number ?? '').trim();
-    const buildingName = String(lease.building_name ?? '').trim();
-    const startDate = String(lease.start_date ?? '').trim();
-    const monthlyRent = Number(lease.monthly_rent ?? 0);
-    if (!landlordName || !tenantName || !unitNumber || !buildingName || !startDate || !Number.isFinite(monthlyRent) || monthlyRent <= 0) {
-      throw new BadRequestException('Informations insuffisantes pour generer le contrat PDF');
-    }
-    const usage = this.normalizeLeaseUsageCode(lease.lease_usage ?? companyData.default_lease_usage ?? lease.usage_type);
-    if ((usage === 'COMMERCIAL' || usage === 'PROFESSIONAL' || usage === 'MIXED') && !String(lease.lease_activity_description ?? '').trim()) {
-      throw new BadRequestException("Activite ou destination des lieux requise pour generer ce contrat.");
-    }
-    const snapshot = this.buildLeaseContractSnapshot(lease, company);
-    const renderContext = this.documentRenderer.buildLeaseRenderContext(snapshot);
-    const rendered = this.documentTemplate.renderLeaseTemplate(renderContext);
-    const pdfBuffer = await this.pdfRenderer.renderA4Pdf(rendered.html);
-    const pdfHash = getDocxBufferSha256(pdfBuffer);
+    const organizationId = this.context.organizationId();
+    let leaseId = id;
+    let templateCode = 'LEASE_RESIDENTIAL';
 
-    return this.db.transaction(async (client) => {
-      const template = await this.activeLeaseContractTemplate(client, rendered.templateCode);
-      const { rows } = await client.query(
-        `INSERT INTO lease_contract_generations
-         (organization_id, lease_id, template_id, template_version, generated_content, generated_html, snapshot_json,
-          docx_file_name, docx_file_url, pdf_file_name, pdf_file_url, generated_by, status, template_code, template_hash)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::JSONB, NULL, NULL, NULL, NULL, $8, 'GENERATED', $9, $10)
-         RETURNING *`,
-        [
-          this.context.organizationId(),
-          id,
-          template.id,
-          9,
-          rendered.html,
-          rendered.html,
-          JSON.stringify({ ...snapshot, renderer: { version: rendered.rendererVersion, templateSource: rendered.templateSource } }),
-          this.context.userId() ?? 1,
-          rendered.templateCode,
-          rendered.templateHash,
-        ],
-      );
-      const contract = rows[0];
-      const generatedAt = new Date(contract.generated_at ?? new Date().toISOString());
-      const generatedStamp = generatedAt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-      const pdfFileName = `Contrat_bail_${this.leaseReferenceCode(lease.id)}_contract-${contract.id}-v9-${generatedStamp}.pdf`;
-      const storedPdf = await this.persistLeaseContractPdf(id, contract.id, 9, generatedAt, pdfFileName, pdfBuffer);
-      const { rows: updatedRows } = await client.query(
-        `UPDATE lease_contract_generations
-         SET pdf_file_name = $3,
-             pdf_file_url = $4,
-             template_code = $5,
-             template_hash = $6
-         WHERE id = $1 AND lease_id = $2 AND organization_id = $7
-         RETURNING *`,
-        [
-          contract.id,
-          id,
-          storedPdf.fileName,
-          storedPdf.fileUrl,
-          rendered.templateCode,
-          `${LEASE_DOCUMENT_RENDERER_VERSION}:${rendered.templateHash}:${pdfHash}`,
-          this.context.organizationId(),
-        ],
-      );
-      await client.query(
-        `UPDATE leases
-         SET generated_contract_file_name = $2,
-             generated_contract_url = $3,
-             contract_generated_at = NOW(),
-             contract_template_code = $4,
-             updated_at = NOW()
-         WHERE id = $1 AND organization_id = $5`,
-        [id, storedPdf.fileName, storedPdf.fileUrl, rendered.templateCode, this.context.organizationId()],
-      );
-      await client.query(
-        `INSERT INTO lease_documents (lease_id, document_type, file_name, file_url, uploaded_by, organization_id)
-         VALUES ($1, 'GENERATED_CONTRACT_PDF', $2, $3, $4, $5)`,
-        [id, storedPdf.fileName, storedPdf.fileUrl, this.context.userId() ?? 1, this.context.organizationId()],
-      );
-      console.info(
-        '[lease-pdf-v9]',
-        JSON.stringify({
-          leaseId: id,
-          contractId: contract.id,
-          templateCode: rendered.templateCode,
-          templateVersion: 9,
-          templateSource: rendered.templateSource,
-          templateHash: rendered.templateHash,
-          pdfHash,
-          storagePath: storedPdf.storagePath,
+    try {
+      const lease = await this.leaseDetail(id) as Record<string, any>;
+      leaseId = Number(lease.id ?? id);
+      const company = await this.companySettings();
+      const companyData = company as Record<string, any>;
+      const landlordName = String(companyData.company_legal_name_resolved ?? companyData.company_legal_name ?? companyData.legal_name ?? companyData.company_name ?? '').trim();
+      const tenantName = String(lease.tenant_name ?? '').trim();
+      const unitNumber = String(lease.unit_number ?? '').trim();
+      const buildingName = String(lease.building_name ?? '').trim();
+      const startDate = String(lease.start_date ?? '').trim();
+      const monthlyRent = Number(lease.monthly_rent ?? 0);
+      if (!landlordName || !tenantName || !unitNumber || !buildingName || !startDate || !Number.isFinite(monthlyRent) || monthlyRent <= 0) {
+        throw new BadRequestException('Informations insuffisantes pour generer le contrat PDF');
+      }
+
+      const usage = this.normalizeLeaseUsageCode(lease.lease_usage ?? companyData.default_lease_usage ?? lease.usage_type);
+      templateCode = this.resolveLeaseTemplateCodeForUsage(usage) ?? templateCode;
+      if ((usage === 'COMMERCIAL' || usage === 'PROFESSIONAL' || usage === 'MIXED') && !String(lease.lease_activity_description ?? '').trim()) {
+        throw new BadRequestException("Activite ou destination des lieux requise pour generer ce contrat.");
+      }
+
+      const snapshot = this.buildLeaseContractSnapshot(lease, company);
+      this.logLeasePdfV9('context_loaded', { leaseId, organizationId, templateCode });
+
+      const renderContext = this.documentRenderer.buildLeaseRenderContext(snapshot);
+      const rendered = this.documentTemplate.renderLeaseTemplate(renderContext);
+      templateCode = rendered.templateCode;
+      this.logLeasePdfV9('template_loaded', {
+        leaseId,
+        organizationId,
+        templateCode,
+        templateSource: rendered.templateSource,
+        templateRoot: rendered.templateRoot,
+      });
+
+      const chromium = await this.pdfRenderer.getRuntimeInfo();
+      this.logLeasePdfV9('chromium_started', {
+        leaseId,
+        organizationId,
+        templateCode,
+        executablePath: chromium.executablePath,
+        executableExists: chromium.executableExists,
+      });
+
+      const pdfBuffer = await this.pdfRenderer.renderA4Pdf(rendered.html);
+      const pdfHash = getDocxBufferSha256(pdfBuffer);
+      this.logLeasePdfV9('pdf_generated', {
+        leaseId,
+        organizationId,
+        templateCode,
+        pdfBytes: pdfBuffer.byteLength,
+        pdfHeader: pdfBuffer.subarray(0, 4).toString(),
+      });
+
+      return this.db.transaction(async (client) => {
+        const template = await this.activeLeaseContractTemplate(client, rendered.templateCode);
+        const { rows } = await client.query(
+          `INSERT INTO lease_contract_generations
+           (organization_id, lease_id, template_id, template_version, generated_content, generated_html, snapshot_json,
+            docx_file_name, docx_file_url, pdf_file_name, pdf_file_url, generated_by, status, template_code, template_hash)
+           VALUES ($1, $2, $3, $4, $5, $6, $7::JSONB, NULL, NULL, NULL, NULL, $8, 'GENERATED', $9, $10)
+           RETURNING *`,
+          [
+            organizationId,
+            id,
+            template.id,
+            9,
+            rendered.html,
+            rendered.html,
+            JSON.stringify({ ...snapshot, renderer: { version: rendered.rendererVersion, templateSource: rendered.templateSource } }),
+            this.context.userId() ?? 1,
+            rendered.templateCode,
+            rendered.templateHash,
+          ],
+        );
+        const contract = rows[0];
+        const generatedAt = new Date(contract.generated_at ?? new Date().toISOString());
+        const generatedStamp = generatedAt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+        const pdfFileName = `Contrat_bail_${this.leaseReferenceCode(lease.id)}_contract-${contract.id}-v9-${generatedStamp}.pdf`;
+        const storedPdf = await this.persistLeaseContractPdf(id, contract.id, 9, generatedAt, pdfFileName, pdfBuffer);
+        this.logLeasePdfV9('storage_uploaded', {
+          leaseId,
+          organizationId,
+          templateCode,
           fileName: storedPdf.fileName,
+          storagePath: storedPdf.storagePath,
           mimeType: storedPdf.mimeType,
-          size: pdfBuffer.byteLength,
-        }),
+        });
+
+        const { rows: updatedRows } = await client.query(
+          `UPDATE lease_contract_generations
+           SET pdf_file_name = $3,
+               pdf_file_url = $4,
+               template_code = $5,
+               template_hash = $6
+           WHERE id = $1 AND lease_id = $2 AND organization_id = $7
+           RETURNING *`,
+          [
+            contract.id,
+            id,
+            storedPdf.fileName,
+            storedPdf.fileUrl,
+            rendered.templateCode,
+            `${LEASE_DOCUMENT_RENDERER_VERSION}:${rendered.templateHash}:${pdfHash}`,
+            organizationId,
+          ],
+        );
+        await client.query(
+          `UPDATE leases
+           SET generated_contract_file_name = $2,
+               generated_contract_url = $3,
+               contract_generated_at = NOW(),
+               contract_template_code = $4,
+               updated_at = NOW()
+           WHERE id = $1 AND organization_id = $5`,
+          [id, storedPdf.fileName, storedPdf.fileUrl, rendered.templateCode, organizationId],
+        );
+        await client.query(
+          `INSERT INTO lease_documents (lease_id, document_type, file_name, file_url, uploaded_by, organization_id)
+           VALUES ($1, 'GENERATED_CONTRACT_PDF', $2, $3, $4, $5)`,
+          [id, storedPdf.fileName, storedPdf.fileUrl, this.context.userId() ?? 1, organizationId],
+        );
+        this.logLeasePdfV9('db_persisted', {
+          leaseId,
+          organizationId,
+          templateCode,
+          contractId: contract.id,
+        });
+        return updatedRows[0];
+      });
+    } catch (error: any) {
+      this.logger.error(
+        `[LEASE_PDF_V9] failed leaseId=${leaseId} organizationId=${organizationId} templateCode=${templateCode} message=${error?.message ?? '(empty)'}`,
+        error?.stack,
       );
-      return updatedRows[0];
-    });
+      if (error?.cause) {
+        this.logger.error(`[LEASE_PDF_V9] cause=${String(error.cause)}`);
+      }
+      throw this.mapLeasePdfV9Error(error);
+    }
   }
 
   async generateLeaseContractDocx(id: number) {
@@ -6644,6 +6691,20 @@ export class SaasService {
     return String(process.env.LEASE_PDF_V9_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
   }
 
+  private logLeasePdfV9(step: string, payload: Record<string, unknown>) {
+    this.logger.log(`[LEASE_PDF_V9] ${step} ${JSON.stringify(payload)}`);
+  }
+
+  private mapLeasePdfV9Error(error: any) {
+    if (error instanceof HttpException) {
+      return error;
+    }
+    return new InternalServerErrorException({
+      code: 'PDF_GENERATION_PERSIST_FAILED',
+      message: error?.message || 'Lease PDF generation failed',
+    });
+  }
+
   private buildLeaseContractSnapshot(lease: Record<string, any>, company: Record<string, any>) {
     const totalMonthly = Number(lease.lease_total_amount ?? 0);
     const guaranteeMonths = Number(lease.guarantee_months ?? company.default_guarantee_months ?? 0);
@@ -7173,7 +7234,10 @@ export class SaasService {
     });
     if (!response.ok) {
       const details = await response.text();
-      throw new BadRequestException(details || `Impossible de televerser le contrat PDF (${response.status})`);
+      throw new BadRequestException({
+        code: 'PDF_STORAGE_UPLOAD_FAILED',
+        message: details || `Impossible de televerser le contrat PDF (${response.status})`,
+      });
     }
   }
 

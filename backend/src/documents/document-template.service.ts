@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
-import { BadRequestException } from '@nestjs/common';
+import { NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import type { LeaseDocumentRenderContext, LeaseDocumentUsage } from './document.types';
 
 const TEMPLATE_CODE_BY_USAGE: Record<LeaseDocumentUsage, string> = {
@@ -25,18 +25,20 @@ export class DocumentTemplateService {
     path.resolve(__dirname, '..', '..', 'templates', 'leases'),
   ];
 
+  getTemplatePaths() {
+    return [...this.rootCandidates];
+  }
+
   renderLeaseTemplate(context: LeaseDocumentRenderContext) {
     const root = this.resolveTemplateRoot();
     const usage = context.lease.usage;
     const base = this.readTemplate(root, 'common/base.html');
     const css = this.readTemplate(root, 'common/common.css');
     const signature = this.readTemplate(root, 'common/signature.html');
-    const propertyDetails = this.render(
-      this.readTemplate(root, 'common/property-details.html'),
-      this.variables(context),
-    );
+    const values = this.variables(context);
+    const propertyDetails = this.render(this.readTemplate(root, 'common/property-details.html'), values);
     const body = this.render(this.readTemplate(root, TEMPLATE_FILE_BY_USAGE[usage]), {
-      ...this.variables(context),
+      ...values,
       propertyDetails,
       signature,
     });
@@ -45,6 +47,7 @@ export class DocumentTemplateService {
       css,
       body,
     });
+    this.assertRenderedHtml(html);
     const source = [
       'common/base.html',
       'common/common.css',
@@ -58,13 +61,17 @@ export class DocumentTemplateService {
       templateSource: TEMPLATE_FILE_BY_USAGE[usage],
       templateHash: createHash('sha256').update(source).digest('hex'),
       rendererVersion: 'PDF_V9',
+      templateRoot: root,
     };
   }
 
   private resolveTemplateRoot() {
     const root = this.rootCandidates.find((candidate) => fs.existsSync(candidate));
     if (!root) {
-      throw new BadRequestException(`Templates de contrat V9 introuvables: ${this.rootCandidates[0]}`);
+      throw new NotFoundException({
+        code: 'PDF_TEMPLATE_NOT_FOUND',
+        message: `Lease PDF templates not found. Checked: ${this.rootCandidates.join(', ')}`,
+      });
     }
     return root;
   }
@@ -72,7 +79,10 @@ export class DocumentTemplateService {
   private readTemplate(root: string, relativePath: string) {
     const fullPath = path.join(root, relativePath);
     if (!fs.existsSync(fullPath)) {
-      throw new BadRequestException(`Template de contrat V9 introuvable: ${relativePath}`);
+      throw new NotFoundException({
+        code: 'PDF_TEMPLATE_NOT_FOUND',
+        message: `Lease PDF template file not found: ${relativePath}`,
+      });
     }
     return fs.readFileSync(fullPath, 'utf8');
   }
@@ -87,6 +97,33 @@ export class DocumentTemplateService {
       .replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, key: string) => escapeHtml(values[key.trim()] ?? ''));
   }
 
+  private assertRenderedHtml(html: string) {
+    const trimmed = html.trim();
+    if (!trimmed) {
+      throw new UnprocessableEntityException({
+        code: 'PDF_TEMPLATE_INVALID',
+        message: 'Rendered lease PDF HTML is empty',
+      });
+    }
+    if (!/^<!doctype html>/i.test(trimmed)) {
+      throw new UnprocessableEntityException({
+        code: 'PDF_TEMPLATE_INVALID',
+        message: 'Rendered lease PDF HTML is missing <!DOCTYPE html>',
+      });
+    }
+    const unresolved = [];
+    if (trimmed.includes('{{')) unresolved.push('{{');
+    if (trimmed.includes('}}')) unresolved.push('}}');
+    if (trimmed.includes('undefined')) unresolved.push('undefined');
+    if (trimmed.includes('[object Object]')) unresolved.push('[object Object]');
+    if (unresolved.length) {
+      throw new UnprocessableEntityException({
+        code: 'PDF_TEMPLATE_INVALID',
+        message: `Rendered lease PDF HTML contains unresolved content: ${unresolved.join(', ')}`,
+      });
+    }
+  }
+
   private variables(context: LeaseDocumentRenderContext) {
     const rentLines = [
       context.lease.baseRent > 0 ? `<li>Loyer de base : ${money(context.lease.baseRent, context.lease.currency)}</li>` : '',
@@ -94,6 +131,7 @@ export class DocumentTemplateService {
       context.lease.syndicFee > 0 ? `<li>Frais de syndic : ${money(context.lease.syndicFee, context.lease.currency)}</li>` : '',
       context.lease.otherCharges > 0 ? `<li>Autres charges : ${money(context.lease.otherCharges, context.lease.currency)}</li>` : '',
     ].filter(Boolean).join('');
+
     return {
       title: context.contract.title,
       generatedAt: context.contract.generatedAt,
@@ -131,13 +169,13 @@ function landlordParagraph(context: LeaseDocumentRenderContext) {
   return [
     `${landlord.companyName}${landlord.acronym ? ` (${landlord.acronym})` : ''}`,
     landlord.legalForm,
-    landlord.rccm ? `immatriculée au Registre du Commerce et du Crédit Mobilier sous le numéro ${landlord.rccm}` : '',
-    landlord.nationalId ? `enregistrée à l'Identification Nationale sous le numéro ${landlord.nationalId}` : '',
-    landlord.address ? `dont le siège social est établi à ${landlord.address}` : '',
+    landlord.rccm ? `immatriculee au Registre du Commerce et du Credit Mobilier sous le numero ${landlord.rccm}` : '',
+    landlord.nationalId ? `enregistree a l'Identification Nationale sous le numero ${landlord.nationalId}` : '',
+    landlord.address ? `dont le siege social est etabli a ${landlord.address}` : '',
     landlord.representativeName
-      ? `représentée par ${[landlord.representativeCivility, landlord.representativeName].filter(Boolean).join(' ')}${landlord.representativeTitle ? `, agissant en qualité de ${landlord.representativeTitle}` : ''}`
+      ? `representee par ${[landlord.representativeCivility, landlord.representativeName].filter(Boolean).join(' ')}${landlord.representativeTitle ? `, agissant en qualite de ${landlord.representativeTitle}` : ''}`
       : '',
-    'ci-après dénommée « le Bailleur »',
+    'ci-apres denommee « le Bailleur »',
   ].filter(Boolean).join(', ') + ' ;';
 }
 
@@ -146,30 +184,31 @@ function tenantParagraph(context: LeaseDocumentRenderContext) {
   if (tenant.type === 'PERSONNE_MORALE') {
     return [
       `${tenant.displayName}${tenant.legalForm ? `, ${tenant.legalForm}` : ''}`,
-      tenant.rccm ? `immatriculée au Registre du Commerce et du Crédit Mobilier sous le numéro ${tenant.rccm}` : '',
-      tenant.nationalId ? `enregistrée à l'Identification Nationale sous le numéro ${tenant.nationalId}` : '',
-      tenant.address ? `dont le siège social est établi à ${tenant.address}` : '',
+      tenant.rccm ? `immatriculee au Registre du Commerce et du Credit Mobilier sous le numero ${tenant.rccm}` : '',
+      tenant.nationalId ? `enregistree a l'Identification Nationale sous le numero ${tenant.nationalId}` : '',
+      tenant.address ? `dont le siege social est etabli a ${tenant.address}` : '',
       tenant.representativeName
-        ? `représentée par ${[tenant.representativeCivility, tenant.representativeName].filter(Boolean).join(' ')}${tenant.representativeTitle ? `, agissant en qualité de ${tenant.representativeTitle}` : ''}`
+        ? `representee par ${[tenant.representativeCivility, tenant.representativeName].filter(Boolean).join(' ')}${tenant.representativeTitle ? `, agissant en qualite de ${tenant.representativeTitle}` : ''}`
         : '',
-      'ci-après dénommée « le Preneur »',
+      'ci-apres denommee « le Preneur »',
     ].filter(Boolean).join(', ') + ' ;';
   }
+
   return [
     [tenant.representativeCivility, tenant.displayName].filter(Boolean).join(' '),
-    tenant.identityType ? `titulaire de la pièce d'identité ${tenant.identityType}` : '',
-    tenant.identityNumber ? `numéro ${tenant.identityNumber}` : '',
-    tenant.address ? `domicilié(e) à ${tenant.address}` : '',
-    'ci-après dénommé(e) « le Preneur »',
+    tenant.identityType ? `titulaire de la piece d'identite ${tenant.identityType}` : '',
+    tenant.identityNumber ? `numero ${tenant.identityNumber}` : '',
+    tenant.address ? `domicilie(e) a ${tenant.address}` : '',
+    'ci-apres denomme(e) « le Preneur »',
   ].filter(Boolean).join(', ') + ' ;';
 }
 
 function destinationPhrase(context: LeaseDocumentRenderContext) {
   if (context.lease.usage === 'RESIDENTIAL') {
-    return `Les lieux loués sont destinés à un usage ${context.lease.usageLabel.toLowerCase()}.`;
+    return `Les lieux loues sont destines a un usage ${context.lease.usageLabel.toLowerCase()}.`;
   }
-  const activity = context.lease.activityDescription || "l'activité déclarée par le Preneur";
-  return `Les lieux loués sont exclusivement destinés à ${activity}. Toute modification substantielle de cette destination requiert l'accord écrit préalable du Bailleur.`;
+  const activity = context.lease.activityDescription || "l'activite declaree par le Preneur";
+  return `Les lieux loues sont exclusivement destines a ${activity}. Toute modification substantielle de cette destination requiert l'accord ecrit prealable du Bailleur.`;
 }
 
 function money(value: number, currency: string) {
