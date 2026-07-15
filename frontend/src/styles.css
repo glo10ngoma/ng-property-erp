@@ -426,6 +426,12 @@ textarea { min-height: 72px; resize: vertical; }
 .leases-filter-bar input, .leases-filter-bar select, .leases-filter-bar button { min-height: 32px; padding-top: 5px; padding-bottom: 5px; }
 .invoices-filter-bar { grid-template-columns: minmax(170px, 1.4fr) repeat(5, minmax(105px, .75fr)) minmax(245px, auto); gap: 6px; align-items: end; }
 .invoices-filter-bar input, .invoices-filter-bar select, .invoices-filter-bar button { min-height: 32px; padding-top: 5px; padding-bottom: 5px; }
+.invoice-toolbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; margin-bottom: 8px; }
+.invoice-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; flex: 1 1 860px; min-width: 0; }
+.invoice-filters > * { min-width: 0; }
+.invoice-filters input, .invoice-filters select, .invoice-actions button { min-height: 32px; padding-top: 5px; padding-bottom: 5px; }
+.invoice-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex: 0 0 auto; flex-wrap: wrap; min-width: 0; }
+.invoice-actions button { min-width: 0; padding-left: 10px; padding-right: 10px; white-space: nowrap; }
 .form-grid .search-select { position: relative; gap: 0; }
 .form-grid .search-select-list { position: absolute; z-index: 6; width: min(320px, 90vw); background: white; border: 1px solid #dce5eb; border-radius: 6px; box-shadow: 0 12px 32px rgba(31,41,51,.14); padding: 5px; margin-top: 36px; }
 .form-grid .search-select-option { min-height: 34px; padding: 5px 8px; }
@@ -614,6 +620,9 @@ textarea { min-height: 72px; resize: vertical; }
   .invoice-chart-row { grid-template-columns: 150px 1fr 90px; }
   .invoice-amount-cards, .invoice-accordion-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
   .buildings-filter-bar, .leases-filter-bar, .invoices-filter-bar { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+  .invoice-toolbar { align-items: stretch; }
+  .invoice-filters { flex-basis: 100%; grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+  .invoice-actions { width: 100%; justify-content: flex-start; }
   .building-form, .unit-form { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .tenant-form-section { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
   .maintenance-filter-bar { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
@@ -642,6 +651,9 @@ textarea { min-height: 72px; resize: vertical; }
   .lease-section-grid { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
   .buildings-filter-bar, .leases-filter-bar, .invoices-filter-bar { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
   .filter-actions { grid-column: span 2; justify-content: flex-start; }
+  .invoice-toolbar { align-items: stretch; }
+  .invoice-filters { flex-basis: 100%; grid-template-columns: repeat(4, minmax(130px, 1fr)); }
+  .invoice-actions { width: 100%; justify-content: flex-start; }
   .statement-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .statement-filters .filter-actions { grid-column: span 2; }
 }
@@ -657,6 +669,8 @@ textarea { min-height: 72px; resize: vertical; }
   .invoice-detail-actions { flex-wrap: wrap; }
   .invoice-chart-row strong { text-align: left; }
   .buildings-filter-bar, .leases-filter-bar, .invoices-filter-bar, .building-form, .unit-form { grid-template-columns: 1fr; }
+  .invoice-filters { grid-template-columns: 1fr; }
+  .invoice-actions { justify-content: flex-start; }
   .tenant-form-section, .tenant-form-section.cols-3, .tenant-form-section.cols-4, .tenant-form-section.cols-1 { grid-template-columns: 1fr; }
   .maintenance-filter-bar, .maintenance-grid { grid-template-columns: 1fr; }
   .maintenance-general-grid, .maintenance-triplet-grid, .maintenance-notes-grid, .maintenance-cost-grid { grid-template-columns: 1fr; }

@@ -168,18 +168,20 @@ export function Invoices() {
         <div className="mini-stat"><span>Restant du</span><strong>{money(kpis.remaining)}</strong></div>
       </div>
 
-      <div className="quick-form invoices-filter-bar">
-        <input placeholder="Recherche" value={query} onChange={(event) => setQuery(event.target.value)} />
-        <input type="number" min="1" max="12" placeholder="Mois" value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })} />
-        <input type="number" placeholder="Annee" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} />
-        <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}><option value="">Type</option><option value="RENT">Loyer</option><option value="MAINTENANCE">Maintenance</option><option value="OTHER">Autre</option></select>
-        <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Statut</option><option value="PAID">Payee</option><option value="PARTIAL">Paiement partiel</option><option value="UNPAID">Non payee</option><option value="OVERDUE">En retard</option></select>
-        <select value={filters.building} onChange={(event) => setFilters({ ...filters, building: event.target.value })}><option value="">Immeuble</option>{buildingOptions.map((building) => <option key={building} value={building}>{building}</option>)}</select>
-        <select value={filters.tenant} onChange={(event) => setFilters({ ...filters, tenant: event.target.value })}><option value="">Locataire</option>{tenantOptions.map((tenantName) => <option key={tenantName} value={tenantName}>{tenantName}</option>)}</select>
-        <select value={filters.automatic} onChange={(event) => setFilters({ ...filters, automatic: event.target.value })}><option value="">Automatique</option><option value="true">Oui</option><option value="false">Non</option></select>
-        <select value={filters.email} onChange={(event) => setFilters({ ...filters, email: event.target.value })}><option value="">Etat Email</option><option value="SENT">SENT</option><option value="SIMULATED">SIMULATED</option><option value="SKIPPED">SKIPPED</option><option value="FAILED">FAILED</option></select>
-        <select value={filters.whatsapp} onChange={(event) => setFilters({ ...filters, whatsapp: event.target.value })}><option value="">Etat WhatsApp</option><option value="SENT">SENT</option><option value="SIMULATED">SIMULATED</option><option value="SKIPPED">SKIPPED</option><option value="FAILED">FAILED</option></select>
-        <div className="filter-actions">
+      <div className="invoice-toolbar">
+        <div className="invoice-filters">
+          <input placeholder="Recherche" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <input type="number" min="1" max="12" placeholder="Mois" value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })} />
+          <input type="number" placeholder="Annee" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} />
+          <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}><option value="">Type</option><option value="RENT">Loyer</option><option value="MAINTENANCE">Maintenance</option><option value="OTHER">Autre</option></select>
+          <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Statut</option><option value="PAID">Payee</option><option value="PARTIAL">Paiement partiel</option><option value="UNPAID">Non payee</option><option value="OVERDUE">En retard</option></select>
+          <select value={filters.building} onChange={(event) => setFilters({ ...filters, building: event.target.value })}><option value="">Immeuble</option>{buildingOptions.map((building) => <option key={building} value={building}>{building}</option>)}</select>
+          <select value={filters.tenant} onChange={(event) => setFilters({ ...filters, tenant: event.target.value })}><option value="">Locataire</option>{tenantOptions.map((tenantName) => <option key={tenantName} value={tenantName}>{tenantName}</option>)}</select>
+          <select value={filters.automatic} onChange={(event) => setFilters({ ...filters, automatic: event.target.value })}><option value="">Automatique</option><option value="true">Oui</option><option value="false">Non</option></select>
+          <select value={filters.email} onChange={(event) => setFilters({ ...filters, email: event.target.value })}><option value="">Etat Email</option><option value="SENT">SENT</option><option value="SIMULATED">SIMULATED</option><option value="SKIPPED">SKIPPED</option><option value="FAILED">FAILED</option></select>
+          <select value={filters.whatsapp} onChange={(event) => setFilters({ ...filters, whatsapp: event.target.value })}><option value="">Etat WhatsApp</option><option value="SENT">SENT</option><option value="SIMULATED">SIMULATED</option><option value="SKIPPED">SKIPPED</option><option value="FAILED">FAILED</option></select>
+        </div>
+        <div className="invoice-actions">
           <button type="button" className="secondary" onClick={() => { setQuery(''); setFilters(emptyFilters); }}>Reinitialiser</button>
           <button type="button" className="secondary" onClick={() => exportCsv('factures.csv', exportRows)}><Download size={16} />CSV</button>
           <button type="button" className="secondary" onClick={() => exportInvoicesExcel(filtered)}><FileSpreadsheet size={16} />Excel</button>
