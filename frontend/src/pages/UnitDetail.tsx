@@ -22,6 +22,10 @@ type UnitDetailData = {
   tenant_phone?: string;
   tenant_email?: string;
   active_lease_end_date?: string;
+  current_lease_id?: number;
+  current_lease_status?: string;
+  current_lease_start_date?: string;
+  current_lease_end_date?: string;
   created_at?: string;
   updated_at?: string;
   surface_area?: number;
@@ -133,6 +137,10 @@ export function UnitDetail() {
             <SummaryItem label="Nom" value={unit.tenant_name} />
             <SummaryItem label="Telephone" value={unit.tenant_phone || '-'} />
             <SummaryItem label="Email" value={unit.tenant_email || '-'} />
+            <SummaryItem label="Bail" value={unit.current_lease_id ? `B-${String(unit.current_lease_id).padStart(6, '0')}` : '-'} />
+            <SummaryItem label="Statut du bail" value={unit.current_lease_status ? <StatusBadge value={unit.current_lease_status} /> : '-'} />
+            <SummaryItem label="Debut du bail" value={dateText(unit.current_lease_start_date)} />
+            <SummaryItem label="Fin du bail" value={dateText(unit.current_lease_end_date)} />
             <SummaryItem label="Situation" value={unit.situation || '-'} />
           </div>
         ) : <EmptyState title="Appartement non occupe." />}

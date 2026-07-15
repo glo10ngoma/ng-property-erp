@@ -11,14 +11,58 @@ export class UnitsService {
   async findAll() {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(`
-      SELECT u.*, b.name AS building_name, t.id AS tenant_id,
-             CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
-             t.phone AS tenant_phone,
-             l.end_date AS active_lease_end_date
+      SELECT u.*, b.name AS building_name,
+             current_lease.current_tenant_id AS tenant_id,
+             current_lease.current_tenant_name AS tenant_name,
+             current_lease.current_tenant_phone AS tenant_phone,
+             current_lease.current_lease_end_date AS active_lease_end_date,
+             current_lease.current_tenant_id,
+             current_lease.current_tenant_name,
+             current_lease.current_tenant_phone,
+             current_lease.current_lease_id,
+             current_lease.current_lease_status,
+             current_lease.current_lease_start_date,
+             current_lease.current_lease_end_date
       FROM units u
       JOIN buildings b ON b.id = u.building_id
-      LEFT JOIN tenants t ON t.unit_id = u.id AND t.status = 'ACTIVE' AND t.deleted_at IS NULL
-      LEFT JOIN leases l ON l.unit_id = u.id AND l.status = 'ACTIVE' AND l.deleted_at IS NULL
+      LEFT JOIN LATERAL (
+        SELECT l.id AS current_lease_id,
+               l.status AS current_lease_status,
+               l.start_date AS current_lease_start_date,
+               l.end_date AS current_lease_end_date,
+               t.id AS current_tenant_id,
+               CASE
+                 WHEN t.tenant_type = 'COMPANY' THEN COALESCE(NULLIF(TRIM(t.company_name), ''), 'Societe')
+                 ELSE COALESCE(
+                   NULLIF(CONCAT_WS(' ', NULLIF(TRIM(t.first_name), ''), NULLIF(TRIM(t.post_name), ''), NULLIF(TRIM(t.last_name), '')), ''),
+                   NULLIF(CONCAT_WS(' ', NULLIF(TRIM(t.first_name), ''), NULLIF(TRIM(t.last_name), '')), ''),
+                   'Locataire'
+                 )
+               END AS current_tenant_name,
+               CASE
+                 WHEN t.tenant_type = 'COMPANY' THEN COALESCE(NULLIF(TRIM(t.phone), ''), NULLIF(TRIM(t.legal_representative_phone), ''))
+                 ELSE COALESCE(NULLIF(TRIM(t.phone), ''), NULLIF(TRIM(t.secondary_phone), ''))
+               END AS current_tenant_phone
+        FROM leases l
+        JOIN tenants t ON t.id = l.tenant_id
+                     AND t.organization_id = u.organization_id
+                     AND t.deleted_at IS NULL
+        WHERE l.unit_id = u.id
+          AND l.organization_id = u.organization_id
+          AND l.deleted_at IS NULL
+          AND l.start_date <= CURRENT_DATE
+          AND (l.end_date IS NULL OR l.end_date >= CURRENT_DATE)
+          AND COALESCE(l.status, '') NOT IN ('DRAFT', 'CANCELLED')
+        ORDER BY CASE
+                   WHEN l.status = 'ACTIVE' THEN 0
+                   WHEN l.status IN ('SIGNED', 'VALIDATED', 'PENDING') THEN 1
+                   WHEN l.status = 'TERMINATED' THEN 2
+                   ELSE 3
+                 END,
+                 l.start_date DESC,
+                 l.id DESC
+        LIMIT 1
+      ) current_lease ON TRUE
       WHERE u.organization_id = $1 AND u.deleted_at IS NULL AND b.deleted_at IS NULL
       ORDER BY b.name, u.number
     `, [organizationId]);
@@ -29,13 +73,60 @@ export class UnitsService {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(
       `SELECT u.*, b.name AS building_name, b.address AS building_address,
-              t.id AS tenant_id, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
-              t.phone AS tenant_phone, t.email AS tenant_email,
-              l.end_date AS active_lease_end_date
+              current_lease.current_tenant_id AS tenant_id,
+              current_lease.current_tenant_name AS tenant_name,
+              current_lease.current_tenant_phone AS tenant_phone,
+              current_lease.current_tenant_email AS tenant_email,
+              current_lease.current_lease_end_date AS active_lease_end_date,
+              current_lease.current_tenant_id,
+              current_lease.current_tenant_name,
+              current_lease.current_tenant_phone,
+              current_lease.current_tenant_email,
+              current_lease.current_lease_id,
+              current_lease.current_lease_status,
+              current_lease.current_lease_start_date,
+              current_lease.current_lease_end_date
        FROM units u
        JOIN buildings b ON b.id = u.building_id
-       LEFT JOIN tenants t ON t.unit_id = u.id AND t.status = 'ACTIVE' AND t.deleted_at IS NULL
-       LEFT JOIN leases l ON l.unit_id = u.id AND l.status = 'ACTIVE' AND l.deleted_at IS NULL
+       LEFT JOIN LATERAL (
+         SELECT l.id AS current_lease_id,
+                l.status AS current_lease_status,
+                l.start_date AS current_lease_start_date,
+                l.end_date AS current_lease_end_date,
+                t.id AS current_tenant_id,
+                CASE
+                  WHEN t.tenant_type = 'COMPANY' THEN COALESCE(NULLIF(TRIM(t.company_name), ''), 'Societe')
+                  ELSE COALESCE(
+                    NULLIF(CONCAT_WS(' ', NULLIF(TRIM(t.first_name), ''), NULLIF(TRIM(t.post_name), ''), NULLIF(TRIM(t.last_name), '')), ''),
+                    NULLIF(CONCAT_WS(' ', NULLIF(TRIM(t.first_name), ''), NULLIF(TRIM(t.last_name), '')), ''),
+                    'Locataire'
+                  )
+                END AS current_tenant_name,
+                CASE
+                  WHEN t.tenant_type = 'COMPANY' THEN COALESCE(NULLIF(TRIM(t.phone), ''), NULLIF(TRIM(t.legal_representative_phone), ''))
+                  ELSE COALESCE(NULLIF(TRIM(t.phone), ''), NULLIF(TRIM(t.secondary_phone), ''))
+                END AS current_tenant_phone,
+                t.email AS current_tenant_email
+         FROM leases l
+         JOIN tenants t ON t.id = l.tenant_id
+                      AND t.organization_id = u.organization_id
+                      AND t.deleted_at IS NULL
+         WHERE l.unit_id = u.id
+           AND l.organization_id = u.organization_id
+           AND l.deleted_at IS NULL
+           AND l.start_date <= CURRENT_DATE
+           AND (l.end_date IS NULL OR l.end_date >= CURRENT_DATE)
+           AND COALESCE(l.status, '') NOT IN ('DRAFT', 'CANCELLED')
+         ORDER BY CASE
+                    WHEN l.status = 'ACTIVE' THEN 0
+                    WHEN l.status IN ('SIGNED', 'VALIDATED', 'PENDING') THEN 1
+                    WHEN l.status = 'TERMINATED' THEN 2
+                    ELSE 3
+                  END,
+                  l.start_date DESC,
+                  l.id DESC
+         LIMIT 1
+       ) current_lease ON TRUE
        WHERE u.id = $1 AND u.organization_id = $2 AND u.deleted_at IS NULL`,
       [id, organizationId],
     );
