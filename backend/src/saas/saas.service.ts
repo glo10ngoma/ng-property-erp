@@ -3768,6 +3768,7 @@ export class SaasService {
     let leaseId = id;
     let templateCode = 'LEASE_RESIDENTIAL';
     let currentStep = 'started';
+    let uploadedPdfForCleanup: { storagePath: string; fileName: string } | undefined;
 
     try {
       const lease = await this.leaseDetail(id) as Record<string, any>;
@@ -3864,8 +3865,7 @@ export class SaasService {
         );
         const contract = rows[0];
         const generatedAt = new Date(contract.generated_at ?? new Date().toISOString());
-        const generatedStamp = generatedAt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-        const pdfFileName = `Contrat_bail_${this.leaseReferenceCode(lease.id)}_contract-${contract.id}-v9-${generatedStamp}.pdf`;
+        const pdfFileName = this.buildLeasePdfFileName(lease.id, contract.id, 9);
         currentStep = 'storage_upload_started';
         this.logLeasePdfV9('storage_upload_started', {
           leaseId,
@@ -3875,6 +3875,7 @@ export class SaasService {
           fileName: pdfFileName,
         });
         const storedPdf = await this.persistLeaseContractPdf(id, contract.id, 9, generatedAt, pdfFileName, pdfBuffer);
+        uploadedPdfForCleanup = { storagePath: storedPdf.storagePath, fileName: storedPdf.fileName };
         currentStep = 'storage_uploaded';
         this.logLeasePdfV9('storage_uploaded', {
           leaseId,
@@ -3883,6 +3884,19 @@ export class SaasService {
           fileName: storedPdf.fileName,
           storagePath: storedPdf.storagePath,
           mimeType: storedPdf.mimeType,
+        });
+        this.logLeasePdfV9('db_value_lengths', {
+          leaseId,
+          organizationId,
+          templateCode,
+          values: [
+            { columnName: 'pdf_file_name', valueLength: storedPdf.fileName.length, maxLengthExpected: 220 },
+            { columnName: 'pdf_file_url', valueLength: storedPdf.fileUrl.length, maxLengthExpected: null },
+            { columnName: 'status', valueLength: 'GENERATED'.length, maxLengthExpected: 30 },
+            { columnName: 'template_code', valueLength: rendered.templateCode.length, maxLengthExpected: 80 },
+            { columnName: 'template_hash', valueLength: rendered.templateHash.length, maxLengthExpected: 64 },
+            { columnName: 'pdf_hash', valueLength: pdfHash.length, maxLengthExpected: 64 },
+          ],
         });
 
         const { rows: updatedRows } = await client.query(
@@ -3899,7 +3913,7 @@ export class SaasService {
             storedPdf.fileName,
             storedPdf.fileUrl,
             rendered.templateCode,
-            `${LEASE_DOCUMENT_RENDERER_VERSION}:${rendered.templateHash}:${pdfHash}`,
+            rendered.templateHash,
             organizationId,
           ],
         );
@@ -3925,6 +3939,7 @@ export class SaasService {
           templateCode,
           contractId: contract.id,
         });
+        uploadedPdfForCleanup = undefined;
         currentStep = 'response_sent';
         this.logLeasePdfV9('response_sent', {
           leaseId,
@@ -3947,6 +3962,20 @@ export class SaasService {
       }
       if (error?.response) {
         this.logger.error(`[LEASE_PDF_V9] response=${JSON.stringify(error.response)}`);
+      }
+      if (uploadedPdfForCleanup) {
+        await this.deleteUploadedLeaseContractStorage(uploadedPdfForCleanup.storagePath)
+          .then(() => this.logLeasePdfV9('storage_orphan_cleaned', {
+            leaseId,
+            organizationId,
+            templateCode,
+            fileName: uploadedPdfForCleanup?.fileName,
+            storagePath: uploadedPdfForCleanup?.storagePath,
+          }))
+          .catch((cleanupError) => this.logger.error(
+            `[LEASE_PDF_V9] storage_orphan_cleanup_failed leaseId=${leaseId} organizationId=${organizationId} storagePath=${uploadedPdfForCleanup?.storagePath} message=${cleanupError?.message ?? cleanupError}`,
+            cleanupError?.stack,
+          ));
       }
       throw this.mapLeasePdfV9Error(error);
     }
@@ -7072,6 +7101,12 @@ export class SaasService {
     return `B-${String(id).padStart(6, '0')}`;
   }
 
+  private buildLeasePdfFileName(leaseId: number, contractId: number, templateVersion: number) {
+    const leaseReference = this.leaseReferenceCode(leaseId);
+    const fileName = `${leaseReference}-C${contractId}-V${templateVersion}.pdf`;
+    return fileName.length <= 50 ? fileName : `lease-${leaseId}-C${contractId}-V${templateVersion}.pdf`;
+  }
+
   private async createDefaultCompanySettings() {
     const { rows } = await this.db.query(
       `INSERT INTO company_settings (
@@ -7281,6 +7316,25 @@ export class SaasService {
       throw new BadRequestException({
         code: 'PDF_STORAGE_UPLOAD_FAILED',
         message: details || `Impossible de televerser le contrat PDF (${response.status})`,
+      });
+    }
+  }
+
+  private async deleteUploadedLeaseContractStorage(storagePath: string) {
+    if (!this.hasStorageConfig()) return;
+    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.leaseContractStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+      },
+    });
+    if (!response.ok && response.status !== 404) {
+      const details = await response.text();
+      throw new BadRequestException({
+        code: 'PDF_STORAGE_ORPHAN_CLEANUP_FAILED',
+        message: details || `Impossible de supprimer le contrat PDF orphelin (${response.status})`,
       });
     }
   }
