@@ -1,6 +1,6 @@
 import { ArrowLeft, Download, FileSpreadsheet, Printer, Receipt, RefreshCcw, ScrollText, ShieldCheck, Upload } from 'lucide-react';
 import type React from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, money, shortDate, statusLabel } from '../api';
 import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage } from '../components';
@@ -52,6 +52,9 @@ export function LeaseDetail() {
   const [autoPreviewHandled, setAutoPreviewHandled] = useState(false);
   const [signedFileName, setSignedFileName] = useState('');
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
+  const [pdfPreviewBlob, setPdfPreviewBlob] = useState<Blob | null>(null);
+  const [pdfPreviewFileName, setPdfPreviewFileName] = useState('');
+  const pdfPreviewUrlRef = useRef('');
 
   const previewRequested = useMemo(() => new URLSearchParams(location.search).get('previewContract') === '1', [location.search]);
   const activeTemplateVersion = Number(lease?.active_contract_template_version ?? 0);
@@ -81,29 +84,46 @@ export function LeaseDetail() {
 
   useEffect(() => {
     if (!previewOpen || !lease?.latest_contract?.id || !hasGeneratedPdf) {
-      if (pdfPreviewUrl) {
-        window.URL.revokeObjectURL(pdfPreviewUrl);
-        setPdfPreviewUrl('');
-      }
+      clearPdfPreview();
       return;
     }
     let cancelled = false;
-    const previousUrl = pdfPreviewUrl;
-    api.get(`/leases/${lease.id}/contracts/${lease.latest_contract.id}/download`, { responseType: 'blob' })
-      .then((response) => {
+    setError('');
+    setPdfPreviewUrl('');
+    setPdfPreviewBlob(null);
+    api.get(`/leases/${lease.id}/contracts/${lease.latest_contract.id}/download?disposition=inline`, { responseType: 'blob' })
+      .then(async (response) => {
         if (cancelled) return;
-        const nextUrl = window.URL.createObjectURL(response.data);
+        const blob = await pdfBlobFromResponse(response);
+        if (cancelled) return;
+        const nextUrl = window.URL.createObjectURL(blob);
+        if (pdfPreviewUrlRef.current) window.URL.revokeObjectURL(pdfPreviewUrlRef.current);
+        pdfPreviewUrlRef.current = nextUrl;
+        setPdfPreviewBlob(blob);
+        setPdfPreviewFileName(lease.latest_contract?.pdf_file_name || `Contrat_bail_${leaseReference(lease)}.pdf`);
         setPdfPreviewUrl(nextUrl);
-        if (previousUrl) window.URL.revokeObjectURL(previousUrl);
       })
       .catch((err: any) => {
         const responseMessage = err?.response?.data?.message;
-        setError(Array.isArray(responseMessage) ? responseMessage.join(' | ') : responseMessage || 'Impossible de charger le PDF.');
+        setError(Array.isArray(responseMessage) ? responseMessage.join(' | ') : responseMessage || err?.message || 'Impossible de charger le PDF du contrat.');
       });
     return () => {
       cancelled = true;
     };
-  }, [previewOpen, lease?.latest_contract?.id, hasGeneratedPdf]);
+  }, [previewOpen, lease?.id, lease?.latest_contract?.id, lease?.latest_contract?.pdf_file_name, hasGeneratedPdf]);
+
+  useEffect(() => () => clearPdfPreview(false), []);
+
+  function clearPdfPreview(updateState = true) {
+    if (pdfPreviewUrlRef.current) {
+      window.URL.revokeObjectURL(pdfPreviewUrlRef.current);
+      pdfPreviewUrlRef.current = '';
+    }
+    if (!updateState) return;
+    setPdfPreviewUrl('');
+    setPdfPreviewBlob(null);
+    setPdfPreviewFileName('');
+  }
 
   async function loadLatestDocx() {
     if (!id) return null;
@@ -208,9 +228,16 @@ export function LeaseDetail() {
   async function downloadGeneratedPdf() {
     if (!lease?.latest_contract?.id) return;
     await api.post(`/leases/${lease.id}/contracts/${lease.latest_contract.id}/printed`);
+    const fileName = lease.latest_contract.pdf_file_name || pdfPreviewFileName || `Contrat_bail_${leaseReference(lease)}.pdf`;
+    if (pdfPreviewBlob && pdfPreviewUrl) {
+      downloadFile(pdfPreviewUrl, fileName);
+      await load();
+      return;
+    }
     const response = await api.get(`/leases/${lease.id}/contracts/${lease.latest_contract.id}/download`, { responseType: 'blob' });
-    const objectUrl = window.URL.createObjectURL(response.data);
-    downloadFile(objectUrl, lease.latest_contract.pdf_file_name || `Contrat_bail_${leaseReference(lease)}.pdf`);
+    const blob = await pdfBlobFromResponse(response);
+    const objectUrl = window.URL.createObjectURL(blob);
+    downloadFile(objectUrl, fileName);
     window.URL.revokeObjectURL(objectUrl);
     await load();
   }
@@ -241,9 +268,15 @@ export function LeaseDetail() {
     if (!lease) return;
     if (contract?.pdf_file_name) {
       await markPrinted();
-      const response = await api.get(`/leases/${lease.id}/contracts/${contract.id}/download`, { responseType: 'blob' });
-      const objectUrl = window.URL.createObjectURL(response.data);
+      if (pdfPreviewUrl) {
+        window.open(pdfPreviewUrl, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      const response = await api.get(`/leases/${lease.id}/contracts/${contract.id}/download?disposition=inline`, { responseType: 'blob' });
+      const blob = await pdfBlobFromResponse(response);
+      const objectUrl = window.URL.createObjectURL(blob);
       window.open(objectUrl, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60000);
       return;
     }
     if (!contract?.generated_html) return;
@@ -578,6 +611,26 @@ function downloadFile(url: string, fileName: string) {
   document.body.appendChild(link);
   link.click();
   link.remove();
+}
+
+async function pdfBlobFromResponse(response: any) {
+  const contentType = String(response.headers?.['content-type'] ?? '').toLowerCase();
+  const sourceBlob = response.data instanceof Blob
+    ? response.data
+    : new Blob([response.data], { type: contentType || 'application/pdf' });
+  if (!sourceBlob.size) {
+    throw new Error('Impossible de charger le PDF du contrat: fichier vide.');
+  }
+  if (contentType && !contentType.includes('application/pdf')) {
+    throw new Error(`Impossible de charger le PDF du contrat: reponse ${contentType}.`);
+  }
+  const header = await sourceBlob.slice(0, 4).text();
+  if (header !== '%PDF') {
+    throw new Error('Impossible de charger le PDF du contrat: contenu invalide.');
+  }
+  return sourceBlob.type.includes('application/pdf')
+    ? sourceBlob
+    : new Blob([sourceBlob], { type: 'application/pdf' });
 }
 
 function exportLeaseDetail(lease: LeaseDetailData, totalMonthly: number) {

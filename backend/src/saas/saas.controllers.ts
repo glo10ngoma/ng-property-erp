@@ -878,13 +878,16 @@ export class LeasesController {
   async downloadGeneratedContract(
     @Param('id', ParseIntPipe) id: number,
     @Param('contractId', ParseIntPipe) contractId: number,
+    @Query('disposition') disposition: string | undefined,
     @Res({ passthrough: true }) response: any,
   ) {
     const file = await this.service.downloadLeaseContractDocx(id, contractId);
     const downloadName = String(file.downloadName ?? 'contrat.docx').replace(/"/g, '');
+    const mode = disposition === 'inline' ? 'inline' : 'attachment';
     response.setHeader('Content-Type', file.mimeType);
-    response.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
-    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('Content-Disposition', `${mode}; filename="${downloadName}"`);
+    response.setHeader('Content-Length', String(file.buffer.byteLength));
+    response.setHeader('Cache-Control', 'private, no-store');
     return file.buffer;
   }
 
