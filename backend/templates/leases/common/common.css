@@ -99,25 +99,41 @@ li {
   page-break-inside: avoid;
 }
 
+.lease-final-section {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.lease-last-article {
+  break-before: page;
+  page-break-before: always;
+}
+
 .lease-signature-table {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
+  margin-top: 10pt;
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
-.lease-signature-title-table {
-  margin-bottom: 6pt;
-}
-
-.lease-signature-title-table th {
+.lease-signature-table th,
+.lease-signature-table td {
+  width: 50%;
   border: 1px solid #333;
+}
+
+.lease-signature-table th {
+  height: 12mm;
   padding: 7pt 6pt;
   text-align: center;
+  vertical-align: middle;
   font-size: 11pt;
   font-weight: 700;
 }
 
-.lease-signature-body-table td {
-  height: 34pt;
-  border: 1px solid #333;
+.lease-signature-table .lease-signature-space td {
+  height: 55mm;
+  vertical-align: top;
 }
