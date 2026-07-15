@@ -4118,8 +4118,17 @@ export class SaasService {
         return this.dataUrlFile(pdfFileUrl, pdfFileName);
       }
       const generatedAt = new Date(contract.generated_at ?? new Date().toISOString());
-      const storagePath = this.leaseContractStoragePath(leaseId, contractId, Number(contract.template_version ?? 9), generatedAt, pdfFileName);
-      return this.downloadLeaseContractStorage(storagePath, pdfFileName, LEASE_PDF_MIME_TYPE);
+      const templateVersion = Number(contract.template_version ?? 9);
+      const storagePath = this.leaseContractStoragePath(leaseId, contractId, templateVersion, generatedAt, pdfFileName);
+      try {
+        return await this.downloadLeaseContractStorage(storagePath, pdfFileName, LEASE_PDF_MIME_TYPE);
+      } catch (error: any) {
+        const fallbackStoragePath = await this.findLeaseContractStoragePathByPrefix(leaseId, contractId, templateVersion, pdfFileName);
+        if (!fallbackStoragePath) {
+          throw error;
+        }
+        return this.downloadLeaseContractStorage(fallbackStoragePath, pdfFileName, LEASE_PDF_MIME_TYPE);
+      }
     }
     const fileName = String(contract.docx_file_name ?? '').trim();
     const fileUrl = String(contract.docx_file_url ?? '').trim();
@@ -7281,6 +7290,50 @@ export class SaasService {
 
   private legacyLeaseContractStoragePath(leaseId: number, contractId: number, fileName: string) {
     return `leases/${this.context.organizationId()}/contracts/${leaseId}/${contractId}/${this.sanitizeStorageFileName(fileName)}`;
+  }
+
+  private async findLeaseContractStoragePathByPrefix(
+    leaseId: number,
+    contractId: number,
+    templateVersion: number,
+    fileName: string,
+  ) {
+    if (!this.hasStorageConfig()) return null;
+    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
+    const folder = `contracts/${this.context.organizationId()}/leases/${leaseId}`;
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/list/${this.leaseContractStorageBucket}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        prefix: folder,
+        limit: 100,
+        offset: 0,
+        sortBy: { column: 'name', order: 'desc' },
+      }),
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const objects = (await response.json()) as Array<{ name?: string; updated_at?: string; created_at?: string }> | null;
+    const prefix = `contract-${contractId}-v${templateVersion}-`;
+    const sanitizedFileName = this.sanitizeStorageFileName(fileName);
+    const candidates = (objects ?? [])
+      .filter((entry) => {
+        const name = String(entry?.name ?? '');
+        return name.startsWith(prefix) && name.toLowerCase().endsWith('.pdf');
+      })
+      .sort((left, right) => {
+        const leftDate = new Date(String(left.updated_at ?? left.created_at ?? '')).getTime();
+        const rightDate = new Date(String(right.updated_at ?? right.created_at ?? '')).getTime();
+        return rightDate - leftDate;
+      });
+    const exactMatch = candidates.find((entry) => String(entry.name).endsWith(`-${sanitizedFileName}`));
+    const selected = exactMatch ?? candidates[0];
+    return selected ? `${folder}/${String(selected.name)}` : null;
   }
 
   private async uploadLeaseContractDocxToStorage(storagePath: string, buffer: Buffer) {

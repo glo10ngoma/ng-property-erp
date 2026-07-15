@@ -879,7 +879,7 @@ export class LeasesController {
     @Param('id', ParseIntPipe) id: number,
     @Param('contractId', ParseIntPipe) contractId: number,
     @Query('disposition') disposition: string | undefined,
-    @Res({ passthrough: true }) response: any,
+    @Res() response: any,
   ) {
     const file = await this.service.downloadLeaseContractDocx(id, contractId);
     const downloadName = String(file.downloadName ?? 'contrat.docx').replace(/"/g, '');
@@ -888,7 +888,8 @@ export class LeasesController {
     response.setHeader('Content-Disposition', `${mode}; filename="${downloadName}"`);
     response.setHeader('Content-Length', String(file.buffer.byteLength));
     response.setHeader('Cache-Control', 'private, no-store');
-    return file.buffer;
+    response.status(200);
+    response.end(file.buffer);
   }
 
   @Post(':id/contracts/:contractId/printed')
