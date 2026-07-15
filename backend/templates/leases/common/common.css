@@ -1,0 +1,123 @@
+@page {
+  size: A4 portrait;
+  margin: 18mm 18mm 18mm 18mm;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: #000;
+  background: #fff;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 11pt;
+  line-height: 1.15;
+}
+
+.contract-document {
+  width: 100%;
+}
+
+.contract-title {
+  margin: 0 0 14pt;
+  text-align: center;
+  text-decoration: underline;
+  font-size: 15pt;
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+.contract-section-title {
+  margin: 10pt 0 6pt;
+  text-align: left;
+  font-size: 11pt;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+p {
+  margin: 0 0 6pt 0;
+  text-align: justify;
+  orphans: 2;
+  widows: 2;
+}
+
+.contract-intro p,
+.contract-article p {
+  text-indent: 0;
+}
+
+.article-title {
+  margin: 10pt 0 5pt;
+  font-size: 11pt;
+  font-weight: 700;
+  text-decoration: underline;
+  text-align: left;
+  break-after: avoid;
+  page-break-after: avoid;
+}
+
+.contract-table {
+  width: 82%;
+  margin: 6pt 0 10pt 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.contract-table th,
+.contract-table td {
+  border: 1px solid #333;
+  padding: 4pt 6pt;
+  font-size: 10.5pt;
+  line-height: 1.15;
+  vertical-align: top;
+}
+
+.contract-table th {
+  width: 42%;
+  text-align: left;
+  font-weight: 700;
+}
+
+ul {
+  margin: 0 0 6pt 18pt;
+  padding: 0;
+}
+
+li {
+  margin: 0 0 3pt 0;
+  text-align: justify;
+}
+
+.lease-signatures {
+  margin-top: 12pt;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.lease-signature-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.lease-signature-title-table {
+  margin-bottom: 6pt;
+}
+
+.lease-signature-title-table th {
+  border: 1px solid #333;
+  padding: 7pt 6pt;
+  text-align: center;
+  font-size: 11pt;
+  font-weight: 700;
+}
+
+.lease-signature-body-table td {
+  height: 34pt;
+  border: 1px solid #333;
+}

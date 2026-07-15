@@ -12,6 +12,10 @@ import {
   renderLeaseContractTemplate,
   unresolvedPlaceholders,
 } from '../leases/lease-contracts';
+import { DocumentRendererService } from '../documents/document-renderer.service';
+import { DocumentTemplateService } from '../documents/document-template.service';
+import { PdfRendererService } from '../documents/pdf-renderer.service';
+import { LEASE_DOCUMENT_RENDERER_VERSION, LEASE_PDF_MIME_TYPE } from '../documents/document-storage.service';
 import { isPlatformRole, normalizeRole } from './permissions';
 
 @Injectable()
@@ -20,6 +24,9 @@ export class SaasService {
   private readonly leaseContractStorageBucket = 'contracts';
   private readonly allowedCompanyFileKinds = new Set(['logo', 'signature', 'stamp']);
   private readonly allowedCompanyFileMimeTypes = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml']);
+  private readonly documentRenderer = new DocumentRendererService();
+  private readonly documentTemplate = new DocumentTemplateService();
+  private readonly pdfRenderer = new PdfRendererService();
 
   constructor(private readonly db: DatabaseService, private readonly context: RequestContext) {}
 
@@ -3386,7 +3393,7 @@ export class SaasService {
       documents: await this.leaseDocuments(id),
       history: await this.unitOccupationHistory(lease.rows[0]?.unit_id ?? 0),
       latest_contract: await this.latestLeaseContract(id),
-      active_contract_template_version: activeContractTemplateVersion,
+      active_contract_template_version: this.leasePdfV9Enabled() ? 9 : activeContractTemplateVersion,
     };
   }
 
@@ -3748,6 +3755,115 @@ export class SaasService {
   }
 
   async generateLeaseContract(id: number) {
+    if (!this.leasePdfV9Enabled()) {
+      return this.generateLeaseContractDocx(id);
+    }
+    return this.generateLeaseContractPdfV9(id);
+  }
+
+  private async generateLeaseContractPdfV9(id: number) {
+    const lease = await this.leaseDetail(id) as Record<string, any>;
+    const company = await this.companySettings();
+    const companyData = company as Record<string, any>;
+    const landlordName = String(companyData.company_legal_name_resolved ?? companyData.company_legal_name ?? companyData.legal_name ?? companyData.company_name ?? '').trim();
+    const tenantName = String(lease.tenant_name ?? '').trim();
+    const unitNumber = String(lease.unit_number ?? '').trim();
+    const buildingName = String(lease.building_name ?? '').trim();
+    const startDate = String(lease.start_date ?? '').trim();
+    const monthlyRent = Number(lease.monthly_rent ?? 0);
+    if (!landlordName || !tenantName || !unitNumber || !buildingName || !startDate || !Number.isFinite(monthlyRent) || monthlyRent <= 0) {
+      throw new BadRequestException('Informations insuffisantes pour generer le contrat PDF');
+    }
+    const usage = this.normalizeLeaseUsageCode(lease.lease_usage ?? companyData.default_lease_usage ?? lease.usage_type);
+    if ((usage === 'COMMERCIAL' || usage === 'PROFESSIONAL' || usage === 'MIXED') && !String(lease.lease_activity_description ?? '').trim()) {
+      throw new BadRequestException("Activite ou destination des lieux requise pour generer ce contrat.");
+    }
+    const snapshot = this.buildLeaseContractSnapshot(lease, company);
+    const renderContext = this.documentRenderer.buildLeaseRenderContext(snapshot);
+    const rendered = this.documentTemplate.renderLeaseTemplate(renderContext);
+    const pdfBuffer = await this.pdfRenderer.renderA4Pdf(rendered.html);
+    const pdfHash = getDocxBufferSha256(pdfBuffer);
+
+    return this.db.transaction(async (client) => {
+      const template = await this.activeLeaseContractTemplate(client, rendered.templateCode);
+      const { rows } = await client.query(
+        `INSERT INTO lease_contract_generations
+         (organization_id, lease_id, template_id, template_version, generated_content, generated_html, snapshot_json,
+          docx_file_name, docx_file_url, pdf_file_name, pdf_file_url, generated_by, status, template_code, template_hash)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::JSONB, NULL, NULL, NULL, NULL, $8, 'GENERATED', $9, $10)
+         RETURNING *`,
+        [
+          this.context.organizationId(),
+          id,
+          template.id,
+          9,
+          rendered.html,
+          rendered.html,
+          JSON.stringify({ ...snapshot, renderer: { version: rendered.rendererVersion, templateSource: rendered.templateSource } }),
+          this.context.userId() ?? 1,
+          rendered.templateCode,
+          rendered.templateHash,
+        ],
+      );
+      const contract = rows[0];
+      const generatedAt = new Date(contract.generated_at ?? new Date().toISOString());
+      const generatedStamp = generatedAt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+      const pdfFileName = `Contrat_bail_${this.leaseReferenceCode(lease.id)}_contract-${contract.id}-v9-${generatedStamp}.pdf`;
+      const storedPdf = await this.persistLeaseContractPdf(id, contract.id, 9, generatedAt, pdfFileName, pdfBuffer);
+      const { rows: updatedRows } = await client.query(
+        `UPDATE lease_contract_generations
+         SET pdf_file_name = $3,
+             pdf_file_url = $4,
+             template_code = $5,
+             template_hash = $6
+         WHERE id = $1 AND lease_id = $2 AND organization_id = $7
+         RETURNING *`,
+        [
+          contract.id,
+          id,
+          storedPdf.fileName,
+          storedPdf.fileUrl,
+          rendered.templateCode,
+          `${LEASE_DOCUMENT_RENDERER_VERSION}:${rendered.templateHash}:${pdfHash}`,
+          this.context.organizationId(),
+        ],
+      );
+      await client.query(
+        `UPDATE leases
+         SET generated_contract_file_name = $2,
+             generated_contract_url = $3,
+             contract_generated_at = NOW(),
+             contract_template_code = $4,
+             updated_at = NOW()
+         WHERE id = $1 AND organization_id = $5`,
+        [id, storedPdf.fileName, storedPdf.fileUrl, rendered.templateCode, this.context.organizationId()],
+      );
+      await client.query(
+        `INSERT INTO lease_documents (lease_id, document_type, file_name, file_url, uploaded_by, organization_id)
+         VALUES ($1, 'GENERATED_CONTRACT_PDF', $2, $3, $4, $5)`,
+        [id, storedPdf.fileName, storedPdf.fileUrl, this.context.userId() ?? 1, this.context.organizationId()],
+      );
+      console.info(
+        '[lease-pdf-v9]',
+        JSON.stringify({
+          leaseId: id,
+          contractId: contract.id,
+          templateCode: rendered.templateCode,
+          templateVersion: 9,
+          templateSource: rendered.templateSource,
+          templateHash: rendered.templateHash,
+          pdfHash,
+          storagePath: storedPdf.storagePath,
+          fileName: storedPdf.fileName,
+          mimeType: storedPdf.mimeType,
+          size: pdfBuffer.byteLength,
+        }),
+      );
+      return updatedRows[0];
+    });
+  }
+
+  async generateLeaseContractDocx(id: number) {
     return this.db.transaction(async (client) => {
       const templateRuntime = getLeaseContractTemplateMetadata();
       const lease = await this.leaseDetail(id) as Record<string, any>;
@@ -3870,17 +3986,28 @@ export class SaasService {
 
   async downloadLeaseContractDocx(leaseId: number, contractId: number) {
     const { rows } = await this.db.query(
-      `SELECT id, lease_id, docx_file_name, docx_file_url, docx_storage_path, docx_mime_type, docx_file_hash
+      `SELECT id, lease_id, template_version, generated_at, docx_file_name, docx_file_url, docx_storage_path,
+              docx_mime_type, docx_file_hash, pdf_file_name, pdf_file_url
        FROM lease_contract_generations
        WHERE id = $1 AND lease_id = $2 AND organization_id = $3 AND deleted_at IS NULL`,
       [contractId, leaseId, this.context.organizationId()],
     );
     const contract = requireRow(rows[0], 'Lease contract generation');
+    const pdfFileName = String(contract.pdf_file_name ?? '').trim();
+    const pdfFileUrl = String(contract.pdf_file_url ?? '').trim();
+    if (pdfFileName && pdfFileUrl) {
+      if (pdfFileUrl.startsWith('data:')) {
+        return this.dataUrlFile(pdfFileUrl, pdfFileName);
+      }
+      const generatedAt = new Date(contract.generated_at ?? new Date().toISOString());
+      const storagePath = this.leaseContractStoragePath(leaseId, contractId, Number(contract.template_version ?? 9), generatedAt, pdfFileName);
+      return this.downloadLeaseContractStorage(storagePath, pdfFileName, LEASE_PDF_MIME_TYPE);
+    }
     const fileName = String(contract.docx_file_name ?? '').trim();
     const fileUrl = String(contract.docx_file_url ?? '').trim();
     const storagePath = String(contract.docx_storage_path ?? '').trim();
     if (!fileName || !fileUrl) {
-      throw new BadRequestException('Aucun contrat Word genere pour ce bail');
+      throw new BadRequestException('Aucun contrat genere pour ce bail');
     }
     if (fileUrl.startsWith('data:')) {
       return this.dataUrlFile(fileUrl, fileName);
@@ -6513,6 +6640,10 @@ export class SaasService {
     }
   }
 
+  private leasePdfV9Enabled() {
+    return String(process.env.LEASE_PDF_V9_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
+  }
+
   private buildLeaseContractSnapshot(lease: Record<string, any>, company: Record<string, any>) {
     const totalMonthly = Number(lease.lease_total_amount ?? 0);
     const guaranteeMonths = Number(lease.guarantee_months ?? company.default_guarantee_months ?? 0);
@@ -7029,7 +7160,24 @@ export class SaasService {
     }
   }
 
-  private async downloadLeaseContractStorage(storagePath: string, fileName: string) {
+  private async uploadLeaseContractPdfToStorage(storagePath: string, buffer: Buffer) {
+    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.leaseContractStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+        'content-type': LEASE_PDF_MIME_TYPE,
+      },
+      body: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer,
+    });
+    if (!response.ok) {
+      const details = await response.text();
+      throw new BadRequestException(details || `Impossible de televerser le contrat PDF (${response.status})`);
+    }
+  }
+
+  private async downloadLeaseContractStorage(storagePath: string, fileName: string, fallbackMimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
     const { supabaseUrl, serviceRoleKey } = this.storageConfig();
     const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.leaseContractStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
       headers: {
@@ -7043,7 +7191,7 @@ export class SaasService {
     const buffer = Buffer.from(await response.arrayBuffer());
     return {
       buffer,
-      mimeType: response.headers.get('content-type') ?? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      mimeType: response.headers.get('content-type') ?? fallbackMimeType,
       downloadName: fileName,
     };
   }
@@ -7070,6 +7218,32 @@ export class SaasService {
       fileName,
       storagePath,
       mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      fileUrl: this.leaseContractDownloadRoute(leaseId, contractId),
+    };
+  }
+
+  private async persistLeaseContractPdf(
+    leaseId: number,
+    contractId: number,
+    templateVersion: number,
+    generatedAt: Date,
+    fileName: string,
+    buffer: Buffer,
+  ) {
+    const storagePath = this.leaseContractStoragePath(leaseId, contractId, templateVersion, generatedAt, fileName);
+    if (!this.hasStorageConfig()) {
+      return {
+        fileName,
+        storagePath,
+        mimeType: LEASE_PDF_MIME_TYPE,
+        fileUrl: `data:${LEASE_PDF_MIME_TYPE};base64,${buffer.toString('base64')}`,
+      };
+    }
+    await this.uploadLeaseContractPdfToStorage(storagePath, buffer);
+    return {
+      fileName,
+      storagePath,
+      mimeType: LEASE_PDF_MIME_TYPE,
       fileUrl: this.leaseContractDownloadRoute(leaseId, contractId),
     };
   }

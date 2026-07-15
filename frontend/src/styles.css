@@ -435,6 +435,7 @@ textarea { min-height: 72px; resize: vertical; }
 .lease-contract-modal { width: min(1160px, calc(100vw - 48px)); max-height: calc(100vh - 48px); }
 .lease-contract-preview-wrap { display: grid; gap: 10px; }
 .lease-contract-preview-html { border: 1px solid #dce5eb; border-radius: 8px; background: #fff; padding: 18px 22px; max-height: 60vh; overflow: auto; }
+.lease-contract-pdf-frame { width: 100%; min-height: 76vh; border: 1px solid #dce5eb; border-radius: 8px; background: #fff; }
 .lease-contract-preview-html .contract-document { max-width: 820px; margin: 0 auto; font-family: "Times New Roman", Times, serif; color: #111827; }
 .lease-contract-preview-html .contract-header { margin-bottom: 12px; }
 .lease-contract-preview-html .contract-header .contract-logo { display: flex; justify-content: center; margin: 0 0 10px; }

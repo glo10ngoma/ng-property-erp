@@ -871,7 +871,7 @@ export class LeasesController {
 
   @Post(':id/contracts/generate-docx')
   generateContractDocx(@Param('id', ParseIntPipe) id: number) {
-    return this.service.generateLeaseContract(id);
+    return this.service.generateLeaseContractDocx(id);
   }
 
   @Get(':id/contracts/:contractId/download')

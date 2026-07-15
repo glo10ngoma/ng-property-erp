@@ -1,0 +1,83 @@
+<h1 class="contract-title">{{title}}</h1>
+
+<section class="contract-intro">
+  <h2 class="contract-section-title">ENTRE LES SOUSSIGNÉS :</h2>
+  <p>{{{landlordParagraph}}}</p>
+  <p>D'une part,</p>
+  <p>{{{tenantParagraph}}}</p>
+  <p>D'autre part,</p>
+  <p>Le Bailleur et le Preneur étant ci-après collectivement dénommés « les Parties ».</p>
+</section>
+
+{{{propertyDetails}}}
+
+<section class="contract-article">
+  <h3 class="article-title">ARTICLE 01 - DESCRIPTION DES LIEUX</h3>
+  <p>Le Bailleur donne à bail au Preneur, qui accepte, l'appartement {{unitLabel}}, situé dans l'immeuble {{buildingName}}, à l'adresse suivante : {{propertyAddress}}.</p>
+  <p>Le Preneur reconnaît avoir visité les lieux loués et les connaître parfaitement, sans qu'il soit nécessaire d'en faire une description plus détaillée.</p>
+  <p>Un état des lieux contradictoire sera établi avant la remise des clés au Preneur.</p>
+  <p>{{destinationPhrase}}</p>
+</section>
+
+<section class="contract-article">
+  <h3 class="article-title">ARTICLE 02 - DURÉE DU BAIL ET LOYER</h3>
+  <p>a) Le présent contrat est conclu pour une durée de {{durationText}}, prenant effet le {{startDate}} et arrivant à échéance le {{endDate}}.</p>
+  <p>Il peut être renouvelé avec l'accord écrit du Bailleur. Chacune des Parties peut y mettre fin moyennant un préavis écrit de {{noticeMonths}} mois ou par accord mutuel.</p>
+  <p>b) Le montant mensuel total dû par le Preneur s'élève à {{totalMonthly}}, composé comme suit :</p>
+  {{{rentBreakdown}}}
+  <p>c) Le montant convenu comprend l'entretien des parties communes, les services communs prévus par le Bailleur et les charges expressément mentionnées au présent contrat.</p>
+  <p>d) Les montants prévus peuvent être révisés par accord écrit, notamment en fonction des fluctuations économiques et des réalités du marché immobilier.</p>
+</section>
+
+<section class="contract-article">
+  <h3 class="article-title">ARTICLE 03 - GARANTIE LOCATIVE ET PREMIER PAIEMENT</h3>
+  <p>a) La garantie locative correspond à {{guaranteeMonths}} mois de loyer de base, soit :</p>
+  <p>{{baseRent}} x {{guaranteeMonths}} = {{guaranteeAmount}}.</p>
+  <p>b) Le Preneur est tenu de verser la totalité de la garantie locative au Bailleur lors de la signature du présent contrat, contre quittance.</p>
+  <p>c) La garantie locative ne produit aucun intérêt. Elle est remboursable à la fin du bail, après déduction de toutes les sommes restant dues au Bailleur.</p>
+  <p>d) La garantie locative ne peut servir au paiement du loyer ni être consommée pendant la durée du bail.</p>
+</section>
+
+<section class="contract-article">
+  <h3 class="article-title">ARTICLE 04 - IMPÔTS ET TAXES</h3>
+  <p>Le Preneur n'est pas tenu de retenir l'Impôt sur les Revenus Locatifs ni de supporter les taxes qui, conformément à la législation applicable, sont à la charge du Bailleur.</p>
+  <p>L'impôt foncier demeure à la charge du Bailleur.</p>
+</section>
+
+<section class="contract-article">
+  <h3 class="article-title">ARTICLE 05 - INTERDICTION DE CESSION, DE SOUS-LOCATION ET DE MODIFICATION</h3>
+  <p>Il est interdit au Preneur de céder tout ou partie du présent contrat, de sous-louer les lieux loués ou de les mettre à disposition d'un tiers sans l'autorisation écrite préalable du Bailleur.</p>
+  <p>Il est interdit au Preneur de modifier les lieux loués ou d'y effectuer des travaux sans l'autorisation écrite préalable du Bailleur.</p>
+</section>
+
+<section class="contract-article">
+  <h3 class="article-title">ARTICLE 06 - ENTRETIEN DES LIEUX ET NOMBRE D'OCCUPANTS</h3>
+  <p>Le Preneur maintient les lieux loués, leurs aménagements et leurs accessoires en bon état d'entretien, de fonctionnement, de propreté et de réparation locative.</p>
+  <p>Pour un appartement de {{bedrooms}} chambre(s), l'occupation autorisée doit rester conforme aux conditions convenues entre les Parties et aux capacités du logement.</p>
+  <p>À la fin du bail, le Preneur restitue les lieux dans l'état dans lequel il les a reçus, sous réserve de l'usure normale.</p>
+</section>
+
+<section class="contract-article">
+  <h3 class="article-title">ARTICLE 07 - ASSURANCE ET RESPONSABILITÉ</h3>
+  <p>Le Preneur souscrit, lorsque cela est requis, les assurances nécessaires à la couverture des risques liés à son occupation des lieux.</p>
+  <p>Les réparations rendues nécessaires par des dégradations imputables au Preneur sont effectuées à ses frais.</p>
+</section>
+
+<section class="contract-article">
+  <h3 class="article-title">ARTICLE 08 - NON-RESPECT DES CLAUSES</h3>
+  <p>En cas de non-respect de l'une des clauses du présent contrat, la Partie lésée peut engager les procédures prévues par la loi et par le présent contrat.</p>
+</section>
+
+<section class="contract-article">
+  <h3 class="article-title">ARTICLE 09 - MODIFICATION DU CONTRAT</h3>
+  <p>Toute modification du présent contrat fait l'objet d'un avenant écrit signé par les deux Parties et annexé au présent contrat de bail.</p>
+</section>
+
+<section class="contract-article">
+  <h3 class="article-title">ARTICLE 10 - RÈGLEMENT DES LITIGES ET DISPOSITIONS FINALES</h3>
+  <p>Les Parties s'engagent à rechercher un règlement amiable de tout différend relatif à l'exécution ou à l'interprétation du présent contrat avant toute saisine judiciaire.</p>
+  <p>À défaut de règlement amiable, les juridictions compétentes de Kinshasa sont seules compétentes, sous réserve des règles légales de compétence applicables.</p>
+  <p>Fait à {{signaturePlace}}, le {{signatureDate}}.</p>
+</section>
+
+{{{signature}}}
