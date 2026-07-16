@@ -5433,9 +5433,9 @@ export class SaasService {
          SELECT
            cg.id,
            cg.lease_id,
-           COALESCE(cg.contract_type, 'CONTRACT') AS document_type,
-           COALESCE(cg.docx_file_name, cg.pdf_file_name, cg.file_name, 'Contrat') AS file_name,
-           COALESCE(cg.docx_file_url, cg.pdf_file_url, cg.file_url) AS file_url,
+           'LEASE_CONTRACT'::TEXT AS document_type,
+           COALESCE(cg.docx_file_name, cg.pdf_file_name, cg.signed_contract_file_name, 'Contrat') AS file_name,
+           COALESCE(cg.docx_file_url, cg.pdf_file_url, cg.signed_contract_file_url) AS file_url,
            cg.generated_at AS document_date,
            l.status AS lease_status,
            u.number AS unit_number,
