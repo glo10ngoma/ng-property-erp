@@ -181,13 +181,13 @@ function landlordParagraph(context: LeaseDocumentRenderContext) {
   return [
     `${landlord.companyName}${landlord.acronym ? ` (${landlord.acronym})` : ''}`,
     landlord.legalForm,
-    landlord.rccm ? `immatriculee au Registre du Commerce et du Credit Mobilier sous le numero ${landlord.rccm}` : '',
-    landlord.nationalId ? `enregistree a l'Identification Nationale sous le numero ${landlord.nationalId}` : '',
-    landlord.address ? `dont le siege social est etabli a ${landlord.address}` : '',
+    landlord.rccm ? `immatriculée au Registre du Commerce et du Crédit Mobilier sous le numéro ${landlord.rccm}` : '',
+    landlord.nationalId ? `enregistrée à l'Identification Nationale sous le numéro ${landlord.nationalId}` : '',
+    landlord.address ? `dont le siège social est établi à ${landlord.address}` : '',
     representativeFormattedName
-      ? `representee par ${representativeFormattedName}${landlord.representativeTitle ? `, agissant en qualite de ${landlord.representativeTitle}` : ''}`
+      ? `représentée par ${representativeFormattedName}${landlord.representativeTitle ? `, agissant en qualité de ${landlord.representativeTitle}` : ''}`
       : '',
-    'ci-apres denommee « le Bailleur »',
+    'ci-après dénommée « le Bailleur »',
   ].filter(Boolean).join(', ') + ' ;';
 }
 
@@ -197,32 +197,32 @@ function tenantParagraph(context: LeaseDocumentRenderContext) {
   if (tenant.type === 'PERSONNE_MORALE') {
     return [
       `${tenant.displayName}${tenant.legalForm ? `, ${tenant.legalForm}` : ''}`,
-      tenant.rccm ? `immatriculee au Registre du Commerce et du Credit Mobilier sous le numero ${tenant.rccm}` : '',
-      tenant.nationalId ? `enregistree a l'Identification Nationale sous le numero ${tenant.nationalId}` : '',
-      tenant.address ? `dont le siege social est etabli a ${tenant.address}` : '',
+      tenant.rccm ? `immatriculée au Registre du Commerce et du Crédit Mobilier sous le numéro ${tenant.rccm}` : '',
+      tenant.nationalId ? `enregistrée à l'Identification Nationale sous le numéro ${tenant.nationalId}` : '',
+      tenant.address ? `dont le siège social est établi à ${tenant.address}` : '',
       representativeFormattedName
-        ? `representee par ${representativeFormattedName}${tenant.representativeTitle ? `, agissant en qualite de ${tenant.representativeTitle}` : ''}`
+        ? `représentée par ${representativeFormattedName}${tenant.representativeTitle ? `, agissant en qualité de ${tenant.representativeTitle}` : ''}`
         : '',
-      'ci-apres denommee « le Preneur »',
+      'ci-après dénommée « le Preneur »',
     ].filter(Boolean).join(', ') + ' ;';
   }
 
   const formattedTenantName = formatPersonNameWithCivility(tenant.civility, tenant.displayName);
   return [
     formattedTenantName,
-    tenant.identityType ? `titulaire de la piece d'identite ${tenant.identityType}` : '',
-    tenant.identityNumber ? `numero ${tenant.identityNumber}` : '',
-    tenant.address ? `domicilie(e) a ${tenant.address}` : '',
-    'ci-apres denomme(e) « le Preneur »',
+    tenant.identityType ? `titulaire de la pièce d'identité ${tenant.identityType}` : '',
+    tenant.identityNumber ? `numéro ${tenant.identityNumber}` : '',
+    tenant.address ? `${isFemaleCivility(tenant.civility) ? 'domiciliée' : 'domicilié'} à ${tenant.address}` : '',
+    isFemaleCivility(tenant.civility) ? 'ci-après dénommée « le Preneur »' : 'ci-après dénommé « le Preneur »',
   ].filter(Boolean).join(', ') + ' ;';
 }
 
 function destinationPhrase(context: LeaseDocumentRenderContext) {
   if (context.lease.usage === 'RESIDENTIAL') {
-    return `Les lieux loues sont destines a un usage ${context.lease.usageLabel.toLowerCase()}.`;
+    return `Les lieux loués sont destinés à un usage ${context.lease.usageLabel.toLowerCase()}.`;
   }
-  const activity = context.lease.activityDescription || "l'activite declaree par le Preneur";
-  return `Les lieux loues sont exclusivement destines a ${activity}. Toute modification substantielle de cette destination requiert l'accord ecrit prealable du Bailleur.`;
+  const activity = context.lease.activityDescription || "l'activité déclarée par le Preneur";
+  return `Les lieux loués sont exclusivement destinés à ${activity}. Toute modification substantielle de cette destination requiert l'accord écrit préalable du Bailleur.`;
 }
 
 function money(value: number, currency: string) {
@@ -234,6 +234,10 @@ function resolveCivilityLabel(value: string) {
   if (normalized === 'MR') return 'Monsieur';
   if (normalized === 'MRS') return 'Madame';
   return '';
+}
+
+function isFemaleCivility(value: string) {
+  return String(value ?? '').trim().toUpperCase() === 'MRS';
 }
 
 function formatPersonNameWithCivility(civility: string, name: string) {
