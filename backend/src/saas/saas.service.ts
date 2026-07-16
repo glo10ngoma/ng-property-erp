@@ -2243,6 +2243,7 @@ export class SaasService {
     if (!lines.length) throw new BadRequestException('Ajoutez au moins un article');
     return this.db.transaction(async (client) => {
       const paymentType = String(body.payment_type ?? 'DEFERRED').toUpperCase();
+      const dueDate = String(body.due_date ?? '').trim() || null;
       if (!['CASH', 'PARTIAL', 'DEFERRED'].includes(paymentType)) {
         throw new BadRequestException('Type de paiement invalide');
       }
@@ -2274,7 +2275,7 @@ export class SaasService {
           body.payment_terms ?? null,
           body.payment_method ?? null,
           paymentType,
-          body.due_date ?? null,
+          dueDate,
           subtotalAmount,
           taxAmount,
           discountAmount,

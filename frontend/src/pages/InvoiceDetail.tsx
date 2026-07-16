@@ -101,6 +101,8 @@ export function InvoiceDetail() {
   const [paymentCurrency, setPaymentCurrency] = useState<'USD' | 'CDF' | 'MIXED'>('USD');
   const [usdAmount, setUsdAmount] = useState('');
   const [cdfAmount, setCdfAmount] = useState('');
+  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
+  const [paymentError, setPaymentError] = useState('');
 
   async function reload() {
     if (!id) return;
@@ -138,44 +140,52 @@ export function InvoiceDetail() {
   }, [invoice, searchParams]);
 
   async function pay(form: FormData) {
+    setPaymentError('');
     const paymentCurrency = String(form.get('payment_currency') ?? 'USD');
     const amountUsd = Number(form.get('amount_usd') ?? 0);
     const amountCdf = Number(form.get('amount_cdf') ?? 0);
     const rate = Number(form.get('exchange_rate_used') ?? exchangeRate?.rate ?? 0) || null;
     const amount = Number(form.get('amount') ?? 0);
     if (!Number.isFinite(amountUsd) || !Number.isFinite(amountCdf) || !Number.isFinite(amount)) {
-      setSuccess('Montant de paiement invalide.');
+      setPaymentError('Montant de paiement invalide.');
       return;
     }
     if (amountUsd <= 0 && amountCdf <= 0) {
-      setSuccess('Le paiement doit contenir au moins un montant USD ou CDF.');
+      setPaymentError('Le paiement doit contenir au moins un montant USD ou CDF.');
       return;
     }
     if ((paymentCurrency === 'CDF' || amountCdf > 0) && !rate) {
-      setSuccess('Aucun taux de change n\'est configure. Veuillez definir le taux dans Parametres.');
+      setPaymentError('Aucun taux de change n\'est configure. Veuillez definir le taux dans Parametres.');
       return;
     }
     if (amount > Number(invoice?.remaining_amount ?? 0) + 0.01) {
-      setSuccess(`Le montant doit etre compris entre 0 et ${money(invoice?.remaining_amount ?? 0)}.`);
+      setPaymentError(`Le montant doit etre compris entre 0 et ${money(invoice?.remaining_amount ?? 0)}.`);
       return;
     }
-    await api.post('/payments', {
-      invoice_id: Number(id),
-      payment_date: form.get('payment_date'),
-      amount,
-      payment_currency: paymentCurrency,
-      amount_usd: amountUsd,
-      amount_cdf: amountCdf,
-      exchange_rate_used: rate ?? undefined,
-      exchange_rate_date: form.get('exchange_rate_date'),
-      payment_method: form.get('payment_method'),
-      reference: form.get('reference'),
-      notes: form.get('notes'),
-      payer_name: form.get('payer_name'),
-    });
-    setSuccess('Paiement enregistre avec succes.');
-    setPaymentOpen(false);
-    reload();
+    setPaymentSubmitting(true);
+    try {
+      await api.post('/payments', {
+        invoice_id: Number(id),
+        payment_date: form.get('payment_date'),
+        amount,
+        payment_currency: paymentCurrency,
+        amount_usd: amountUsd,
+        amount_cdf: amountCdf,
+        exchange_rate_used: rate ?? undefined,
+        exchange_rate_date: form.get('exchange_rate_date'),
+        payment_method: form.get('payment_method'),
+        reference: form.get('reference'),
+        notes: form.get('notes'),
+        payer_name: form.get('payer_name'),
+      });
+      setSuccess('Paiement enregistre avec succes.');
+      setPaymentOpen(false);
+      await reload();
+    } catch (err) {
+      setPaymentError(apiErrorMessage(err));
+    } finally {
+      setPaymentSubmitting(false);
+    }
   }
 
   async function saveEdit(form: FormData) {
@@ -481,7 +491,7 @@ export function InvoiceDetail() {
 
       {paymentOpen && (
         <Modal title="Enregistrer un paiement" onClose={() => setPaymentOpen(false)}>
-          <form className="form-grid payment-modal" onSubmit={(event) => { event.preventDefault(); pay(new FormData(event.currentTarget)); }}>
+          <form className="form-grid payment-modal" onSubmit={(event) => { event.preventDefault(); void pay(new FormData(event.currentTarget)); }}>
             <div className="detail-section compact-modal-section">
               <summary>Informations paiement</summary>
               <div className="lease-section-grid">
@@ -551,7 +561,8 @@ export function InvoiceDetail() {
                 <input type="hidden" name="exchange_rate_date" value={exchangeRate?.effectiveDate ?? new Date().toISOString().slice(0, 10)} />
               </div>
             </div>
-            <button>Enregistrer le paiement</button>
+            {paymentError ? <div className="error-message">{paymentError}</div> : null}
+            <button disabled={paymentSubmitting}>{paymentSubmitting ? 'Enregistrement...' : 'Enregistrer le paiement'}</button>
           </form>
         </Modal>
       )}

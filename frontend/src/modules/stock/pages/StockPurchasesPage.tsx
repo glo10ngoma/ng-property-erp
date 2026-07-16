@@ -164,7 +164,7 @@ export function PurchaseCreateModal({
       payment_terms: String(form.get('payment_terms') ?? ''),
       payment_method: paymentType === 'DEFERRED' ? '' : String(form.get('payment_method') ?? ''),
       payment_type: paymentType,
-      due_date: paymentType === 'CASH' ? '' : dueDate,
+      due_date: paymentType === 'CASH' || !dueDate ? null : dueDate,
       initial_payment_amount: paymentType === 'PARTIAL' ? Number(initialPaymentAmount || 0) : 0,
       observations: String(form.get('observations') ?? ''),
       lines: lines.map((line) => ({
