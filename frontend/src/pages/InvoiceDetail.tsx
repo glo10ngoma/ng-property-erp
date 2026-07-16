@@ -10,6 +10,7 @@ type Invoice = {
   id: number;
   tenant_id?: number;
   lease_id?: number;
+  lease_number?: number;
   lease_start_date?: string;
   lease_end_date?: string;
   invoice_number: string;
@@ -258,6 +259,8 @@ export function InvoiceDetail() {
   const issueMonthYearLabel = issueDateMonthYearLabel(invoice.issue_date);
   const issueYearLabel = issueDateYearLabel(invoice.issue_date);
   const logoUrl = cleanPrintValue(companySettings?.logo_file_url ?? companySettings?.logo_url);
+  const titleOnlyInvoiceHeader = isTitleOnlyInvoiceHeaderOrganization(user?.organization_slug);
+  const invoicePrintTitle = isRentInvoice ? 'FACTURE LOYER' : 'FACTURE MAINTENANCE ET AUTRES CHARGES';
 
   return (
     <section>
@@ -278,19 +281,27 @@ export function InvoiceDetail() {
       <div className="no-print"><SuccessMessage message={success} /></div>
 
       <article className="print-invoice">
-        <header>
-          <div className="invoice-logo">
-            {logoUrl ? (
-              <img src={logoUrl} alt={organizationName ? `Logo ${organizationName}` : 'Logo organisation'} className="invoice-logo-image" />
-            ) : (
-              <span>{companyInitials(companySettings, user?.organization_name)}</span>
-            )}
-          </div>
-          <div>
-            <h2>{organizationName || '—'}</h2>
-            {organizationAddress && <p>{organizationAddress}</p>}
-            {organizationContact && <p>{organizationContact}</p>}
-          </div>
+        <header className={titleOnlyInvoiceHeader ? 'invoice-header-title-only' : undefined}>
+          {titleOnlyInvoiceHeader ? (
+            <div className="invoice-title-only">
+              <h2>{invoicePrintTitle}</h2>
+            </div>
+          ) : (
+            <>
+              <div className="invoice-logo">
+                {logoUrl ? (
+                  <img src={logoUrl} alt={organizationName ? `Logo ${organizationName}` : 'Logo organisation'} className="invoice-logo-image" />
+                ) : (
+                  <span>{companyInitials(companySettings, user?.organization_name)}</span>
+                )}
+              </div>
+              <div>
+                <h2>{organizationName || '—'}</h2>
+                {organizationAddress && <p>{organizationAddress}</p>}
+                {organizationContact && <p>{organizationContact}</p>}
+              </div>
+            </>
+          )}
           <div className="invoice-meta">
             <strong>Facture {invoice.invoice_number}</strong>
             <span>Date: {shortDate(invoice.issue_date)}</span>
@@ -327,7 +338,7 @@ export function InvoiceDetail() {
           <div>
             <span>Appartement</span>
             <strong>{invoice.unit_number}</strong>
-            <p>Bail: {invoice.lease_id ? `B-${invoice.lease_id}` : '-'}</p>
+            <p>Bail: {invoice.lease_id ? leaseReference(invoice.lease_number ?? invoice.lease_id) : '-'}</p>
             <p>Immeuble: {invoice.building_name}</p>
             <p>Appartement: {invoice.unit_number}</p>
             <p>Adresse: {invoice.building_address}, {invoice.building_city}</p>
@@ -505,7 +516,7 @@ export function InvoiceDetail() {
                   />
                 </label>
                 <label>Locataire<input readOnly className="locked-field" value={invoice.tenant_name || `${invoice.first_name} ${invoice.last_name}`} /></label>
-                <label>Bail<input readOnly className="locked-field" value={invoice.lease_id ? `B-${invoice.lease_id}` : '-'} /></label>
+                <label>Bail<input readOnly className="locked-field" value={invoice.lease_id ? leaseReference(invoice.lease_number ?? invoice.lease_id) : '-'} /></label>
                 <label>Appartement<input readOnly className="locked-field" value={invoice.unit_number ?? '-'} /></label>
               </div>
             </div>
@@ -597,6 +608,10 @@ function cleanPrintValue(value?: string | null) {
   return trimmed;
 }
 
+function isTitleOnlyInvoiceHeaderOrganization(slug?: string | null) {
+  return ['catalyse', 'magic-construction'].includes(String(slug ?? '').trim().toLowerCase());
+}
+
 function companyDisplayName(companySettings?: CompanySettingsHeader | null, organizationName?: string) {
   return (
     cleanPrintValue(companySettings?.company_legal_name)
@@ -622,6 +637,10 @@ function companyInitials(companySettings?: CompanySettingsHeader | null, organiz
   const parts = label.split(/\s+/).filter(Boolean).slice(0, 2);
   const initials = parts.map((part) => part[0]?.toUpperCase() ?? '').join('');
   return initials || label.slice(0, 2).toUpperCase();
+}
+
+function leaseReference(value: number) {
+  return `B-${String(value).padStart(6, '0')}`;
 }
 
 function amount(value: unknown) {
@@ -689,11 +708,12 @@ function reminderSchedule(invoice: Invoice) {
 }
 
 function invoiceDocuments(invoice: Invoice) {
+  const reference = invoice.lease_id ? leaseReference(invoice.lease_number ?? invoice.lease_id) : '';
   return [
     { name: 'Facture PDF', exists: true, detail: `Facture_${invoice.invoice_number}.pdf`, fileName: `Facture_${invoice.invoice_number}.pdf`, fileUrl: '' },
     { name: 'Piece jointe', exists: Boolean(invoice.attachment_file_name && invoice.attachment_file_url), detail: invoice.attachment_file_name ?? 'Non disponible', fileName: invoice.attachment_file_name ?? '', fileUrl: invoice.attachment_file_url ?? '' },
-    { name: 'Contrat lie', exists: Boolean(invoice.lease_id), detail: invoice.lease_id ? `B-${invoice.lease_id}` : 'Non disponible', fileName: invoice.lease_id ? `B-${invoice.lease_id}` : '', fileUrl: '' },
-    { name: 'Documents bail', exists: Boolean(invoice.lease_id), detail: invoice.lease_id ? 'Voir bail lie' : 'Non disponible', fileName: invoice.lease_id ? `Documents_bail_B-${invoice.lease_id}` : '', fileUrl: '' },
+    { name: 'Contrat lie', exists: Boolean(invoice.lease_id), detail: reference || 'Non disponible', fileName: reference, fileUrl: '' },
+    { name: 'Documents bail', exists: Boolean(invoice.lease_id), detail: invoice.lease_id ? 'Voir bail lie' : 'Non disponible', fileName: reference ? `Documents_bail_${reference}` : '', fileUrl: '' },
   ];
 }
 
@@ -712,7 +732,7 @@ function exportInvoiceExcel(invoice: Invoice, stats: ReturnType<typeof invoiceSt
     { name: 'Resume', rows: [{ facture: invoice.invoice_number, statut: displayStatusLabel(invoiceDisplayStatus(invoice.status, invoice.due_date)), total: amount(invoice.total), paye: amount(invoice.paid_amount), restant: amount(invoice.remaining_amount), devise: 'USD', risque: risk.level, probabilite_recouvrement: `${risk.probability}%` }] },
     { name: 'Informations', rows: [{ numero: invoice.invoice_number, emission: shortDate(invoice.issue_date), echeance: shortDate(invoice.due_date), periode: periodLabel(invoice.month, invoice.year), remise: amount(invoice.discount_amount), notes_visibles: invoice.public_notes ?? '', notes_internes: invoice.internal_notes ?? '', piece_jointe: invoice.attachment_file_name ?? '' }] },
     { name: 'Locataire', rows: [{ nom: invoice.tenant_name || `${invoice.first_name} ${invoice.last_name}`, telephone: invoice.phone, email: invoice.email }] },
-    { name: 'Bail', rows: [{ bail: invoice.lease_id ? `B-${invoice.lease_id}` : '', debut: invoice.lease_start_date ? shortDate(invoice.lease_start_date) : '', fin: invoice.lease_end_date ? shortDate(invoice.lease_end_date) : '' }] },
+    { name: 'Bail', rows: [{ bail: invoice.lease_id ? leaseReference(invoice.lease_number ?? invoice.lease_id) : '', debut: invoice.lease_start_date ? shortDate(invoice.lease_start_date) : '', fin: invoice.lease_end_date ? shortDate(invoice.lease_end_date) : '' }] },
     { name: 'Appartement', rows: [{ immeuble: invoice.building_name, adresse: invoice.building_address, ville: invoice.building_city, unite: invoice.unit_number }] },
     { name: 'Lignes', rows: invoice.items.map((item) => ({ description: itemLabel(item.description), montant: amount(item.amount), devise: 'USD' })) },
     { name: 'Paiements', rows: invoice.payments.map((payment) => ({ date: shortDate(payment.payment_date), reference: payment.receipt_number ?? payment.reference ?? '', mode: paymentMethodLabel(payment.payment_method), montant: amount(payment.amount), devise: 'USD', utilisateur: payment.created_by ? `Utilisateur #${payment.created_by}` : 'Systeme', observation: payment.notes ?? '' })) },

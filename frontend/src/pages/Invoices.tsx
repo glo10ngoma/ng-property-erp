@@ -229,7 +229,7 @@ export function Invoices() {
                 <td>{invoice.invoice_number}</td>
                 <td>{invoiceTypeLabel(invoiceTypeGroup(invoice))}</td>
                 <td>{invoiceTenantName(invoice)}</td>
-                <td>{invoice.lease_number ? `B-${invoice.lease_number}` : '-'}</td>
+                <td>{invoice.lease_number ? leaseReference(invoice.lease_number) : '-'}</td>
                 <td>{invoice.building_name}</td>
                 <td>{invoice.unit_number}</td>
                 <td>{shortDate(invoice.issue_date)}</td>
@@ -332,6 +332,10 @@ function leaseRentAmount(lease: Pick<Lease, 'monthly_rent' | 'maintenance_fee_am
   return Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
 }
 
+function leaseReference(value: number) {
+  return `B-${String(value).padStart(6, '0')}`;
+}
+
 function rentInvoiceValidationError({
   tenant,
   selectedLease,
@@ -380,7 +384,7 @@ function invoiceExportRow(invoice: Invoice) {
   return {
     numero: invoice.invoice_number,
     locataire: invoiceTenantName(invoice),
-    bail: invoice.lease_number ? `B-${invoice.lease_number}` : '',
+    bail: invoice.lease_number ? leaseReference(invoice.lease_number) : '',
     immeuble: invoice.building_name,
     unite: invoice.unit_number,
     emission: shortDate(invoice.issue_date),

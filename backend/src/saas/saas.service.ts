@@ -3411,13 +3411,14 @@ export class SaasService {
       if (normalized.status === 'ACTIVE') {
         await this.ensureNoLeaseConflict(client, normalized.unitId, normalized.startDate, normalized.endDate);
       }
+      const leaseNumber = await this.nextLeaseNumber(client, organizationId);
       const { rows } = await client.query(
        `INSERT INTO leases
          (tenant_id, unit_id, start_date, end_date, monthly_rent, monthly_syndic_amount, rental_guarantee_amount, rental_guarantee_paid,
           rental_guarantee_payment_date, rental_guarantee_status, contract_file_url, contract_file_name, status,
           maintenance_fee_amount, other_charges_amount, lease_total_amount, guarantee_months, notice_months,
-          signature_place, signature_date, lease_usage, lease_activity_description, contract_template_code, organization_id, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+          signature_place, signature_date, lease_usage, lease_activity_description, contract_template_code, organization_id, notes, lease_number)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
          RETURNING *`,
         [
           normalized.tenantId,
@@ -3445,6 +3446,7 @@ export class SaasService {
           normalized.contractTemplateCode,
           organizationId,
           normalized.notes,
+          leaseNumber,
         ],
       );
       await this.upsertLeaseGuarantee(client, rows[0].id, {
@@ -7176,6 +7178,21 @@ export class SaasService {
 
   private leaseReferenceCode(id: number) {
     return `B-${String(id).padStart(6, '0')}`;
+  }
+
+  private async nextLeaseNumber(client: PoolClient, organizationId: number) {
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`lease-number-${organizationId}`]);
+    const { rows } = await client.query(
+      `SELECT GREATEST(
+         COALESCE(MAX(lease_number), 0),
+         COUNT(*) FILTER (WHERE lease_number IS NULL)
+       ) + 1 AS value
+       FROM leases
+       WHERE organization_id = $1
+         AND deleted_at IS NULL`,
+      [organizationId],
+    );
+    return Number(rows[0]?.value ?? 1);
   }
 
   private buildLeasePdfFileName(leaseId: number, contractId: number, templateVersion: number) {

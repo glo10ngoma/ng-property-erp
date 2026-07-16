@@ -27,6 +27,7 @@ export class PaymentsService {
              t.phone AS tenant_phone,
              t.email AS tenant_email,
              u.number AS unit_number,
+             COALESCE(l.lease_number, l.id) AS lease_number,
              b.name AS building_name
       FROM payments p
       LEFT JOIN invoices i ON i.id = p.invoice_id
@@ -51,7 +52,8 @@ export class PaymentsService {
               t.company_name, t.rccm, t.tax_number, t.business_sector,
               u.number AS unit_number, u.monthly_rent, u.status AS unit_status,
               b.name AS building_name, b.address AS building_address, b.city AS building_city, b.commune AS building_commune,
-              l.id AS lease_id, l.start_date AS lease_start_date, l.end_date AS lease_end_date, l.status AS lease_status
+              l.id AS lease_id, COALESCE(l.lease_number, l.id) AS lease_number,
+              l.start_date AS lease_start_date, l.end_date AS lease_end_date, l.status AS lease_status
        FROM payments p
        LEFT JOIN invoices i ON i.id = p.invoice_id
        LEFT JOIN tenants t ON t.id = i.tenant_id

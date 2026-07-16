@@ -17,7 +17,7 @@ export class InvoicesService {
                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
              END AS tenant_name,
              u.number AS unit_number, b.name AS building_name,
-             l.id AS lease_number,
+             COALESCE(l.lease_number, l.id) AS lease_number,
              COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
       FROM invoices i
@@ -43,7 +43,7 @@ export class InvoicesService {
               u.number AS unit_number, u.monthly_rent, u.monthly_syndic_amount AS unit_monthly_syndic_amount,
               b.name AS building_name, b.address AS building_address, b.city AS building_city,
               l.start_date AS lease_start_date, l.end_date AS lease_end_date, l.monthly_rent AS lease_monthly_rent,
-              l.maintenance_fee_amount, l.monthly_syndic_amount,
+              l.maintenance_fee_amount, l.monthly_syndic_amount, COALESCE(l.lease_number, l.id) AS lease_number,
               COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
               COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
        FROM invoices i

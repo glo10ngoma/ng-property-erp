@@ -36,6 +36,7 @@ type Invoice = {
   status: string;
   unit_number?: string;
   lease_id?: number;
+  lease_number?: number;
   tenant_phone?: string;
   tenant_email?: string;
   paid_amount?: number;
@@ -336,8 +337,10 @@ function PaymentModal({
   const [paymentCurrency, setPaymentCurrency] = useState<'USD' | 'CDF' | 'MIXED'>('USD');
   const [usdAmount, setUsdAmount] = useState<string>(remaining ? String(remaining) : '');
   const [cdfAmount, setCdfAmount] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
   const rate = Number(exchangeRate?.rate ?? 0);
-  const cdfEquivalentUsd = paymentCurrency === 'USD' ? 0 : Number(((Number(cdfAmount || 0) / rate) || 0).toFixed(2));
+  const cdfEquivalentUsd = paymentCurrency === 'USD' || rate <= 0 ? 0 : Number((Number(cdfAmount || 0) / rate).toFixed(2));
   const totalEquivalentUsd = Number(
     (
       paymentCurrency === 'USD'
@@ -347,14 +350,52 @@ function PaymentModal({
           : Number(usdAmount || 0) + cdfEquivalentUsd
     ).toFixed(2),
   );
+  const validationError = paymentValidationError({
+    selectedInvoice,
+    paymentCurrency,
+    usdAmount,
+    cdfAmount,
+    rate,
+    totalEquivalentUsd,
+    remaining,
+  });
+
+  useEffect(() => {
+    if (!selectedInvoice) return;
+    setError('');
+    if (paymentCurrency === 'USD' && !Number(usdAmount || 0)) {
+      setUsdAmount(remaining ? String(remaining) : '');
+    }
+  }, [selectedInvoice?.id, paymentCurrency, remaining]);
 
   return (
     <Modal title="Nouveau paiement" onClose={onClose}>
       <form
         className="form-grid payment-modal"
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
-          onSubmit(new FormData(event.currentTarget));
+          const nextError = paymentValidationError({
+            selectedInvoice,
+            paymentCurrency,
+            usdAmount,
+            cdfAmount,
+            rate,
+            totalEquivalentUsd,
+            remaining,
+          });
+          if (nextError) {
+            setError(nextError);
+            return;
+          }
+          setSubmitting(true);
+          setError('');
+          try {
+            await onSubmit(new FormData(event.currentTarget));
+          } catch (nextError) {
+            setError(apiErrorMessage(nextError, 'Impossible d enregistrer le paiement.'));
+          } finally {
+            setSubmitting(false);
+          }
         }}
       >
         <div className="detail-section compact-modal-section">
@@ -403,7 +444,7 @@ function PaymentModal({
             </label>
             <label>
               Bail
-              <input value={selectedInvoice?.lease_id ? `B-${selectedInvoice.lease_id}` : '-'} readOnly className="locked-field" />
+              <input value={selectedInvoice?.lease_id ? leaseReference(selectedInvoice.lease_number ?? selectedInvoice.lease_id) : '-'} readOnly className="locked-field" />
             </label>
             <label>
               Appartement
@@ -449,6 +490,7 @@ function PaymentModal({
             <span>Total: <strong>{totalEquivalentUsd.toFixed(2)} USD</strong></span>
             <span>Reste: <strong>{Math.max(remaining - totalEquivalentUsd, 0).toFixed(2)} USD</strong></span>
           </div>
+          {(error || validationError) ? <div className="error-message">{error || validationError}</div> : null}
         </div>
 
         <div className="detail-section compact-modal-section">
@@ -461,10 +503,49 @@ function PaymentModal({
           </div>
         </div>
 
-        <button type="submit">Enregistrer</button>
+        <button type="submit" disabled={submitting || Boolean(validationError)}>
+          {submitting ? 'Enregistrement...' : 'Enregistrer'}
+        </button>
       </form>
     </Modal>
   );
+}
+
+function paymentValidationError({
+  selectedInvoice,
+  paymentCurrency,
+  usdAmount,
+  cdfAmount,
+  rate,
+  totalEquivalentUsd,
+  remaining,
+}: {
+  selectedInvoice: Invoice | null;
+  paymentCurrency: 'USD' | 'CDF' | 'MIXED';
+  usdAmount: string;
+  cdfAmount: string;
+  rate: number;
+  totalEquivalentUsd: number;
+  remaining: number;
+}) {
+  const amountUsd = Number(usdAmount || 0);
+  const amountCdf = Number(cdfAmount || 0);
+  if (!selectedInvoice?.id) return 'Selectionnez une facture.';
+  if (!Number.isFinite(amountUsd) || amountUsd < 0 || !Number.isFinite(amountCdf) || amountCdf < 0 || !Number.isFinite(totalEquivalentUsd)) return 'Montant invalide.';
+  if (amountUsd <= 0 && amountCdf <= 0) return 'Le paiement doit contenir au moins un montant USD ou CDF.';
+  if ((paymentCurrency === 'CDF' || paymentCurrency === 'MIXED' || amountCdf > 0) && rate <= 0) return 'Aucun taux de change disponible pour un paiement CDF.';
+  if (totalEquivalentUsd > remaining + 0.01) return `Le montant dépasse le restant dû (${money(remaining)} USD).`;
+  return '';
+}
+
+function leaseReference(value: number) {
+  return `B-${String(value).padStart(6, '0')}`;
+}
+
+function apiErrorMessage(error: unknown, fallback: string) {
+  const responseMessage = (error as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+  if (Array.isArray(responseMessage)) return responseMessage.join(' ');
+  return responseMessage || (error instanceof Error ? error.message : fallback);
 }
 
 function statusLabel(value: string) {
