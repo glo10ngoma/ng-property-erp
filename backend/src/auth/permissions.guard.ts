@@ -109,6 +109,9 @@ export class PermissionsGuard implements CanActivate {
   }
 
   private permissionFor(path: string, method: string) {
+    if (/^\/api\/reports\/tenants\/\d+$/.test(path)) {
+      return method === 'GET' ? 'tenants.read' : 'reports.export';
+    }
     const resource = routePermissions.find(([pattern]) => pattern.test(path))?.[1];
     if (!resource) return undefined;
     if (resource === 'reports') return method === 'GET' ? 'reports.read' : 'reports.export';

@@ -73,10 +73,9 @@ export function TenantSituation() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { can } = useAuth();
-  const now = new Date();
   const [filters, setFilters] = useState({
-    month: String(now.getMonth() + 1),
-    year: String(now.getFullYear()),
+    month: '',
+    year: '',
     start: '',
     end: '',
     invoiceStatus: '',
@@ -119,8 +118,12 @@ export function TenantSituation() {
     setLoading(true);
     setError('');
     try {
-      const response = await api.get<TenantReportData>(`/reports/tenants/${id}`, { params: queryParams });
-      setReport(response.data);
+      const response = await api.get<TenantReportData | { report?: TenantReportData }>(`/reports/tenants/${id}`, { params: queryParams });
+      const payload =
+        response.data && typeof response.data === 'object' && 'report' in response.data && response.data.report
+          ? response.data.report
+          : (response.data as TenantReportData);
+      setReport(payload);
     } catch (err) {
       setReport(null);
       setError(extractApiErrorMessage(err));
