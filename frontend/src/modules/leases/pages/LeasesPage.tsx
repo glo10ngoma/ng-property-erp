@@ -295,13 +295,6 @@ function LeaseEditModal({
   }));
 
   useEffect(() => {
-    if (selectedUnit) {
-      setRent(Number(selectedUnit.monthly_rent ?? 0));
-      if (lease.unit_id !== selectedUnit.id) setSyndicAmount(Number(selectedUnit.monthly_syndic_amount ?? 0));
-    }
-  }, [selectedUnit?.id, lease.unit_id]);
-
-  useEffect(() => {
     const amountValue = Number(guaranteeAmountValue || 0);
     const paidValue = Number(guaranteePaidValue || 0);
     if (paidValue <= 0) setGuaranteeStatusValue('NOT_PAID');
