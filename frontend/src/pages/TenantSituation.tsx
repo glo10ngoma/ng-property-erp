@@ -85,7 +85,9 @@ export function TenantSituation() {
     leaseId: '',
   });
   const [report, setReport] = useState<TenantReportData | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [success, setSuccess] = useState('');
   const [activeSection, setActiveSection] = useState<SectionKey>('summary');
   const [invoiceCategory, setInvoiceCategory] = useState<InvoiceCategoryKey>('PAID');
@@ -107,12 +109,23 @@ export function TenantSituation() {
   }, [filters]);
 
   async function loadReport() {
-    if (!id) return;
+    if (!id) {
+      setReport(null);
+      setError('Identifiant locataire manquant.');
+      setHasLoadedOnce(true);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setError('');
     try {
       const response = await api.get<TenantReportData>(`/reports/tenants/${id}`, { params: queryParams });
       setReport(response.data);
+    } catch (err) {
+      setReport(null);
+      setError(extractApiErrorMessage(err));
     } finally {
+      setHasLoadedOnce(true);
       setLoading(false);
     }
   }
@@ -295,7 +308,19 @@ export function TenantSituation() {
         </div>
       </div>
 
-      {!report && <EmptyState message={loading ? 'Chargement...' : 'Aucune donnee.'} />}
+      {!report && (
+        <EmptyState
+          message={
+            loading
+              ? 'Chargement...'
+              : error
+                ? error
+                : hasLoadedOnce
+                  ? 'Aucune donnee.'
+                  : 'Chargement...'
+          }
+        />
+      )}
       {report && (
         <>
           <div className="tenant-situation-nav tenant-situation-tabs" role="tablist" aria-label="Rubriques situation locataire">
@@ -852,6 +877,26 @@ function normalizeDateOnly(value: unknown) {
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return null;
   return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+}
+
+function extractApiErrorMessage(error: unknown) {
+  const response = (error as { response?: { data?: unknown; status?: number } })?.response;
+  const data = response?.data;
+  if (typeof data === 'string' && data.trim()) return data.trim();
+  if (data && typeof data === 'object') {
+    const message = (data as { message?: unknown }).message;
+    if (Array.isArray(message) && message.length) return String(message[0]);
+    if (typeof message === 'string' && message.trim()) return message.trim();
+    const label = (data as { error?: unknown }).error;
+    if (typeof label === 'string' && label.trim()) return label.trim();
+  }
+  if (response?.status === 403) {
+    return "Acces refuse a la situation du locataire pour l'organisation active.";
+  }
+  if (response?.status === 404) {
+    return "Locataire introuvable dans l'organisation active.";
+  }
+  return (error as { message?: string })?.message || 'Impossible de charger la situation du locataire.';
 }
 
 function invoiceCategoryLabel(row: ReportRow) {
