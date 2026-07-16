@@ -48,9 +48,9 @@ export function StockPurchasesPage() {
 
   async function createPurchase(payload: Record<string, unknown>) {
     await api.post('/stock/purchases', payload);
+    await purchases.reload();
     setCreateOpen(false);
     setSuccess('Achat fournisseur enregistre.');
-    await purchases.reload();
   }
 
   async function receivePurchase(payload: Record<string, unknown>) {
@@ -157,7 +157,6 @@ export function PurchaseCreateModal({
 
   async function submit(form: FormData) {
     setError('');
-    setSubmitting(true);
     const payload = {
       purchase_date: String(form.get('purchase_date') ?? ''),
       supplier_name: String(form.get('supplier_name') ?? '').trim(),
@@ -176,47 +175,39 @@ export function PurchaseCreateModal({
     };
 
     if (!payload.supplier_name) {
-      setSubmitting(false);
       return setError('Renseignez le fournisseur.');
     }
     if (!payload.lines.length) {
-      setSubmitting(false);
       return setError('Ajoutez au moins un article.');
     }
     if (payload.lines.some((line) => !line.stock_item_id)) {
-      setSubmitting(false);
       return setError('Chaque ligne doit contenir un article selectionne.');
     }
     if (payload.lines.some((line) => line.quantity <= 0)) {
-      setSubmitting(false);
       return setError('Chaque ligne doit contenir une quantite strictement positive.');
     }
     if (payload.lines.some((line) => line.unit_price < 0)) {
-      setSubmitting(false);
       return setError('Le cout unitaire doit etre superieur ou egal a 0.');
     }
     if (paymentType !== 'DEFERRED' && !payload.payment_method) {
-      setSubmitting(false);
       return setError('Selectionnez un mode de paiement.');
     }
     if (paymentType === 'PARTIAL' && (!Number.isFinite(payload.initial_payment_amount) || payload.initial_payment_amount <= 0)) {
-      setSubmitting(false);
       return setError('Saisissez un montant initial strictement positif pour un paiement partiel.');
     }
     if (paymentType === 'PARTIAL' && payload.initial_payment_amount > totals.subtotal) {
-      setSubmitting(false);
       return setError("Le montant initial ne peut pas depasser le total de l'achat.");
     }
 
+    setSubmitting(true);
     try {
       await onSubmit(payload);
     } catch (err: any) {
       const message = err?.response?.data?.message;
       setError(Array.isArray(message) ? message.join(' | ') : message || "Impossible d'enregistrer l'achat fournisseur.");
+    } finally {
       setSubmitting(false);
-      return;
     }
-    setSubmitting(false);
   }
 
   return <Modal title="Nouvel achat fournisseur" onClose={onClose}>

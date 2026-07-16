@@ -1661,11 +1661,18 @@ export class SaasService {
       this.context.organizationId(),
     ]);
     if (exists.rows[0]) throw new ConflictException('Une caisse est deja ouverte');
-    return this.insert('cash_sessions', { opened_by: this.context.userId() ?? 1, opening_balance: 0, status: 'OPEN', ...body }, [
-      'opened_by',
-      'opening_balance',
-      'status',
-    ]);
+    try {
+      return await this.insert('cash_sessions', { opened_by: this.context.userId() ?? 1, opening_balance: 0, status: 'OPEN', ...body }, [
+        'opened_by',
+        'opening_balance',
+        'status',
+      ]);
+    } catch (error: any) {
+      if (error?.code === '23505' && String(error?.message ?? '').includes('cash_one_open_session')) {
+        throw new ConflictException('Une caisse est deja ouverte');
+      }
+      throw error;
+    }
   }
 
   async closeCash(closingBalance: number) {
