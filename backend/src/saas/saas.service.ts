@@ -5311,13 +5311,25 @@ export class SaasService {
     const totalSyndicInvoiced = rows.reduce((sum, row) => sum + Number(row.syndic_amount ?? 0), 0);
     const totalPaid = rows.reduce((sum, row) => sum + Number(row.paid_amount), 0);
     const remaining = rows.reduce((sum, row) => sum + Number(row.remaining_amount), 0);
+    const currentLeases = leases.rows.filter((lease) => {
+      const startDate = lease.start_date ? new Date(`${String(lease.start_date).slice(0, 10)}T00:00:00`) : null;
+      const endDate = lease.end_date ? new Date(`${String(lease.end_date).slice(0, 10)}T00:00:00`) : null;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return Boolean(
+        startDate &&
+        startDate.getTime() <= today.getTime() &&
+        (!endDate || endDate.getTime() >= today.getTime()) &&
+        !['DRAFT', 'CANCELLED'].includes(String(lease.status ?? '')),
+      );
+    });
     return {
       tenant: requireRow(tenant.rows[0], 'Tenant'),
       period,
       filters,
       leases: leases.rows,
-      active_leases: leases.rows.filter((lease) => lease.status === 'ACTIVE'),
-      old_leases: leases.rows.filter((lease) => lease.status !== 'ACTIVE'),
+      active_leases: currentLeases,
+      old_leases: leases.rows.filter((lease) => !currentLeases.includes(lease)),
       guarantees: leases.rows.map((lease) => ({
         lease_id: lease.id,
         building_name: lease.building_name,

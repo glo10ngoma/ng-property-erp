@@ -48,10 +48,13 @@ type Tenant = {
   building_name?: string;
   monthly_rent?: number;
   total_rent_amount?: number;
+  total_syndic_amount?: number;
+  total_general_amount?: number;
   active_lease_id?: number;
   active_lease_number?: number;
   active_lease_end_date?: string;
   active_lease_status?: string;
+  active_lease_count?: number;
   active_leases_count?: number;
   occupied_units_count?: number;
   occupied_unit_labels?: string;
@@ -110,14 +113,16 @@ export function Tenants() {
 
   const sorted = [...filtered].sort((a, b) => tenantName(a).localeCompare(tenantName(b)));
   const kpis = useMemo(() => ({
-    total: data.length,
-    active: data.filter((tenant) => tenant.status === 'ACTIVE').length,
-    notice: data.filter((tenant) => tenant.status === 'NOTICE').length,
-    left: data.filter((tenant) => tenant.status === 'LEFT' || tenant.status === 'INACTIVE').length,
-    withoutLease: data.filter((tenant) => !tenant.active_lease_id).length,
-    withDebt: data.filter((tenant) => Number(tenant.remaining_amount ?? 0) > 0).length,
+    total: sorted.length,
+    activeLeases: sorted.reduce((sum, tenant) => sum + Number(tenant.active_lease_count ?? tenant.active_leases_count ?? 0), 0),
+    notice: sorted.filter((tenant) => tenant.status === 'NOTICE').length,
+    left: sorted.filter((tenant) => tenant.status === 'LEFT' || tenant.status === 'INACTIVE').length,
+    withoutLease: sorted.filter((tenant) => !tenant.active_lease_id).length,
+    withDebt: sorted.filter((tenant) => Number(tenant.remaining_amount ?? 0) > 0).length,
     totalRents: sorted.reduce((sum, tenant) => sum + Number(tenant.total_rent_amount ?? 0), 0),
-  }), [data, sorted]);
+    totalSyndic: sorted.reduce((sum, tenant) => sum + Number(tenant.total_syndic_amount ?? 0), 0),
+    totalGeneral: sorted.reduce((sum, tenant) => sum + Number(tenant.total_general_amount ?? 0), 0),
+  }), [sorted]);
 
   async function save(form: FormData) {
     const tenantType = textValue(form.get('tenant_type')) || 'PHYSICAL';
@@ -211,12 +216,14 @@ export function Tenants() {
 
       <div className="mini-stats">
         <div className="mini-stat"><span>Total locataires</span><strong>{kpis.total}</strong></div>
-        <div className="mini-stat"><span>Actifs</span><strong>{kpis.active}</strong></div>
+        <div className="mini-stat"><span>Baux actifs</span><strong>{kpis.activeLeases}</strong></div>
         <div className="mini-stat"><span>Preavis</span><strong>{kpis.notice}</strong></div>
         <div className="mini-stat"><span>Partis</span><strong>{kpis.left}</strong></div>
         <div className="mini-stat"><span>Sans bail</span><strong>{kpis.withoutLease}</strong></div>
         <div className="mini-stat"><span>Avec impayes</span><strong>{kpis.withDebt}</strong></div>
         <div className="mini-stat"><span>Total loyers</span><strong>{amount(kpis.totalRents)} USD</strong></div>
+        <div className="mini-stat"><span>Total syndic</span><strong>{amount(kpis.totalSyndic)} USD</strong></div>
+        <div className="mini-stat"><span>Total general</span><strong>{amount(kpis.totalGeneral)} USD</strong></div>
       </div>
 
       <div className="table-toolbar">
@@ -242,7 +249,7 @@ export function Tenants() {
 
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Reference client</th><th>Type</th><th>Nom</th><th>Telephone</th><th>Appartement</th><th>Immeuble</th><th className="right">Loyer</th><th>Devise</th><th>Fin du bail</th><th>Dernier paiement</th><th className="right">Solde restant</th><th>Devise</th><th>Derniere relance</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Reference client</th><th>Type</th><th>Nom</th><th>Telephone</th><th className="right">Loyer</th><th>Devise</th><th>Fin du bail</th><th>Dernier paiement</th><th className="right">Solde restant</th><th>Devise</th><th>Derniere relance</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
             {sorted.map((tenant) => (
               <tr key={tenant.id} className="clickable-row" onClick={() => navigate(`/tenants/${tenant.id}/situation`)}>
@@ -250,8 +257,6 @@ export function Tenants() {
                 <td>{tenantTypeLabel(tenant.tenant_type)}</td>
                 <td>{tenantName(tenant)}</td>
                 <td>{tenant.phone}</td>
-                <td>{tenant.occupied_unit_labels ?? tenant.unit_number ?? '-'}</td>
-                <td>{tenant.occupied_building_names ?? tenant.building_name ?? '-'}</td>
                 <td className="right">{amount(tenant.total_rent_amount)}</td>
                 <td>USD</td>
                 <td>{dateText(tenant.active_lease_end_date)}</td>
@@ -420,6 +425,9 @@ function exportTenantRows(rows: Tenant[]) {
     immeuble: tenant.occupied_building_names ?? tenant.building_name ?? '',
     appartement: tenant.occupied_unit_labels ?? tenant.unit_number ?? '',
     loyer: tenant.total_rent_amount ?? 0,
+    syndic: tenant.total_syndic_amount ?? 0,
+    total_general: tenant.total_general_amount ?? 0,
+    nombre_baux_actifs: tenant.active_lease_count ?? tenant.active_leases_count ?? 0,
     devise: 'USD',
     statut: statusLabel(tenant.status),
     fin_bail: dateText(tenant.active_lease_end_date),
@@ -431,17 +439,19 @@ function exportTenantRows(rows: Tenant[]) {
 
 function exportTenantListWorkbook(rows: Tenant[]) {
   const totalInvoiced = rows.reduce((sum, tenant) => sum + Number(tenant.total_rent_amount ?? 0), 0);
+  const totalSyndic = rows.reduce((sum, tenant) => sum + Number(tenant.total_syndic_amount ?? 0), 0);
+  const totalGeneral = rows.reduce((sum, tenant) => sum + Number(tenant.total_general_amount ?? 0), 0);
   const totalUnpaid = rows.reduce((sum, tenant) => sum + Number(tenant.remaining_amount ?? 0), 0);
   exportXlsxWorkbook('Locataires.xlsx', [
     { name: 'Informations locataire', rows: exportTenantRows(rows) },
-    { name: 'Baux', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), type: tenantTypeLabel(tenant.tenant_type), nom: tenantName(tenant), bail: tenant.active_lease_id ? leaseReference(tenant.active_lease_id, tenant.active_lease_number) : 'Sans bail', fin_bail: dateText(tenant.active_lease_end_date), statut: tenant.active_lease_status ?? '' })) },
+    { name: 'Baux', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), type: tenantTypeLabel(tenant.tenant_type), nom: tenantName(tenant), bail: tenant.active_lease_id ? leaseReference(tenant.active_lease_id, tenant.active_lease_number) : 'Sans bail', nombre_baux_actifs: tenant.active_lease_count ?? tenant.active_leases_count ?? 0, fin_bail: dateText(tenant.active_lease_end_date), statut: tenant.active_lease_status ?? '' })) },
     { name: 'Factures', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), solde_restant: tenant.remaining_amount ?? 0, factures_retard: tenant.overdue_invoices ?? 0 })) },
     { name: 'Paiements', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), dernier_paiement: dateText(tenant.last_payment_date) })) },
     { name: 'Garanties', rows: [] },
     { name: 'Relances', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), derniere_relance: tenant.last_reminder_at ? dateText(tenant.last_reminder_at) : 'Jamais', nombre_relances: tenant.reminder_count ?? 0 })) },
     { name: 'Documents', rows: rows.filter((tenant) => tenant.id_document_file_name || tenant.company_document_name).map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), document: tenant.id_document_file_name ?? tenant.company_document_name })) },
     { name: 'Timeline', rows: rows.map((tenant) => ({ date: dateText(tenant.created_at), evenement: 'Locataire cree', description: tenantName(tenant), utilisateur: '' })) },
-    { name: 'Rentabilite', rows: [{ total_loyers_factures: totalInvoiced, total_encaisse: 'Non disponible', total_impayes: totalUnpaid, nombre_baux: rows.filter((tenant) => tenant.active_lease_id).length, nombre_relances: rows.reduce((sum, tenant) => sum + Number(tenant.reminder_count ?? 0), 0), date_dernier_paiement: latestDate(rows.map((tenant) => tenant.last_payment_date)), solde_restant: totalUnpaid }] },
+    { name: 'Rentabilite', rows: [{ total_loyers_factures: totalInvoiced, total_syndic: totalSyndic, total_general: totalGeneral, total_encaisse: 'Non disponible', total_impayes: totalUnpaid, nombre_baux: rows.reduce((sum, tenant) => sum + Number(tenant.active_lease_count ?? tenant.active_leases_count ?? 0), 0), nombre_relances: rows.reduce((sum, tenant) => sum + Number(tenant.reminder_count ?? 0), 0), date_dernier_paiement: latestDate(rows.map((tenant) => tenant.last_payment_date)), solde_restant: totalUnpaid }] },
   ]);
 }
 

@@ -98,7 +98,7 @@ export function TenantSituation() {
   const units = uniqueOptions(leases, 'unit_number', 'unit_id');
   const exportRows = report ? [...report.leases, ...report.guarantees, ...report.invoices, ...report.payments, ...report.documents] : [];
   const tenantLabel = report ? tenantDisplayName(report.tenant) : '';
-  const rentedUnitsCount = report ? new Set(report.leases.map((lease) => String(lease.unit_id ?? lease.unit_number ?? '')).filter(Boolean)).size : 0;
+  const rentedUnitsCount = report ? new Set(report.active_leases.map((lease) => String(lease.unit_id ?? lease.unit_number ?? '')).filter(Boolean)).size : 0;
   const totalGuarantee = report ? totalGuaranteeAmount(report.leases) : 0;
   const totalLeases = report ? totalLeaseAmount(report.leases) : 0;
   const synthesis = report ? tenantSynthesis(report) : null;
@@ -230,7 +230,7 @@ export function TenantSituation() {
             </div>
           )}
 
-          <LeaseTable rows={report.leases} />
+          <LeaseTable rows={report.active_leases} />
           <GuaranteeTable rows={report.guarantees} />
           <InvoiceTable title="Factures payees" rows={report.paid} navigate={navigate} />
           <InvoiceTable title="Factures partiellement payees" rows={report.partial} navigate={navigate} />
@@ -267,7 +267,7 @@ function ReminderActions({ row, onRemind }: { row: ReportRow; onRemind: (row: Re
 function LeaseTable({ rows }: { rows: ReportRow[] }) {
   return (
     <div className="detail-section report-section">
-      <h4>Appartements / unites loues</h4>
+      <h4>Biens loues</h4>
       <div className="table-wrap">
         <table>
           <thead><tr><th>Immeuble</th><th>Unite</th><th>Bail</th><th>Date debut</th><th>Date fin</th><th className="right">Loyer</th><th className="right">Syndic</th><th className="right">Total mensuel</th><th>Devise</th><th>Statut bail</th><th className="right">Garantie</th><th>Devise</th></tr></thead>

@@ -19,12 +19,15 @@ export class TenantsService {
              lease_info.unit_number,
              lease_info.monthly_rent,
              COALESCE(lease_stats.total_rent_amount, 0)::FLOAT AS total_rent_amount,
+             COALESCE(lease_stats.total_syndic_amount, 0)::FLOAT AS total_syndic_amount,
+             COALESCE(lease_stats.total_general_amount, 0)::FLOAT AS total_general_amount,
              lease_info.active_lease_id,
              lease_info.active_lease_number,
              lease_info.active_lease_end_date,
              lease_info.active_lease_status,
              lease_info.building_id,
              lease_info.building_name,
+             COALESCE(lease_stats.active_lease_count, 0)::INT AS active_lease_count,
              COALESCE(lease_stats.active_leases_count, 0)::INT AS active_leases_count,
              COALESCE(lease_stats.occupied_units_count, 0)::INT AS occupied_units_count,
              lease_stats.occupied_unit_labels,
@@ -65,9 +68,12 @@ export class TenantsService {
         LIMIT 1
       ) lease_info ON TRUE
       LEFT JOIN LATERAL (
-        SELECT COUNT(*)::INT AS active_leases_count,
+        SELECT COUNT(DISTINCT l.id)::INT AS active_lease_count,
+               COUNT(DISTINCT l.id)::INT AS active_leases_count,
                COUNT(DISTINCT l.unit_id)::INT AS occupied_units_count,
                COALESCE(SUM(COALESCE(l.monthly_rent, 0) + COALESCE(l.maintenance_fee_amount, 0)), 0)::FLOAT AS total_rent_amount,
+               COALESCE(SUM(COALESCE(l.monthly_syndic_amount, 0)), 0)::FLOAT AS total_syndic_amount,
+               COALESCE(SUM(COALESCE(l.monthly_rent, 0) + COALESCE(l.maintenance_fee_amount, 0) + COALESCE(l.monthly_syndic_amount, 0)), 0)::FLOAT AS total_general_amount,
                STRING_AGG(DISTINCT u.number, ', ' ORDER BY u.number) FILTER (WHERE u.number IS NOT NULL) AS occupied_unit_labels,
                STRING_AGG(DISTINCT b.name, ', ' ORDER BY b.name) FILTER (WHERE b.name IS NOT NULL) AS occupied_building_names
         FROM leases l
