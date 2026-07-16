@@ -34,7 +34,11 @@ export class DocumentRendererService {
       },
       tenant: {
         type: text(snapshot?.locataire?.type, 'PERSONNE_PHYSIQUE'),
-        displayName: text(snapshot?.locataire?.raison_sociale ?? snapshot?.locataire?.nom_complet ?? snapshot.TENANT_NAME),
+        displayName: firstText(
+          snapshot?.locataire?.raison_sociale,
+          snapshot?.locataire?.nom_complet,
+          snapshot.TENANT_NAME,
+        ),
         legalForm: text(snapshot?.locataire?.forme_juridique ?? snapshot.TENANT_LEGAL_FORM),
         rccm: text(snapshot?.locataire?.rccm ?? snapshot.TENANT_RCCM),
         nationalId: text(snapshot?.locataire?.identification_nationale ?? snapshot.TENANT_ID),
@@ -100,6 +104,14 @@ export class DocumentRendererService {
 function text(value: unknown, fallback = '') {
   const output = String(value ?? '').normalize('NFC').trim();
   return output || fallback;
+}
+
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    const output = text(value);
+    if (output) return output;
+  }
+  return '';
 }
 
 function numberValue(value: unknown) {
