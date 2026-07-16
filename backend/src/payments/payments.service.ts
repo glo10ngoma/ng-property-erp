@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { RequestContext } from '../auth/request-context';
 import { requireRow } from '../common/not-found';
 import { DatabaseService } from '../database/database.service';
@@ -9,6 +9,8 @@ import { CreatePaymentDto, UpdatePaymentDto } from './dto';
 
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
   constructor(
     private readonly db: DatabaseService,
     private readonly invoices: InvoicesService,
@@ -180,7 +182,11 @@ export class PaymentsService {
       await this.invoices.refreshStatus(client, primaryInvoiceId);
       return rows[0];
     });
-    await this.sendPaymentReceiptIfEnabled(Number(payment.id));
+    void this.sendPaymentReceiptIfEnabled(Number(payment.id)).catch((error) => {
+      this.logger.error(
+        `[PAYMENT] async receipt email failed paymentId=${Number(payment.id)} organizationId=${this.context.organizationId()} message=${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
     return payment;
   }
 
