@@ -64,27 +64,32 @@ export function LeasesPage() {
   const [success, setSuccess] = useState('');
 
   const buildingOptions = useMemo(() => Array.from(new Set(data.map((lease) => lease.building_name).filter(Boolean))).sort(), [data]);
-  const filtered = data
-    .filter((lease) => includesText(lease, query))
-    .filter((lease) => !filters.building || lease.building_name === filters.building)
-    .filter((lease) => !filters.unit || String(lease.unit_number ?? '').toLowerCase().includes(filters.unit.toLowerCase()))
-    .filter((lease) => !filters.tenant || String(lease.tenant_name ?? '').toLowerCase().includes(filters.tenant.toLowerCase()))
-    .filter((lease) => !filters.status || lease.status === filters.status)
-    .filter((lease) => !filters.guarantee || guaranteeStatus(lease) === filters.guarantee)
-    .filter((lease) => !filters.start || String(lease.start_date).slice(0, 10) >= filters.start)
-    .filter((lease) => !filters.end || String(lease.end_date ?? lease.start_date).slice(0, 10) <= filters.end)
-    .filter((lease) => !filters.contract || (filters.contract === 'PRESENT' ? Boolean(lease.contract_file_name) : !lease.contract_file_name))
-    .filter((lease) => !filters.expiring || leaseExpiringSoon(lease));
+  const filtered = useMemo(
+    () => data
+      .filter((lease) => includesText(lease, query))
+      .filter((lease) => !filters.building || lease.building_name === filters.building)
+      .filter((lease) => !filters.unit || String(lease.unit_number ?? '').toLowerCase().includes(filters.unit.toLowerCase()))
+      .filter((lease) => !filters.tenant || String(lease.tenant_name ?? '').toLowerCase().includes(filters.tenant.toLowerCase()))
+      .filter((lease) => !filters.status || lease.status === filters.status)
+      .filter((lease) => !filters.guarantee || guaranteeStatus(lease) === filters.guarantee)
+      .filter((lease) => !filters.start || String(lease.start_date).slice(0, 10) >= filters.start)
+      .filter((lease) => !filters.end || String(lease.end_date ?? lease.start_date).slice(0, 10) <= filters.end)
+      .filter((lease) => !filters.contract || (filters.contract === 'PRESENT' ? Boolean(lease.contract_file_name) : !lease.contract_file_name))
+      .filter((lease) => !filters.expiring || leaseExpiringSoon(lease)),
+    [data, filters, query],
+  );
 
-  const kpis = {
-    total: data.length,
-    active: data.filter((lease) => lease.status === 'ACTIVE').length,
-    expired: data.filter((lease) => lease.status === 'EXPIRED' || leaseExpired(lease)).length,
-    terminated: data.filter((lease) => lease.status === 'TERMINATED').length,
-    guaranteePaid: data.filter((lease) => guaranteeStatus(lease) === 'PAID').length,
-    guaranteeUnpaid: data.filter((lease) => guaranteeStatus(lease) !== 'PAID').length,
-    missingContracts: data.filter((lease) => !lease.contract_file_name).length,
-  };
+  const kpis = useMemo(() => ({
+    total: filtered.length,
+    active: filtered.filter(isCurrentActiveLease).length,
+    expired: filtered.filter((lease) => lease.status === 'EXPIRED' || leaseExpired(lease)).length,
+    terminated: filtered.filter((lease) => lease.status === 'TERMINATED').length,
+    guaranteePaid: filtered.filter((lease) => guaranteeStatus(lease) === 'PAID').length,
+    guaranteeUnpaid: filtered.filter((lease) => guaranteeStatus(lease) !== 'PAID').length,
+    missingContracts: filtered.filter((lease) => !lease.contract_file_name).length,
+    totalGuarantees: filtered.reduce((sum, lease) => sum + guaranteeAmount(lease), 0),
+    totalActiveRents: filtered.filter(isCurrentActiveLease).reduce((sum, lease) => sum + leaseRentAmount(lease), 0),
+  }), [filtered]);
 
   async function openEdit(leaseId: number) {
     const response = await api.get<LeaseDetail>(`/leases/${leaseId}`);
@@ -145,6 +150,8 @@ export function LeasesPage() {
         <div className="mini-stat"><span>Baux actifs</span><strong>{kpis.active}</strong></div>
         <div className="mini-stat"><span>Baux expires</span><strong>{kpis.expired}</strong></div>
         <div className="mini-stat"><span>Baux resilies</span><strong>{kpis.terminated}</strong></div>
+        <div className="mini-stat"><span>Total garanties</span><strong>{amount(kpis.totalGuarantees)} USD</strong></div>
+        <div className="mini-stat"><span>Total loyers actifs</span><strong>{amount(kpis.totalActiveRents)} USD</strong></div>
         <div className="mini-stat"><span>Garanties payees</span><strong>{kpis.guaranteePaid}</strong></div>
         <div className="mini-stat"><span>Garanties non payees</span><strong>{kpis.guaranteeUnpaid}</strong></div>
         <div className="mini-stat"><span>Sans contrat scanne</span><strong>{kpis.missingContracts}</strong></div>
@@ -476,7 +483,11 @@ function guaranteeStatus(lease: Lease | LeaseDetail) {
 
 function guaranteeAmount(lease: Lease | LeaseDetail) {
   const detailGuarantee = 'guarantee' in lease ? lease.guarantee : undefined;
-  return Number(lease.guarantee_amount ?? lease.rental_guarantee_amount ?? detailGuarantee?.amount ?? 0);
+  const persistedAmount = lease.guarantee_amount ?? lease.rental_guarantee_amount ?? detailGuarantee?.amount;
+  if (persistedAmount != null) {
+    return Number(persistedAmount);
+  }
+  return leaseRentAmount(lease) * Number(lease.guarantee_months ?? 0);
 }
 
 function guaranteePaid(lease: Lease | LeaseDetail) {
@@ -490,6 +501,19 @@ function amount(value: unknown) {
 
 function leaseExpired(lease: Lease) {
   return Boolean(lease.end_date && new Date(lease.end_date).getTime() < startOfToday());
+}
+
+function isCurrentActiveLease(lease: Lease) {
+  const startDate = lease.start_date ? new Date(`${String(lease.start_date).slice(0, 10)}T00:00:00`) : null;
+  const endDate = lease.end_date ? new Date(`${String(lease.end_date).slice(0, 10)}T00:00:00`) : null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Boolean(
+    startDate &&
+    startDate.getTime() <= today.getTime() &&
+    (!endDate || endDate.getTime() >= today.getTime()) &&
+    !['DRAFT', 'CANCELLED', 'TERMINATED', 'EXPIRED'].includes(String(lease.status ?? '').toUpperCase()),
+  );
 }
 
 function leaseExpiringSoon(lease: Lease) {
