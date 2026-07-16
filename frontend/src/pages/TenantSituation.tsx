@@ -11,6 +11,8 @@ type TenantReportData = {
   tenant: ReportRow;
   period: { start: string; end: string };
   leases: ReportRow[];
+  total_lease_count?: number;
+  active_lease_count?: number;
   active_leases: ReportRow[];
   old_leases: ReportRow[];
   guarantees: ReportRow[];
@@ -100,7 +102,6 @@ export function TenantSituation() {
   const tenantLabel = report ? tenantDisplayName(report.tenant) : '';
   const rentedUnitsCount = report ? new Set(report.active_leases.map((lease) => String(lease.unit_id ?? lease.unit_number ?? '')).filter(Boolean)).size : 0;
   const totalGuarantee = report ? totalGuaranteeAmount(report.leases) : 0;
-  const totalLeases = report ? totalLeaseAmount(report.leases) : 0;
   const synthesis = report ? tenantSynthesis(report) : null;
 
   async function sendReminder(row: ReportRow, channel: 'EMAIL' | 'SMS' | 'WHATSAPP') {
@@ -204,10 +205,10 @@ export function TenantSituation() {
       {report && (
         <>
           <div className="mini-stats">
-            <div className="mini-stat"><span>Baux actifs</span><strong>{report.active_leases.length}</strong></div>
+            <div className="mini-stat"><span>Baux actifs</span><strong>{report.active_lease_count ?? report.active_leases.length}</strong></div>
             <div className="mini-stat"><span>Unites louees</span><strong>{rentedUnitsCount}</strong></div>
             <div className="mini-stat"><span>Total garantie</span><strong>{money(totalGuarantee)}</strong></div>
-            <div className="mini-stat"><span>Total des baux</span><strong>{money(totalLeases)}</strong></div>
+            <div className="mini-stat"><span>Total baux</span><strong>{report.total_lease_count ?? report.leases.length}</strong></div>
             <div className="mini-stat"><span>Factures payees</span><strong>{report.paid.length}</strong></div>
             <div className="mini-stat"><span>Factures partielles</span><strong>{report.partial.length}</strong></div>
             <div className="mini-stat"><span>Factures en retard</span><strong>{report.overdue.length}</strong></div>
@@ -516,7 +517,7 @@ function exportTenantSituationWorkbook(report: TenantReportData) {
     { name: 'Relances', rows: reminderRows },
     { name: 'Documents', rows: report.documents },
     { name: 'Timeline', rows: timeline },
-    { name: 'Rentabilite', rows: [{ 'Total loyers factures': amount(report.total_rent_invoiced), 'Total syndic facture': amount(report.total_syndic_invoiced), 'Total facture': amount(report.total_invoiced), 'Total encaisse': amount(report.total_paid), 'Total impayes': amount(report.remaining), 'Total garantie': amount(totalGuaranteeAmount(report.leases)), 'Total des baux': amount(totalLeaseAmount(report.leases)), 'Nombre de baux': report.leases.length, 'Nombre de relances': reminderRows.reduce((sum, row) => sum + Number(row['Nombre relances'] ?? 0), 0), 'Date dernier paiement': latestDate(report.payments.map((payment) => String(payment.payment_date ?? ''))), 'Solde restant': amount(report.remaining) }] },
+    { name: 'Rentabilite', rows: [{ 'Total loyers factures': amount(report.total_rent_invoiced), 'Total syndic facture': amount(report.total_syndic_invoiced), 'Total facture': amount(report.total_invoiced), 'Total encaisse': amount(report.total_paid), 'Total impayes': amount(report.remaining), 'Total garantie': amount(totalGuaranteeAmount(report.leases)), 'Total baux': report.total_lease_count ?? report.leases.length, 'Baux actifs': report.active_lease_count ?? report.active_leases.length, 'Nombre de relances': reminderRows.reduce((sum, row) => sum + Number(row['Nombre relances'] ?? 0), 0), 'Date dernier paiement': latestDate(report.payments.map((payment) => String(payment.payment_date ?? ''))), 'Solde restant': amount(report.remaining) }] },
   ]);
 }
 

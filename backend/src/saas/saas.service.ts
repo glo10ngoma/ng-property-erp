@@ -5328,6 +5328,8 @@ export class SaasService {
       period,
       filters,
       leases: leases.rows,
+      total_lease_count: new Set(leases.rows.map((lease) => Number(lease.id)).filter((leaseId) => Number.isFinite(leaseId))).size,
+      active_lease_count: new Set(currentLeases.map((lease) => Number(lease.id)).filter((leaseId) => Number.isFinite(leaseId))).size,
       active_leases: currentLeases,
       old_leases: leases.rows.filter((lease) => !currentLeases.includes(lease)),
       guarantees: leases.rows.map((lease) => ({
