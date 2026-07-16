@@ -6673,7 +6673,7 @@ export class SaasService {
       [purchaseId, this.context.organizationId()],
     );
     const purchase = await client.query(
-      `SELECT total_amount, paid_amount FROM stock_purchases
+      `SELECT total_amount, paid_amount, received_at, received_by FROM stock_purchases
        WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
       [purchaseId, this.context.organizationId()],
     );
@@ -6684,26 +6684,35 @@ export class SaasService {
     const outstandingAmount = Math.max(Number(purchaseRow.total_amount ?? 0) - Number(purchaseRow.paid_amount ?? 0), 0);
     const paymentStatus = outstandingAmount <= 0 && Number(purchaseRow.total_amount ?? 0) > 0 ? 'PAID' : Number(purchaseRow.paid_amount ?? 0) > 0 ? 'PARTIAL' : 'UNPAID';
     const purchaseStatus = receptionStatus === 'RECEIVED' && paymentStatus === 'PAID' ? 'CLOSED' : 'OPEN';
+    const receivedAtValue =
+      receptionStatus === 'RECEIVED'
+        ? purchaseRow.received_at ?? new Date().toISOString()
+        : null;
+    const receivedByValue =
+      receptionStatus === 'RECEIVED'
+        ? purchaseRow.received_by ?? (this.context.userId() ?? 1)
+        : null;
     const { rows } = await client.query(
       `UPDATE stock_purchases
        SET reception_status = $2,
            payment_status = $3,
            outstanding_amount = $4,
            purchase_status = $5,
-           received_at = CASE
-             WHEN $2 = 'RECEIVED' AND received_at IS NULL THEN NOW()
-             WHEN $2 <> 'RECEIVED' THEN NULL
-             ELSE received_at
-           END,
-           received_by = CASE
-             WHEN $2 = 'RECEIVED' AND received_by IS NULL THEN $7
-             WHEN $2 <> 'RECEIVED' THEN NULL
-             ELSE received_by
-           END,
+           received_at = $6,
+           received_by = $7,
            updated_at = NOW()
-       WHERE id = $1 AND organization_id = $6
+       WHERE id = $1 AND organization_id = $8
        RETURNING *`,
-      [purchaseId, receptionStatus, paymentStatus, outstandingAmount, purchaseStatus, this.context.organizationId(), this.context.userId() ?? 1],
+      [
+        purchaseId,
+        receptionStatus,
+        paymentStatus,
+        outstandingAmount,
+        purchaseStatus,
+        receivedAtValue,
+        receivedByValue,
+        this.context.organizationId(),
+      ],
     );
     return rows[0];
   }
