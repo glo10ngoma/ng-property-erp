@@ -1,11 +1,22 @@
 import { ArrowLeft, CreditCard, Download, Eye, FilePlus, FileSpreadsheet, FileText, Printer, RefreshCw, Send } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api, exportCsv, exportXlsxWorkbook, invoiceDisplayStatus, money, paymentMethodLabel, shortDate } from '../api';
+import { api, exportCsv, exportXlsxWorkbook, money, paymentMethodLabel, shortDate } from '../api';
 import { EmptyState, PageHeader, StatusBadge } from '../components';
 import { useAuth } from '../core/auth/AuthContext';
 
 type ReportRow = Record<string, unknown>;
+type SectionKey =
+  | 'summary'
+  | 'leases'
+  | 'guarantees'
+  | 'paidInvoices'
+  | 'invoices'
+  | 'payments'
+  | 'documents'
+  | 'profitability'
+  | 'timeline';
+type InvoiceCategoryKey = 'PAID' | 'PARTIAL' | 'UNPAID' | 'OVERDUE';
 
 type TenantReportData = {
   tenant: ReportRow;
@@ -13,6 +24,9 @@ type TenantReportData = {
   leases: ReportRow[];
   total_lease_count?: number;
   active_lease_count?: number;
+  active_unit_count?: number;
+  total_active_rent_amount?: number;
+  total_active_guarantee_amount?: number;
   active_leases: ReportRow[];
   old_leases: ReportRow[];
   guarantees: ReportRow[];
@@ -45,6 +59,18 @@ const months = [
   ['12', 'Decembre'],
 ];
 
+const sections: Array<{ key: SectionKey; label: string }> = [
+  { key: 'summary', label: 'Synthese locataire' },
+  { key: 'leases', label: 'Biens loues' },
+  { key: 'guarantees', label: 'Garanties locatives' },
+  { key: 'paidInvoices', label: 'Factures payees' },
+  { key: 'invoices', label: 'Factures' },
+  { key: 'payments', label: 'Paiements' },
+  { key: 'documents', label: 'Documents / contrats' },
+  { key: 'profitability', label: 'Rentabilite' },
+  { key: 'timeline', label: 'Timeline' },
+];
+
 export function TenantSituation() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -63,6 +89,8 @@ export function TenantSituation() {
   const [report, setReport] = useState<TenantReportData | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
+  const [activeSection, setActiveSection] = useState<SectionKey>('summary');
+  const [invoiceCategory, setInvoiceCategory] = useState<InvoiceCategoryKey>('PAID');
 
   const queryParams = useMemo(() => {
     const params: Record<string, string> = {};
@@ -92,17 +120,31 @@ export function TenantSituation() {
   }
 
   useEffect(() => {
-    loadReport();
+    void loadReport();
   }, [id, queryParams]);
 
   const leases = report?.leases ?? [];
   const buildings = uniqueOptions(leases, 'building_name', 'building_id');
   const units = uniqueOptions(leases, 'unit_number', 'unit_id');
-  const exportRows = report ? [...report.leases, ...report.guarantees, ...report.invoices, ...report.payments, ...report.documents] : [];
   const tenantLabel = report ? tenantDisplayName(report.tenant) : '';
-  const rentedUnitsCount = report ? new Set(report.active_leases.map((lease) => String(lease.unit_id ?? lease.unit_number ?? '')).filter(Boolean)).size : 0;
-  const totalGuarantee = report ? totalGuaranteeAmount(report.leases) : 0;
   const synthesis = report ? tenantSynthesis(report) : null;
+  const invoiceCategories = report
+    ? {
+        PAID: report.paid,
+        PARTIAL: report.partial,
+        UNPAID: report.unpaid,
+        OVERDUE: report.overdue,
+      }
+    : { PAID: [], PARTIAL: [], UNPAID: [], OVERDUE: [] };
+  const totalLeaseCount = report?.total_lease_count ?? report?.leases.length ?? 0;
+  const activeLeaseCount = report?.active_lease_count ?? report?.active_leases.length ?? 0;
+  const activeUnitCount = report?.active_unit_count ?? new Set((report?.active_leases ?? []).map((lease) => String(lease.unit_id ?? '')).filter(Boolean)).size;
+  const totalActiveRentAmount =
+    report?.total_active_rent_amount ??
+    (report?.active_leases ?? []).reduce((sum, lease) => sum + leaseRentAmount(lease), 0);
+  const totalActiveGuaranteeAmount =
+    report?.total_active_guarantee_amount ??
+    (report?.active_leases ?? []).reduce((sum, lease) => sum + activeGuaranteeAmount(lease), 0);
 
   async function sendReminder(row: ReportRow, channel: 'EMAIL' | 'SMS' | 'WHATSAPP') {
     const invoiceId = Number(row.id ?? row.invoice_id);
@@ -119,25 +161,57 @@ export function TenantSituation() {
       setSuccess('Aucune facture en retard a relancer.');
       return;
     }
-    sendReminder(report.overdue[0], 'EMAIL');
+    void sendReminder(report.overdue[0], 'EMAIL');
   }
 
   return (
     <section>
       <PageHeader
         title="Situation locataire"
-        action={(
+        action={
           <div className="page-actions">
-            <button className="secondary" onClick={() => navigate('/tenants')}><ArrowLeft size={16} />Retour</button>
-            {can('documents.upload') && <button className="secondary" onClick={() => navigate(`/leases/new?tenantId=${id}`)}><FilePlus size={16} />Nouveau bail</button>}
-            {can('invoices.create') && <button className="secondary" onClick={() => navigate(`/invoices?tenantId=${id}`)}><FilePlus size={16} />Nouvelle facture</button>}
-            {can('payments.create') && <button className="secondary" onClick={() => navigate(`/payments?tenantId=${id}`)}><CreditCard size={16} />Enregistrer paiement</button>}
-            {can('communication.send') && <button className="secondary" onClick={remindFirstOverdue}><Send size={16} />Relancer</button>}
-            <button className="secondary" onClick={() => navigate(`/statements/tenant/${id}`)}><FileText size={16} />Relevé de compte</button>
-            <button className="secondary" onClick={() => report && exportTenantSituationWorkbook(report)}><FileSpreadsheet size={16} />Export Excel</button>
-            <button className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
+            <button className="secondary" onClick={() => navigate('/tenants')}>
+              <ArrowLeft size={16} />
+              Retour
+            </button>
+            {can('documents.upload') && (
+              <button className="secondary" onClick={() => navigate(`/leases/new?tenantId=${id}`)}>
+                <FilePlus size={16} />
+                Nouveau bail
+              </button>
+            )}
+            {can('invoices.create') && (
+              <button className="secondary" onClick={() => navigate(`/invoices?tenantId=${id}`)}>
+                <FilePlus size={16} />
+                Nouvelle facture
+              </button>
+            )}
+            {can('payments.create') && (
+              <button className="secondary" onClick={() => navigate(`/payments?tenantId=${id}`)}>
+                <CreditCard size={16} />
+                Enregistrer paiement
+              </button>
+            )}
+            {can('communication.send') && (
+              <button className="secondary" onClick={remindFirstOverdue}>
+                <Send size={16} />
+                Relancer
+              </button>
+            )}
+            <button className="secondary" onClick={() => navigate(`/statements/tenant/${id}`)}>
+              <FileText size={16} />
+              Releve de compte
+            </button>
+            <button className="secondary" onClick={() => report && exportTenantSituationWorkbook(report)}>
+              <FileSpreadsheet size={16} />
+              Export Excel
+            </button>
+            <button className="secondary" onClick={() => window.print()}>
+              <Printer size={16} />
+              Imprimer
+            </button>
           </div>
-        )}
+        }
       />
       {success && <div className="success-message">{success}</div>}
 
@@ -146,20 +220,22 @@ export function TenantSituation() {
           {report.tenant.tenant_type === 'COMPANY' ? (
             <>
               <SummaryCard label="Type locataire" value="Societe" />
-              <SummaryCard label="Société" value={tenantLabel} />
+              <SummaryCard label="Societe" value={tenantLabel} />
               <SummaryCard label="RCCM" value={text(report.tenant.rccm)} />
-              <SummaryCard label="Représentant" value={formattedRepresentative(report.tenant)} />
-              <SummaryCard label="Téléphone" value={text(report.tenant.phone)} />
+              <SummaryCard label="Representant" value={formattedRepresentative(report.tenant)} />
+              <SummaryCard label="Telephone" value={text(report.tenant.phone)} />
               <SummaryCard label="Email" value={text(report.tenant.email)} />
               <SummaryCard label="Statut" value={text(report.tenant.status)} />
+              <SummaryCard label="Adresse" value={text(report.tenant.address)} wide />
             </>
           ) : (
             <>
               <SummaryCard label="Type locataire" value="Physique" />
               <SummaryCard label="Locataire" value={tenantLabel} />
-              <SummaryCard label="Téléphone" value={text(report.tenant.phone)} />
+              <SummaryCard label="Telephone" value={text(report.tenant.phone)} />
               <SummaryCard label="Email" value={text(report.tenant.email)} />
               <SummaryCard label="Statut" value={text(report.tenant.status)} />
+              <SummaryCard label="Adresse" value={text(report.tenant.address)} wide />
             </>
           )}
           <SummaryCard label="Periode" value={`${shortDate(report.period.start)} - ${shortDate(report.period.end)}`} wide />
@@ -169,7 +245,11 @@ export function TenantSituation() {
       <div className="quick-form tenant-situation-filters">
         <select value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })}>
           <option value="">Mois</option>
-          {months.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          {months.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
         </select>
         <input type="number" min="2000" max="2100" value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} placeholder="Annee" />
         <input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, month: '', start: event.target.value })} />
@@ -183,21 +263,45 @@ export function TenantSituation() {
         </select>
         <select value={filters.buildingId} onChange={(event) => setFilters({ ...filters, buildingId: event.target.value })}>
           <option value="">Tous les immeubles</option>
-          {buildings.map((building) => <option key={building.value} value={building.value}>{building.label}</option>)}
+          {buildings.map((building) => (
+            <option key={building.value} value={building.value}>
+              {building.label}
+            </option>
+          ))}
         </select>
         <select value={filters.unitId} onChange={(event) => setFilters({ ...filters, unitId: event.target.value })}>
           <option value="">Toutes les unites</option>
-          {units.map((unit) => <option key={unit.value} value={unit.value}>{unit.label}</option>)}
+          {units.map((unit) => (
+            <option key={unit.value} value={unit.value}>
+              {unit.label}
+            </option>
+          ))}
         </select>
         <select value={filters.leaseId} onChange={(event) => setFilters({ ...filters, leaseId: event.target.value })}>
           <option value="">Tous les baux</option>
-          {leases.map((lease) => <option key={String(lease.id)} value={String(lease.id)}>Bail #{String(lease.id)} - {text(lease.status)}</option>)}
+          {leases.map((lease) => (
+            <option key={String(lease.id)} value={String(lease.id)}>
+              Bail #{text(lease.id)} - {text(lease.status)}
+            </option>
+          ))}
         </select>
         <div className="filter-actions tenant-filter-actions">
-          <button type="button" onClick={loadReport}><RefreshCw size={16} />Actualiser</button>
-          <button type="button" className="secondary" onClick={() => exportCsv('situation-locataire.csv', exportRows)}><Download size={16} />CSV</button>
-          <button type="button" className="secondary" onClick={() => report && exportTenantSituationWorkbook(report)}><FileSpreadsheet size={16} />Excel</button>
-          <button type="button" className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
+          <button type="button" onClick={loadReport}>
+            <RefreshCw size={16} />
+            Actualiser
+          </button>
+          <button type="button" className="secondary" onClick={() => exportCsv('situation-locataire.csv', buildExportRows(report))}>
+            <Download size={16} />
+            CSV
+          </button>
+          <button type="button" className="secondary" onClick={() => report && exportTenantSituationWorkbook(report)}>
+            <FileSpreadsheet size={16} />
+            Excel
+          </button>
+          <button type="button" className="secondary" onClick={() => window.print()}>
+            <Printer size={16} />
+            Imprimer
+          </button>
         </div>
       </div>
 
@@ -205,45 +309,138 @@ export function TenantSituation() {
       {report && (
         <>
           <div className="mini-stats">
-            <div className="mini-stat"><span>Baux actifs</span><strong>{report.active_lease_count ?? report.active_leases.length}</strong></div>
-            <div className="mini-stat"><span>Unites louees</span><strong>{rentedUnitsCount}</strong></div>
-            <div className="mini-stat"><span>Total garantie</span><strong>{money(totalGuarantee)}</strong></div>
-            <div className="mini-stat"><span>Total baux</span><strong>{report.total_lease_count ?? report.leases.length}</strong></div>
+            <div className="mini-stat"><span>Total baux</span><strong>{totalLeaseCount}</strong></div>
+            <div className="mini-stat"><span>Baux actifs</span><strong>{activeLeaseCount}</strong></div>
+            <div className="mini-stat"><span>Unites louees</span><strong>{activeUnitCount}</strong></div>
+            <div className="mini-stat"><span>Total loyers actifs</span><strong>{money(totalActiveRentAmount)}</strong></div>
+            <div className="mini-stat"><span>Total garanties actives</span><strong>{money(totalActiveGuaranteeAmount)}</strong></div>
             <div className="mini-stat"><span>Factures payees</span><strong>{report.paid.length}</strong></div>
-            <div className="mini-stat"><span>Factures partielles</span><strong>{report.partial.length}</strong></div>
             <div className="mini-stat"><span>Factures en retard</span><strong>{report.overdue.length}</strong></div>
-            <div className="mini-stat"><span>Total facture</span><strong>{money(report.total_invoiced)}</strong></div>
             <div className="mini-stat"><span>Total paye</span><strong>{money(report.total_paid)}</strong></div>
-            <div className="mini-stat"><span>Solde restant</span><strong>{money(report.remaining)}</strong></div>
+            <div className="mini-stat"><span>Solde impaye</span><strong>{money(report.remaining)}</strong></div>
           </div>
 
-          {synthesis && (
-            <div className="detail-section report-section tenant-synthesis">
-              <h4>Synthese locataire</h4>
-              <div className="summary-band">
-                <SummaryCard label="Dernier paiement" value={synthesis.lastPayment} />
-                <SummaryCard label="Derniere relance" value={synthesis.lastReminder} />
-                <SummaryCard label="Prochaine echeance" value={synthesis.nextDueDate} />
-                <SummaryCard label="Factures en retard" value={synthesis.overdueCount} />
-                <SummaryCard label="Solde total" value={money(report.remaining)} />
-                <SummaryCard label="Niveau de risque" value={synthesis.risk} />
-              </div>
-            </div>
+          <div className="tenant-situation-nav" role="tablist" aria-label="Rubriques situation locataire">
+            {sections.map((section) => (
+              <button
+                key={section.key}
+                type="button"
+                className={activeSection === section.key ? 'tenant-situation-tab active' : 'tenant-situation-tab'}
+                onClick={() => setActiveSection(section.key)}
+              >
+                {section.label}
+              </button>
+            ))}
+          </div>
+
+          {activeSection === 'summary' && (
+            <>
+              {synthesis && (
+                <div className="detail-section report-section tenant-synthesis">
+                  <h4>Synthese locataire</h4>
+                  <div className="summary-band">
+                    <SummaryCard label="Dernier paiement" value={synthesis.lastPayment} />
+                    <SummaryCard label="Derniere relance" value={synthesis.lastReminder} />
+                    <SummaryCard label="Prochaine echeance" value={synthesis.nextDueDate} />
+                    <SummaryCard label="Factures en retard" value={synthesis.overdueCount} />
+                    <SummaryCard label="Solde total" value={money(report.remaining)} />
+                    <SummaryCard label="Niveau de risque" value={synthesis.risk} />
+                  </div>
+                </div>
+              )}
+              <TenantIdentitySection report={report} />
+            </>
           )}
 
-          <LeaseTable rows={report.active_leases} />
-          <GuaranteeTable rows={report.guarantees} />
-          <InvoiceTable title="Factures payees" rows={report.paid} navigate={navigate} />
-          <InvoiceTable title="Factures partiellement payees" rows={report.partial} navigate={navigate} />
-          <InvoiceTable title="Factures non payees" rows={report.unpaid} navigate={navigate} />
-          <InvoiceTable title="Factures en retard" rows={report.overdue} navigate={navigate} onRemind={can('communication.send') ? sendReminder : undefined} />
-          <PaymentTable rows={report.payments} />
-          <DocumentTable rows={report.documents} />
-          <TimelineTable report={report} />
-          <ProfitabilityTable report={report} />
+          {activeSection === 'leases' && <LeaseTable rows={report.active_leases} />}
+          {activeSection === 'guarantees' && <GuaranteeTable rows={report.guarantees} />}
+          {activeSection === 'paidInvoices' && <InvoiceTable title="Factures payees" rows={report.paid} navigate={navigate} />}
+          {activeSection === 'invoices' && (
+            <>
+              <div className="tenant-situation-subnav" role="tablist" aria-label="Categories de factures">
+                {[
+                  ['PAID', 'Factures payees'],
+                  ['PARTIAL', 'Factures partiellement payees'],
+                  ['UNPAID', 'Factures non payees'],
+                  ['OVERDUE', 'Factures en retard'],
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={invoiceCategory === key ? 'tenant-situation-subtab active' : 'tenant-situation-subtab'}
+                    onClick={() => setInvoiceCategory(key as InvoiceCategoryKey)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <InvoiceTable
+                title={
+                  invoiceCategory === 'PAID'
+                    ? 'Factures payees'
+                    : invoiceCategory === 'PARTIAL'
+                      ? 'Factures partiellement payees'
+                      : invoiceCategory === 'UNPAID'
+                        ? 'Factures non payees'
+                        : 'Factures en retard'
+                }
+                rows={invoiceCategories[invoiceCategory]}
+                navigate={navigate}
+                onRemind={invoiceCategory === 'OVERDUE' && can('communication.send') ? sendReminder : undefined}
+              />
+            </>
+          )}
+          {activeSection === 'payments' && <PaymentTable rows={report.payments} />}
+          {activeSection === 'documents' && <DocumentTable rows={report.documents} navigate={navigate} />}
+          {activeSection === 'profitability' && (
+            <ProfitabilityTable
+              report={report}
+              totalActiveRentAmount={totalActiveRentAmount}
+              totalActiveSyndicAmount={report.active_leases.reduce((sum, lease) => sum + Number(lease.monthly_syndic_amount ?? 0), 0)}
+            />
+          )}
+          {activeSection === 'timeline' && <TimelineTable report={report} />}
         </>
       )}
     </section>
+  );
+}
+
+function TenantIdentitySection({ report }: { report: TenantReportData }) {
+  const tenant = report.tenant;
+  const rows =
+    tenant.tenant_type === 'COMPANY'
+      ? [
+          ['Societe', text(tenant.company_name)],
+          ['Representant', formattedRepresentative(tenant)],
+          ['Telephone', text(tenant.phone)],
+          ['Email', text(tenant.email)],
+          ['RCCM', text(tenant.rccm)],
+          ['Numero fiscal', text(tenant.tax_number)],
+          ['Adresse', text(tenant.address)],
+          ['Statut', text(tenant.status)],
+        ]
+      : [
+          ['Locataire', tenantDisplayName(tenant)],
+          ['Telephone', text(tenant.phone)],
+          ['Email', text(tenant.email)],
+          ['Profession', text(tenant.profession)],
+          ['Nationalite', text(tenant.nationality)],
+          ['Adresse', text(tenant.address)],
+          ['Statut', text(tenant.status)],
+        ];
+  return (
+    <div className="detail-section report-section">
+      <h4>Informations generales</h4>
+      <div className="detail-list">
+        {rows.map(([label, value]) => (
+          <span key={label}>
+            {label}
+            <strong>{value}</strong>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -271,26 +468,24 @@ function LeaseTable({ rows }: { rows: ReportRow[] }) {
       <h4>Biens loues</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Immeuble</th><th>Unite</th><th>Bail</th><th>Date debut</th><th>Date fin</th><th className="right">Loyer</th><th className="right">Syndic</th><th className="right">Total mensuel</th><th>Devise</th><th>Statut bail</th><th className="right">Garantie</th><th>Devise</th></tr></thead>
+          <thead><tr><th>Immeuble</th><th>Unite</th><th>Reference bail</th><th>Debut</th><th>Fin</th><th>Statut</th><th className="right">Loyer</th><th className="right">Syndic</th><th className="right">Total mensuel</th></tr></thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
                 <td>{text(row.building_name)}</td>
                 <td>{text(row.unit_number)}</td>
-                <td>#{text(row.id)}</td>
+                <td>{leaseReference(row)}</td>
                 <td>{date(row.start_date)}</td>
                 <td>{date(row.end_date)}</td>
+                <td><StatusBadge value={text(row.status)} /></td>
                 <td className="right">{amount(leaseRentAmount(row))}</td>
                 <td className="right">{amount(row.monthly_syndic_amount)}</td>
                 <td className="right">{amount(leaseRentAmount(row) + Number(row.monthly_syndic_amount ?? 0))}</td>
-                <td>USD</td>
-                <td><StatusBadge value={text(row.status)} /></td>
-                <AmountCell value={row.guarantee_amount} />
               </tr>
             ))}
           </tbody>
         </table>
-        {!rows.length && <CompactEmpty message="Aucun bail trouve." />}
+        {!rows.length && <CompactEmpty message="Aucun bien loue actif." />}
       </div>
     </div>
   );
@@ -302,8 +497,21 @@ function GuaranteeTable({ rows }: { rows: ReportRow[] }) {
       <h4>Garanties locatives</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Bail</th><th>Immeuble</th><th>Unite</th><th className="right">Montant</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th>Statut</th></tr></thead>
-          <tbody>{rows.map((row, index) => <tr key={index}><td>#{text(row.lease_id)}</td><td>{text(row.building_name)}</td><td>{text(row.unit_number)}</td><AmountCell value={row.amount} /><AmountCell value={row.paid_amount} /><td><StatusBadge value={text(row.status)} /></td></tr>)}</tbody>
+          <thead><tr><th>Reference bail</th><th>Bien</th><th className="right">Mois</th><th className="right">Garantie attendue</th><th className="right">Garantie payee</th><th className="right">Reste</th><th>Statut</th><th>Date paiement</th></tr></thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={index}>
+                <td>#{text(row.lease_id)}</td>
+                <td>{`${text(row.building_name)} - ${text(row.unit_number)}`}</td>
+                <td className="right">{Number(row.guarantee_months ?? 0)}</td>
+                <td className="right">{amount(row.amount)}</td>
+                <td className="right">{amount(row.paid_amount)}</td>
+                <td className="right">{amount(row.remaining_amount)}</td>
+                <td><StatusBadge value={text(row.status)} /></td>
+                <td>{date(row.payment_date)}</td>
+              </tr>
+            ))}
+          </tbody>
         </table>
         {!rows.length && <CompactEmpty message="Aucune garantie enregistree." />}
       </div>
@@ -318,22 +526,21 @@ function InvoiceTable({ title, rows, navigate, onRemind }: { title: string; rows
       <h4>{title}</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Facture</th><th>Immeuble</th><th>Unite</th><th>Periode</th><th>Date</th><th>Echeance</th><th>Statut</th><th className="right">Loyer</th><th className="right">Syndic</th><th className="right">Montant</th><th>Devise</th><th className="right">Paye</th><th>Devise</th><th className="right">Reste</th><th>Devise</th>{showReminders && <th>Derniere relance</th>}{showReminders && <th className="right">Relances</th>}<th>Actions</th></tr></thead>
+          <thead><tr><th>Numero</th><th>Type</th><th>Periode</th><th>Date</th><th>Echeance</th><th>Immeuble</th><th>Unite</th><th className="right">Total</th><th className="right">Paye</th><th className="right">Reste</th><th>Statut</th>{showReminders && <th>Derniere relance</th>}{showReminders && <th className="right">Relances</th>}<th>Actions</th></tr></thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
                 <td>{text(row.invoice_number)}</td>
-                <td>{text(row.building_name)}</td>
-                <td>{text(row.unit_number)}</td>
+                <td>{text(row.invoice_type)}</td>
                 <td>{periodText(row.month, row.year)}</td>
                 <td>{date(row.issue_date)}</td>
                 <td>{date(row.due_date)}</td>
-                <td><StatusBadge value={invoiceDisplayStatus(String(row.status ?? ''), String(row.due_date ?? ''))} /></td>
-                <td className="right">{amount(row.rent_amount)}</td>
-                <td className="right">{amount(row.syndic_amount)}</td>
-                <AmountCell value={row.total} />
-                <AmountCell value={row.paid_amount} />
-                <AmountCell value={row.remaining_amount} />
+                <td>{text(row.building_name)}</td>
+                <td>{text(row.unit_number)}</td>
+                <td className="right">{amount(row.total)}</td>
+                <td className="right">{amount(row.paid_amount)}</td>
+                <td className="right">{amount(row.remaining_amount)}</td>
+                <td><StatusBadge value={invoiceCategoryLabel(row)} /></td>
                 {showReminders && <td>{reminderDate(row.last_reminder_at)}</td>}
                 {showReminders && <td className="right">{Number(row.reminder_count ?? 0)}</td>}
                 <td className="actions">
@@ -357,8 +564,24 @@ function PaymentTable({ rows }: { rows: ReportRow[] }) {
       <h4>Paiements</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Date</th><th>Facture</th><th>Immeuble</th><th>Unite</th><th className="right">Montant</th><th>Devise</th><th>Mode paiement</th><th>Reference</th></tr></thead>
-          <tbody>{rows.map((row, index) => <tr key={index}><td>{date(row.payment_date)}</td><td>{text(row.invoice_number)}</td><td>{text(row.building_name)}</td><td>{text(row.unit_number)}</td><AmountCell value={row.amount} /><td>{paymentMethodLabel(text(row.payment_method))}</td><td>{text(row.reference)}</td></tr>)}</tbody>
+          <thead><tr><th>Date</th><th>Reference</th><th>Facture</th><th>Immeuble</th><th>Unite</th><th>Devise</th><th className="right">Montant USD</th><th className="right">Montant CDF</th><th className="right">Taux</th><th>Mode paiement</th><th>Statut</th></tr></thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={index}>
+                <td>{date(row.payment_date)}</td>
+                <td>{text(row.reference)}</td>
+                <td>{text(row.invoice_number)}</td>
+                <td>{text(row.building_name)}</td>
+                <td>{text(row.unit_number)}</td>
+                <td>{text(row.currency, 'USD')}</td>
+                <td className="right">{amount(row.amount_usd ?? row.amount)}</td>
+                <td className="right">{amount(row.amount_cdf)}</td>
+                <td className="right">{amount(row.exchange_rate)}</td>
+                <td>{paymentMethodLabel(text(row.payment_method))}</td>
+                <td><StatusBadge value={text(row.status)} /></td>
+              </tr>
+            ))}
+          </tbody>
         </table>
         {!rows.length && <CompactEmpty message="Aucun paiement trouve." />}
       </div>
@@ -366,14 +589,29 @@ function PaymentTable({ rows }: { rows: ReportRow[] }) {
   );
 }
 
-function DocumentTable({ rows }: { rows: ReportRow[] }) {
+function DocumentTable({ rows, navigate }: { rows: ReportRow[]; navigate: (path: string) => void }) {
   return (
     <div className="detail-section report-section">
       <h4>Documents / contrats</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Document</th><th>Type</th><th>Immeuble</th><th>Unite</th><th>Bail</th><th>Date</th></tr></thead>
-          <tbody>{rows.map((row, index) => <tr key={index}><td>{text(row.file_name ?? row.name)}</td><td>{text(row.document_type)}</td><td>{text(row.building_name)}</td><td>{text(row.unit_number)}</td><td>#{text(row.lease_id)}</td><td>{date(row.uploaded_at)}</td></tr>)}</tbody>
+          <thead><tr><th>Document</th><th>Type</th><th>Immeuble</th><th>Unite</th><th>Bail</th><th>Date</th><th>Source</th><th>Action</th></tr></thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={index}>
+                <td>{text(row.file_name ?? row.name)}</td>
+                <td>{text(row.document_type)}</td>
+                <td>{text(row.building_name)}</td>
+                <td>{text(row.unit_number)}</td>
+                <td>#{text(row.lease_id)}</td>
+                <td>{date(row.document_date ?? row.uploaded_at)}</td>
+                <td>{text(row.source_type, 'DOCUMENT')}</td>
+                <td className="actions">
+                  <button className="icon-btn" title="Voir le bail" onClick={() => navigate(`/leases/${String(row.lease_id)}`)}><Eye size={16} /></button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
         </table>
         {!rows.length && <CompactEmpty message="Aucun document trouve." />}
       </div>
@@ -388,7 +626,7 @@ function TimelineTable({ report }: { report: TenantReportData }) {
       <h4>Timeline</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Date</th><th>Evènement</th><th>Description</th><th>Utilisateur</th></tr></thead>
+          <thead><tr><th>Date</th><th>Evenement</th><th>Description</th><th>Utilisateur</th></tr></thead>
           <tbody>{rows.map((row, index) => <tr key={index}><td>{row.Date}</td><td>{row.Evenement}</td><td>{row.Description}</td><td>{row.Utilisateur}</td></tr>)}</tbody>
         </table>
         {!rows.length && <CompactEmpty message="Aucun evenement trouve." />}
@@ -397,15 +635,34 @@ function TimelineTable({ report }: { report: TenantReportData }) {
   );
 }
 
-function ProfitabilityTable({ report }: { report: TenantReportData }) {
-  const reminders = report.invoices.reduce((sum, invoice) => sum + Number(invoice.reminder_count ?? 0), 0);
+function ProfitabilityTable({
+  report,
+  totalActiveRentAmount,
+  totalActiveSyndicAmount,
+}: {
+  report: TenantReportData;
+  totalActiveRentAmount: number;
+  totalActiveSyndicAmount: number;
+}) {
+  const totalMonthlyExpected = totalActiveRentAmount + totalActiveSyndicAmount;
+  const collectionRate = Number(report.total_invoiced ?? 0) > 0 ? (Number(report.total_paid ?? 0) / Number(report.total_invoiced ?? 0)) * 100 : 0;
   return (
     <div className="detail-section report-section">
-      <h4>Rentabilité</h4>
+      <h4>Rentabilite</h4>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Total loyers facturés</th><th>Total encaissé</th><th>Total impayés</th><th>Nombre de baux</th><th>Nombre de relances</th><th>Date dernier paiement</th><th>Solde restant</th></tr></thead>
-          <tbody><tr><td>{amount(report.total_invoiced)}</td><td>{amount(report.total_paid)}</td><td>{amount(report.remaining)}</td><td>{report.leases.length}</td><td>{reminders}</td><td>{latestDate(report.payments.map((payment) => String(payment.payment_date ?? '')))}</td><td>{amount(report.remaining)}</td></tr></tbody>
+          <thead><tr><th>Loyers actifs mensuels</th><th>Syndic mensuel</th><th>Total mensuel attendu</th><th>Total facture</th><th>Total encaisse</th><th>Reste a encaisser</th><th>Taux d'encaissement</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>{amount(totalActiveRentAmount)}</td>
+              <td>{amount(totalActiveSyndicAmount)}</td>
+              <td>{amount(totalMonthlyExpected)}</td>
+              <td>{amount(report.total_invoiced)}</td>
+              <td>{amount(report.total_paid)}</td>
+              <td>{amount(report.remaining)}</td>
+              <td>{collectionRate.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}%</td>
+            </tr>
+          </tbody>
         </table>
       </div>
     </div>
@@ -414,11 +671,18 @@ function ProfitabilityTable({ report }: { report: TenantReportData }) {
 
 function tenantTimeline(report: TenantReportData) {
   return [
-    ...report.leases.map((lease) => ({ Date: date(lease.start_date), Evenement: 'Bail cree', Description: `Bail #${text(lease.id)}`, Utilisateur: '' })),
+    ...report.leases.map((lease) => ({ Date: date(lease.start_date), Evenement: 'Bail cree', Description: leaseReference(lease), Utilisateur: '' })),
     ...report.invoices.map((invoice) => ({ Date: date(invoice.issue_date), Evenement: 'Facture creee', Description: text(invoice.invoice_number), Utilisateur: '' })),
     ...report.payments.map((payment) => ({ Date: date(payment.payment_date), Evenement: 'Paiement recu', Description: text(payment.reference ?? payment.invoice_number), Utilisateur: '' })),
     ...report.invoices.filter((invoice) => invoice.last_reminder_at).map((invoice) => ({ Date: date(invoice.last_reminder_at), Evenement: 'Relance', Description: text(invoice.invoice_number), Utilisateur: '' })),
+    ...report.guarantees.filter((guarantee) => Number(guarantee.paid_amount ?? 0) > 0).map((guarantee) => ({ Date: date(guarantee.payment_date), Evenement: 'Garantie payee', Description: `Bail #${text(guarantee.lease_id)}`, Utilisateur: '' })),
+    ...report.documents.map((document) => ({ Date: date(document.document_date ?? document.uploaded_at), Evenement: 'Document ajoute', Description: text(document.file_name), Utilisateur: '' })),
   ].sort((a, b) => new Date(String(b.Date)).getTime() - new Date(String(a.Date)).getTime());
+}
+
+function buildExportRows(report: TenantReportData | null) {
+  if (!report) return [];
+  return [...report.leases, ...report.guarantees, ...report.invoices, ...report.payments, ...report.documents];
 }
 
 function emptyInvoiceMessage(title: string) {
@@ -435,10 +699,6 @@ function physicalInfoRow(tenant: ReportRow) {
 
 function companyInfoRow(tenant: ReportRow) {
   return { Type: 'Societe', Societe: text(tenant.company_name), RCCM: text(tenant.rccm), 'ID Nat / Numero fiscal': text(tenant.tax_number), 'Secteur activite': text(tenant.business_sector), Telephone: text(tenant.phone), Email: text(tenant.email), Adresse: text(tenant.address), Representant: formattedRepresentative(tenant), Fonction: text(tenant.legal_representative_role), 'Telephone representant': text(tenant.legal_representative_phone), 'Email representant': text(tenant.legal_representative_email), Document: text(tenant.company_document_name), Statut: text(tenant.status) };
-}
-
-function AmountCell({ value }: { value: unknown }) {
-  return <><td className="right">{amount(value)}</td><td>USD</td></>;
 }
 
 function uniqueOptions(rows: ReportRow[], labelKey: string, valueKey: string) {
@@ -505,7 +765,7 @@ function exportTenantSituationWorkbook(report: TenantReportData) {
       Facture: text(invoice.invoice_number),
       'Derniere relance': date(invoice.last_reminder_at),
       'Nombre relances': text(invoice.reminder_count, '0'),
-      Statut: text(invoice.status),
+      Statut: invoiceCategoryLabel(invoice),
     }));
   const timeline = tenantTimeline(report);
   exportXlsxWorkbook(`Situation_${safeFilePart(tenantName || 'locataire')}.xlsx`, [
@@ -517,7 +777,21 @@ function exportTenantSituationWorkbook(report: TenantReportData) {
     { name: 'Relances', rows: reminderRows },
     { name: 'Documents', rows: report.documents },
     { name: 'Timeline', rows: timeline },
-    { name: 'Rentabilite', rows: [{ 'Total loyers factures': amount(report.total_rent_invoiced), 'Total syndic facture': amount(report.total_syndic_invoiced), 'Total facture': amount(report.total_invoiced), 'Total encaisse': amount(report.total_paid), 'Total impayes': amount(report.remaining), 'Total garantie': amount(totalGuaranteeAmount(report.leases)), 'Total baux': report.total_lease_count ?? report.leases.length, 'Baux actifs': report.active_lease_count ?? report.active_leases.length, 'Nombre de relances': reminderRows.reduce((sum, row) => sum + Number(row['Nombre relances'] ?? 0), 0), 'Date dernier paiement': latestDate(report.payments.map((payment) => String(payment.payment_date ?? ''))), 'Solde restant': amount(report.remaining) }] },
+    {
+      name: 'Rentabilite',
+      rows: [{
+        total_loyers_actifs: amount(report.total_active_rent_amount),
+        total_garanties_actives: amount(report.total_active_guarantee_amount),
+        total_facture: amount(report.total_invoiced),
+        total_encaisse: amount(report.total_paid),
+        total_impayes: amount(report.remaining),
+        total_baux: report.total_lease_count ?? report.leases.length,
+        baux_actifs: report.active_lease_count ?? report.active_leases.length,
+        unites_louees: report.active_unit_count ?? 0,
+        nombre_relances: reminderRows.reduce((sum, row) => sum + Number(row['Nombre relances'] ?? 0), 0),
+        date_dernier_paiement: latestDate(report.payments.map((payment) => String(payment.payment_date ?? ''))),
+      }],
+    },
   ]);
 }
 
@@ -552,33 +826,28 @@ function formattedRepresentative(tenant: ReportRow) {
   ) || '—';
 }
 
-function totalGuaranteeAmount(leases: ReportRow[]) {
-  return leases.reduce((sum, lease) => {
-    const value = lease.rental_guarantee_amount ?? lease.guarantee_amount ?? lease.deposit_amount ?? lease.amount;
-    return sum + Number(value ?? 0);
-  }, 0);
-}
-
-function totalLeaseAmount(leases: ReportRow[]) {
-  return leases.reduce((sum, lease) => {
-    const duration = leaseDurationMonths(lease.start_date, lease.end_date);
-    const rent = leaseRentAmount(lease);
-    const syndic = Number(lease.monthly_syndic_amount ?? lease.syndic_amount ?? 0);
-    return sum + duration * (rent + syndic);
-  }, 0);
-}
-
 function leaseRentAmount(lease: ReportRow) {
   return Number(lease.monthly_rent ?? lease.rent_amount ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
 }
 
-function leaseDurationMonths(startValue: unknown, endValue: unknown) {
-  if (!startValue) return 0;
-  const start = new Date(String(startValue));
-  const end = endValue ? new Date(String(endValue)) : new Date();
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-  const yearMonths = (end.getFullYear() - start.getFullYear()) * 12;
-  const monthDiff = end.getMonth() - start.getMonth();
-  const total = yearMonths + monthDiff + 1;
-  return Math.max(0, total);
+function activeGuaranteeAmount(lease: ReportRow) {
+  const persisted = lease.rental_guarantee_amount ?? lease.guarantee_amount ?? lease.amount;
+  if (persisted != null && persisted !== '') return Number(persisted ?? 0);
+  return leaseRentAmount(lease) * Number(lease.guarantee_months ?? 0);
+}
+
+function leaseReference(lease: ReportRow) {
+  return text(lease.lease_number ?? `#${text(lease.id)}`);
+}
+
+function invoiceCategoryLabel(row: ReportRow) {
+  const status = String(row.status ?? '').toUpperCase();
+  const paidAmount = Number(row.paid_amount ?? 0);
+  const remainingAmount = Number(row.remaining_amount ?? row.total ?? 0);
+  const dueDate = row.due_date ? new Date(`${String(row.due_date).slice(0, 10)}T23:59:59`) : null;
+  const now = new Date();
+  if (status === 'PAID' || remainingAmount <= 0) return 'PAID';
+  if (paidAmount > 0 && remainingAmount > 0) return 'PARTIAL';
+  if (dueDate && dueDate.getTime() < now.getTime()) return 'OVERDUE';
+  return 'UNPAID';
 }

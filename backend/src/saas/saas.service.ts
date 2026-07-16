@@ -5404,16 +5404,55 @@ export class SaasService {
       [id, organizationId, period.start, period.end, filters.buildingId ?? null, filters.unitId ?? null, filters.leaseId ?? null, filters.invoiceStatus || null],
     );
     const documents = await this.db.query(
-      `SELECT ld.*, l.status AS lease_status, u.number AS unit_number, b.name AS building_name
-       FROM lease_documents ld
-       JOIN leases l ON l.id = ld.lease_id
-       JOIN units u ON u.id = l.unit_id
-       JOIN buildings b ON b.id = u.building_id
-       WHERE l.tenant_id = $1 AND ld.organization_id = $2 AND ld.deleted_at IS NULL
-         AND ($3::INT IS NULL OR b.id = $3)
-         AND ($4::INT IS NULL OR u.id = $4)
-         AND ($5::INT IS NULL OR l.id = $5)
-       ORDER BY ld.uploaded_at DESC, ld.id DESC`,
+      `SELECT *
+       FROM (
+         SELECT
+           ld.id,
+           ld.lease_id,
+           ld.document_type,
+           ld.file_name,
+           ld.file_url,
+           ld.uploaded_at AS document_date,
+           l.status AS lease_status,
+           u.number AS unit_number,
+           b.name AS building_name,
+           'LEASE_DOCUMENT'::TEXT AS source_type
+         FROM lease_documents ld
+         JOIN leases l ON l.id = ld.lease_id
+         JOIN units u ON u.id = l.unit_id
+         JOIN buildings b ON b.id = u.building_id
+         WHERE l.tenant_id = $1
+           AND ld.organization_id = $2
+           AND ld.deleted_at IS NULL
+           AND ($3::INT IS NULL OR b.id = $3)
+           AND ($4::INT IS NULL OR u.id = $4)
+           AND ($5::INT IS NULL OR l.id = $5)
+
+         UNION ALL
+
+         SELECT
+           cg.id,
+           cg.lease_id,
+           COALESCE(cg.contract_type, 'CONTRACT') AS document_type,
+           COALESCE(cg.docx_file_name, cg.pdf_file_name, cg.file_name, 'Contrat') AS file_name,
+           COALESCE(cg.docx_file_url, cg.pdf_file_url, cg.file_url) AS file_url,
+           cg.generated_at AS document_date,
+           l.status AS lease_status,
+           u.number AS unit_number,
+           b.name AS building_name,
+           'LEASE_CONTRACT'::TEXT AS source_type
+         FROM lease_contract_generations cg
+         JOIN leases l ON l.id = cg.lease_id
+         JOIN units u ON u.id = l.unit_id
+         JOIN buildings b ON b.id = u.building_id
+         WHERE l.tenant_id = $1
+           AND cg.organization_id = $2
+           AND cg.deleted_at IS NULL
+           AND ($3::INT IS NULL OR b.id = $3)
+           AND ($4::INT IS NULL OR u.id = $4)
+           AND ($5::INT IS NULL OR l.id = $5)
+       ) docs
+       ORDER BY docs.document_date DESC NULLS LAST, docs.id DESC`,
       [id, organizationId, filters.buildingId ?? null, filters.unitId ?? null, filters.leaseId ?? null],
     );
     const rows = invoiceRows;
@@ -5422,17 +5461,27 @@ export class SaasService {
     const totalSyndicInvoiced = rows.reduce((sum, row) => sum + Number(row.syndic_amount ?? 0), 0);
     const totalPaid = rows.reduce((sum, row) => sum + Number(row.paid_amount), 0);
     const remaining = rows.reduce((sum, row) => sum + Number(row.remaining_amount), 0);
-    const currentLeases = leases.rows.filter((lease) => {
-      const startDate = lease.start_date ? new Date(`${String(lease.start_date).slice(0, 10)}T00:00:00`) : null;
-      const endDate = lease.end_date ? new Date(`${String(lease.end_date).slice(0, 10)}T00:00:00`) : null;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return Boolean(
-        startDate &&
-        startDate.getTime() <= today.getTime() &&
-        (!endDate || endDate.getTime() >= today.getTime()) &&
-        !['DRAFT', 'CANCELLED'].includes(String(lease.status ?? '')),
-      );
+    const currentLeases = leases.rows.filter((lease) => this.isActiveLease(lease));
+    const activeLeaseIds = new Set(currentLeases.map((lease) => Number(lease.id)).filter((leaseId) => Number.isFinite(leaseId)));
+    const activeUnitIds = new Set(currentLeases.map((lease) => Number(lease.unit_id)).filter((unitId) => Number.isFinite(unitId)));
+    const totalActiveRentAmount = currentLeases.reduce(
+      (sum, lease) => sum + Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0),
+      0,
+    );
+    const totalActiveGuaranteeAmount = currentLeases.reduce(
+      (sum, lease) => sum + this.tenantLeaseGuaranteeAmount(lease),
+      0,
+    );
+    const paidInvoices: Record<string, unknown>[] = [];
+    const partialInvoices: Record<string, unknown>[] = [];
+    const unpaidInvoices: Record<string, unknown>[] = [];
+    const overdueInvoices: Record<string, unknown>[] = [];
+    rows.forEach((row) => {
+      const category = this.tenantInvoiceCategory(row);
+      if (category === 'PAID') paidInvoices.push(row);
+      else if (category === 'PARTIAL') partialInvoices.push(row);
+      else if (category === 'OVERDUE') overdueInvoices.push(row);
+      else unpaidInvoices.push(row);
     });
     return {
       tenant: requireRow(tenant.rows[0], 'Tenant'),
@@ -5440,16 +5489,25 @@ export class SaasService {
       filters,
       leases: leases.rows,
       total_lease_count: new Set(leases.rows.map((lease) => Number(lease.id)).filter((leaseId) => Number.isFinite(leaseId))).size,
-      active_lease_count: new Set(currentLeases.map((lease) => Number(lease.id)).filter((leaseId) => Number.isFinite(leaseId))).size,
+      active_lease_count: activeLeaseIds.size,
+      active_unit_count: activeUnitIds.size,
+      total_active_rent_amount: totalActiveRentAmount,
+      total_active_guarantee_amount: totalActiveGuaranteeAmount,
       active_leases: currentLeases,
       old_leases: leases.rows.filter((lease) => !currentLeases.includes(lease)),
       guarantees: leases.rows.map((lease) => ({
         lease_id: lease.id,
         building_name: lease.building_name,
         unit_number: lease.unit_number,
-        amount: lease.guarantee_amount,
-        paid_amount: lease.guarantee_paid,
-        status: lease.guarantee_status,
+        guarantee_months: lease.guarantee_months,
+        amount: this.tenantLeaseGuaranteeAmount(lease),
+        paid_amount: lease.guarantee_paid ?? lease.rental_guarantee_paid ?? 0,
+        remaining_amount: Math.max(
+          this.tenantLeaseGuaranteeAmount(lease) - Number(lease.guarantee_paid ?? lease.rental_guarantee_paid ?? 0),
+          0,
+        ),
+        payment_date: lease.rental_guarantee_payment_date ?? null,
+        status: lease.guarantee_status ?? lease.rental_guarantee_status,
       })),
       payments: payments.rows,
       documents: documents.rows,
@@ -5462,10 +5520,10 @@ export class SaasService {
       remaining,
       tenants_paid: totalPaid > 0 ? [{ tenant_id: id, tenant_name: `${tenant.rows[0]?.first_name ?? ''} ${tenant.rows[0]?.last_name ?? ''}`.trim() }] : [],
       tenants_unpaid: remaining > 0 ? [{ tenant_id: id, tenant_name: `${tenant.rows[0]?.first_name ?? ''} ${tenant.rows[0]?.last_name ?? ''}`.trim(), remaining_amount: remaining }] : [],
-      paid: rows.filter((row) => row.status === 'PAID'),
-      partial: rows.filter((row) => row.status === 'PARTIAL'),
-      unpaid: rows.filter((row) => row.status === 'UNPAID'),
-      overdue: rows.filter((row) => row.status !== 'PAID' && new Date(row.due_date) < new Date()),
+      paid: paidInvoices,
+      partial: partialInvoices,
+      unpaid: unpaidInvoices,
+      overdue: overdueInvoices,
     };
   }
 
@@ -5483,6 +5541,43 @@ export class SaasService {
 
   private statementPeriod(filters: { month?: string; year?: string; start?: string; end?: string }) {
     return this.reportPeriod(filters);
+  }
+
+  private isActiveLease(lease: Record<string, any>) {
+    const startDate = lease.start_date ? new Date(`${String(lease.start_date).slice(0, 10)}T00:00:00`) : null;
+    const endDate = lease.end_date ? new Date(`${String(lease.end_date).slice(0, 10)}T00:00:00`) : null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const status = String(lease.status ?? '').toUpperCase();
+    return Boolean(
+      startDate &&
+        startDate.getTime() <= today.getTime() &&
+        (!endDate || endDate.getTime() >= today.getTime()) &&
+        !['DRAFT', 'CANCELLED', 'TERMINATED', 'EXPIRED'].includes(status),
+    );
+  }
+
+  private tenantLeaseGuaranteeAmount(lease: Record<string, any>) {
+    const persistentAmount = lease.rental_guarantee_amount ?? lease.guarantee_amount ?? lease.amount;
+    if (persistentAmount != null && persistentAmount !== '') {
+      return Number(persistentAmount ?? 0);
+    }
+    const guaranteeMonths = Number(lease.guarantee_months ?? 0);
+    const rentAmount = Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
+    return rentAmount * Math.max(guaranteeMonths, 0);
+  }
+
+  private tenantInvoiceCategory(row: Record<string, any>) {
+    const status = String(row.status ?? '').toUpperCase();
+    const paidAmount = Number(row.paid_amount ?? 0);
+    const remainingAmount = Number(row.remaining_amount ?? row.total ?? 0);
+    const dueDate = row.due_date ? new Date(`${String(row.due_date).slice(0, 10)}T23:59:59`) : null;
+    const now = new Date();
+
+    if (status === 'PAID' || remainingAmount <= 0) return 'PAID';
+    if (paidAmount > 0 && remainingAmount > 0) return 'PARTIAL';
+    if (dueDate && dueDate.getTime() < now.getTime()) return 'OVERDUE';
+    return 'UNPAID';
   }
 
   private statementMovementOrder(type: string) {

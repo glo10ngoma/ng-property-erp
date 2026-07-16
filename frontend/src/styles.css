@@ -437,6 +437,9 @@ textarea { min-height: 72px; resize: vertical; }
 .tenant-filter-actions button { min-width: 0; padding: 0 9px; white-space: nowrap; }
 .tenant-synthesis { margin-bottom: 10px; }
 .tenant-synthesis .summary-band { margin-bottom: 0; }
+.tenant-situation-nav, .tenant-situation-subnav { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.tenant-situation-tab, .tenant-situation-subtab { display: inline-flex; align-items: center; min-height: 34px; padding: 0 12px; border-radius: 6px; border: 1px solid #d6e1e8; background: white; color: #48606d; font-size: 13px; font-weight: 700; }
+.tenant-situation-tab.active, .tenant-situation-subtab.active { background: #255e7e; border-color: #255e7e; color: white; }
 .compact-empty { color: #637783; background: #f8fafb; border: 1px dashed #d6e0e6; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
 .leases-filter-bar { grid-template-columns: minmax(150px, 1.2fr) repeat(9, minmax(98px, .75fr)) minmax(280px, auto); gap: 6px; align-items: end; }
 .leases-filter-bar input, .leases-filter-bar select, .leases-filter-bar button { min-height: 32px; padding-top: 5px; padding-bottom: 5px; }
@@ -715,6 +718,7 @@ textarea { min-height: 72px; resize: vertical; }
   .alert-row strong { grid-column: 2; text-align: left; }
   .lease-field-wide, .lease-field-full { grid-column: auto; }
   .tabs.compact-tabs { flex-direction: column; }
+  .tenant-situation-nav, .tenant-situation-subnav { flex-direction: column; }
   .stock-purchase-grid { grid-template-columns: 1fr; }
   .summary-band { align-items: flex-start; gap: 7px 12px; }
   .summary-item { flex: 1 1 100%; }
