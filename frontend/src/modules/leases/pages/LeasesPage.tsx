@@ -253,6 +253,9 @@ function LeaseEditModal({
   const [endDate, setEndDate] = useState(lease.end_date?.slice(0, 10) ?? '');
   const [durationMonths, setDurationMonths] = useState(leaseDurationNumber(lease));
   const [rent, setRent] = useState(Number(lease.monthly_rent ?? 0));
+  const [maintenanceFeeAmount, setMaintenanceFeeAmount] = useState(
+    lease.maintenance_fee_amount != null ? String(lease.maintenance_fee_amount) : '',
+  );
   const [syndicAmount, setSyndicAmount] = useState(Number(lease.monthly_syndic_amount ?? 0));
   const [leaseUsage, setLeaseUsage] = useState(normalizeLeaseUsageCode(lease.lease_usage));
   const [leaseActivityDescription, setLeaseActivityDescription] = useState(String(lease.lease_activity_description ?? ''));
@@ -352,6 +355,7 @@ function LeaseEditModal({
     }
     const guaranteeMonthsValue = Number(guaranteeMonths || 0);
     const calculatedGuaranteeAmount = Number(rent || 0) * guaranteeMonthsValue;
+    const normalizedMaintenanceFeeAmount = Number(maintenanceFeeAmount === '' ? 0 : maintenanceFeeAmount);
     const normalizedGuaranteeStatus = guaranteeStatusValue === 'PAID' ? 'PAID' : Number(guaranteePaidValue || 0) <= 0 ? 'NOT_PAID' : guaranteeStatusValue;
     const normalizedGuaranteePaid = normalizedGuaranteeStatus === 'PAID' ? calculatedGuaranteeAmount : 0;
     setSubmitting(true);
@@ -364,7 +368,7 @@ function LeaseEditModal({
         end_date: endDate || null,
         monthly_rent: rent,
         monthly_syndic_amount: syndicAmount,
-        maintenance_fee_amount: Number(lease.maintenance_fee_amount ?? 0),
+        maintenance_fee_amount: normalizedMaintenanceFeeAmount,
         other_charges_amount: Number(lease.other_charges_amount ?? 0),
         guarantee_months: guaranteeMonthsValue,
         lease_usage: leaseUsage,
@@ -411,12 +415,13 @@ function LeaseEditModal({
             <label>Duree du bail (mois)<input type="number" min="1" value={durationMonths} onChange={(event) => updateDuration(event.target.value)} placeholder="12" /></label>
             <label>Jour limite paiement<input type="number" min="1" max="31" defaultValue="5" /></label>
             <label>Loyer<input type="number" value={rent} onChange={(event) => setRent(Number(event.target.value))} required /></label>
+            <label>Frais d'entretien<input type="number" min="0" step="0.01" value={maintenanceFeeAmount} onChange={(event) => setMaintenanceFeeAmount(event.target.value)} /></label>
             <label>Montant syndic<input type="number" min="0" value={syndicAmount} onChange={(event) => setSyndicAmount(Number(event.target.value))} /></label>
             <label>Usage du bail<select value={leaseUsage} onChange={(event) => setLeaseUsage(normalizeLeaseUsageCode(event.target.value))}><option value="RESIDENTIAL">Residentiel</option><option value="COMMERCIAL">Commercial</option><option value="PROFESSIONAL">Professionnel</option><option value="MIXED">Mixte</option></select></label>
             {(leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL' || leaseUsage === 'MIXED') ? (
               <label className="lease-field-wide">{leaseUsage === 'COMMERCIAL' ? 'Activite ou destination commerciale' : leaseUsage === 'PROFESSIONAL' ? 'Activite ou destination professionnelle' : 'Activite ou destination mixte'}<input value={leaseActivityDescription} onChange={(event) => setLeaseActivityDescription(event.target.value)} placeholder={leaseUsage === 'COMMERCIAL' ? 'Ex: Boutique de vente' : leaseUsage === 'PROFESSIONAL' ? 'Ex: Cabinet de conseil' : 'Ex: Activites commerciales et professionnelles'} /></label>
             ) : null}
-            <label>Total mensuel<input className="locked-field" value={`${amount(Number(rent ?? 0) + Number(syndicAmount ?? 0))} USD`} readOnly /></label>
+            <label>Total mensuel<input className="locked-field" value={`${amount(Number(rent ?? 0) + Number(maintenanceFeeAmount || 0) + Number(syndicAmount ?? 0) + Number(lease.other_charges_amount ?? 0))} USD`} readOnly /></label>
             <label>Devise<input className="locked-field" value="USD" readOnly /></label>
             <label>Statut<select value={leaseStatus} onChange={(event) => setLeaseStatus(event.target.value)}><option value="DRAFT">Brouillon</option><option value="ACTIVE">Actif</option><option value="TERMINATED">Resilie</option></select></label>
           </div>
