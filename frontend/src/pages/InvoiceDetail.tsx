@@ -180,7 +180,9 @@ export function InvoiceDetail() {
       });
       setSuccess('Paiement enregistre avec succes.');
       setPaymentOpen(false);
-      await reload();
+      void reload().catch((refreshError) => {
+        console.error('[PAYMENT] post-success refresh failed', refreshError);
+      });
     } catch (err) {
       setPaymentError(apiErrorMessage(err));
     } finally {
