@@ -35,6 +35,7 @@ type CompanySettingsResponse = {
   website?: string;
   legal_representative_name?: string;
   legal_representative_title?: string;
+  legal_representative_civility?: string | null;
   currency?: string;
   language?: string;
   timezone?: string;
@@ -188,6 +189,7 @@ type SettingsDraft = {
   website: string;
   legal_representative_name: string;
   legal_representative_title: string;
+  legal_representative_civility: string;
   currency: string;
   language: string;
   timezone: string;
@@ -214,6 +216,11 @@ const officialFileLabels = {
   signature: 'Signature',
   stamp: 'Cachet',
 } as const;
+
+const representativeCivilities = [
+  { value: 'MR', label: 'Monsieur' },
+  { value: 'MRS', label: 'Madame' },
+] as const;
 
 type OfficialFileKind = keyof typeof officialFileLabels;
 
@@ -249,6 +256,7 @@ const defaultSettingsDraft = (): SettingsDraft => ({
   website: '',
   legal_representative_name: '',
   legal_representative_title: '',
+  legal_representative_civility: '',
   currency: 'USD',
   language: 'fr',
   timezone: 'Africa/Kinshasa',
@@ -520,6 +528,7 @@ export function SettingsPage() {
       website: cleanText(settings.website),
       legal_representative_name: cleanText(settings.legal_representative_name),
       legal_representative_title: cleanText(settings.legal_representative_title),
+      legal_representative_civility: cleanOptionalText(settings.legal_representative_civility),
     });
   }
 
@@ -771,6 +780,16 @@ export function SettingsPage() {
           </SettingField>
           <SettingField label="Fonction">
             <input {...fieldProps('legal_representative_title')} disabled={representativeDisabled} />
+          </SettingField>
+          <SettingField label="Civilité du représentant">
+            <select {...fieldProps('legal_representative_civility')} disabled={representativeDisabled}>
+              <option value="">Sélectionner une civilité</option>
+              {representativeCivilities.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
           </SettingField>
           <SettingField label="Téléphone">
             <input {...fieldProps('phone')} disabled={representativeDisabled} />
@@ -1331,6 +1350,7 @@ function normalizeSettings(data: CompanySettingsResponse): SettingsDraft {
     website: data.website ?? defaults.website,
     legal_representative_name: data.legal_representative_name ?? defaults.legal_representative_name,
     legal_representative_title: data.legal_representative_title ?? defaults.legal_representative_title,
+    legal_representative_civility: data.legal_representative_civility ?? defaults.legal_representative_civility,
     currency: data.currency ?? defaults.currency,
     language: data.language ?? defaults.language,
     timezone: data.timezone ?? defaults.timezone,
@@ -1359,6 +1379,11 @@ function monthLabel(month: number) {
 
 function cleanText(value: string) {
   return value.trim();
+}
+
+function cleanOptionalText(value: string) {
+  const normalized = value.trim();
+  return normalized || null;
 }
 
 function extractFileName(value?: string | null) {

@@ -1,5 +1,5 @@
-import { Type } from 'class-transformer';
-import { IsDateString, IsEmail, IsNumber, IsOptional, IsString } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsDateString, IsEmail, IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class UpdateCompanySettingsDto {
   @IsOptional()
@@ -89,6 +89,15 @@ export class UpdateCompanySettingsDto {
   @IsOptional()
   @IsString()
   legal_representative_title?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === null || value === undefined) return null;
+    const normalized = String(value).trim().toUpperCase();
+    return normalized || null;
+  })
+  @IsIn(['MR', 'MRS'])
+  legal_representative_civility?: string | null;
 
   @IsOptional()
   @IsString()

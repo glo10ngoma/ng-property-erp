@@ -4595,6 +4595,7 @@ export class SaasService {
       'website',
       'legal_representative_name',
       'legal_representative_title',
+      'legal_representative_civility',
       'currency',
       'language',
       'timezone',

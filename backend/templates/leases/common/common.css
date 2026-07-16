@@ -109,6 +109,14 @@ li {
   page-break-before: always;
 }
 
+.lease-signature-date {
+  text-align: right;
+  margin-top: 10pt;
+  margin-bottom: 8pt;
+  break-after: avoid;
+  page-break-after: avoid;
+}
+
 .lease-signature-table {
   width: 100%;
   border-collapse: collapse;
