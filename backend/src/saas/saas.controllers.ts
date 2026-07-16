@@ -487,7 +487,7 @@ export class CashController {
 
   @Post('close')
   close(@Body() body: Record<string, unknown>) {
-    return this.service.closeCash(Number(body.closing_balance ?? 0));
+    return this.service.closeCash(Number(body.actual_closing_balance ?? body.closing_balance ?? 0));
   }
 
   @Get('movements')

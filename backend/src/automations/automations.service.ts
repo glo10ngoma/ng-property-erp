@@ -31,6 +31,7 @@ type BillingPeriod = {
 
 type EligibleLease = {
   id: number;
+  lease_number?: number | null;
   tenant_id: number;
   unit_id: number;
   building_id: number;
@@ -227,7 +228,7 @@ export class AutomationsService {
       if (exclusionReason) {
         skipped.push({
           lease_id: lease.id,
-          lease_reference: this.leaseReference(lease.id),
+          lease_reference: this.leaseReference(lease),
           tenant_name: lease.tenant_name,
           unit_number: lease.unit_number,
           reason: exclusionReason,
@@ -239,7 +240,7 @@ export class AutomationsService {
       if (existing) {
         existingInvoices.push({
           lease_id: lease.id,
-          lease_reference: this.leaseReference(lease.id),
+          lease_reference: this.leaseReference(lease),
           invoice_id: existing.id,
           invoice_number: existing.invoice_number,
           tenant_name: lease.tenant_name,
@@ -248,7 +249,7 @@ export class AutomationsService {
         });
         skipped.push({
           lease_id: lease.id,
-          lease_reference: this.leaseReference(lease.id),
+          lease_reference: this.leaseReference(lease),
           tenant_name: lease.tenant_name,
           unit_number: lease.unit_number,
           reason: 'ALREADY_BILLED',
@@ -258,7 +259,7 @@ export class AutomationsService {
 
       createable.push({
         lease_id: lease.id,
-        lease_reference: this.leaseReference(lease.id),
+        lease_reference: this.leaseReference(lease),
         tenant_name: lease.tenant_name,
         unit_number: lease.unit_number,
         building_name: lease.building_name,
@@ -400,7 +401,7 @@ export class AutomationsService {
           entityId: lease.id,
           status: 'FAILED',
           message: error instanceof Error ? error.message : String(error),
-          reference: this.leaseReference(lease.id),
+          reference: this.leaseReference(lease),
         });
       }
     }
@@ -418,7 +419,7 @@ export class AutomationsService {
       ? runItems
           .filter((item) => item.status === 'FAILED')
           .slice(0, 5)
-          .map((item) => `${item.reference ?? this.leaseReference(item.entityId)}: ${item.message}`)
+          .map((item) => `${item.reference ?? this.leaseReference({ id: item.entityId })}: ${item.message}`)
           .join(' | ')
       : null;
 
@@ -848,7 +849,7 @@ export class AutomationsService {
 
   private async fetchEligibleLeases(organizationId: number, period: BillingPeriod) {
     const { rows } = await this.db.query<EligibleLease>(
-      `SELECT l.id, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
+      `SELECT l.id, l.lease_number, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
               l.status, l.start_date, l.end_date,
               CASE
                 WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, 'Locataire')
@@ -878,7 +879,7 @@ export class AutomationsService {
 
   private async fetchLeaseCandidates(organizationId: number) {
     const { rows } = await this.db.query<EligibleLease>(
-      `SELECT l.id, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
+      `SELECT l.id, l.lease_number, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
               l.status, l.start_date, l.end_date,
               CASE
                 WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, 'Locataire')
@@ -1194,8 +1195,8 @@ export class AutomationsService {
     return Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
   }
 
-  private leaseReference(id: number) {
-    return `B-${String(id).padStart(6, '0')}`;
+  private leaseReference(lease: Pick<EligibleLease, 'id'> & { lease_number?: number | null }) {
+    return `B-${String(lease.lease_number ?? lease.id).padStart(6, '0')}`;
   }
 
   private dateOnly(value: unknown) {

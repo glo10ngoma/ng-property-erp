@@ -25,6 +25,7 @@ type UnitDetailData = {
   current_lease_monthly_rent?: number;
   current_lease_maintenance_fee_amount?: number;
   current_lease_id?: number;
+  current_lease_number?: number;
   current_lease_status?: string;
   current_lease_start_date?: string;
   current_lease_end_date?: string;
@@ -47,7 +48,7 @@ type UnitDetailData = {
   observations?: string;
   situation?: string;
   tenants: Array<{ id: number; first_name: string; last_name: string; post_name?: string; phone?: string; secondary_phone?: string; email?: string; profession?: string; nationality?: string; address?: string; id_number?: string; id_document_file_name?: string; move_in_date?: string; status: string }>;
-  leases: Array<{ id: number; tenant_name: string; phone?: string; email?: string; start_date: string; end_date?: string; monthly_rent: number; maintenance_fee_amount?: number; monthly_syndic_amount?: number; guarantee_amount?: number; status: string }>;
+  leases: Array<{ id: number; lease_number?: number; tenant_name: string; phone?: string; email?: string; start_date: string; end_date?: string; monthly_rent: number; maintenance_fee_amount?: number; monthly_syndic_amount?: number; guarantee_amount?: number; status: string }>;
   invoices: Array<{ id: number; invoice_number: string; tenant_name: string; month?: number; year?: number; issue_date: string; due_date: string; total: number; paid_amount: number; remaining_amount: number; rent_amount?: number; syndic_amount?: number; status: string }>;
   payments: Array<{ id: number; invoice_number: string; tenant_name: string; payment_date: string; amount: number; payment_method: string; receipt_number?: string; reference?: string; payer_name?: string }>;
   rent_history: Array<{ id: number; start_date: string; end_date?: string; monthly_rent: number; maintenance_fee_amount?: number; monthly_syndic_amount?: number; tenant_name: string }>;
@@ -139,7 +140,7 @@ export function UnitDetail() {
             <SummaryItem label="Nom" value={unit.tenant_name} />
             <SummaryItem label="Telephone" value={unit.tenant_phone || '-'} />
             <SummaryItem label="Email" value={unit.tenant_email || '-'} />
-            <SummaryItem label="Bail" value={unit.current_lease_id ? `B-${String(unit.current_lease_id).padStart(6, '0')}` : '-'} />
+            <SummaryItem label="Bail" value={unit.current_lease_id ? leaseReference({ id: unit.current_lease_id, lease_number: unit.current_lease_number }) : '-'} />
             <SummaryItem label="Statut du bail" value={unit.current_lease_status ? <StatusBadge value={unit.current_lease_status} /> : '-'} />
             <SummaryItem label="Debut du bail" value={dateText(unit.current_lease_start_date)} />
             <SummaryItem label="Fin du bail" value={dateText(unit.current_lease_end_date)} />
@@ -336,7 +337,7 @@ function exportUnitWorkbook(unit: UnitDetailData) {
     {
       name: 'Historique des baux',
       rows: unit.leases.map((lease) => ({
-        'Numero bail': `B-${String(lease.id).padStart(6, '0')}`,
+        'Numero bail': leaseReference(lease),
         Debut: dateText(lease.start_date),
         Fin: dateText(lease.end_date),
         Duree: leaseDuration(lease.start_date, lease.end_date),
@@ -470,6 +471,10 @@ function unitProfitability(unit: UnitDetailData) {
 
 function leaseRentAmount(lease: { monthly_rent?: number; maintenance_fee_amount?: number }) {
   return Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
+}
+
+function leaseReference(lease: { id: number; lease_number?: number | null }) {
+  return `B-${String(lease.lease_number ?? lease.id).padStart(6, '0')}`;
 }
 
 function displayUnitRentAmount(unit: UnitDetailData) {

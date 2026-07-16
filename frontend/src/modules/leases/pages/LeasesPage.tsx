@@ -9,6 +9,7 @@ import { openOrDownloadDocument } from '../../../core/utils/documentActions';
 
 type Lease = {
   id: number;
+  lease_number?: number;
   tenant_id: number;
   unit_id: number;
   tenant_name: string;
@@ -472,7 +473,7 @@ function LeaseEditModal({
 }
 
 function leaseReference(lease: Lease) {
-  return `B-${String(lease.id).padStart(4, '0')}`;
+  return `B-${String(lease.lease_number ?? lease.id).padStart(4, '0')}`;
 }
 
 function guaranteeStatus(lease: Lease | LeaseDetail) {

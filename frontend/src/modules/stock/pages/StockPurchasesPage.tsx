@@ -142,6 +142,8 @@ export function PurchaseCreateModal({
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [paymentType, setPaymentType] = useState<'CASH' | 'PARTIAL' | 'DEFERRED'>('DEFERRED');
+  const [initialPaymentAmount, setInitialPaymentAmount] = useState('');
+  const [dueDate, setDueDate] = useState('');
 
   const itemOptions = items.map((item) => ({
     value: item.id,
@@ -163,8 +165,8 @@ export function PurchaseCreateModal({
       payment_terms: String(form.get('payment_terms') ?? ''),
       payment_method: paymentType === 'DEFERRED' ? '' : String(form.get('payment_method') ?? ''),
       payment_type: paymentType,
-      due_date: '',
-      initial_payment_amount: 0,
+      due_date: paymentType === 'CASH' ? '' : dueDate,
+      initial_payment_amount: paymentType === 'PARTIAL' ? Number(initialPaymentAmount || 0) : 0,
       observations: String(form.get('observations') ?? ''),
       lines: lines.map((line) => ({
         stock_item_id: line.stock_item_id,
@@ -197,6 +199,14 @@ export function PurchaseCreateModal({
       setSubmitting(false);
       return setError('Selectionnez un mode de paiement.');
     }
+    if (paymentType === 'PARTIAL' && (!Number.isFinite(payload.initial_payment_amount) || payload.initial_payment_amount <= 0)) {
+      setSubmitting(false);
+      return setError('Saisissez un montant initial strictement positif pour un paiement partiel.');
+    }
+    if (paymentType === 'PARTIAL' && payload.initial_payment_amount > totals.subtotal) {
+      setSubmitting(false);
+      return setError("Le montant initial ne peut pas depasser le total de l'achat.");
+    }
 
     try {
       await onSubmit(payload);
@@ -221,6 +231,8 @@ export function PurchaseCreateModal({
           <label>Conditions de paiement<input name="payment_terms" /></label>
           <label>Mode paiement<select name="payment_method" defaultValue="" disabled={paymentType === 'DEFERRED'} required={paymentType !== 'DEFERRED'}><option value="">Selectionner</option><option value="CASH">Especes</option><option value="BANK">Banque</option><option value="MOBILE_MONEY">Mobile Money</option><option value="OTHER">Autre</option></select></label>
           <label>Paiement<select name="payment_type" value={paymentType} onChange={(event) => setPaymentType(event.target.value as 'CASH' | 'PARTIAL' | 'DEFERRED')}><option value="CASH">Comptant</option><option value="PARTIAL">Partiel</option><option value="DEFERRED">Differe</option></select></label>
+          <label>Date d'echeance<input name="due_date" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} disabled={paymentType === 'CASH'} /></label>
+          <label>Montant initial<input name="initial_payment_amount" type="number" min="0" step="0.01" value={initialPaymentAmount} onChange={(event) => setInitialPaymentAmount(event.target.value)} disabled={paymentType !== 'PARTIAL'} /></label>
           <label className="wide-field">Observations<textarea name="observations" rows={3} /></label>
         </div>
       </div>

@@ -314,6 +314,8 @@ textarea { min-height: 72px; resize: vertical; }
 .mini-stat { background: white; border: 1px solid #dde5ea; border-radius: 8px; padding: 9px 10px; display: grid; gap: 2px; }
 .mini-stat span { color: #637783; font-size: 11px; text-transform: uppercase; }
 .mini-stat strong { font-size: 16px; }
+.cash-session-panel { margin-bottom: 10px; }
+.cash-session-panel .actions-row { margin-bottom: 10px; }
 .maintenance-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 .maintenance-kpis .mini-stat { padding: 8px 9px; }
 .maintenance-filter-bar { display: grid; grid-template-columns: minmax(180px, 1.2fr) repeat(5, minmax(120px, .8fr)) repeat(2, auto) auto auto auto; gap: 8px; align-items: end; margin-bottom: 10px; }

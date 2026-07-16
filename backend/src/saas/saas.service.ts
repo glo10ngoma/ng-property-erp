@@ -1660,7 +1660,7 @@ export class SaasService {
     const exists = await this.db.query(`SELECT id FROM cash_sessions WHERE status = 'OPEN' AND organization_id = $1 AND deleted_at IS NULL LIMIT 1`, [
       this.context.organizationId(),
     ]);
-    if (exists.rows[0]) throw new BadRequestException('Une caisse est dÃƒÂ©jÃƒÂ  ouverte');
+    if (exists.rows[0]) throw new ConflictException('Une caisse est deja ouverte');
     return this.insert('cash_sessions', { opened_by: this.context.userId() ?? 1, opening_balance: 0, status: 'OPEN', ...body }, [
       'opened_by',
       'opening_balance',
@@ -2297,9 +2297,15 @@ export class SaasService {
           payment_method: body.payment_method ?? null,
           reference: purchaseNumber,
           notes: paymentType === 'CASH' ? 'Paiement comptant achat fournisseur' : 'Paiement partiel achat fournisseur',
-        }, false);
+        }, true);
+        const updatedPurchase = await client.query(
+          `SELECT *
+           FROM stock_purchases
+           WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+          [purchase.id, this.context.organizationId()],
+        );
         await this.addStockPurchaseTimeline(client, purchase.id, 'PAYMENT', 'Paiement fournisseur', `Paiement initial ${initialPaidAmount.toFixed(2)} USD`);
-        return { ...purchase, payments: [payment] };
+        return { ...requireRow(updatedPurchase.rows[0], 'Stock purchase'), payments: [payment] };
       }
       return purchase;
     });

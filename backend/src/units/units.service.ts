@@ -20,6 +20,7 @@ export class UnitsService {
              current_lease.current_tenant_name,
              current_lease.current_tenant_phone,
              current_lease.current_lease_id,
+             current_lease.current_lease_number,
              current_lease.current_lease_status,
              current_lease.current_lease_start_date,
              current_lease.current_lease_end_date,
@@ -29,6 +30,7 @@ export class UnitsService {
       JOIN buildings b ON b.id = u.building_id
       LEFT JOIN LATERAL (
         SELECT l.id AS current_lease_id,
+               l.lease_number AS current_lease_number,
                l.status AS current_lease_status,
                l.start_date AS current_lease_start_date,
                l.end_date AS current_lease_end_date,
@@ -87,6 +89,7 @@ export class UnitsService {
               current_lease.current_tenant_phone,
               current_lease.current_tenant_email,
               current_lease.current_lease_id,
+              current_lease.current_lease_number,
               current_lease.current_lease_status,
               current_lease.current_lease_start_date,
               current_lease.current_lease_end_date,
@@ -96,6 +99,7 @@ export class UnitsService {
        JOIN buildings b ON b.id = u.building_id
        LEFT JOIN LATERAL (
          SELECT l.id AS current_lease_id,
+                l.lease_number AS current_lease_number,
                 l.status AS current_lease_status,
                 l.start_date AS current_lease_start_date,
                 l.end_date AS current_lease_end_date,

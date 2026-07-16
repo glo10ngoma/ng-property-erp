@@ -48,6 +48,7 @@ type Tenant = {
   building_name?: string;
   monthly_rent?: number;
   active_lease_id?: number;
+  active_lease_number?: number;
   active_lease_end_date?: string;
   active_lease_status?: string;
   active_leases_count?: number;
@@ -432,7 +433,7 @@ function exportTenantListWorkbook(rows: Tenant[]) {
   const totalUnpaid = rows.reduce((sum, tenant) => sum + Number(tenant.remaining_amount ?? 0), 0);
   exportXlsxWorkbook('Locataires.xlsx', [
     { name: 'Informations locataire', rows: exportTenantRows(rows) },
-    { name: 'Baux', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), type: tenantTypeLabel(tenant.tenant_type), nom: tenantName(tenant), bail: tenant.active_lease_id ? `B-${tenant.active_lease_id}` : 'Sans bail', fin_bail: dateText(tenant.active_lease_end_date), statut: tenant.active_lease_status ?? '' })) },
+    { name: 'Baux', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), type: tenantTypeLabel(tenant.tenant_type), nom: tenantName(tenant), bail: tenant.active_lease_id ? leaseReference(tenant.active_lease_id, tenant.active_lease_number) : 'Sans bail', fin_bail: dateText(tenant.active_lease_end_date), statut: tenant.active_lease_status ?? '' })) },
     { name: 'Factures', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), solde_restant: tenant.remaining_amount ?? 0, factures_retard: tenant.overdue_invoices ?? 0 })) },
     { name: 'Paiements', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), dernier_paiement: dateText(tenant.last_payment_date) })) },
     { name: 'Garanties', rows: [] },
@@ -467,6 +468,10 @@ function tenantTypeLabel(value?: string) {
 
 function clientReference(id: number) {
   return `CLI-${String(id).padStart(6, '0')}`;
+}
+
+function leaseReference(id: number, leaseNumber?: number | null) {
+  return `B-${String(leaseNumber ?? id).padStart(6, '0')}`;
 }
 
 function leaseType(tenant: Tenant) {

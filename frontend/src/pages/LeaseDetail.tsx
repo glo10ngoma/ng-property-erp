@@ -545,7 +545,7 @@ function SimpleSection({ title, empty, children }: { title: string; empty: strin
 }
 
 function leaseReference(lease: Lease) {
-  return `B-${String(lease.id).padStart(4, '0')}`;
+  return `B-${String(lease.lease_number ?? lease.id).padStart(4, '0')}`;
 }
 
 function amount(value: unknown) {

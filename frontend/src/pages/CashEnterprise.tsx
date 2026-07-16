@@ -8,6 +8,8 @@ import { useApiList } from '../hooks';
 
 type CashMovement = {
   id: number;
+  cash_session_id?: number;
+  session_status?: string;
   piece_number?: string;
   type: string;
   label?: string;
@@ -73,7 +75,10 @@ export function CashPage() {
   const sessions = useApiList<CashSession>('/cash/sessions');
   const [query, setQuery] = useState('');
   const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
   const [filters, setFilters] = useState({ type: '', category: '', period: '', currency: '' });
+  const [openSessionModal, setOpenSessionModal] = useState(false);
+  const [closeSessionModal, setCloseSessionModal] = useState(false);
 
   const filtered = useMemo(
     () =>
@@ -118,6 +123,27 @@ export function CashPage() {
     };
   }, [movements.data]);
 
+  const openSession = useMemo(
+    () => sessions.data.find((session) => session.status === 'OPEN') ?? null,
+    [sessions.data],
+  );
+
+  const sessionMovements = useMemo(
+    () => openSession ? movements.data.filter((movement) => Number(movement.cash_session_id) === Number(openSession.id)) : [],
+    [movements.data, openSession],
+  );
+
+  const expectedClosingBalance = useMemo(() => {
+    if (!openSession) return 0;
+    const totalIn = sessionMovements
+      .filter((movement) => movement.type === 'IN')
+      .reduce((sum, movement) => sum + Number(movement.amount ?? 0), 0);
+    const totalOut = sessionMovements
+      .filter((movement) => movement.type === 'OUT')
+      .reduce((sum, movement) => sum + Number(movement.amount ?? 0), 0);
+    return Number(openSession.opening_balance ?? 0) + totalIn - totalOut;
+  }, [openSession, sessionMovements]);
+
   const nextPieceNumber = useMemo(() => {
     const expenses = movements.data
       .map((movement) => movement.piece_number ?? '')
@@ -129,10 +155,29 @@ export function CashPage() {
   }, [movements.data]);
 
   async function expense(form: FormData) {
+    setError('');
     await api.post('/cash/expenses', Object.fromEntries(form));
     setSuccess('Mouvement de caisse enregistre.');
-    movements.reload();
-    sessions.reload();
+    await movements.reload();
+    await sessions.reload();
+  }
+
+  async function openCashSession(payload: { opening_balance: number }) {
+    setError('');
+    await api.post('/cash/open', payload);
+    setOpenSessionModal(false);
+    setSuccess('Caisse ouverte avec succes.');
+    await sessions.reload();
+    await movements.reload();
+  }
+
+  async function closeCashSession(payload: { actual_closing_balance: number }) {
+    setError('');
+    await api.post('/cash/close', payload);
+    setCloseSessionModal(false);
+    setSuccess('Caisse fermee avec succes.');
+    await sessions.reload();
+    await movements.reload();
   }
 
   function exportRows() {
@@ -157,6 +202,7 @@ export function CashPage() {
     <section>
       <PageHeader title="Caisse" />
       <SuccessMessage message={success} />
+      {error ? <div className="error-message">{error}</div> : null}
       <div className="mini-stats">
         <div className="mini-stat"><span>Solde USD</span><strong>{formatCashAmount(stats.usd.balance, 'USD')}</strong></div>
         <div className="mini-stat"><span>Entrees USD aujourd'hui</span><strong>{formatCashAmount(stats.usd.todayIn, 'USD')}</strong></div>
@@ -169,6 +215,37 @@ export function CashPage() {
         <div className="mini-stat"><span>Entrees CDF du mois</span><strong>{formatCashAmount(stats.cdf.monthIn, 'CDF')}</strong></div>
         <div className="mini-stat"><span>Depenses CDF du mois</span><strong>{formatCashAmount(stats.cdf.monthOut, 'CDF')}</strong></div>
         <div className="mini-stat"><span>Nombre de mouvements</span><strong>{stats.count}</strong></div>
+      </div>
+
+      <div className="cash-session-panel">
+        <div className="mini-stats">
+          <div className="mini-stat">
+            <span>Session caisse</span>
+            <strong>{openSession ? 'Ouverte' : 'Aucune session ouverte'}</strong>
+          </div>
+          <div className="mini-stat">
+            <span>Ouverture</span>
+            <strong>{openSession ? formatCashAmount(openSession.opening_balance, 'USD') : '-'}</strong>
+          </div>
+          <div className="mini-stat">
+            <span>Solde attendu</span>
+            <strong>{openSession ? formatCashAmount(expectedClosingBalance, 'USD') : '-'}</strong>
+          </div>
+          <div className="mini-stat">
+            <span>Ouverte le</span>
+            <strong>{openSession ? shortDate(openSession.opened_at) : '-'}</strong>
+          </div>
+        </div>
+        {can('cash.create') ? (
+          <div className="actions-row">
+            <button type="button" onClick={() => setOpenSessionModal(true)} disabled={Boolean(openSession)}>
+              Ouvrir la caisse
+            </button>
+            <button type="button" className="secondary" onClick={() => setCloseSessionModal(true)} disabled={!openSession}>
+              Fermer la caisse
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="table-toolbar">
@@ -221,6 +298,20 @@ export function CashPage() {
       </div>
 
       {can('cash.create') && <CashExpenseForm onSubmit={expense} nextPieceNumber={nextPieceNumber} />}
+      {openSessionModal ? (
+        <CashOpenSessionModal
+          onClose={() => setOpenSessionModal(false)}
+          onSubmit={openCashSession}
+        />
+      ) : null}
+      {closeSessionModal && openSession ? (
+        <CashCloseSessionModal
+          session={openSession}
+          expectedBalance={expectedClosingBalance}
+          onClose={() => setCloseSessionModal(false)}
+          onSubmit={closeCashSession}
+        />
+      ) : null}
 
       <div className="table-wrap">
         <table>
@@ -282,6 +373,131 @@ export function CashPage() {
         {!filtered.length && <EmptyState />}
       </div>
     </section>
+  );
+}
+
+function CashOpenSessionModal({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (payload: { opening_balance: number }) => Promise<void>;
+}) {
+  const [openingBalance, setOpeningBalance] = useState('0');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    const amount = Number(openingBalance);
+    if (!Number.isFinite(amount) || amount < 0) {
+      setError("Le solde d'ouverture doit etre superieur ou egal a 0.");
+      return;
+    }
+    setError('');
+    setSubmitting(true);
+    try {
+      await onSubmit({ opening_balance: amount });
+    } catch (err: any) {
+      setError(apiErrorMessage(err, "Impossible d'ouvrir la caisse."));
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <Modal title="Ouvrir la caisse" onClose={onClose}>
+      <form
+        className="cash-modal-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <div className="modal-section">
+          <h3>Session</h3>
+          <div className="lease-section-grid">
+            <label>
+              Solde d'ouverture *
+              <input type="number" min="0" step="0.01" value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value)} required />
+            </label>
+          </div>
+          {error ? <div className="error-message">{error}</div> : null}
+        </div>
+        <div className="modal-footer-sticky">
+          <button type="button" className="secondary" onClick={onClose} disabled={submitting}>Annuler</button>
+          <button type="submit" disabled={submitting}>{submitting ? 'Ouverture...' : 'Ouvrir la caisse'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function CashCloseSessionModal({
+  session,
+  expectedBalance,
+  onClose,
+  onSubmit,
+}: {
+  session: CashSession;
+  expectedBalance: number;
+  onClose: () => void;
+  onSubmit: (payload: { actual_closing_balance: number }) => Promise<void>;
+}) {
+  const [actualBalance, setActualBalance] = useState(String(Number(expectedBalance.toFixed(2))));
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const difference = Number(actualBalance || 0) - expectedBalance;
+
+  async function submit() {
+    const amount = Number(actualBalance);
+    if (!Number.isFinite(amount)) {
+      setError('Le solde reel est invalide.');
+      return;
+    }
+    setError('');
+    setSubmitting(true);
+    try {
+      await onSubmit({ actual_closing_balance: amount });
+    } catch (err: any) {
+      setError(apiErrorMessage(err, "Impossible de fermer la caisse."));
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <Modal title="Fermer la caisse" onClose={onClose}>
+      <form
+        className="cash-modal-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <div className="modal-section">
+          <h3>Cloture</h3>
+          <div className="mini-stats">
+            <div className="mini-stat"><span>Ouverture</span><strong>{formatCashAmount(session.opening_balance, 'USD')}</strong></div>
+            <div className="mini-stat"><span>Solde attendu</span><strong>{formatCashAmount(expectedBalance, 'USD')}</strong></div>
+            <div className="mini-stat"><span>Ecart</span><strong>{formatCashAmount(difference, 'USD')}</strong></div>
+          </div>
+          <div className="lease-section-grid">
+            <label>
+              Solde reel *
+              <input type="number" step="0.01" value={actualBalance} onChange={(event) => setActualBalance(event.target.value)} required />
+            </label>
+          </div>
+          {error ? <div className="error-message">{error}</div> : null}
+        </div>
+        <div className="modal-footer-sticky">
+          <button type="button" className="secondary" onClick={onClose} disabled={submitting}>Annuler</button>
+          <button type="submit" disabled={submitting}>{submitting ? 'Cloture...' : 'Fermer la caisse'}</button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -609,6 +825,13 @@ function cashCategoryLabel(value: string) {
 
 function movementTypeLabel(value: string) {
   return ({ IN: 'Entree', OUT: 'Depense' } as Record<string, string>)[value] ?? value;
+}
+
+function apiErrorMessage(error: any, fallback: string) {
+  const message = error?.response?.data?.message;
+  if (Array.isArray(message)) return message.join(' | ');
+  if (typeof message === 'string' && message.trim()) return message;
+  return fallback;
 }
 
 function SimpleBlock({ rows }: { rows: Array<Record<string, unknown>> }) {
