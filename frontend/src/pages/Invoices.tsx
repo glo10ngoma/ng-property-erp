@@ -63,6 +63,8 @@ export function Invoices() {
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState(emptyFilters);
   const [success, setSuccess] = useState('');
+  const [rentSubmitting, setRentSubmitting] = useState(false);
+  const [rentError, setRentError] = useState('');
   const [params] = useSearchParams();
   const navigate = useNavigate();
 
@@ -74,6 +76,13 @@ export function Invoices() {
   const invoiceSyndic = Number(syndicAmount ?? 0);
   const subtotal = Number(invoiceRent ?? 0) + Number(invoiceSyndic ?? 0) + extraLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
   const total = Math.max(0, subtotal - Number(discount || 0));
+  const rentValidationError = rentInvoiceValidationError({
+    tenant,
+    selectedLease,
+    invoiceForm,
+    invoiceRent,
+    invoiceSyndic,
+  });
   const leaseOptions = tenantLeases.map((lease) => ({ value: lease.id, label: `Bail #${lease.id}`, meta: `${lease.building_name} - ${lease.unit_number} - Loyer ${money(leaseRentAmount(lease))} - Syndic ${money(lease.monthly_syndic_amount ?? 0)}` }));
   const buildingOptions = Array.from(new Set(data.map((invoice) => invoice.building_name).filter(Boolean)));
   const tenantOptions = Array.from(new Set(data.map(invoiceTenantName).filter(Boolean)));
@@ -89,6 +98,8 @@ export function Invoices() {
   useEffect(() => {
     if (!open) return;
     setInvoiceForm(createRentInvoiceFormDefaults());
+    setRentError('');
+    setRentSubmitting(false);
   }, [open]);
 
   const filtered = data.filter((invoice) => {
@@ -120,31 +131,42 @@ export function Invoices() {
   const exportRows = filtered.map(invoiceExportRow);
 
   async function save() {
-    if (!tenant) return;
-    if (!selectedLease) {
-      setSuccess('Selectionnez un bail actif avant de creer la facture.');
+    const validationError = rentInvoiceValidationError({ tenant, selectedLease, invoiceForm, invoiceRent, invoiceSyndic });
+    if (validationError) {
+      setRentError(validationError);
       return;
     }
-    const response = await api.post('/invoices', {
-      tenant_id: tenant.id,
-      lease_id: selectedLease.id,
-      invoice_type: 'RENT',
-      month: Number(invoiceForm.month),
-      year: Number(invoiceForm.year),
-      billing_month: Number(invoiceForm.month),
-      billing_year: Number(invoiceForm.year),
-      issue_date: invoiceForm.issue_date,
-      due_date: invoiceForm.due_date,
-      period_start: periodStart(invoiceForm.month, invoiceForm.year),
-      period_end: periodEnd(invoiceForm.month, invoiceForm.year),
-      discount_amount: Number(discount || 0),
-      public_notes: publicNotes || null,
-      internal_notes: internalNotes || null,
-      attachment_file_name: attachmentName || null,
-      attachment_file_url: null,
-      items: buildInvoiceItems(invoiceForm.month, invoiceForm.year, invoiceRent, invoiceSyndic, extraLines),
-    });
-    navigate(`/invoices/${response.data.id}`);
+    setRentSubmitting(true);
+    setRentError('');
+    try {
+      const response = await api.post('/invoices', {
+        tenant_id: tenant!.id,
+        lease_id: selectedLease!.id,
+        invoice_type: 'RENT',
+        month: Number(invoiceForm.month),
+        year: Number(invoiceForm.year),
+        billing_month: Number(invoiceForm.month),
+        billing_year: Number(invoiceForm.year),
+        issue_date: invoiceForm.issue_date,
+        due_date: invoiceForm.due_date,
+        period_start: periodStart(invoiceForm.month, invoiceForm.year),
+        period_end: periodEnd(invoiceForm.month, invoiceForm.year),
+        discount_amount: Number(discount || 0),
+        public_notes: publicNotes || null,
+        internal_notes: internalNotes || null,
+        attachment_file_name: attachmentName || null,
+        attachment_file_url: null,
+        items: buildInvoiceItems(invoiceForm.month, invoiceForm.year, invoiceRent, invoiceSyndic, extraLines),
+      });
+      const invoiceId = extractCreatedInvoiceId(response.data);
+      setOpen(false);
+      reload();
+      navigate(`/invoices/${invoiceId}`);
+    } catch (nextError) {
+      setRentError(apiErrorMessage(nextError, 'Impossible de creer la facture de loyer.'));
+    } finally {
+      setRentSubmitting(false);
+    }
   }
 
   async function remove(id: number) {
@@ -276,10 +298,17 @@ export function Invoices() {
                 </div>
               </details>
               <div className="total-row invoice-field-full"><span>Sous-total {money(subtotal)}</span><span>Remise {money(discount)}</span><strong>Total {money(total)}</strong></div>
+              {(rentError || rentValidationError) ? <div className="error-message invoice-field-full">{rentError || rentValidationError}</div> : null}
             </div>
           </div>
           <div className="modal-sticky-actions">
-            <button onClick={save}>Creer la facture</button>
+            <button
+              onClick={save}
+              disabled={rentSubmitting || Boolean(rentValidationError)}
+              title={rentValidationError || undefined}
+            >
+              {rentSubmitting ? 'Creation...' : 'Creer la facture'}
+            </button>
           </div>
         </Modal>
       )}
@@ -289,6 +318,7 @@ export function Invoices() {
         onClose={() => setOtherChargeOpen(false)}
         tenants={tenants.data}
         leases={leases.data}
+        onCreated={reload}
       />
     </section>
   );
@@ -300,6 +330,50 @@ function invoiceTenantName(invoice: Pick<Invoice, 'tenant_name' | 'first_name' |
 
 function leaseRentAmount(lease: Pick<Lease, 'monthly_rent' | 'maintenance_fee_amount'>) {
   return Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
+}
+
+function rentInvoiceValidationError({
+  tenant,
+  selectedLease,
+  invoiceForm,
+  invoiceRent,
+  invoiceSyndic,
+}: {
+  tenant?: Tenant | null;
+  selectedLease?: Lease | null;
+  invoiceForm: ReturnType<typeof createRentInvoiceFormDefaults>;
+  invoiceRent: number;
+  invoiceSyndic: number;
+}) {
+  const month = Number(invoiceForm.month);
+  const year = Number(invoiceForm.year);
+  if (!tenant?.id) return 'Selectionnez un locataire.';
+  if (!selectedLease?.id) return 'Selectionnez un bail actif.';
+  if (!invoiceForm.issue_date) return 'La date de facture est obligatoire.';
+  if (!invoiceForm.due_date) return "La date d'echeance est obligatoire.";
+  if (!Number.isInteger(month) || month < 1 || month > 12) return 'Le mois du loyer est invalide.';
+  if (!Number.isInteger(year) || year < 2000) return "L'annee du loyer est invalide.";
+  if (!periodStart(invoiceForm.month, invoiceForm.year) || !periodEnd(invoiceForm.month, invoiceForm.year)) return 'La periode du loyer est invalide.';
+  if (!Number.isFinite(invoiceRent) || invoiceRent <= 0) return 'Le montant du loyer est invalide.';
+  if (!Number.isFinite(invoiceSyndic) || invoiceSyndic < 0) return 'Le montant du syndic est invalide.';
+  return '';
+}
+
+function extractCreatedInvoiceId(responseBody: unknown) {
+  const id = Number((responseBody as { id?: unknown })?.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error('INVOICE_CREATE_RESPONSE_INVALID');
+  }
+  return id;
+}
+
+function apiErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message === 'INVOICE_CREATE_RESPONSE_INVALID') {
+    return 'La facture a peut-etre ete creee, mais la reponse API ne contient pas un ID valide.';
+  }
+  const responseMessage = (error as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+  if (Array.isArray(responseMessage)) return responseMessage.join(' ');
+  return responseMessage || (error instanceof Error ? error.message : fallback);
 }
 
 function invoiceExportRow(invoice: Invoice) {

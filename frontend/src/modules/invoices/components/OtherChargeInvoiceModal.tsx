@@ -27,6 +27,7 @@ type Lease = {
 type OtherChargeInvoiceModalProps = {
   open: boolean;
   onClose: () => void;
+  onCreated?: () => void;
   tenants: Tenant[];
   leases: Lease[];
 };
@@ -53,6 +54,7 @@ const chargeTypeOptions: Array<{ value: ChargeTypeCode; label: string }> = [
 export function OtherChargeInvoiceModal({
   open,
   onClose,
+  onCreated,
   tenants,
   leases,
 }: OtherChargeInvoiceModalProps) {
@@ -169,10 +171,13 @@ export function OtherChargeInvoiceModal({
           amount: Number((line.quantity * line.unitPrice).toFixed(2)),
         })),
       });
+      const invoiceId = extractCreatedInvoiceId(response.data);
       onClose();
-      navigate(`/invoices/${response.data.id}`);
+      onCreated?.();
+      navigate(`/invoices/${invoiceId}`);
     } catch (nextError) {
-      setError((nextError as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Impossible de creer la facture autres charges.');
+      setError(apiErrorMessage(nextError, 'Impossible de creer la facture autres charges.'));
+    } finally {
       setSubmitting(false);
     }
   }
@@ -357,6 +362,23 @@ function normalizePositive(value: string) {
 
 function formatMoney(value: number, currency: string) {
   return `${value.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+}
+
+function extractCreatedInvoiceId(responseBody: unknown) {
+  const id = Number((responseBody as { id?: unknown })?.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error('INVOICE_CREATE_RESPONSE_INVALID');
+  }
+  return id;
+}
+
+function apiErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message === 'INVOICE_CREATE_RESPONSE_INVALID') {
+    return 'La facture a peut-etre ete creee, mais la reponse API ne contient pas un ID valide.';
+  }
+  const responseMessage = (error as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+  if (Array.isArray(responseMessage)) return responseMessage.join(' ');
+  return responseMessage || (error instanceof Error ? error.message : fallback);
 }
 
 function chargeTypeToItemType(chargeType: ChargeTypeCode) {

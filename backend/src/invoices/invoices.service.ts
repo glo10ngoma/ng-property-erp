@@ -100,7 +100,7 @@ export class InvoicesService {
   }
 
   async create(dto: CreateInvoiceDto) {
-    return this.db.transaction(async (client) => {
+    const invoiceId = await this.db.transaction(async (client) => {
       const lease = dto.lease_id ? await this.leaseForInvoice(client, dto.lease_id) : null;
       const tenantId = dto.tenant_id ?? lease?.tenant_id;
       if (!tenantId) throw new Error('tenant_id or lease_id is required');
@@ -160,8 +160,9 @@ export class InvoicesService {
         ],
       );
       await this.insertItems(client, rows[0].id, dto.items, organizationId);
-      return this.findOne(Number(rows[0].id));
+      return Number(rows[0].id);
     });
+    return this.findOne(invoiceId);
   }
 
   async update(id: number, dto: UpdateInvoiceDto) {
