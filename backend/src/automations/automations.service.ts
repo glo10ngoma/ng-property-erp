@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { PoolClient } from 'pg';
 import { RequestContext } from '../auth/request-context';
 import { DatabaseService } from '../database/database.service';
+import { EmailService } from '../email/email.service';
 import { SaasService } from '../saas/saas.service';
 
 type MonthlyRentBillingSettingRecord = {
@@ -75,6 +76,7 @@ export class AutomationsService {
     private readonly db: DatabaseService,
     private readonly context: RequestContext,
     private readonly saasService: SaasService,
+    private readonly emailService: EmailService,
   ) {}
 
   @Cron('0 * * 25 * *', { timeZone: 'Africa/Kinshasa' })
@@ -365,6 +367,7 @@ export class AutomationsService {
           organizationId,
           invoiceId: Number(invoice.id),
           invoiceNumber: String(invoice.invoice_number),
+          issueDate: String(invoice.issue_date),
           tenantName: String(lease.tenant_name || 'Locataire'),
           tenantEmail: lease.tenant_email ?? null,
           tenantPhone: lease.tenant_phone ?? null,
@@ -535,6 +538,7 @@ export class AutomationsService {
     organizationId: number;
     invoiceId: number;
     invoiceNumber: string;
+    issueDate: string;
     tenantName: string;
     tenantEmail: string | null;
     tenantPhone: string | null;
@@ -589,6 +593,16 @@ export class AutomationsService {
       invoiceId: args.invoiceId,
       subject,
       message: emailMessage,
+      issueDate: args.issueDate,
+      invoiceNumber: args.invoiceNumber,
+      dueDate: args.dueDate,
+      periodLabel: args.periodLabel,
+      tenantName: args.tenantName,
+      unitNumber: args.unitNumber,
+      buildingName: args.buildingName,
+      rentAmount: args.rentAmount,
+      syndicAmount: args.syndicAmount,
+      totalAmount: args.totalAmount,
     });
     const whatsapp = await this.deliverInvoiceCommunication({
       organizationId: args.organizationId,
@@ -601,6 +615,16 @@ export class AutomationsService {
       invoiceId: args.invoiceId,
       subject: null,
       message: whatsappMessage,
+      issueDate: args.issueDate,
+      invoiceNumber: args.invoiceNumber,
+      dueDate: args.dueDate,
+      periodLabel: args.periodLabel,
+      tenantName: args.tenantName,
+      unitNumber: args.unitNumber,
+      buildingName: args.buildingName,
+      rentAmount: args.rentAmount,
+      syndicAmount: args.syndicAmount,
+      totalAmount: args.totalAmount,
     });
 
     return { email, whatsapp };
@@ -617,6 +641,16 @@ export class AutomationsService {
     invoiceId: number;
     subject: string | null;
     message: string;
+    issueDate: string;
+    invoiceNumber: string;
+    dueDate: string;
+    periodLabel: string;
+    tenantName: string;
+    unitNumber: string | null;
+    buildingName: string | null;
+    rentAmount: number;
+    syndicAmount: number;
+    totalAmount: number;
   }) {
     if (!args.enabled) {
       return { status: 'SKIPPED', reason: args.disabledReason, attempts: 0, sentAt: null };
@@ -626,33 +660,57 @@ export class AutomationsService {
     }
 
     try {
-      const result = await this.context.run(
-        {
-          user: {
-            sub: args.createdBy,
-            email: 'automation@system.local',
-            role: 'ADMIN',
-            organization_id: args.organizationId,
-            permissions: ['*'],
-          },
-        },
-        () =>
-          this.saasService.sendCommunication(args.channel, {
-            recipient: args.recipient,
-            subject: args.subject ?? undefined,
-            message: args.message,
-            related_entity_type: 'invoice',
-            related_entity_id: args.invoiceId,
-            created_by: args.createdBy,
-          }),
-      );
+      const result = args.channel === 'EMAIL'
+        ? await this.emailService.sendInvoiceCreatedEmail({
+            organizationId: args.organizationId,
+            invoiceId: args.invoiceId,
+            invoiceNumber: args.invoiceNumber,
+            invoiceType: 'RENT',
+            tenantName: args.tenantName,
+            tenantEmail: args.recipient,
+            issueDate: args.issueDate,
+            dueDate: args.dueDate,
+            periodLabel: args.periodLabel,
+            unitNumber: args.unitNumber,
+            buildingName: args.buildingName,
+            currency: 'USD',
+            totalAmount: args.totalAmount,
+            rentAmount: args.rentAmount,
+            syndicAmount: args.syndicAmount,
+            lineItems: [
+              { description: `Loyer ${args.periodLabel}`, amount: args.rentAmount },
+              ...(args.syndicAmount > 0 ? [{ description: `Syndic ${args.periodLabel}`, amount: args.syndicAmount }] : []),
+            ],
+            createdBy: args.createdBy,
+            idempotencyKey: this.emailService.buildIdempotencyKey([args.organizationId, 'INVOICE_CREATED', args.invoiceId]),
+          })
+        : await this.context.run(
+            {
+              user: {
+                sub: args.createdBy,
+                email: 'automation@system.local',
+                role: 'ADMIN',
+                organization_id: args.organizationId,
+                permissions: ['*'],
+              },
+            },
+            () =>
+              this.saasService.sendCommunication(args.channel, {
+                recipient: args.recipient,
+                subject: args.subject ?? undefined,
+                message: args.message,
+                related_entity_type: 'invoice',
+                related_entity_id: args.invoiceId,
+                created_by: args.createdBy,
+              }),
+          );
 
-      const status = String(result?.log?.status ?? 'SIMULATED').toUpperCase();
+      const status = String((result as { status?: string; log?: { status?: string } })?.status ?? (result as { log?: { status?: string } })?.log?.status ?? 'SIMULATED').toUpperCase();
       return {
         status,
         reason: status === 'FAILED' ? 'SEND_FAILED' : null,
         attempts: 1,
-        sentAt: new Date().toISOString(),
+        sentAt: status === 'SENT' ? new Date().toISOString() : null,
       };
     } catch (error) {
       return {

@@ -1,0 +1,13 @@
+<p>Bonjour {{recipient_name}},</p>
+<p>Une facture d’autres charges <strong>{{invoice_number}}</strong> a été émise.</p>
+<ul>
+  <li>Date de facture : {{issue_date}}</li>
+  <li>Date d’échéance : {{due_date}}</li>
+  <li>Appartement : {{unit_number}}</li>
+  <li>Immeuble : {{building_name}}</li>
+  <li>Total : <strong>{{total}}</strong></li>
+</ul>
+<p>Lignes de facturation :</p>
+<ul>
+  {{line_items_html}}
+</ul>

@@ -44,7 +44,7 @@ export function CommunicationsPage() {
   const filteredSmsLogs = smsLogs.filter((item) => includesText(item, query));
   const filteredWhatsappLogs = whatsappLogs.filter((item) => includesText(item, query));
   const unreadCount = notifications.filter((item) => item.status === 'UNREAD').length;
-  const simulatedCount = emailLogs.length + smsLogs.length + whatsappLogs.length;
+  const simulatedCount = [...emailLogs, ...smsLogs, ...whatsappLogs].filter((item) => item.status === 'SIMULATED').length;
 
   async function createTemplate(form: FormData) {
     await api.post('/communications/templates', Object.fromEntries(form));
@@ -68,7 +68,7 @@ export function CommunicationsPage() {
 
   async function send(channel: 'email' | 'sms' | 'whatsapp', form: FormData) {
     await api.post(`/communications/send-${channel}`, Object.fromEntries(form));
-    setSuccess('Envoi simule enregistre.');
+    setSuccess(channel === 'email' ? 'Envoi email traite.' : 'Envoi simule enregistre.');
     load();
   }
 
@@ -140,7 +140,7 @@ export function CommunicationsPage() {
 
       {can('communication.send') && (
         <div className="chart-grid">
-          <SendCard title="Email simule" channel="email" templates={templates.filter((item) => item.channel === 'EMAIL' && item.status === 'ACTIVE')} onSend={send} />
+          <SendCard title="Email transactionnel" channel="email" templates={templates.filter((item) => item.channel === 'EMAIL' && item.status === 'ACTIVE')} onSend={send} />
           <SendCard title="SMS simule" channel="sms" templates={templates.filter((item) => item.channel === 'SMS' && item.status === 'ACTIVE')} onSend={send} />
           <SendCard title="WhatsApp simule" channel="whatsapp" templates={templates.filter((item) => item.channel === 'WHATSAPP' && item.status === 'ACTIVE')} onSend={send} />
           {can('notifications.update') && (

@@ -1,0 +1,16 @@
+Bonjour {{recipient_name}},
+
+Votre facture de loyer {{invoice_number}} est disponible.
+
+- Date de facture : {{issue_date}}
+- Date d’échéance : {{due_date}}
+- Période : {{period_label}}
+- Appartement : {{unit_number}}
+- Immeuble : {{building_name}}
+- Total : {{total}}
+
+Détail :
+- Loyer de base : {{rent_amount}}
+- Frais de syndic : {{syndic_amount}}
+
+Merci de prendre les dispositions nécessaires avant l’échéance.

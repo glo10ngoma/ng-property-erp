@@ -1,4 +1,4 @@
-import { Building2, FileCog, Image as ImageIcon, MapPin, Percent, Save, Settings2, ShieldCheck, Trash2, Upload, User } from 'lucide-react';
+import { Building2, FileCog, Image as ImageIcon, Mail, MapPin, Percent, Save, Settings2, ShieldCheck, Trash2, Upload, User } from 'lucide-react';
 import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { api, shortDate } from '../../../api';
 import { useAuth } from '../../../auth';
@@ -69,6 +69,22 @@ type ExchangeRate = {
   effectiveDate: string;
   createdAt?: string;
   updatedAt?: string;
+};
+
+type EmailSettingsSummary = {
+  provider: string;
+  sendingEnabled: boolean;
+  sandboxMode: boolean;
+  fromAddress?: string | null;
+  fromName?: string | null;
+  replyTo?: string | null;
+  testRecipient?: string | null;
+  maxPerRun: number;
+  maxRetries: number;
+  invoiceAutomaticEnabled: boolean;
+  reminderEnabled: boolean;
+  paymentReceiptEnabled: boolean;
+  maintenanceEnabled: boolean;
 };
 
 type AutomationSummary = {
@@ -262,6 +278,9 @@ export function SettingsPage() {
   const [services, setServices] = useState<PublisherService[]>([]);
   const [restricted, setRestricted] = useState<RestrictedSetting[]>([]);
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
+  const [emailSettings, setEmailSettings] = useState<EmailSettingsSummary | null>(null);
+  const [testEmailRecipient, setTestEmailRecipient] = useState('');
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
   const [exchangeRateDraft, setExchangeRateDraft] = useState('');
   const [exchangeRateDateDraft, setExchangeRateDateDraft] = useState(today());
   const [automation, setAutomation] = useState<AutomationSummary | null>(null);
@@ -285,6 +304,7 @@ export function SettingsPage() {
       const referencesPromise = api.get<ReferenceData[]>('/reference-data');
       const servicesPromise = api.get<PublisherService[]>('/settings/publisher-services');
       const exchangeRatePromise = api.get<ExchangeRate | null>('/settings/exchange-rate');
+      const emailSettingsPromise = api.get<EmailSettingsSummary>('/settings/email-notifications');
       const automationPromise = can('automations.read')
         ? api.get<AutomationSummary>('/automations/monthly-rent-billing')
         : Promise.resolve({ data: null as AutomationSummary | null });
@@ -295,11 +315,12 @@ export function SettingsPage() {
         ? api.get<RestrictedSetting[]>('/settings/restricted')
         : Promise.resolve({ data: [] as RestrictedSetting[] });
 
-      const [companyResult, referencesResult, servicesResult, exchangeRateResult, automationResult, automationRunsResult, restrictedResult] = await Promise.allSettled([
+      const [companyResult, referencesResult, servicesResult, exchangeRateResult, emailSettingsResult, automationResult, automationRunsResult, restrictedResult] = await Promise.allSettled([
         companyPromise,
         referencesPromise,
         servicesPromise,
         exchangeRatePromise,
+        emailSettingsPromise,
         automationPromise,
         automationRunsPromise,
         restrictedPromise,
@@ -335,6 +356,15 @@ export function SettingsPage() {
         setExchangeRateDraft('');
         setExchangeRateDateDraft(today());
         setError((current) => current || extractErrorMessage(exchangeRateResult.reason, 'Impossible de charger le taux de change.'));
+      }
+
+      if (emailSettingsResult.status === 'fulfilled') {
+        const nextEmailSettings = emailSettingsResult.value.data;
+        setEmailSettings(nextEmailSettings);
+        setTestEmailRecipient(nextEmailSettings.testRecipient ?? '');
+      } else {
+        setEmailSettings(null);
+        setError((current) => current || extractErrorMessage(emailSettingsResult.reason, 'Impossible de charger la configuration email.'));
       }
 
       if (automationResult.status === 'fulfilled') {
@@ -406,6 +436,13 @@ export function SettingsPage() {
     setExchangeRateDraft(nextRate ? String(nextRate.rate) : '');
     setExchangeRateDateDraft(nextRate?.effectiveDate ?? today());
     return nextRate;
+  }
+
+  async function refreshEmailSettings() {
+    const response = await api.get<EmailSettingsSummary>('/settings/email-notifications');
+    setEmailSettings(response.data);
+    setTestEmailRecipient((current) => current || response.data.testRecipient || '');
+    return response.data;
   }
 
   async function refreshAutomation() {
@@ -557,6 +594,24 @@ export function SettingsPage() {
       setError(extractErrorMessage(submissionError, "Impossible d'enregistrer l'automatisation."));
     } finally {
       setSavingSection(null);
+    }
+  }
+
+  async function sendTestEmailMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setSuccess('');
+    setSendingTestEmail(true);
+    try {
+      await api.post('/settings/email-notifications/test', {
+        recipient: testEmailRecipient,
+      });
+      await refreshEmailSettings();
+      setSuccess('Email de test envoyé.');
+    } catch (submissionError) {
+      setError(extractErrorMessage(submissionError, "Impossible d'envoyer l'email de test."));
+    } finally {
+      setSendingTestEmail(false);
     }
   }
 
@@ -822,6 +877,67 @@ export function SettingsPage() {
             <button type="submit" disabled={rateDisabled}>
               <Save size={16} />
               {savingSection === 'rate' ? 'Enregistrement...' : 'Enregistrer'}
+            </button>
+          </SettingActions>
+        </form>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Email et notifications"
+        description="Configuration effective des emails transactionnels, pilotée par Railway et isolée par organisation."
+        icon={<Mail size={16} />}
+      >
+        <form className="settings-grid" onSubmit={sendTestEmailMessage}>
+          <SettingField label="Fournisseur">
+            <input value={emailSettings?.provider ?? '-'} readOnly className="locked-field" />
+          </SettingField>
+          <SettingField label="Envoi activé">
+            <input value={emailSettings ? (emailSettings.sendingEnabled ? 'Oui' : 'Non') : '-'} readOnly className="locked-field" />
+          </SettingField>
+          <SettingField label="Mode test">
+            <input value={emailSettings ? (emailSettings.sandboxMode ? 'Oui' : 'Non') : '-'} readOnly className="locked-field" />
+          </SettingField>
+          <SettingField label="Adresse expéditeur">
+            <input value={emailSettings?.fromAddress ?? '-'} readOnly className="locked-field" />
+          </SettingField>
+          <SettingField label="Nom expéditeur">
+            <input value={emailSettings?.fromName ?? '-'} readOnly className="locked-field" />
+          </SettingField>
+          <SettingField label="Reply-To">
+            <input value={emailSettings?.replyTo ?? '-'} readOnly className="locked-field" />
+          </SettingField>
+          <SettingField label="Factures automatiques">
+            <input value={emailSettings ? (emailSettings.invoiceAutomaticEnabled ? 'Actif' : 'Inactif') : '-'} readOnly className="locked-field" />
+          </SettingField>
+          <SettingField label="Relances facture">
+            <input value={emailSettings ? (emailSettings.reminderEnabled ? 'Actif' : 'Inactif') : '-'} readOnly className="locked-field" />
+          </SettingField>
+          <SettingField label="Reçus de paiement">
+            <input value={emailSettings ? (emailSettings.paymentReceiptEnabled ? 'Actif' : 'Inactif') : '-'} readOnly className="locked-field" />
+          </SettingField>
+          <SettingField label="Maintenance">
+            <input value={emailSettings ? (emailSettings.maintenanceEnabled ? 'Actif' : 'Inactif') : '-'} readOnly className="locked-field" />
+          </SettingField>
+          <SettingField label="Email de test" wide>
+            <input
+              type="email"
+              value={testEmailRecipient}
+              onChange={(event) => setTestEmailRecipient(event.target.value)}
+              placeholder="destinataire@test.com"
+              required
+            />
+          </SettingField>
+          <SettingField label="Limites runtime" wide>
+            <input
+              value={emailSettings ? `${emailSettings.maxPerRun} email(s) par run, ${emailSettings.maxRetries} tentative(s) max.` : '-'}
+              readOnly
+              className="locked-field"
+            />
+          </SettingField>
+          <SettingActions>
+            <button type="submit" disabled={sendingTestEmail}>
+              <Mail size={16} />
+              {sendingTestEmail ? 'Envoi...' : "Envoyer un email de test"}
             </button>
           </SettingActions>
         </form>

@@ -1,0 +1,9 @@
+Bonjour {{recipient_name}},
+
+Nous vous rappelons que la facture {{invoice_number}} reste à traiter.
+
+- Montant : {{amount}}
+- Date d’échéance : {{due_date}}
+- Étape de relance : {{reminder_stage}}
+
+{{reminder_message_text}}

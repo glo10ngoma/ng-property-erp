@@ -1,0 +1,9 @@
+Bonjour,
+
+Ceci est un email de test transactionnel envoyé depuis {{organization_name}}.
+
+- Expéditeur affiché : {{sender_name}}
+- Mode sandbox : {{sandbox_mode}}
+- Généré le : {{generated_at}}
+
+Ce message permet de vérifier la configuration SMTP, l’identité d’expéditeur et l’écriture des logs.

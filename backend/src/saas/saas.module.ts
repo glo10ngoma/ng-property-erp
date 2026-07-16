@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../database/database.module';
+import { EmailModule } from '../email/email.module';
 import {
   CashController,
   CommunicationsController,
@@ -25,7 +26,7 @@ import {
 import { SaasService } from './saas.service';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, EmailModule],
   controllers: [
     UsersController,
     WorkflowsController,

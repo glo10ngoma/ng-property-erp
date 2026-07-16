@@ -1,0 +1,12 @@
+Bonjour {{recipient_name}},
+
+Une facture d’autres charges {{invoice_number}} a été émise.
+
+- Date de facture : {{issue_date}}
+- Date d’échéance : {{due_date}}
+- Appartement : {{unit_number}}
+- Immeuble : {{building_name}}
+- Total : {{total}}
+
+Lignes de facturation :
+{{line_items_text}}

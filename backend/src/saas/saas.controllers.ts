@@ -4,7 +4,7 @@ import { PlatformRoleGuard } from '../auth/platform-role.guard';
 import { SuperAdminOnly, SuperAdminOnlyGuard } from '../auth/super-admin-only.guard';
 import { PERMISSIONS, ROLE_LABELS, ROLE_PERMISSIONS } from './permissions';
 import { SaasService } from './saas.service';
-import { UpdateCompanySettingsDto, UpdateExchangeRateDto } from './settings.dto';
+import { SendTestEmailDto, UpdateCompanySettingsDto, UpdateExchangeRateDto } from './settings.dto';
 
 @Controller('users')
 export class UsersController {
@@ -212,6 +212,16 @@ export class SettingsController {
   @Get('publisher-services')
   publisherServices() {
     return this.service.publisherServices();
+  }
+
+  @Get('email-notifications')
+  emailNotifications() {
+    return this.service.emailNotificationSettings();
+  }
+
+  @Post('email-notifications/test')
+  sendTestEmail(@Body() body: SendTestEmailDto) {
+    return this.service.sendTestEmail(body.recipient);
   }
 
   @Get('restricted')

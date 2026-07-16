@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { RequestContext } from '../auth/request-context';
 import { requireRow } from '../common/not-found';
 import { DatabaseService } from '../database/database.service';
+import { EmailService } from '../email/email.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { SaasService } from '../saas/saas.service';
 import { CreatePaymentDto, UpdatePaymentDto } from './dto';
@@ -12,6 +13,7 @@ export class PaymentsService {
     private readonly db: DatabaseService,
     private readonly invoices: InvoicesService,
     private readonly saas: SaasService,
+    private readonly emailService: EmailService,
     private readonly context: RequestContext,
   ) {}
 
@@ -87,7 +89,7 @@ export class PaymentsService {
   }
 
   async create(dto: CreatePaymentDto) {
-    return this.db.transaction(async (client) => {
+    const payment = await this.db.transaction(async (client) => {
       const locked = await this.lockInvoiceForPayment(client, dto);
       const exchangeRate = await this.currentExchangeRate();
       const paymentCurrency = String(dto.payment_currency ?? 'USD').toUpperCase();
@@ -176,6 +178,8 @@ export class PaymentsService {
       await this.invoices.refreshStatus(client, primaryInvoiceId);
       return rows[0];
     });
+    await this.sendPaymentReceiptIfEnabled(Number(payment.id));
+    return payment;
   }
 
   async update(id: number, dto: UpdatePaymentDto) {
@@ -264,5 +268,39 @@ export class PaymentsService {
       [`RCPT-${year}-([0-9]+)`, `RCPT-${year}-%`, this.context.organizationId()],
     );
     return `RCPT-${year}-${String(rows[0].value).padStart(4, '0')}`;
+  }
+
+  private async sendPaymentReceiptIfEnabled(paymentId: number) {
+    const runtime = this.emailService.getRuntimeConfig();
+    if (!runtime.paymentReceiptEnabled) {
+      return;
+    }
+
+    const details = await this.findOne(paymentId) as Record<string, unknown>;
+    const remainingAmount = details.invoice_total !== undefined
+      ? Math.max(Number(details.invoice_total ?? 0) - Number(details.total_equivalent_usd ?? details.amount ?? 0), 0)
+      : null;
+
+    await this.emailService.sendPaymentReceiptEmail({
+      organizationId: this.context.organizationId(),
+      paymentId: Number(details.id),
+      invoiceId: details.invoice_id ? Number(details.invoice_id) : null,
+      invoiceNumber: details.invoice_number ? String(details.invoice_number) : null,
+      receiptNumber: String(details.receipt_number ?? `PAY-${details.id}`),
+      tenantName: String(details.tenant_name ?? 'Locataire'),
+      tenantEmail: details.tenant_email ? String(details.tenant_email) : null,
+      paymentDate: String(details.payment_date),
+      amount: Number(details.total_equivalent_usd ?? details.amount ?? 0),
+      currency: 'USD',
+      remainingAmount,
+      reference: details.reference ? String(details.reference) : null,
+      createdBy: this.context.userId() ?? 1,
+      idempotencyKey: this.emailService.buildIdempotencyKey([
+        this.context.organizationId(),
+        'PAYMENT_RECEIVED',
+        Number(details.id ?? paymentId),
+        String(details.receipt_number ?? details.reference ?? ''),
+      ]),
+    });
   }
 }

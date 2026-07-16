@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsDateString, IsEmail, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class UpdateCompanySettingsDto {
   @IsOptional()
@@ -155,4 +155,9 @@ export class UpdateExchangeRateDto {
   @IsOptional()
   @IsDateString()
   effective_date?: string;
+}
+
+export class SendTestEmailDto {
+  @IsEmail()
+  recipient!: string;
 }

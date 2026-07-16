@@ -11,6 +11,7 @@ import { RequestContextInterceptor } from './auth/request-context.interceptor';
 import { BuildingsModule } from './buildings/buildings.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { DatabaseModule } from './database/database.module';
+import { EmailModule } from './email/email.module';
 import { HealthModule } from './health/health.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { PaymentsModule } from './payments/payments.module';
@@ -23,6 +24,7 @@ import { UnitsModule } from './units/units.module';
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
     DatabaseModule,
+    EmailModule,
     HealthModule,
     AuthModule,
     ActivityModule,

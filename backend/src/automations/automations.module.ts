@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../database/database.module';
+import { EmailModule } from '../email/email.module';
 import { SaasModule } from '../saas/saas.module';
 import { AutomationsController } from './automations.controller';
 import { AutomationsService } from './automations.service';
 
 @Module({
-  imports: [DatabaseModule, SaasModule],
+  imports: [DatabaseModule, SaasModule, EmailModule],
   controllers: [AutomationsController],
   providers: [AutomationsService],
   exports: [AutomationsService],

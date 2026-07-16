@@ -1,0 +1,11 @@
+Bonjour {{recipient_name}},
+
+Nous confirmons la réception de votre paiement {{receipt_number}}.
+
+- Facture : {{invoice_number}}
+- Date de paiement : {{payment_date}}
+- Montant payé : {{amount}}
+- Référence : {{reference}}
+- Solde restant : {{remaining_amount}}
+
+Merci pour votre règlement.
