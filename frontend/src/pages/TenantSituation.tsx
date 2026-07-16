@@ -147,7 +147,7 @@ export function TenantSituation() {
               <SummaryCard label="Type locataire" value="Societe" />
               <SummaryCard label="Société" value={tenantLabel} />
               <SummaryCard label="RCCM" value={text(report.tenant.rccm)} />
-              <SummaryCard label="Représentant" value={text(report.tenant.legal_representative_name)} />
+              <SummaryCard label="Représentant" value={formattedRepresentative(report.tenant)} />
               <SummaryCard label="Téléphone" value={text(report.tenant.phone)} />
               <SummaryCard label="Email" value={text(report.tenant.email)} />
               <SummaryCard label="Statut" value={text(report.tenant.status)} />
@@ -429,11 +429,11 @@ function emptyInvoiceMessage(title: string) {
 }
 
 function physicalInfoRow(tenant: ReportRow) {
-  return { Type: 'Physique', Nom: text(tenant.last_name), 'Post-nom': text(tenant.post_name), Prenom: text(tenant.first_name), Telephone: text(tenant.phone), 'Telephone secondaire': text(tenant.secondary_phone), Email: text(tenant.email), Profession: text(tenant.profession), Nationalite: text(tenant.nationality), Adresse: text(tenant.address), Statut: text(tenant.status) };
+  return { Type: 'Physique', Civilite: civilityLabel(tenant.civility), Nom: text(tenant.last_name), 'Post-nom': text(tenant.post_name), Prenom: text(tenant.first_name), Telephone: text(tenant.phone), 'Telephone secondaire': text(tenant.secondary_phone), Email: text(tenant.email), Profession: text(tenant.profession), Nationalite: text(tenant.nationality), Adresse: text(tenant.address), Statut: text(tenant.status) };
 }
 
 function companyInfoRow(tenant: ReportRow) {
-  return { Type: 'Societe', Societe: text(tenant.company_name), RCCM: text(tenant.rccm), 'ID Nat / Numero fiscal': text(tenant.tax_number), 'Secteur activite': text(tenant.business_sector), Telephone: text(tenant.phone), Email: text(tenant.email), Adresse: text(tenant.address), Representant: text(tenant.legal_representative_name), Fonction: text(tenant.legal_representative_role), 'Telephone representant': text(tenant.legal_representative_phone), 'Email representant': text(tenant.legal_representative_email), Document: text(tenant.company_document_name), Statut: text(tenant.status) };
+  return { Type: 'Societe', Societe: text(tenant.company_name), RCCM: text(tenant.rccm), 'ID Nat / Numero fiscal': text(tenant.tax_number), 'Secteur activite': text(tenant.business_sector), Telephone: text(tenant.phone), Email: text(tenant.email), Adresse: text(tenant.address), Representant: formattedRepresentative(tenant), Fonction: text(tenant.legal_representative_role), 'Telephone representant': text(tenant.legal_representative_phone), 'Email representant': text(tenant.legal_representative_email), Document: text(tenant.company_document_name), Statut: text(tenant.status) };
 }
 
 function AmountCell({ value }: { value: unknown }) {
@@ -473,7 +473,7 @@ function text(value: unknown, fallback = '-') {
 
 function tenantDisplayName(tenant: ReportRow) {
   if (tenant.tenant_type === 'COMPANY') return text(tenant.company_name);
-  return text(`${text(tenant.first_name, '')} ${text(tenant.last_name, '')} ${text(tenant.post_name, '')}`.trim());
+  return formatPersonWithCivility(tenant.civility, `${text(tenant.first_name, '')} ${text(tenant.last_name, '')} ${text(tenant.post_name, '')}`.trim()) || '-';
 }
 
 function tenantSynthesis(report: TenantReportData) {
@@ -528,6 +528,27 @@ function latestDate(values: string[]) {
 
 function safeFilePart(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'locataire';
+}
+
+function civilityLabel(value: unknown) {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  if (normalized === 'MR') return 'Monsieur';
+  if (normalized === 'MRS') return 'Madame';
+  return '—';
+}
+
+function formatPersonWithCivility(civility: unknown, name: string) {
+  const cleanName = String(name ?? '').trim();
+  if (!cleanName) return '';
+  const label = civilityLabel(civility);
+  return label !== '—' ? `${label} ${cleanName}` : cleanName;
+}
+
+function formattedRepresentative(tenant: ReportRow) {
+  return formatPersonWithCivility(
+    tenant.legal_representative_civility,
+    text(tenant.legal_representative_name, ''),
+  ) || '—';
 }
 
 function totalGuaranteeAmount(leases: ReportRow[]) {

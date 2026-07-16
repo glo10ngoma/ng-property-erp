@@ -24,6 +24,7 @@ export type LeaseDocumentRenderContext = {
   };
   tenant: {
     type: string;
+    civility: string;
     displayName: string;
     legalForm: string;
     rccm: string;

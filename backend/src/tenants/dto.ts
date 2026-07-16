@@ -27,6 +27,10 @@ export class CreateTenantDto {
   last_name?: string;
 
   @IsOptional()
+  @IsIn(['MR', 'MRS'])
+  civility?: string;
+
+  @IsOptional()
   @IsString()
   post_name?: string;
 
@@ -58,6 +62,10 @@ export class CreateTenantDto {
   @IsOptional()
   @IsString()
   legal_representative_name?: string;
+
+  @IsOptional()
+  @IsIn(['MR', 'MRS'])
+  legal_representative_civility?: string;
 
   @IsOptional()
   @IsString()

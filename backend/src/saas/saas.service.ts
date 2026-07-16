@@ -5,6 +5,7 @@ import { RequestContext } from '../auth/request-context';
 import { hashPassword } from '../auth/password';
 import { requireRow } from '../common/not-found';
 import { DatabaseService } from '../database/database.service';
+import { EmailService } from '../email/email.service';
 import {
   buildLeaseContractDocxBuffer,
   buildLeaseContractHtml,
@@ -30,7 +31,11 @@ export class SaasService {
   private readonly documentTemplate = new DocumentTemplateService();
   private readonly pdfRenderer = new PdfRendererService();
 
-  constructor(private readonly db: DatabaseService, private readonly context: RequestContext) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly context: RequestContext,
+    private readonly emailService: EmailService,
+  ) {}
 
   async findAll(table: string, orderBy = 'id DESC') {
     const { rows } = await this.db.query(`SELECT * FROM ${table} WHERE organization_id = $1 AND deleted_at IS NULL ORDER BY ${orderBy}`, [
@@ -3366,9 +3371,9 @@ export class SaasService {
                    ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
               END AS tenant_name,
               t.tenant_type,
-              t.first_name, t.last_name, t.post_name, t.company_name, t.legal_form, t.rccm, t.national_id_number,
+              t.first_name, t.last_name, t.post_name, t.civility, t.company_name, t.legal_form, t.rccm, t.national_id_number,
               t.tax_number, t.address AS tenant_address, t.commune AS tenant_commune, t.city AS tenant_city, t.country AS tenant_country,
-              t.id_document_type, t.id_number, t.legal_representative_name, t.legal_representative_role,
+              t.id_document_type, t.id_number, t.legal_representative_name, t.legal_representative_civility, t.legal_representative_role,
               t.representative_post_name, t.representative_first_name,
               t.phone AS tenant_phone,
               t.email AS tenant_email,
@@ -4253,14 +4258,35 @@ export class SaasService {
     const variables = this.objectValue(body.variables);
     const message = template ? this.renderTemplate(String(template.body), variables) : String(body.message ?? '');
     const subject = template?.subject ? this.renderTemplate(String(template.subject), variables) : body.subject ? String(body.subject) : null;
-    if (!body.recipient) throw new BadRequestException('Destinataire requis');
+    const recipient = String(body.recipient ?? body.to ?? '').trim();
+    if (!recipient) throw new BadRequestException('Destinataire requis');
     if (!message.trim()) throw new BadRequestException('Message requis');
+    if (target === 'email_logs') {
+      const result = await this.emailService.send({
+        to: recipient,
+        cc: body.cc ? String(body.cc).split(',').map((item) => item.trim()) : null,
+        bcc: body.bcc ? String(body.bcc).split(',').map((item) => item.trim()) : null,
+        subject: subject ?? 'Notification',
+        text: message,
+        html: body.html ? String(body.html) : null,
+        organizationId: this.context.organizationId(),
+        templateCode: body.template_code ? String(body.template_code) : null,
+        relatedEntityType: body.related_entity_type ? String(body.related_entity_type) : null,
+        relatedEntityId: body.related_entity_id ? Number(body.related_entity_id) : null,
+        createdBy: Number(body.created_by ?? this.context.userId() ?? 1),
+        idempotencyKey: body.idempotency_key ? String(body.idempotency_key) : null,
+        forceSend: Boolean(body.force_send),
+        metadata: variables,
+      });
+      const log = result.logId
+        ? await this.db.query(`SELECT * FROM email_logs WHERE id = $1`, [result.logId])
+        : { rows: [null] as Array<Record<string, unknown> | null> };
+      return { ...result, log: log.rows[0] };
+    }
     const columns =
-      target === 'email_logs'
-        ? ['recipient', 'subject', 'message', 'status', 'provider_response', 'related_entity_type', 'related_entity_id', 'sent_at', 'created_by', 'organization_id']
-        : ['recipient', 'message', 'status', 'provider_response', 'related_entity_type', 'related_entity_id', 'sent_at', 'created_by', 'organization_id'];
+      ['recipient', 'message', 'status', 'provider_response', 'related_entity_type', 'related_entity_id', 'sent_at', 'created_by', 'organization_id'];
     const commonValues = [
-      body.recipient,
+      recipient,
       message,
       'SIMULATED',
       JSON.stringify({ provider: 'LOCAL_SIMULATOR', channel: channel.toUpperCase(), template_code: body.template_code ?? null }),
@@ -4270,9 +4296,8 @@ export class SaasService {
       this.context.userId() ?? body.created_by ?? 1,
       this.context.organizationId(),
     ];
-    const values = target === 'email_logs' ? [body.recipient, subject, ...commonValues.slice(1)] : commonValues;
     const placeholders = columns.map((_, index) => `$${index + 1}`);
-    const { rows } = await this.db.query(`INSERT INTO ${target} (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`, values);
+    const { rows } = await this.db.query(`INSERT INTO ${target} (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`, commonValues);
     return { success: true, simulated: true, log: rows[0] };
   }
 
@@ -4302,14 +4327,38 @@ export class SaasService {
           currency: 'USD',
         });
 
-    const communication = await this.sendCommunication(channel, {
-      recipient,
-      subject: channel === 'EMAIL' ? `Relance facture ${invoice.invoice_number}` : undefined,
-      message,
-      related_entity_type: 'invoice',
-      related_entity_id: id,
-    });
-    const status = communication?.log?.status === 'FAILED' ? 'FAILED' : communication?.log?.status === 'SENT' ? 'SENT' : 'SIMULATED';
+    const communication = channel === 'EMAIL'
+      ? await this.emailService.sendInvoiceReminderEmail({
+          organizationId,
+          invoiceId: id,
+          invoiceNumber: String(invoice.invoice_number),
+          tenantName: String(invoice.tenant_name ?? 'Locataire'),
+          tenantEmail: invoice.email ? String(invoice.email) : null,
+          amount: Number(invoice.total ?? 0),
+          currency: 'USD',
+          dueDate: null,
+          stage: String(body.stage ?? 'MANUAL'),
+          message,
+          createdBy: this.context.userId() ?? 1,
+          idempotencyKey: body.idempotency_key
+            ? String(body.idempotency_key)
+            : this.emailService.buildIdempotencyKey([organizationId, 'INVOICE_REMINDER', id, channel, String(body.stage ?? 'MANUAL'), message]),
+        })
+      : await this.sendCommunication(channel, {
+          recipient,
+          subject: channel === 'EMAIL' ? `Relance facture ${invoice.invoice_number}` : undefined,
+          message,
+          related_entity_type: 'invoice',
+          related_entity_id: id,
+        });
+    const communicationStatus = String((communication as { status?: string; log?: { status?: string } })?.status ?? (communication as { log?: { status?: string } })?.log?.status ?? 'SIMULATED').toUpperCase();
+    const status = communicationStatus === 'FAILED'
+      ? 'FAILED'
+      : communicationStatus === 'SENT'
+        ? 'SENT'
+        : communicationStatus === 'SKIPPED'
+          ? 'SKIPPED'
+          : 'SIMULATED';
     const remindedAt = new Date();
     const reminder = await this.db.query(
       `INSERT INTO invoice_reminders (organization_id, invoice_id, tenant_id, channel, message, status, reminded_at, reminded_by)
@@ -4657,6 +4706,14 @@ export class SaasService {
       'Sauvegardes',
       'Integrations providers email/SMS/WhatsApp reels',
     ].map((label) => ({ label, status: 'Reserve editeur' }));
+  }
+
+  async emailNotificationSettings() {
+    return this.emailService.emailSettingsSummary(this.context.organizationId());
+  }
+
+  async sendTestEmail(recipient: string) {
+    return this.emailService.sendTestEmail(recipient, this.context.organizationId(), this.context.userId() ?? 1);
   }
 
   async payLeaseGuarantee(id: number, amount: number, reference?: string) {
@@ -6872,6 +6929,7 @@ export class SaasService {
       LANDLORD_COUNTRY: company.company_country ?? '',
       LANDLORD_REPRESENTATIVE_NAME: representativeFullName,
       LANDLORD_REPRESENTATIVE: representativeFullName,
+      LANDLORD_REPRESENTATIVE_CIVILITY: company.legal_representative_civility ?? '',
       LANDLORD_REPRESENTATIVE_TITLE: company.legal_representative_title ?? '',
       LANDLORD_PRESENTATION: [
         lessorName,
@@ -6883,6 +6941,7 @@ export class SaasService {
         company.legal_representative_title ? `en qualite de ${company.legal_representative_title}` : null,
       ].filter(Boolean).join(', '),
       TENANT_NAME: isCompanyTenant ? (lease.company_name ?? lease.tenant_name) : (tenantFullName || lease.tenant_name),
+      TENANT_CIVILITY: lease.civility ?? '',
       TENANT_LEGAL_FORM: lease.legal_form ?? '',
       TENANT_RCCM: lease.rccm ?? '',
       TENANT_ID: lease.national_id_number ?? lease.id_number ?? '',
@@ -6891,6 +6950,7 @@ export class SaasService {
       TENANT_CITY: lease.tenant_city ?? '',
       TENANT_COUNTRY: lease.tenant_country ?? '',
       TENANT_REPRESENTATIVE_NAME: tenantRepresentative,
+      TENANT_REPRESENTATIVE_CIVILITY: lease.legal_representative_civility ?? '',
       TENANT_REPRESENTATIVE_TITLE: lease.legal_representative_role ?? '',
       TENANT_PRESENTATION: isCompanyTenant ? companyPresentation : physicalPresentation,
       TENANT_PHYSICAL_NOTE: tenantPhysicalNote,
@@ -6945,6 +7005,7 @@ export class SaasService {
         ville: company.company_city ?? '',
         pays: company.company_country ?? '',
         representant_nom: representativeFullName,
+        representant_civilite: company.legal_representative_civility ?? '',
         representant_fonction: company.legal_representative_title ?? '',
         signature_nom: representativeFullName || lessorName,
         presentation: [
@@ -6959,6 +7020,7 @@ export class SaasService {
       },
       locataire: {
         type: isCompanyTenant ? 'PERSONNE_MORALE' : 'PERSONNE_PHYSIQUE',
+        civilite: lease.civility ?? '',
         nom_complet: tenantFullName || lease.tenant_name,
         raison_sociale: lease.company_name ?? '',
         forme_juridique: lease.legal_form ?? '',
@@ -6973,6 +7035,7 @@ export class SaasService {
         pays: lease.tenant_country ?? '',
         representant_nom: tenantRepresentative,
         representant_nom_complet: tenantRepresentative,
+        representant_civilite: lease.legal_representative_civility ?? '',
         representant_fonction: lease.legal_representative_role ?? '',
         signature_nom: isCompanyTenant ? (lease.company_name ?? lease.tenant_name) : (tenantFullName || lease.tenant_name),
         paragraphe_identification: tenantIdentificationParagraph,

@@ -11,6 +11,7 @@ type Tenant = {
   id: number;
   client_reference?: string;
   tenant_type?: string;
+  civility?: string;
   first_name?: string;
   last_name?: string;
   post_name?: string;
@@ -21,6 +22,7 @@ type Tenant = {
   tax_number?: string;
   business_sector?: string;
   legal_representative_name?: string;
+  legal_representative_civility?: string;
   representative_post_name?: string;
   representative_first_name?: string;
   legal_representative_role?: string;
@@ -70,6 +72,10 @@ const tenantStatuses = [
 ];
 
 const idDocumentTypes = ['Carte d identite', 'Passeport', 'Permis de conduire', 'Carte d electeur', 'Autre'];
+const civilities = [
+  { value: 'MR', label: 'Monsieur' },
+  { value: 'MRS', label: 'Madame' },
+];
 
 export function Tenants() {
   const { can } = useAuth();
@@ -114,6 +120,7 @@ export function Tenants() {
     const tenantType = textValue(form.get('tenant_type')) || 'PHYSICAL';
     const payload = {
       tenant_type: tenantType,
+      civility: tenantType === 'PHYSICAL' ? optionalText(form.get('civility')) : null,
       first_name: optionalText(form.get('first_name')),
       last_name: optionalText(form.get('last_name')),
       post_name: optionalText(form.get('post_name')),
@@ -124,6 +131,7 @@ export function Tenants() {
       tax_number: optionalText(form.get('tax_number')),
       business_sector: optionalText(form.get('business_sector')),
       legal_representative_name: optionalText(form.get('legal_representative_name')),
+      legal_representative_civility: tenantType === 'COMPANY' ? optionalText(form.get('legal_representative_civility')) : null,
       representative_post_name: optionalText(form.get('representative_post_name')),
       representative_first_name: optionalText(form.get('representative_first_name')),
       legal_representative_role: optionalText(form.get('legal_representative_role')),
@@ -288,6 +296,7 @@ function TenantForm({
   const [tenantType, setTenantType] = useState(editing.tenant_type ?? 'PHYSICAL');
   const isCompany = tenantType === 'COMPANY';
   const [fileInputKey, setFileInputKey] = useState(0);
+  const requireCivilityForNewPhysical = !editing.id && !isCompany;
 
   function markDirty() {
     onDirtyChange(true);
@@ -315,6 +324,7 @@ function TenantForm({
     >
       <FormSection title="Identite">
         <label><span>Type de locataire <em>*</em></span><select name="tenant_type" value={tenantType} onChange={(event) => setTenantType(event.target.value)}><option value="PHYSICAL">Personne physique</option><option value="COMPANY">Personne morale / Societe</option></select></label>
+        {!isCompany && <label><span>Civilite {requireCivilityForNewPhysical ? <em>*</em> : <small>(optionnel)</small>}</span><select name="civility" defaultValue={editing.civility ?? ''} required={requireCivilityForNewPhysical}><option value="">Selectionner une civilite</option>{civilities.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>}
         {!isCompany && <label><span>Prenom <em>*</em></span><input name="first_name" defaultValue={editing.first_name ?? ''} required /></label>}
         {!isCompany && <label><span>Nom <em>*</em></span><input name="last_name" defaultValue={editing.last_name ?? ''} required /></label>}
         {!isCompany && <label><span>Post-nom <small>(optionnel)</small></span><input name="post_name" defaultValue={editing.post_name ?? ''} /></label>}
@@ -341,6 +351,7 @@ function TenantForm({
         <label><span>Adresse detaillee <small>(optionnel)</small></span><input name="address" defaultValue={editing.address ?? ''} /></label>
       </FormSection>}
       {isCompany && <FormSection title="Representant">
+        <label><span>Civilite du representant <small>(optionnel)</small></span><select name="legal_representative_civility" defaultValue={editing.legal_representative_civility ?? ''}><option value="">Selectionner une civilite</option>{civilities.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
         <label><span>Nom representant <small>(optionnel)</small></span><input name="legal_representative_name" defaultValue={editing.legal_representative_name ?? ''} /></label>
         <label><span>Post-nom representant <small>(optionnel)</small></span><input name="representative_post_name" defaultValue={editing.representative_post_name ?? ''} /></label>
         <label><span>Prenom representant <small>(optionnel)</small></span><input name="representative_first_name" defaultValue={editing.representative_first_name ?? ''} /></label>

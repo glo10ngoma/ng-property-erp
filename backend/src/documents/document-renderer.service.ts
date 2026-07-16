@@ -34,6 +34,7 @@ export class DocumentRendererService {
       },
       tenant: {
         type: text(snapshot?.locataire?.type, 'PERSONNE_PHYSIQUE'),
+        civility: text(snapshot?.locataire?.civilite ?? snapshot.TENANT_CIVILITY),
         displayName: firstText(
           snapshot?.locataire?.raison_sociale,
           snapshot?.locataire?.nom_complet,

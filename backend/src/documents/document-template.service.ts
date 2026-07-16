@@ -177,14 +177,15 @@ export class DocumentTemplateService {
 
 function landlordParagraph(context: LeaseDocumentRenderContext) {
   const landlord = context.landlord;
+  const representativeFormattedName = formatPersonNameWithCivility(landlord.representativeCivility, landlord.representativeName);
   return [
     `${landlord.companyName}${landlord.acronym ? ` (${landlord.acronym})` : ''}`,
     landlord.legalForm,
     landlord.rccm ? `immatriculee au Registre du Commerce et du Credit Mobilier sous le numero ${landlord.rccm}` : '',
     landlord.nationalId ? `enregistree a l'Identification Nationale sous le numero ${landlord.nationalId}` : '',
     landlord.address ? `dont le siege social est etabli a ${landlord.address}` : '',
-    landlord.representativeName
-      ? `representee par ${[landlord.representativeCivility, landlord.representativeName].filter(Boolean).join(' ')}${landlord.representativeTitle ? `, agissant en qualite de ${landlord.representativeTitle}` : ''}`
+    representativeFormattedName
+      ? `representee par ${representativeFormattedName}${landlord.representativeTitle ? `, agissant en qualite de ${landlord.representativeTitle}` : ''}`
       : '',
     'ci-apres denommee « le Bailleur »',
   ].filter(Boolean).join(', ') + ' ;';
@@ -192,21 +193,23 @@ function landlordParagraph(context: LeaseDocumentRenderContext) {
 
 function tenantParagraph(context: LeaseDocumentRenderContext) {
   const tenant = context.tenant;
+  const representativeFormattedName = formatPersonNameWithCivility(tenant.representativeCivility, tenant.representativeName);
   if (tenant.type === 'PERSONNE_MORALE') {
     return [
       `${tenant.displayName}${tenant.legalForm ? `, ${tenant.legalForm}` : ''}`,
       tenant.rccm ? `immatriculee au Registre du Commerce et du Credit Mobilier sous le numero ${tenant.rccm}` : '',
       tenant.nationalId ? `enregistree a l'Identification Nationale sous le numero ${tenant.nationalId}` : '',
       tenant.address ? `dont le siege social est etabli a ${tenant.address}` : '',
-      tenant.representativeName
-        ? `representee par ${[tenant.representativeCivility, tenant.representativeName].filter(Boolean).join(' ')}${tenant.representativeTitle ? `, agissant en qualite de ${tenant.representativeTitle}` : ''}`
+      representativeFormattedName
+        ? `representee par ${representativeFormattedName}${tenant.representativeTitle ? `, agissant en qualite de ${tenant.representativeTitle}` : ''}`
         : '',
       'ci-apres denommee « le Preneur »',
     ].filter(Boolean).join(', ') + ' ;';
   }
 
+  const formattedTenantName = formatPersonNameWithCivility(tenant.civility, tenant.displayName);
   return [
-    [tenant.representativeCivility, tenant.displayName].filter(Boolean).join(' '),
+    formattedTenantName,
     tenant.identityType ? `titulaire de la piece d'identite ${tenant.identityType}` : '',
     tenant.identityNumber ? `numero ${tenant.identityNumber}` : '',
     tenant.address ? `domicilie(e) a ${tenant.address}` : '',
@@ -224,6 +227,20 @@ function destinationPhrase(context: LeaseDocumentRenderContext) {
 
 function money(value: number, currency: string) {
   return `${Number(value || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+}
+
+function resolveCivilityLabel(value: string) {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  if (normalized === 'MR') return 'Monsieur';
+  if (normalized === 'MRS') return 'Madame';
+  return '';
+}
+
+function formatPersonNameWithCivility(civility: string, name: string) {
+  const cleanName = String(name ?? '').trim();
+  if (!cleanName) return '';
+  const label = resolveCivilityLabel(civility);
+  return label ? `${label} ${cleanName}` : cleanName;
 }
 
 function escapeHtml(value: string) {
