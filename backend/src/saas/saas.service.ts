@@ -5544,8 +5544,8 @@ export class SaasService {
   }
 
   private isActiveLease(lease: Record<string, any>) {
-    const startDate = lease.start_date ? new Date(`${String(lease.start_date).slice(0, 10)}T00:00:00`) : null;
-    const endDate = lease.end_date ? new Date(`${String(lease.end_date).slice(0, 10)}T00:00:00`) : null;
+    const startDate = this.normalizeLeaseDate(lease.start_date);
+    const endDate = this.normalizeLeaseDate(lease.end_date);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const status = String(lease.status ?? '').toUpperCase();
@@ -5555,6 +5555,25 @@ export class SaasService {
         (!endDate || endDate.getTime() >= today.getTime()) &&
         !['DRAFT', 'CANCELLED', 'TERMINATED', 'EXPIRED'].includes(status),
     );
+  }
+
+  private normalizeLeaseDate(value: unknown) {
+    if (!value) return null;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+    }
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const isoDate = /^\d{4}-\d{2}-\d{2}/.exec(raw)?.[0];
+    if (isoDate) {
+      const [year, month, day] = isoDate.split('-').map((part) => Number(part));
+      if ([year, month, day].every((part) => Number.isFinite(part))) {
+        return new Date(year, month - 1, day);
+      }
+    }
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
   }
 
   private tenantLeaseGuaranteeAmount(lease: Record<string, any>) {

@@ -10,7 +10,6 @@ type SectionKey =
   | 'summary'
   | 'leases'
   | 'guarantees'
-  | 'paidInvoices'
   | 'invoices'
   | 'payments'
   | 'documents'
@@ -63,7 +62,6 @@ const sections: Array<{ key: SectionKey; label: string }> = [
   { key: 'summary', label: 'Synthese locataire' },
   { key: 'leases', label: 'Biens loues' },
   { key: 'guarantees', label: 'Garanties locatives' },
-  { key: 'paidInvoices', label: 'Factures payees' },
   { key: 'invoices', label: 'Factures' },
   { key: 'payments', label: 'Paiements' },
   { key: 'documents', label: 'Documents / contrats' },
@@ -136,15 +134,20 @@ export function TenantSituation() {
         OVERDUE: report.overdue,
       }
     : { PAID: [], PARTIAL: [], UNPAID: [], OVERDUE: [] };
+  const activeLeases = useMemo(() => {
+    if (!report) return [];
+    if ((report.active_leases ?? []).length) return report.active_leases;
+    return (report.leases ?? []).filter(isCurrentActiveLease);
+  }, [report]);
   const totalLeaseCount = report?.total_lease_count ?? report?.leases.length ?? 0;
-  const activeLeaseCount = report?.active_lease_count ?? report?.active_leases.length ?? 0;
-  const activeUnitCount = report?.active_unit_count ?? new Set((report?.active_leases ?? []).map((lease) => String(lease.unit_id ?? '')).filter(Boolean)).size;
+  const activeLeaseCount = report?.active_lease_count ?? activeLeases.length ?? 0;
+  const activeUnitCount = report?.active_unit_count ?? new Set(activeLeases.map((lease) => String(lease.unit_id ?? '')).filter(Boolean)).size;
   const totalActiveRentAmount =
     report?.total_active_rent_amount ??
-    (report?.active_leases ?? []).reduce((sum, lease) => sum + leaseRentAmount(lease), 0);
+    activeLeases.reduce((sum, lease) => sum + leaseRentAmount(lease), 0);
   const totalActiveGuaranteeAmount =
     report?.total_active_guarantee_amount ??
-    (report?.active_leases ?? []).reduce((sum, lease) => sum + activeGuaranteeAmount(lease), 0);
+    activeLeases.reduce((sum, lease) => sum + activeGuaranteeAmount(lease), 0);
 
   async function sendReminder(row: ReportRow, channel: 'EMAIL' | 'SMS' | 'WHATSAPP') {
     const invoiceId = Number(row.id ?? row.invoice_id);
@@ -216,29 +219,16 @@ export function TenantSituation() {
       {success && <div className="success-message">{success}</div>}
 
       {report && (
-        <div className="summary-band">
-          {report.tenant.tenant_type === 'COMPANY' ? (
-            <>
-              <SummaryCard label="Type locataire" value="Societe" />
-              <SummaryCard label="Societe" value={tenantLabel} />
-              <SummaryCard label="RCCM" value={text(report.tenant.rccm)} />
-              <SummaryCard label="Representant" value={formattedRepresentative(report.tenant)} />
-              <SummaryCard label="Telephone" value={text(report.tenant.phone)} />
-              <SummaryCard label="Email" value={text(report.tenant.email)} />
-              <SummaryCard label="Statut" value={text(report.tenant.status)} />
-              <SummaryCard label="Adresse" value={text(report.tenant.address)} wide />
-            </>
-          ) : (
-            <>
-              <SummaryCard label="Type locataire" value="Physique" />
-              <SummaryCard label="Locataire" value={tenantLabel} />
-              <SummaryCard label="Telephone" value={text(report.tenant.phone)} />
-              <SummaryCard label="Email" value={text(report.tenant.email)} />
-              <SummaryCard label="Statut" value={text(report.tenant.status)} />
-              <SummaryCard label="Adresse" value={text(report.tenant.address)} wide />
-            </>
-          )}
-          <SummaryCard label="Periode" value={`${shortDate(report.period.start)} - ${shortDate(report.period.end)}`} wide />
+        <div className="mini-stats tenant-situation-kpis">
+          <div className="mini-stat"><span>Total baux</span><strong>{totalLeaseCount}</strong></div>
+          <div className="mini-stat"><span>Baux actifs</span><strong>{activeLeaseCount}</strong></div>
+          <div className="mini-stat"><span>Unites louees</span><strong>{activeUnitCount}</strong></div>
+          <div className="mini-stat"><span>Total loyers actifs</span><strong>{money(totalActiveRentAmount)}</strong></div>
+          <div className="mini-stat"><span>Total garanties actives</span><strong>{money(totalActiveGuaranteeAmount)}</strong></div>
+          <div className="mini-stat"><span>Factures payees</span><strong>{report.paid.length}</strong></div>
+          <div className="mini-stat"><span>Factures en retard</span><strong>{report.overdue.length}</strong></div>
+          <div className="mini-stat"><span>Total paye</span><strong>{money(report.total_paid)}</strong></div>
+          <div className="mini-stat"><span>Solde impaye</span><strong>{money(report.remaining)}</strong></div>
         </div>
       )}
 
@@ -308,19 +298,7 @@ export function TenantSituation() {
       {!report && <EmptyState message={loading ? 'Chargement...' : 'Aucune donnee.'} />}
       {report && (
         <>
-          <div className="mini-stats">
-            <div className="mini-stat"><span>Total baux</span><strong>{totalLeaseCount}</strong></div>
-            <div className="mini-stat"><span>Baux actifs</span><strong>{activeLeaseCount}</strong></div>
-            <div className="mini-stat"><span>Unites louees</span><strong>{activeUnitCount}</strong></div>
-            <div className="mini-stat"><span>Total loyers actifs</span><strong>{money(totalActiveRentAmount)}</strong></div>
-            <div className="mini-stat"><span>Total garanties actives</span><strong>{money(totalActiveGuaranteeAmount)}</strong></div>
-            <div className="mini-stat"><span>Factures payees</span><strong>{report.paid.length}</strong></div>
-            <div className="mini-stat"><span>Factures en retard</span><strong>{report.overdue.length}</strong></div>
-            <div className="mini-stat"><span>Total paye</span><strong>{money(report.total_paid)}</strong></div>
-            <div className="mini-stat"><span>Solde impaye</span><strong>{money(report.remaining)}</strong></div>
-          </div>
-
-          <div className="tenant-situation-nav" role="tablist" aria-label="Rubriques situation locataire">
+          <div className="tenant-situation-nav tenant-situation-tabs" role="tablist" aria-label="Rubriques situation locataire">
             {sections.map((section) => (
               <button
                 key={section.key}
@@ -352,9 +330,8 @@ export function TenantSituation() {
             </>
           )}
 
-          {activeSection === 'leases' && <LeaseTable rows={report.active_leases} />}
+          {activeSection === 'leases' && <LeaseTable rows={activeLeases} />}
           {activeSection === 'guarantees' && <GuaranteeTable rows={report.guarantees} />}
-          {activeSection === 'paidInvoices' && <InvoiceTable title="Factures payees" rows={report.paid} navigate={navigate} />}
           {activeSection === 'invoices' && (
             <>
               <div className="tenant-situation-subnav" role="tablist" aria-label="Categories de factures">
@@ -396,7 +373,7 @@ export function TenantSituation() {
             <ProfitabilityTable
               report={report}
               totalActiveRentAmount={totalActiveRentAmount}
-              totalActiveSyndicAmount={report.active_leases.reduce((sum, lease) => sum + Number(lease.monthly_syndic_amount ?? 0), 0)}
+              totalActiveSyndicAmount={activeLeases.reduce((sum, lease) => sum + Number(lease.monthly_syndic_amount ?? 0), 0)}
             />
           )}
           {activeSection === 'timeline' && <TimelineTable report={report} />}
@@ -408,36 +385,40 @@ export function TenantSituation() {
 
 function TenantIdentitySection({ report }: { report: TenantReportData }) {
   const tenant = report.tenant;
-  const rows =
+  const rows: Array<{ label: string; value: string }> =
     tenant.tenant_type === 'COMPANY'
       ? [
-          ['Societe', text(tenant.company_name)],
-          ['Representant', formattedRepresentative(tenant)],
-          ['Telephone', text(tenant.phone)],
-          ['Email', text(tenant.email)],
-          ['RCCM', text(tenant.rccm)],
-          ['Numero fiscal', text(tenant.tax_number)],
-          ['Adresse', text(tenant.address)],
-          ['Statut', text(tenant.status)],
+          { label: 'Type locataire', value: 'Societe' },
+          { label: 'Societe', value: text(tenant.company_name) },
+          { label: 'Representant', value: formattedRepresentative(tenant) },
+          { label: 'Telephone', value: text(tenant.phone) },
+          { label: 'Email', value: text(tenant.email) },
+          { label: 'RCCM', value: text(tenant.rccm) },
+          { label: 'Numero fiscal', value: text(tenant.tax_number) },
+          { label: 'Adresse', value: text(tenant.address) },
+          { label: 'Statut', value: text(tenant.status) },
+          { label: 'Periode', value: `${shortDate(report.period.start)} - ${shortDate(report.period.end)}` },
         ]
       : [
-          ['Locataire', tenantDisplayName(tenant)],
-          ['Telephone', text(tenant.phone)],
-          ['Email', text(tenant.email)],
-          ['Profession', text(tenant.profession)],
-          ['Nationalite', text(tenant.nationality)],
-          ['Adresse', text(tenant.address)],
-          ['Statut', text(tenant.status)],
+          { label: 'Type locataire', value: 'Physique' },
+          { label: 'Locataire', value: tenantDisplayName(tenant) },
+          { label: 'Telephone', value: text(tenant.phone) },
+          { label: 'Email', value: text(tenant.email) },
+          { label: 'Profession', value: text(tenant.profession) },
+          { label: 'Nationalite', value: text(tenant.nationality) },
+          { label: 'Adresse', value: text(tenant.address) },
+          { label: 'Statut', value: text(tenant.status) },
+          { label: 'Periode', value: `${shortDate(report.period.start)} - ${shortDate(report.period.end)}` },
         ];
   return (
     <div className="detail-section report-section">
       <h4>Informations generales</h4>
-      <div className="detail-list">
-        {rows.map(([label, value]) => (
-          <span key={label}>
-            {label}
-            <strong>{value}</strong>
-          </span>
+      <div className="tenant-summary-grid">
+        {rows.map((row) => (
+          <div key={row.label} className="tenant-summary-field">
+            <span className="tenant-summary-label">{row.label}</span>
+            <span className="tenant-summary-value">{row.value}</span>
+          </div>
         ))}
       </div>
     </div>
@@ -488,6 +469,20 @@ function LeaseTable({ rows }: { rows: ReportRow[] }) {
         {!rows.length && <CompactEmpty message="Aucun bien loue actif." />}
       </div>
     </div>
+  );
+}
+
+function isCurrentActiveLease(lease: ReportRow) {
+  const startDate = normalizeDateOnly(lease.start_date);
+  const endDate = normalizeDateOnly(lease.end_date);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const status = String(lease.status ?? '').toUpperCase();
+  return Boolean(
+    startDate &&
+      startDate.getTime() <= today.getTime() &&
+      (!endDate || endDate.getTime() >= today.getTime()) &&
+      !['DRAFT', 'CANCELLED', 'TERMINATED', 'EXPIRED'].includes(status),
   );
 }
 
@@ -838,6 +833,25 @@ function activeGuaranteeAmount(lease: ReportRow) {
 
 function leaseReference(lease: ReportRow) {
   return text(lease.lease_number ?? `#${text(lease.id)}`);
+}
+
+function normalizeDateOnly(value: unknown) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  }
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const isoDate = /^\d{4}-\d{2}-\d{2}/.exec(raw)?.[0];
+  if (isoDate) {
+    const [year, month, day] = isoDate.split('-').map((part) => Number(part));
+    if ([year, month, day].every((part) => Number.isFinite(part))) {
+      return new Date(year, month - 1, day);
+    }
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
 }
 
 function invoiceCategoryLabel(row: ReportRow) {
