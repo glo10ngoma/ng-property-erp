@@ -47,6 +47,7 @@ type Tenant = {
   unit_number?: string;
   building_name?: string;
   monthly_rent?: number;
+  total_rent_amount?: number;
   active_lease_id?: number;
   active_lease_number?: number;
   active_lease_end_date?: string;
@@ -115,8 +116,8 @@ export function Tenants() {
     left: data.filter((tenant) => tenant.status === 'LEFT' || tenant.status === 'INACTIVE').length,
     withoutLease: data.filter((tenant) => !tenant.active_lease_id).length,
     withDebt: data.filter((tenant) => Number(tenant.remaining_amount ?? 0) > 0).length,
-    totalRents: data.reduce((sum, tenant) => sum + Number(tenant.monthly_rent ?? 0), 0),
-  }), [data]);
+    totalRents: sorted.reduce((sum, tenant) => sum + Number(tenant.total_rent_amount ?? 0), 0),
+  }), [data, sorted]);
 
   async function save(form: FormData) {
     const tenantType = textValue(form.get('tenant_type')) || 'PHYSICAL';
@@ -251,7 +252,7 @@ export function Tenants() {
                 <td>{tenant.phone}</td>
                 <td>{tenant.occupied_unit_labels ?? tenant.unit_number ?? '-'}</td>
                 <td>{tenant.occupied_building_names ?? tenant.building_name ?? '-'}</td>
-                <td className="right">{amount(tenant.monthly_rent)}</td>
+                <td className="right">{amount(tenant.total_rent_amount)}</td>
                 <td>USD</td>
                 <td>{dateText(tenant.active_lease_end_date)}</td>
                 <td>{dateText(tenant.last_payment_date)}</td>
@@ -418,7 +419,7 @@ function exportTenantRows(rows: Tenant[]) {
     nationalite: tenant.nationality ?? '',
     immeuble: tenant.occupied_building_names ?? tenant.building_name ?? '',
     appartement: tenant.occupied_unit_labels ?? tenant.unit_number ?? '',
-    loyer: tenant.monthly_rent ?? 0,
+    loyer: tenant.total_rent_amount ?? 0,
     devise: 'USD',
     statut: statusLabel(tenant.status),
     fin_bail: dateText(tenant.active_lease_end_date),
@@ -429,7 +430,7 @@ function exportTenantRows(rows: Tenant[]) {
 }
 
 function exportTenantListWorkbook(rows: Tenant[]) {
-  const totalInvoiced = rows.reduce((sum, tenant) => sum + Number(tenant.monthly_rent ?? 0), 0);
+  const totalInvoiced = rows.reduce((sum, tenant) => sum + Number(tenant.total_rent_amount ?? 0), 0);
   const totalUnpaid = rows.reduce((sum, tenant) => sum + Number(tenant.remaining_amount ?? 0), 0);
   exportXlsxWorkbook('Locataires.xlsx', [
     { name: 'Informations locataire', rows: exportTenantRows(rows) },

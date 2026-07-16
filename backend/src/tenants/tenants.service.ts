@@ -18,6 +18,7 @@ export class TenantsService {
              lease_info.unit_id,
              lease_info.unit_number,
              lease_info.monthly_rent,
+             COALESCE(lease_stats.total_rent_amount, 0)::FLOAT AS total_rent_amount,
              lease_info.active_lease_id,
              lease_info.active_lease_number,
              lease_info.active_lease_end_date,
@@ -49,14 +50,24 @@ export class TenantsService {
         LEFT JOIN buildings b ON b.id = u.building_id
         WHERE l.tenant_id = t.id
           AND l.organization_id = t.organization_id
-          AND l.status = 'ACTIVE'
           AND l.deleted_at IS NULL
-        ORDER BY l.start_date DESC, l.id DESC
+          AND l.start_date <= CURRENT_DATE
+          AND (l.end_date IS NULL OR l.end_date >= CURRENT_DATE)
+          AND COALESCE(l.status, '') NOT IN ('DRAFT', 'CANCELLED')
+        ORDER BY CASE
+                   WHEN l.status = 'ACTIVE' THEN 0
+                   WHEN l.status IN ('SIGNED', 'VALIDATED', 'PENDING') THEN 1
+                   WHEN l.status = 'TERMINATED' THEN 2
+                   ELSE 3
+                 END,
+                 l.start_date DESC,
+                 l.id DESC
         LIMIT 1
       ) lease_info ON TRUE
       LEFT JOIN LATERAL (
         SELECT COUNT(*)::INT AS active_leases_count,
                COUNT(DISTINCT l.unit_id)::INT AS occupied_units_count,
+               COALESCE(SUM(COALESCE(l.monthly_rent, 0) + COALESCE(l.maintenance_fee_amount, 0)), 0)::FLOAT AS total_rent_amount,
                STRING_AGG(DISTINCT u.number, ', ' ORDER BY u.number) FILTER (WHERE u.number IS NOT NULL) AS occupied_unit_labels,
                STRING_AGG(DISTINCT b.name, ', ' ORDER BY b.name) FILTER (WHERE b.name IS NOT NULL) AS occupied_building_names
         FROM leases l
@@ -64,8 +75,10 @@ export class TenantsService {
         LEFT JOIN buildings b ON b.id = u.building_id
         WHERE l.tenant_id = t.id
           AND l.organization_id = t.organization_id
-          AND l.status = 'ACTIVE'
           AND l.deleted_at IS NULL
+          AND l.start_date <= CURRENT_DATE
+          AND (l.end_date IS NULL OR l.end_date >= CURRENT_DATE)
+          AND COALESCE(l.status, '') NOT IN ('DRAFT', 'CANCELLED')
       ) lease_stats ON TRUE
       LEFT JOIN (
         SELECT i.tenant_id,
