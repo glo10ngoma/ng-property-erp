@@ -87,6 +87,7 @@ export function Tenants() {
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState({ status: '', building: '', unit: '', leaseType: '', paymentStatus: '', leaseExpiry: '', profession: '', nationality: '', reminder: '' });
   const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
 
   const buildings = uniqueValues(data.flatMap((tenant) => splitLabels(tenant.occupied_building_names ?? tenant.building_name)));
   const units = uniqueValues(data.flatMap((tenant) => splitLabels(tenant.occupied_unit_labels ?? tenant.unit_number)));
@@ -156,13 +157,18 @@ export function Tenants() {
       notes: optionalText(form.get('notes')),
       status: textValue(form.get('status')) || 'ACTIVE',
     };
-    if (editing?.id) await api.put(`/tenants/${editing.id}`, payload);
-    else await api.post('/tenants', payload);
-    setSuccess(editing?.id ? 'Locataire modifie avec succes.' : 'Locataire cree avec succes.');
-    setTenantFormDirty(false);
-    setEditing(null);
-    setIdentityFileName('');
-    reload();
+    setError('');
+    try {
+      if (editing?.id) await api.put(`/tenants/${editing.id}`, payload);
+      else await api.post('/tenants', payload);
+      setSuccess(editing?.id ? 'Locataire modifie avec succes.' : 'Locataire cree avec succes.');
+      setTenantFormDirty(false);
+      setEditing(null);
+      setIdentityFileName('');
+      await reload();
+    } catch (err) {
+      setError(extractApiErrorMessage(err));
+    }
   }
 
   async function createInvoice(tenant: Tenant) {
@@ -180,6 +186,7 @@ export function Tenants() {
   }
 
   function openForm(tenant?: Tenant) {
+    setError('');
     setIdentityFileName(tenant?.tenant_type === 'COMPANY' ? tenant.company_document_name ?? '' : tenant?.id_document_file_name ?? '');
     setTenantFormDirty(false);
     setEditing(tenant ?? { tenant_type: 'PHYSICAL' });
@@ -189,6 +196,7 @@ export function Tenants() {
     if (tenantFormDirty && !window.confirm('Vous avez des modifications non enregistrées. Voulez-vous vraiment quitter ?')) {
       return;
     }
+    setError('');
     setEditing(null);
     setIdentityFileName('');
     setTenantFormDirty(false);
@@ -267,6 +275,7 @@ export function Tenants() {
 
       {editing && (
         <Modal title={editing.id ? 'Modifier le locataire' : 'Nouveau locataire'} onClose={closeForm}>
+          {error && <div className="error-message">{error.split('\n').map((line) => <div key={line}>{line}</div>)}</div>}
           <TenantForm
             editing={editing}
             identityFileName={identityFileName}
@@ -508,4 +517,22 @@ function optionalText(value: FormDataEntryValue | null) {
 
 function amount(value: unknown) {
   return Number(value ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+}
+
+function extractApiErrorMessage(error: unknown) {
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    const response = (error as { response?: { data?: unknown } }).response;
+    const data = response?.data;
+    if (typeof data === 'string') return data;
+    if (data && typeof data === 'object') {
+      const payload = data as Record<string, unknown>;
+      const message = payload.message;
+      if (Array.isArray(message)) return message.map(String).join('\n');
+      if (typeof message === 'string') return message;
+      if (message) return JSON.stringify(message);
+      if (typeof payload.error === 'string') return payload.error;
+    }
+  }
+  if (error instanceof Error) return error.message;
+  return "Impossible d'enregistrer le locataire.";
 }

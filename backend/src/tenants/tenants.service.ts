@@ -6,6 +6,8 @@ import { CreateTenantDto, UpdateTenantDto } from './dto';
 
 @Injectable()
 export class TenantsService {
+  private tenantCivilityColumnsPromise?: Promise<boolean>;
+
   constructor(private readonly db: DatabaseService, private readonly context: RequestContext) {}
 
   async findAll() {
@@ -139,58 +141,94 @@ export class TenantsService {
 
   async create(dto: CreateTenantDto) {
     const organizationId = this.context.organizationId();
+    const includesCivilityColumns = await this.hasTenantCivilityColumns();
+    const columns = [
+      'tenant_type',
+      'first_name',
+      'last_name',
+      ...(includesCivilityColumns ? ['civility'] : []),
+      'post_name',
+      'company_name',
+      'rccm',
+      'tax_number',
+      'business_sector',
+      'legal_representative_name',
+      ...(includesCivilityColumns ? ['legal_representative_civility'] : []),
+      'legal_representative_role',
+      'legal_representative_phone',
+      'legal_representative_email',
+      'company_document_name',
+      'legal_form',
+      'national_id_number',
+      'commune',
+      'city',
+      'country',
+      'representative_post_name',
+      'representative_first_name',
+      'phone',
+      'secondary_phone',
+      'email',
+      'profession',
+      'address',
+      'id_document_type',
+      'id_number',
+      'id_document_file_name',
+      'id_document_file_url',
+      'nationality',
+      'emergency_contact_name',
+      'emergency_contact_phone',
+      'notes',
+      'unit_id',
+      'move_in_date',
+      'status',
+      'organization_id',
+    ];
+    const values = [
+      dto.tenant_type ?? 'PHYSICAL',
+      dto.first_name,
+      dto.last_name,
+      ...(includesCivilityColumns ? [this.normalizeCivility(dto.civility)] : []),
+      dto.post_name ?? null,
+      dto.company_name ?? null,
+      dto.rccm ?? null,
+      dto.tax_number ?? null,
+      dto.business_sector ?? null,
+      dto.legal_representative_name ?? null,
+      ...(includesCivilityColumns ? [this.normalizeCivility(dto.legal_representative_civility)] : []),
+      dto.legal_representative_role ?? null,
+      dto.legal_representative_phone ?? null,
+      dto.legal_representative_email || null,
+      dto.company_document_name ?? null,
+      dto.legal_form ?? null,
+      dto.national_id_number ?? null,
+      dto.commune ?? null,
+      dto.city ?? null,
+      dto.country ?? null,
+      dto.representative_post_name ?? null,
+      dto.representative_first_name ?? null,
+      dto.phone,
+      dto.secondary_phone ?? null,
+      dto.email || null,
+      dto.profession ?? null,
+      dto.address ?? null,
+      dto.id_document_type ?? null,
+      dto.id_number ?? null,
+      dto.id_document_file_name ?? null,
+      dto.id_document_file_url ?? null,
+      dto.nationality ?? null,
+      dto.emergency_contact_name ?? null,
+      dto.emergency_contact_phone ?? null,
+      dto.notes ?? null,
+      dto.unit_id ?? null,
+      dto.move_in_date ?? null,
+      dto.status,
+      organizationId,
+    ];
+    const placeholders = values.map((_, index) => `$${index + 1}`);
     const { rows } = await this.db.query(
-       `INSERT INTO tenants (
-         tenant_type, first_name, last_name, civility, post_name, company_name, rccm, tax_number, business_sector,
-         legal_representative_name, legal_representative_civility, legal_representative_role, legal_representative_phone, legal_representative_email,
-         company_document_name, legal_form, national_id_number, commune, city, country,
-         representative_post_name, representative_first_name,
-         phone, secondary_phone, email, profession, address,
-         id_document_type, id_number, id_document_file_name, id_document_file_url, nationality, emergency_contact_name, emergency_contact_phone, notes,
-         unit_id, move_in_date, status, organization_id
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39) RETURNING *`,
-      [
-        dto.tenant_type ?? 'PHYSICAL',
-        dto.first_name,
-        dto.last_name,
-        this.normalizeCivility(dto.civility),
-        dto.post_name ?? null,
-        dto.company_name ?? null,
-        dto.rccm ?? null,
-        dto.tax_number ?? null,
-        dto.business_sector ?? null,
-        dto.legal_representative_name ?? null,
-        this.normalizeCivility(dto.legal_representative_civility),
-        dto.legal_representative_role ?? null,
-        dto.legal_representative_phone ?? null,
-        dto.legal_representative_email || null,
-        dto.company_document_name ?? null,
-        dto.legal_form ?? null,
-        dto.national_id_number ?? null,
-        dto.commune ?? null,
-        dto.city ?? null,
-        dto.country ?? null,
-        dto.representative_post_name ?? null,
-        dto.representative_first_name ?? null,
-        dto.phone,
-        dto.secondary_phone ?? null,
-        dto.email || null,
-        dto.profession ?? null,
-        dto.address ?? null,
-        dto.id_document_type ?? null,
-        dto.id_number ?? null,
-        dto.id_document_file_name ?? null,
-        dto.id_document_file_url ?? null,
-        dto.nationality ?? null,
-        dto.emergency_contact_name ?? null,
-        dto.emergency_contact_phone ?? null,
-        dto.notes ?? null,
-        dto.unit_id ?? null,
-        dto.move_in_date ?? null,
-        dto.status,
-        organizationId,
-      ],
+      `INSERT INTO tenants (${columns.join(', ')})
+       VALUES (${placeholders.join(', ')}) RETURNING *`,
+      values,
     );
     if (dto.unit_id) await this.db.query(`UPDATE units SET status = 'OCCUPIED' WHERE id = $1 AND organization_id = $2`, [dto.unit_id, organizationId]);
     return rows[0];
@@ -198,89 +236,109 @@ export class TenantsService {
 
   async update(id: number, dto: UpdateTenantDto) {
     const previous = (await this.findOne(id)) as unknown as { unit_id?: number };
+    const includesCivilityColumns = await this.hasTenantCivilityColumns();
+    const values: Array<string | number | null | undefined> = [id];
+    const setClauses = ['tenant_type', 'first_name', 'last_name'];
+    const normalizedValues: Array<string | number | null | undefined> = [
+      dto.tenant_type,
+      dto.first_name,
+      dto.last_name,
+    ];
+
+    if (includesCivilityColumns) {
+      setClauses.push('civility');
+      normalizedValues.push(this.normalizeCivility(dto.civility));
+    }
+
+    setClauses.push(
+      'post_name',
+      'company_name',
+      'legal_form',
+      'rccm',
+      'national_id_number',
+      'tax_number',
+      'business_sector',
+      'legal_representative_name',
+    );
+    normalizedValues.push(
+      dto.post_name,
+      dto.company_name,
+      dto.legal_form,
+      dto.rccm,
+      dto.national_id_number,
+      dto.tax_number,
+      dto.business_sector,
+      dto.legal_representative_name,
+    );
+
+    if (includesCivilityColumns) {
+      setClauses.push('legal_representative_civility');
+      normalizedValues.push(this.normalizeCivility(dto.legal_representative_civility));
+    }
+
+    setClauses.push(
+      'representative_post_name',
+      'representative_first_name',
+      'legal_representative_role',
+      'legal_representative_phone',
+      'legal_representative_email',
+      'company_document_name',
+      'commune',
+      'city',
+      'country',
+      'phone',
+      'secondary_phone',
+      'email',
+      'profession',
+      'address',
+      'id_document_type',
+      'id_number',
+      'id_document_file_name',
+      'id_document_file_url',
+      'nationality',
+      'emergency_contact_name',
+      'emergency_contact_phone',
+      'notes',
+      'unit_id',
+      'move_in_date',
+      'status',
+    );
+    normalizedValues.push(
+      dto.representative_post_name,
+      dto.representative_first_name,
+      dto.legal_representative_role,
+      dto.legal_representative_phone,
+      dto.legal_representative_email,
+      dto.company_document_name,
+      dto.commune,
+      dto.city,
+      dto.country,
+      dto.phone,
+      dto.secondary_phone,
+      dto.email,
+      dto.profession,
+      dto.address,
+      dto.id_document_type,
+      dto.id_number,
+      dto.id_document_file_name,
+      dto.id_document_file_url,
+      dto.nationality,
+      dto.emergency_contact_name,
+      dto.emergency_contact_phone,
+      dto.notes,
+      dto.unit_id,
+      dto.move_in_date,
+      dto.status,
+    );
+
+    values.push(...normalizedValues);
+    const assignments = setClauses.map((column, index) => `${column} = COALESCE($${index + 2}, ${column})`);
+    values.push(this.context.organizationId());
     const { rows } = await this.db.query(
       `UPDATE tenants
-       SET tenant_type = COALESCE($2, tenant_type),
-           first_name = COALESCE($3, first_name),
-           last_name = COALESCE($4, last_name),
-           civility = COALESCE($5, civility),
-           post_name = COALESCE($6, post_name),
-           company_name = COALESCE($7, company_name),
-           legal_form = COALESCE($8, legal_form),
-           rccm = COALESCE($9, rccm),
-           national_id_number = COALESCE($10, national_id_number),
-           tax_number = COALESCE($11, tax_number),
-           business_sector = COALESCE($12, business_sector),
-           legal_representative_name = COALESCE($13, legal_representative_name),
-           legal_representative_civility = COALESCE($14, legal_representative_civility),
-           representative_post_name = COALESCE($15, representative_post_name),
-           representative_first_name = COALESCE($16, representative_first_name),
-           legal_representative_role = COALESCE($17, legal_representative_role),
-           legal_representative_phone = COALESCE($18, legal_representative_phone),
-           legal_representative_email = COALESCE($19, legal_representative_email),
-           company_document_name = COALESCE($20, company_document_name),
-           commune = COALESCE($21, commune),
-           city = COALESCE($22, city),
-           country = COALESCE($23, country),
-           phone = COALESCE($24, phone),
-           secondary_phone = COALESCE($25, secondary_phone),
-           email = COALESCE($26, email),
-           profession = COALESCE($27, profession),
-           address = COALESCE($28, address),
-           id_document_type = COALESCE($29, id_document_type),
-           id_number = COALESCE($30, id_number),
-           id_document_file_name = COALESCE($31, id_document_file_name),
-           id_document_file_url = COALESCE($32, id_document_file_url),
-           nationality = COALESCE($33, nationality),
-           emergency_contact_name = COALESCE($34, emergency_contact_name),
-           emergency_contact_phone = COALESCE($35, emergency_contact_phone),
-           notes = COALESCE($36, notes),
-           unit_id = COALESCE($37, unit_id),
-           move_in_date = COALESCE($38, move_in_date),
-           status = COALESCE($39, status)
-       WHERE id = $1 AND organization_id = $40 AND deleted_at IS NULL RETURNING *`,
-      [
-        id,
-        dto.tenant_type,
-        dto.first_name,
-        dto.last_name,
-        this.normalizeCivility(dto.civility),
-        dto.post_name,
-        dto.company_name,
-        dto.legal_form,
-        dto.rccm,
-        dto.national_id_number,
-        dto.tax_number,
-        dto.business_sector,
-        dto.legal_representative_name,
-        this.normalizeCivility(dto.legal_representative_civility),
-        dto.representative_post_name,
-        dto.representative_first_name,
-        dto.legal_representative_role,
-        dto.legal_representative_phone,
-        dto.legal_representative_email,
-        dto.company_document_name,
-        dto.commune,
-        dto.city,
-        dto.country,
-        dto.phone,
-        dto.secondary_phone,
-        dto.email,
-        dto.profession,
-        dto.address,
-        dto.id_document_type,
-        dto.id_number,
-        dto.id_document_file_name,
-        dto.id_document_file_url,
-        dto.nationality,
-        dto.emergency_contact_name,
-        dto.emergency_contact_phone,
-        dto.notes,
-        dto.unit_id,
-        dto.move_in_date,
-        dto.status,
-        this.context.organizationId(),
-      ],
+       SET ${assignments.join(', ')}
+       WHERE id = $1 AND organization_id = $${values.length} AND deleted_at IS NULL RETURNING *`,
+      values,
     );
     if (dto.unit_id && dto.unit_id !== previous.unit_id) {
       await this.db.query(`UPDATE units SET status = 'OCCUPIED' WHERE id = $1 AND organization_id = $2`, [dto.unit_id, this.context.organizationId()]);
@@ -323,5 +381,20 @@ export class TenantsService {
     if (normalized === 'MONSIEUR') return 'MR';
     if (normalized === 'MADAME') return 'MRS';
     return normalized;
+  }
+
+  private async hasTenantCivilityColumns() {
+    if (!this.tenantCivilityColumnsPromise) {
+      this.tenantCivilityColumnsPromise = this.db
+        .query(
+          `SELECT COUNT(*)::INT AS count
+           FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name = 'tenants'
+             AND column_name IN ('civility', 'legal_representative_civility')`,
+        )
+        .then(({ rows }) => Number(rows[0]?.count ?? 0) === 2);
+    }
+    return this.tenantCivilityColumnsPromise;
   }
 }
