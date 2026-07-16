@@ -25,8 +25,17 @@ export class SaasService {
   private readonly logger = new Logger(SaasService.name);
   private readonly companyStorageBucket = 'company';
   private readonly leaseContractStorageBucket = 'contracts';
+  private readonly purchaseAttachmentStorageBucket = 'contracts';
   private readonly allowedCompanyFileKinds = new Set(['logo', 'signature', 'stamp']);
   private readonly allowedCompanyFileMimeTypes = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml']);
+  private readonly allowedPurchaseAttachmentMimeTypes = new Set([
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ]);
   private readonly documentRenderer = new DocumentRendererService();
   private readonly documentTemplate = new DocumentTemplateService();
   private readonly pdfRenderer = new PdfRendererService();
@@ -2154,7 +2163,7 @@ export class SaasService {
       [id, this.context.organizationId()],
     );
     const row = requireRow(purchase.rows[0], 'Stock purchase');
-    const [lines, receipts, payments, timeline, stockMovements, cashMovements] = await Promise.all([
+    const [lines, receipts, payments, timeline, stockMovements, cashMovements, attachments] = await Promise.all([
       this.db.query(
         `SELECT spl.*, si.code AS item_code, si.name AS item_name, si.unit, si.category
          FROM stock_purchase_lines spl
@@ -2211,6 +2220,13 @@ export class SaasService {
          ORDER BY cm.movement_date DESC, cm.id DESC`,
         [id, this.context.organizationId()],
       ),
+      this.db.query(
+        `SELECT id, purchase_id, file_name, storage_path, mime_type, file_size, created_at
+         FROM purchase_attachments
+         WHERE purchase_id = $1 AND organization_id = $2 AND deleted_at IS NULL
+         ORDER BY created_at DESC, id DESC`,
+        [id, this.context.organizationId()],
+      ),
     ]);
 
     const receiptIds = receipts.rows.map((entry) => Number(entry.id));
@@ -2235,19 +2251,111 @@ export class SaasService {
       timeline: timeline.rows,
       stock_movements: stockMovements.rows,
       cash_movements: cashMovements.rows,
+      attachments: attachments.rows,
     };
+  }
+
+  async suppliers() {
+    const { rows } = await this.db.query(
+      `SELECT *
+       FROM suppliers
+       WHERE organization_id = $1
+         AND deleted_at IS NULL
+       ORDER BY LOWER(name), id`,
+      [this.context.organizationId()],
+    );
+    return rows;
+  }
+
+  async supplier(id: number) {
+    const { rows } = await this.db.query(
+      `SELECT *
+       FROM suppliers
+       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+    return requireRow(rows[0], 'Supplier');
+  }
+
+  async createSupplier(body: Record<string, unknown>) {
+    return this.db.transaction(async (client) => {
+      const supplierCode = await this.nextSupplierCode(client);
+      const name = String(body.name ?? body.company_name ?? '').trim();
+      if (!name) {
+        throw new BadRequestException('Le nom du fournisseur est obligatoire');
+      }
+      const { rows } = await client.query(
+        `INSERT INTO suppliers
+         (supplier_code, supplier_type, name, company_name, contact_person, phone, secondary_phone, email, address,
+          tax_number, national_id, rccm, payment_terms, notes, status, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         RETURNING *`,
+        [
+          supplierCode,
+          String(body.supplier_type ?? 'COMPANY').toUpperCase() === 'INDIVIDUAL' ? 'INDIVIDUAL' : 'COMPANY',
+          name,
+          String(body.company_name ?? '').trim() || null,
+          String(body.contact_person ?? '').trim() || null,
+          String(body.phone ?? '').trim() || null,
+          String(body.secondary_phone ?? '').trim() || null,
+          String(body.email ?? '').trim() || null,
+          String(body.address ?? '').trim() || null,
+          String(body.tax_number ?? '').trim() || null,
+          String(body.national_id ?? '').trim() || null,
+          String(body.rccm ?? '').trim() || null,
+          String(body.payment_terms ?? '').trim() || null,
+          String(body.notes ?? '').trim() || null,
+          String(body.status ?? 'ACTIVE').toUpperCase() === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
+          this.context.organizationId(),
+        ],
+      );
+      return rows[0];
+    });
+  }
+
+  async updateSupplier(id: number, body: Record<string, unknown>) {
+    const keys = [
+      'supplier_type',
+      'name',
+      'company_name',
+      'contact_person',
+      'phone',
+      'secondary_phone',
+      'email',
+      'address',
+      'tax_number',
+      'national_id',
+      'rccm',
+      'payment_terms',
+      'notes',
+      'status',
+    ].filter((key) => body[key] !== undefined);
+    if (!keys.length) {
+      throw new BadRequestException('No data provided');
+    }
+    const normalizedBody = {
+      ...body,
+      supplier_type: String(body.supplier_type ?? '').toUpperCase() === 'INDIVIDUAL' ? 'INDIVIDUAL' : 'COMPANY',
+      status: String(body.status ?? '').toUpperCase() === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
+    };
+    return this.updateById('suppliers', id, normalizedBody, keys);
   }
 
   async createStockPurchase(body: Record<string, unknown>) {
     const lines = Array.isArray(body.lines) ? (body.lines as Array<Record<string, unknown>>) : [];
     if (!lines.length) throw new BadRequestException('Ajoutez au moins un article');
-    return this.db.transaction(async (client) => {
+    const purchaseId = await this.db.transaction(async (client) => {
       const paymentType = String(body.payment_type ?? 'DEFERRED').toUpperCase();
+      const receiptStatus = String(body.receipt_status ?? 'PENDING').toUpperCase();
       const dueDate = String(body.due_date ?? '').trim() || null;
       if (!['CASH', 'PARTIAL', 'DEFERRED'].includes(paymentType)) {
         throw new BadRequestException('Type de paiement invalide');
       }
+      if (!['PENDING', 'RECEIVED'].includes(receiptStatus)) {
+        throw new BadRequestException('Statut de reception invalide');
+      }
       const purchaseNumber = await this.nextStockPurchaseNumber(client);
+      const supplier = await this.requireSupplier(client, Number(body.supplier_id ?? 0));
       const normalizedLines = await this.normalizeStockPurchaseLines(client, lines);
       const subtotalAmount = normalizedLines.reduce((sum, line) => sum + Number(line.line_total), 0);
       const taxAmount = Number(body.tax_amount ?? 0);
@@ -2261,18 +2369,19 @@ export class SaasService {
       }
       const { rows } = await client.query(
         `INSERT INTO stock_purchases
-         (purchase_number, purchase_date, supplier_name, supplier_reference, store, payment_terms, payment_method,
+         (purchase_number, purchase_date, supplier_id, supplier_name, supplier_reference, store, payment_terms, payment_method,
           payment_type, due_date, subtotal_amount, tax_amount, discount_amount, total_amount, paid_amount,
           outstanding_amount, purchase_status, reception_status, payment_status, observations, created_by, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'OPEN', 'PENDING', $16, $17, $18, $19)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'OPEN', 'PENDING', $17, $18, $19, $20)
          RETURNING *`,
         [
           purchaseNumber,
           body.purchase_date ?? new Date().toISOString().slice(0, 10),
-          body.supplier_name,
+          supplier.id,
+          supplier.name,
           body.supplier_reference ?? null,
           body.store ?? null,
-          body.payment_terms ?? null,
+          body.payment_terms ?? supplier.payment_terms ?? null,
           body.payment_method ?? null,
           paymentType,
           dueDate,
@@ -2289,15 +2398,30 @@ export class SaasService {
         ],
       );
       const purchase = rows[0];
+      const createdLines: Array<Record<string, unknown>> = [];
       for (const line of normalizedLines) {
-        await client.query(
+        const lineInsert = await client.query(
           `INSERT INTO stock_purchase_lines
            (stock_purchase_id, stock_item_id, quantity, received_quantity, unit_price, line_total, organization_id)
-           VALUES ($1, $2, $3, 0, $4, $5, $6)`,
+           VALUES ($1, $2, $3, 0, $4, $5, $6)
+           RETURNING *`,
           [purchase.id, line.stock_item_id, line.quantity, line.unit_price, line.line_total, this.context.organizationId()],
         );
+        createdLines.push(lineInsert.rows[0]);
       }
       await this.addStockPurchaseTimeline(client, purchase.id, 'CREATED', 'Achat fournisseur', `Bon ${purchaseNumber} cree`);
+      if (receiptStatus === 'RECEIVED') {
+        await this.receiveStockPurchaseInTransaction(client, purchase, {
+          receipt_date: body.purchase_date ?? new Date().toISOString().slice(0, 10),
+          receiver_name: null,
+          store: body.store ?? null,
+          notes: body.observations ?? `Reception immediate ${purchaseNumber}`,
+          lines: createdLines.map((line) => ({
+            stock_purchase_line_id: line.id,
+            quantity_received: line.quantity,
+          })),
+        }, createdLines);
+      }
       if (initialPaidAmount > 0) {
         const payment = await this.recordStockPurchasePaymentInTransaction(client, purchase.id, {
           amount: initialPaidAmount,
@@ -2313,16 +2437,17 @@ export class SaasService {
           [purchase.id, this.context.organizationId()],
         );
         await this.addStockPurchaseTimeline(client, purchase.id, 'PAYMENT', 'Paiement fournisseur', `Paiement initial ${initialPaidAmount.toFixed(2)} USD`);
-        return { ...requireRow(updatedPurchase.rows[0], 'Stock purchase'), payments: [payment] };
+        return requireRow(updatedPurchase.rows[0], 'Stock purchase').id;
       }
-      return purchase;
+      return Number(purchase.id);
     });
+    return this.stockPurchaseDetail(Number(purchaseId));
   }
 
   async receiveStockPurchase(id: number, body: Record<string, unknown>) {
     const lines = Array.isArray(body.lines) ? (body.lines as Array<Record<string, unknown>>) : [];
     if (!lines.length) throw new BadRequestException('Ajoutez au moins une ligne de reception');
-    return this.db.transaction(async (client) => {
+    await this.db.transaction(async (client) => {
       const purchase = await client.query(
         `SELECT * FROM stock_purchases
          WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
@@ -2331,85 +2456,71 @@ export class SaasService {
       );
       const purchaseRow = requireRow(purchase.rows[0], 'Stock purchase');
       if (purchaseRow.purchase_status === 'CANCELLED') throw new BadRequestException('Cet achat est annule');
-      const purchaseLines = await client.query(
-        `SELECT spl.*, si.name AS item_name
-         FROM stock_purchase_lines spl
-         JOIN stock_items si ON si.id = spl.stock_item_id
-         WHERE spl.stock_purchase_id = $1 AND spl.organization_id = $2 AND spl.deleted_at IS NULL
-         ORDER BY spl.id
-         FOR UPDATE`,
-        [id, this.context.organizationId()],
-      );
-      const linesById = new Map<number, Record<string, unknown>>(purchaseLines.rows.map((line) => [Number(line.id), line]));
-      const receiptNumber = await this.nextStockReceiptNumber(client);
-      const receipt = await client.query(
-        `INSERT INTO stock_purchase_receipts
-         (stock_purchase_id, receipt_number, receipt_date, receiver_name, store, notes, created_by, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING *`,
-        [
-          id,
-          receiptNumber,
-          body.receipt_date ?? new Date().toISOString().slice(0, 10),
-          body.receiver_name ?? null,
-          body.store ?? purchaseRow.store ?? null,
-          body.notes ?? null,
-          this.context.userId() ?? 1,
-          this.context.organizationId(),
-        ],
-      );
-
-      for (let index = 0; index < lines.length; index += 1) {
-        const entry = lines[index];
-        const purchaseLineId = Number(entry.stock_purchase_line_id ?? 0);
-        const quantityReceived = Number(entry.quantity_received ?? 0);
-        if (!purchaseLineId || quantityReceived <= 0) {
-          throw new BadRequestException(`Ligne ${index + 1}: quantite recue invalide`);
-        }
-        const purchaseLine = linesById.get(purchaseLineId);
-        if (!purchaseLine) throw new BadRequestException(`Ligne ${index + 1}: article achat introuvable`);
-        const remaining = Number(purchaseLine.quantity) - Number(purchaseLine.received_quantity ?? 0);
-        if (quantityReceived > remaining) {
-          throw new BadRequestException(`Ligne ${index + 1}: quantite recue superieure au reste a recevoir (${remaining})`);
-        }
-        await client.query(
-          `INSERT INTO stock_purchase_receipt_lines
-           (stock_purchase_receipt_id, stock_purchase_line_id, stock_item_id, quantity_received, unit_price, line_total, organization_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [
-            receipt.rows[0].id,
-            purchaseLineId,
-            purchaseLine.stock_item_id,
-            quantityReceived,
-            purchaseLine.unit_price,
-            quantityReceived * Number(purchaseLine.unit_price ?? 0),
-            this.context.organizationId(),
-          ],
-        );
-        await client.query(
-          `UPDATE stock_purchase_lines
-           SET received_quantity = received_quantity + $3, updated_at = NOW()
-           WHERE id = $1 AND stock_purchase_id = $2 AND organization_id = $4`,
-          [purchaseLineId, id, quantityReceived, this.context.organizationId()],
-        );
-        await this.createStockMovementInTransaction(client, {
-          stock_item_id: purchaseLine.stock_item_id,
-          type: 'IN',
-          quantity: quantityReceived,
-          movement_date: receipt.rows[0].receipt_date,
-          source: 'PURCHASE_RECEIPT',
-          reference: receiptNumber,
-          notes: body.notes ?? `Reception achat ${purchaseRow.purchase_number}`,
-          unit_price: Number(purchaseLine.unit_price ?? 0),
-          stock_purchase_id: id,
-          stock_purchase_receipt_id: receipt.rows[0].id,
-        });
-      }
-
-      await this.refreshStockPurchaseStatus(client, id);
-      await this.addStockPurchaseTimeline(client, id, 'RECEIPT', 'Reception de marchandises', `Bon ${receiptNumber} enregistre`);
-      return this.stockPurchaseDetail(id);
+      await this.receiveStockPurchaseInTransaction(client, purchaseRow, body);
     });
+    return this.stockPurchaseDetail(id);
+  }
+
+  async listPurchaseAttachments(id: number) {
+    await this.stockPurchaseDetail(id);
+    const { rows } = await this.db.query(
+      `SELECT id, purchase_id, file_name, mime_type, file_size, created_at
+       FROM purchase_attachments
+       WHERE purchase_id = $1 AND organization_id = $2 AND deleted_at IS NULL
+       ORDER BY created_at DESC, id DESC`,
+      [id, this.context.organizationId()],
+    );
+    return rows;
+  }
+
+  async uploadPurchaseAttachment(id: number, file: any) {
+    await this.stockPurchaseDetail(id);
+    this.validatePurchaseAttachmentFile(file);
+    const fileName = this.originalFileName(file.originalname ?? file.originalName ?? file.name ?? 'piece-jointe');
+    const storagePath = this.purchaseAttachmentStoragePath(id, fileName);
+    await this.uploadPurchaseAttachmentToStorage(storagePath, file);
+    try {
+      const { rows } = await this.db.query(
+        `INSERT INTO purchase_attachments
+         (organization_id, purchase_id, file_name, storage_path, mime_type, file_size, uploaded_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, purchase_id, file_name, mime_type, file_size, created_at`,
+        [this.context.organizationId(), id, fileName, storagePath, file.mimetype, Number(file.size ?? 0), this.context.userId() ?? 1],
+      );
+      return rows[0];
+    } catch (error) {
+      await this.deletePurchaseAttachmentStorage(storagePath);
+      throw error;
+    }
+  }
+
+  async downloadPurchaseAttachment(purchaseId: number, attachmentId: number) {
+    const { rows } = await this.db.query(
+      `SELECT file_name, storage_path, mime_type
+       FROM purchase_attachments
+       WHERE id = $1 AND purchase_id = $2 AND organization_id = $3 AND deleted_at IS NULL`,
+      [attachmentId, purchaseId, this.context.organizationId()],
+    );
+    const row = requireRow(rows[0], 'Purchase attachment');
+    return this.downloadPurchaseAttachmentStorage(String(row.storage_path), String(row.file_name), String(row.mime_type));
+  }
+
+  async deletePurchaseAttachment(purchaseId: number, attachmentId: number) {
+    const { rows } = await this.db.query(
+      `SELECT id, storage_path
+       FROM purchase_attachments
+       WHERE id = $1 AND purchase_id = $2 AND organization_id = $3 AND deleted_at IS NULL`,
+      [attachmentId, purchaseId, this.context.organizationId()],
+    );
+    const row = requireRow(rows[0], 'Purchase attachment');
+    await this.db.query(
+      `UPDATE purchase_attachments
+       SET deleted_at = NOW()
+       WHERE id = $1 AND purchase_id = $2 AND organization_id = $3`,
+      [attachmentId, purchaseId, this.context.organizationId()],
+    );
+    await this.deletePurchaseAttachmentStorage(String(row.storage_path));
+    return { success: true };
   }
 
   async payStockPurchase(id: number, body: Record<string, unknown>) {
@@ -6521,12 +6632,24 @@ export class SaasService {
 
   private async normalizeStockPurchaseLines(client: PoolClient, lines: Array<Record<string, unknown>>) {
     const normalized: Array<Record<string, unknown>> = [];
+    const firstLineByItemId = new Map<number, number>();
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
       const stockItemId = Number(line.stock_item_id ?? 0);
       const quantity = Number(line.quantity ?? 0);
       const unitPrice = Number(line.unit_price ?? 0);
       if (!stockItemId || quantity <= 0) throw new BadRequestException(`Ligne ${index + 1}: article ou quantite invalide`);
+      const firstLine = firstLineByItemId.get(stockItemId);
+      if (firstLine) {
+        throw new BadRequestException({
+          code: 'PURCHASE_ITEM_DUPLICATE',
+          message: `Cet article est deja present a la ligne ${firstLine}. Veuillez modifier la quantite sur cette ligne au lieu de l'ajouter une seconde fois.`,
+          stock_item_id: stockItemId,
+          first_line: firstLine,
+          duplicate_line: index + 1,
+        });
+      }
+      firstLineByItemId.set(stockItemId, index + 1);
       const item = await client.query(
         `SELECT id, name, status FROM stock_items WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
         [stockItemId, this.context.organizationId()],
@@ -6567,12 +6690,205 @@ export class SaasService {
            payment_status = $3,
            outstanding_amount = $4,
            purchase_status = $5,
+           received_at = CASE
+             WHEN $2 = 'RECEIVED' AND received_at IS NULL THEN NOW()
+             WHEN $2 <> 'RECEIVED' THEN NULL
+             ELSE received_at
+           END,
+           received_by = CASE
+             WHEN $2 = 'RECEIVED' AND received_by IS NULL THEN $7
+             WHEN $2 <> 'RECEIVED' THEN NULL
+             ELSE received_by
+           END,
            updated_at = NOW()
        WHERE id = $1 AND organization_id = $6
        RETURNING *`,
-      [purchaseId, receptionStatus, paymentStatus, outstandingAmount, purchaseStatus, this.context.organizationId()],
+      [purchaseId, receptionStatus, paymentStatus, outstandingAmount, purchaseStatus, this.context.organizationId(), this.context.userId() ?? 1],
     );
     return rows[0];
+  }
+
+  private async nextSupplierCode(client: PoolClient) {
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`supplier-${this.context.organizationId()}`]);
+    const { rows } = await client.query(
+      `SELECT COALESCE(MAX(NULLIF(regexp_replace(supplier_code, '[^0-9]', '', 'g'), '')::INT), 0) + 1 AS value
+       FROM suppliers
+       WHERE organization_id = $1`,
+      [this.context.organizationId()],
+    );
+    return `SUP-${String(rows[0]?.value ?? 1).padStart(5, '0')}`;
+  }
+
+  private async requireSupplier(client: PoolClient, supplierId: number) {
+    if (!supplierId) {
+      throw new BadRequestException('Selectionnez un fournisseur.');
+    }
+    const { rows } = await client.query(
+      `SELECT *
+       FROM suppliers
+       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL AND status = 'ACTIVE'`,
+      [supplierId, this.context.organizationId()],
+    );
+    return requireRow(rows[0], 'Supplier');
+  }
+
+  private async receiveStockPurchaseInTransaction(
+    client: PoolClient,
+    purchaseRow: Record<string, any>,
+    body: Record<string, unknown>,
+    lockedLines?: Array<Record<string, any>>,
+  ) {
+    if (String(purchaseRow.reception_status ?? '').toUpperCase() === 'RECEIVED') {
+      throw new ConflictException('Cet achat a deja ete receptionne');
+    }
+    const purchaseLines = lockedLines
+      ? { rows: lockedLines }
+      : await client.query(
+          `SELECT spl.*, si.name AS item_name
+           FROM stock_purchase_lines spl
+           JOIN stock_items si ON si.id = spl.stock_item_id
+           WHERE spl.stock_purchase_id = $1 AND spl.organization_id = $2 AND spl.deleted_at IS NULL
+           ORDER BY spl.id
+           FOR UPDATE`,
+          [purchaseRow.id, this.context.organizationId()],
+        );
+    const lines = Array.isArray(body.lines) ? (body.lines as Array<Record<string, unknown>>) : [];
+    const linesById = new Map<number, Record<string, unknown>>(purchaseLines.rows.map((line) => [Number(line.id), line]));
+    const receiptNumber = await this.nextStockReceiptNumber(client);
+    const receipt = await client.query(
+      `INSERT INTO stock_purchase_receipts
+       (stock_purchase_id, receipt_number, receipt_date, receiver_name, store, notes, created_by, organization_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [
+        purchaseRow.id,
+        receiptNumber,
+        body.receipt_date ?? new Date().toISOString().slice(0, 10),
+        body.receiver_name ?? null,
+        body.store ?? purchaseRow.store ?? null,
+        body.notes ?? null,
+        this.context.userId() ?? 1,
+        this.context.organizationId(),
+      ],
+    );
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const entry = lines[index];
+      const purchaseLineId = Number(entry.stock_purchase_line_id ?? 0);
+      const quantityReceived = Number(entry.quantity_received ?? 0);
+      if (!purchaseLineId || quantityReceived <= 0) {
+        throw new BadRequestException(`Ligne ${index + 1}: quantite recue invalide`);
+      }
+      const purchaseLine = linesById.get(purchaseLineId);
+      if (!purchaseLine) throw new BadRequestException(`Ligne ${index + 1}: article achat introuvable`);
+      const remaining = Number(purchaseLine.quantity) - Number(purchaseLine.received_quantity ?? 0);
+      if (quantityReceived > remaining) {
+        throw new BadRequestException(`Ligne ${index + 1}: quantite recue superieure au reste a recevoir (${remaining})`);
+      }
+      await client.query(
+        `INSERT INTO stock_purchase_receipt_lines
+         (stock_purchase_receipt_id, stock_purchase_line_id, stock_item_id, quantity_received, unit_price, line_total, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          receipt.rows[0].id,
+          purchaseLineId,
+          purchaseLine.stock_item_id,
+          quantityReceived,
+          purchaseLine.unit_price,
+          quantityReceived * Number(purchaseLine.unit_price ?? 0),
+          this.context.organizationId(),
+        ],
+      );
+      await client.query(
+        `UPDATE stock_purchase_lines
+         SET received_quantity = received_quantity + $3, updated_at = NOW()
+         WHERE id = $1 AND stock_purchase_id = $2 AND organization_id = $4`,
+        [purchaseLineId, purchaseRow.id, quantityReceived, this.context.organizationId()],
+      );
+      await this.createStockMovementInTransaction(client, {
+        stock_item_id: purchaseLine.stock_item_id,
+        type: 'IN',
+        quantity: quantityReceived,
+        movement_date: receipt.rows[0].receipt_date,
+        source: 'PURCHASE_RECEIPT',
+        reference: receiptNumber,
+        notes: body.notes ?? `Reception achat ${purchaseRow.purchase_number}`,
+        unit_price: Number(purchaseLine.unit_price ?? 0),
+        stock_purchase_id: purchaseRow.id,
+        stock_purchase_receipt_id: receipt.rows[0].id,
+      });
+    }
+
+    await this.refreshStockPurchaseStatus(client, Number(purchaseRow.id));
+    await this.addStockPurchaseTimeline(client, Number(purchaseRow.id), 'RECEIPT', 'Reception de marchandises', `Bon ${receiptNumber} enregistre`);
+    return receipt.rows[0];
+  }
+
+  private validatePurchaseAttachmentFile(file: { mimetype: string; size: number }) {
+    if (Number(file.size ?? 0) > 10 * 1024 * 1024) {
+      throw new BadRequestException('Le fichier ne peut pas depasser 10 Mo');
+    }
+    const mimeType = String(file.mimetype ?? '').toLowerCase();
+    if (!this.allowedPurchaseAttachmentMimeTypes.has(mimeType)) {
+      throw new BadRequestException('Format de fichier non autorise');
+    }
+  }
+
+  private purchaseAttachmentStoragePath(purchaseId: number, fileName: string) {
+    const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+    return `purchases/${this.context.organizationId()}/${purchaseId}/${timestamp}-${this.sanitizeStorageFileName(fileName)}`;
+  }
+
+  private async uploadPurchaseAttachmentToStorage(storagePath: string, file: { mimetype: string; buffer: Buffer }) {
+    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.purchaseAttachmentStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+        'x-upsert': 'false',
+        'content-type': file.mimetype,
+      },
+      body: file.buffer.buffer.slice(file.buffer.byteOffset, file.buffer.byteOffset + file.buffer.byteLength) as ArrayBuffer,
+    });
+    if (!response.ok) {
+      const details = await response.text();
+      throw new BadRequestException(details || `Impossible de televerser la piece jointe (${response.status})`);
+    }
+  }
+
+  private async deletePurchaseAttachmentStorage(storagePath: string) {
+    if (!this.hasStorageConfig()) return;
+    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.purchaseAttachmentStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+      },
+    });
+    if (!response.ok && response.status !== 404) {
+      const details = await response.text();
+      throw new BadRequestException(details || `Impossible de supprimer la piece jointe (${response.status})`);
+    }
+  }
+
+  private async downloadPurchaseAttachmentStorage(storagePath: string, fileName: string, mimeType: string) {
+    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.purchaseAttachmentStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+      },
+    });
+    if (!response.ok) {
+      throw new BadRequestException(`Piece jointe introuvable (${response.status})`);
+    }
+    return {
+      buffer: Buffer.from(await response.arrayBuffer()),
+      mimeType: response.headers.get('content-type') ?? mimeType ?? 'application/octet-stream',
+      downloadName: fileName,
+    };
   }
 
   private async addStockPurchaseTimeline(client: PoolClient, purchaseId: number, eventType: string, title: string, details?: string) {

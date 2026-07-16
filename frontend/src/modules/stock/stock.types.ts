@@ -59,6 +59,7 @@ export type StockPurchase = {
   id: number;
   purchase_number: string;
   purchase_date: string;
+  supplier_id?: number | null;
   supplier_name: string;
   supplier_reference?: string;
   store?: string;
@@ -78,6 +79,37 @@ export type StockPurchase = {
   observations?: string;
   user_name?: string;
   line_count?: number;
+  received_at?: string;
+  received_by?: number | null;
+};
+
+export type Supplier = {
+  id: number;
+  supplier_code?: string;
+  supplier_type?: 'INDIVIDUAL' | 'COMPANY';
+  name: string;
+  company_name?: string;
+  contact_person?: string;
+  phone?: string;
+  secondary_phone?: string;
+  email?: string;
+  address?: string;
+  tax_number?: string;
+  national_id?: string;
+  rccm?: string;
+  payment_terms?: string;
+  notes?: string;
+  status: 'ACTIVE' | 'INACTIVE';
+};
+
+export type PurchaseAttachment = {
+  id: number;
+  purchase_id: number;
+  file_name: string;
+  storage_path?: string;
+  mime_type: string;
+  file_size: number;
+  created_at: string;
 };
 
 export type StockPurchaseLine = {
@@ -148,6 +180,7 @@ export type StockPurchaseDetail = StockPurchase & {
   timeline: StockPurchaseTimeline[];
   stock_movements: StockMovement[];
   cash_movements: Array<Record<string, unknown>>;
+  attachments?: PurchaseAttachment[];
 };
 
 export type InventoryLine = {

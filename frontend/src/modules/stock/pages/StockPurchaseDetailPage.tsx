@@ -1,12 +1,22 @@
-import { ArrowLeft, FileSpreadsheet, Printer, WalletCards } from 'lucide-react';
+import { ArrowLeft, FileSpreadsheet, Paperclip, Printer, Trash2, Upload, WalletCards } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, money, shortDate } from '../../../api';
-import { EmptyState, PageHeader, SuccessMessage } from '../../../components';
+import { EmptyState, Modal, PageHeader, SuccessMessage } from '../../../components';
+import { downloadDocument } from '../../../core/utils/documentActions';
 import { StockNav } from '../StockNav';
-import type { StockPurchase, StockPurchaseDetail } from '../stock.types';
+import type { PurchaseAttachment, StockPurchase, StockPurchaseDetail } from '../stock.types';
 import { movementLabel, paymentStatusLabel, purchaseStatusLabel, receptionStatusLabel } from '../stock.utils';
 import { PurchasePaymentModal, PurchaseReceiveModal } from './StockPurchasesPage';
+
+const PURCHASE_ATTACHMENT_ACCEPT = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+].join(',');
 
 export function StockPurchaseDetailPage() {
   const { id } = useParams();
@@ -15,6 +25,9 @@ export function StockPurchaseDetailPage() {
   const [success, setSuccess] = useState('');
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [attachmentModalOpen, setAttachmentModalOpen] = useState(false);
+  const [attachmentError, setAttachmentError] = useState('');
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
 
   async function load() {
     if (!id) return;
@@ -22,15 +35,29 @@ export function StockPurchaseDetailPage() {
     setPurchase(response.data);
   }
 
-  useEffect(() => { void load(); }, [id]);
+  useEffect(() => {
+    void load();
+  }, [id]);
 
-  const totals = useMemo(() => ({
-    lines: purchase?.lines.length ?? 0,
-    received: purchase?.lines.reduce((sum, line) => sum + Number(line.received_quantity ?? 0), 0) ?? 0,
-    ordered: purchase?.lines.reduce((sum, line) => sum + Number(line.quantity ?? 0), 0) ?? 0,
-  }), [purchase]);
+  const totals = useMemo(
+    () => ({
+      lines: purchase?.lines.length ?? 0,
+      received: purchase?.lines.reduce((sum, line) => sum + Number(line.received_quantity ?? 0), 0) ?? 0,
+      ordered: purchase?.lines.reduce((sum, line) => sum + Number(line.quantity ?? 0), 0) ?? 0,
+    }),
+    [purchase],
+  );
 
-  if (!purchase) return <section><PageHeader title="Fiche achat fournisseur" /><StockNav /><EmptyState message="Chargement..." /></section>;
+  if (!purchase) {
+    return (
+      <section>
+        <PageHeader title="Fiche achat fournisseur" />
+        <StockNav />
+        <EmptyState message="Chargement..." />
+      </section>
+    );
+  }
+
   const detail = purchase;
 
   function exportWorkbook() {
@@ -59,100 +86,447 @@ export function StockPurchaseDetailPage() {
     await load();
   }
 
-  return <section>
-    <PageHeader title={`Achat ${detail.purchase_number}`} />
-    <StockNav />
-    <SuccessMessage message={success} />
-    <div className="actions-row">
-      <button className="secondary" onClick={() => navigate('/stock/purchases')}><ArrowLeft size={16} />Retour</button>
-      {detail.reception_status !== 'RECEIVED' && <button className="secondary" onClick={() => setReceiveOpen(true)}>Recevoir</button>}
-      {Number(detail.outstanding_amount ?? 0) > 0 && <button className="secondary" onClick={() => setPaymentOpen(true)}><WalletCards size={16} />Paiement</button>}
-      <button className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
-      <button onClick={exportWorkbook}><FileSpreadsheet size={16} />Excel</button>
-    </div>
-    <div className="mini-stats">
-      <Kpi label="Montant achat" value={`${money(detail.total_amount)} USD`} />
-      <Kpi label="Paye" value={`${money(detail.paid_amount)} USD`} />
-      <Kpi label="Reste a payer" value={`${money(detail.outstanding_amount)} USD`} />
-      <Kpi label="Lignes" value={totals.lines} />
-      <Kpi label="Quantite recue" value={totals.received} />
-      <Kpi label="Reception" value={receptionStatusLabel(detail.reception_status)} />
-    </div>
-    <div className="detail-section">
-      <h4>Resume</h4>
-      <div className="detail-list">
-        <span>Numero</span><strong>{detail.purchase_number}</strong>
-        <span>Date</span><strong>{shortDate(detail.purchase_date)}</strong>
-        <span>Fournisseur</span><strong>{detail.supplier_name}</strong>
-        <span>Reference fournisseur</span><strong>{detail.supplier_reference ?? '-'}</strong>
-        <span>Magasin</span><strong>{detail.store ?? '-'}</strong>
-        <span>Conditions</span><strong>{detail.payment_terms ?? '-'}</strong>
-        <span>Mode paiement</span><strong>{detail.payment_method ?? '-'}</strong>
-        <span>Type paiement</span><strong>{detail.payment_type}</strong>
-        <span>Statut achat</span><strong>{purchaseStatusLabel(detail.purchase_status)}</strong>
-        <span>Statut reception</span><strong>{receptionStatusLabel(detail.reception_status)}</strong>
-        <span>Statut paiement</span><strong>{paymentStatusLabel(detail.payment_status)}</strong>
-        <span>Echeance</span><strong>{detail.due_date ? shortDate(detail.due_date) : '-'}</strong>
+  async function uploadAttachment(file: File) {
+    setAttachmentError('');
+    if (!PURCHASE_ATTACHMENT_ACCEPT.split(',').includes(file.type)) {
+      setAttachmentError('Format de fichier non autorise.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setAttachmentError('Le fichier ne peut pas depasser 10 Mo.');
+      return;
+    }
+    setUploadingAttachment(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      await api.post(`/stock/purchases/${detail.id}/attachments`, formData);
+      setAttachmentModalOpen(false);
+      setSuccess('Piece jointe ajoutee.');
+      await load();
+    } catch (error: any) {
+      setAttachmentError(parseApiError(error, "Impossible d'ajouter la piece jointe."));
+    } finally {
+      setUploadingAttachment(false);
+    }
+  }
+
+  async function deleteAttachment(attachment: PurchaseAttachment) {
+    if (!window.confirm(`Supprimer la piece jointe ${attachment.file_name} ?`)) return;
+    try {
+      await api.delete(`/stock/purchases/${detail.id}/attachments/${attachment.id}`);
+      setSuccess('Piece jointe supprimee.');
+      await load();
+    } catch (error) {
+      window.alert(parseApiError(error, 'Suppression impossible.'));
+    }
+  }
+
+  return (
+    <section>
+      <PageHeader title={`Achat ${detail.purchase_number}`} />
+      <StockNav />
+      <SuccessMessage message={success} />
+      <div className="actions-row">
+        <button className="secondary" onClick={() => navigate('/stock/purchases')}>
+          <ArrowLeft size={16} />
+          Retour
+        </button>
+        {detail.reception_status !== 'RECEIVED' && (
+          <button className="secondary" onClick={() => setReceiveOpen(true)}>
+            Recevoir
+          </button>
+        )}
+        {Number(detail.outstanding_amount ?? 0) > 0 && (
+          <button className="secondary" onClick={() => setPaymentOpen(true)}>
+            <WalletCards size={16} />
+            Paiement
+          </button>
+        )}
+        <button className="secondary" onClick={() => setAttachmentModalOpen(true)}>
+          <Paperclip size={16} />
+          Ajouter une piece jointe
+        </button>
+        <button className="secondary" onClick={() => window.print()}>
+          <Printer size={16} />
+          Imprimer
+        </button>
+        <button onClick={exportWorkbook}>
+          <FileSpreadsheet size={16} />
+          Excel
+        </button>
       </div>
-    </div>
-    <Section title="Lignes">
-      <table>
-        <thead><tr><th>Article</th><th className="right">Quantite</th><th className="right">Recu</th><th className="right">Reste</th><th className="right">Cout unitaire</th><th className="right">Total</th></tr></thead>
-        <tbody>{detail.lines.map((line) => <tr key={line.id}>
-          <td>{line.item_code} - {line.item_name}</td>
-          <td className="right">{line.quantity}</td>
-          <td className="right">{line.received_quantity}</td>
-          <td className="right">{Math.max(Number(line.quantity ?? 0) - Number(line.received_quantity ?? 0), 0)}</td>
-          <td className="right">{money(line.unit_price)}</td>
-          <td className="right">{money(line.line_total)}</td>
-        </tr>)}</tbody>
-      </table>
-    </Section>
-    <Section title="Paiements">
-      {detail.payments.length ? <table>
-        <thead><tr><th>Date</th><th className="right">Montant</th><th>Mode</th><th>Reference</th><th>Utilisateur</th></tr></thead>
-        <tbody>{detail.payments.map((row) => <tr key={row.id}><td>{shortDate(row.payment_date)}</td><td className="right">{money(row.amount)}</td><td>{row.payment_method ?? '-'}</td><td>{row.reference ?? '-'}</td><td>{row.user_name ?? '-'}</td></tr>)}</tbody>
-      </table> : <EmptyState message="Aucun paiement fournisseur." />}
-    </Section>
-    <Section title="Receptions">
-      {detail.receipt_lines.length ? <table>
-        <thead><tr><th>Bon reception</th><th>Date</th><th>Article</th><th className="right">Quantite recue</th><th className="right">Cout unitaire</th><th className="right">Total</th></tr></thead>
-        <tbody>{detail.receipt_lines.map((row) => <tr key={row.id}><td>{row.receipt_number}</td><td>{shortDate(row.receipt_date)}</td><td>{row.item_name}</td><td className="right">{row.quantity_received}</td><td className="right">{money(row.unit_price)}</td><td className="right">{money(row.line_total)}</td></tr>)}</tbody>
-      </table> : <EmptyState message="Aucune reception enregistree." />}
-    </Section>
-    <Section title="Mouvements stock">
-      {detail.stock_movements.length ? <table>
-        <thead><tr><th>Date</th><th>Type</th><th>Article</th><th className="right">Quantite</th><th>Reference</th></tr></thead>
-        <tbody>{detail.stock_movements.map((row) => <tr key={row.id}><td>{shortDate(row.movement_date)}</td><td>{movementLabel(row)}</td><td>{row.item_name}</td><td className="right">{row.quantity}</td><td>{row.receipt_number ?? row.reference ?? '-'}</td></tr>)}</tbody>
-      </table> : <EmptyState message="Aucun mouvement stock." />}
-    </Section>
-    <Section title="Mouvements caisse">
-      {detail.cash_movements.length ? <table>
-        <thead><tr><th>Date</th><th>Type</th><th>Libelle</th><th className="right">Montant</th><th>Reference</th></tr></thead>
-        <tbody>{detail.cash_movements.map((row, index) => <tr key={String((row as { id?: number }).id ?? index)}>
-          <td>{shortDate(String((row as { movement_date?: string }).movement_date ?? ''))}</td>
-          <td>{String((row as { type?: string }).type ?? '-')}</td>
-          <td>{String((row as { label?: string }).label ?? (row as { description?: string }).description ?? '-')}</td>
-          <td className="right">{money(Number((row as { amount?: number }).amount ?? 0))}</td>
-          <td>{String((row as { reference?: string }).reference ?? '-')}</td>
-        </tr>)}</tbody>
-      </table> : <EmptyState message="Aucun mouvement caisse." />}
-    </Section>
-    <Section title="Timeline">
-      {detail.timeline.length ? <table>
-        <thead><tr><th>Date</th><th>Evenement</th><th>Details</th><th>Utilisateur</th></tr></thead>
-        <tbody>{detail.timeline.map((row) => <tr key={row.id}><td>{shortDate(row.created_at)}</td><td>{row.title}</td><td>{row.details ?? '-'}</td><td>{row.user_name ?? '-'}</td></tr>)}</tbody>
-      </table> : <EmptyState message="Aucun historique." />}
-    </Section>
-    {receiveOpen && <PurchaseReceiveModal purchase={detail} onClose={() => setReceiveOpen(false)} onSubmit={receivePurchase} />}
-    {paymentOpen && <PurchasePaymentModal purchase={detail as StockPurchase} onClose={() => setPaymentOpen(false)} onSubmit={payPurchase} />}
-  </section>;
+      <div className="mini-stats">
+        <Kpi label="Montant achat" value={`${money(detail.total_amount)} USD`} />
+        <Kpi label="Paye" value={`${money(detail.paid_amount)} USD`} />
+        <Kpi label="Reste a payer" value={`${money(detail.outstanding_amount)} USD`} />
+        <Kpi label="Lignes" value={totals.lines} />
+        <Kpi label="Quantite recue" value={totals.received} />
+        <Kpi label="Reception" value={receptionStatusLabel(detail.reception_status)} />
+      </div>
+      <div className="detail-section">
+        <h4>Resume</h4>
+        <div className="detail-list">
+          <span>Numero</span>
+          <strong>{detail.purchase_number}</strong>
+          <span>Date</span>
+          <strong>{shortDate(detail.purchase_date)}</strong>
+          <span>Fournisseur</span>
+          <strong>{detail.supplier_name}</strong>
+          <span>Reference fournisseur</span>
+          <strong>{detail.supplier_reference ?? '-'}</strong>
+          <span>Magasin</span>
+          <strong>{detail.store ?? '-'}</strong>
+          <span>Conditions</span>
+          <strong>{detail.payment_terms ?? '-'}</strong>
+          <span>Mode paiement</span>
+          <strong>{detail.payment_method ?? '-'}</strong>
+          <span>Type paiement</span>
+          <strong>{detail.payment_type}</strong>
+          <span>Statut achat</span>
+          <strong>{purchaseStatusLabel(detail.purchase_status)}</strong>
+          <span>Statut reception</span>
+          <strong>{receptionStatusLabel(detail.reception_status)}</strong>
+          <span>Statut paiement</span>
+          <strong>{paymentStatusLabel(detail.payment_status)}</strong>
+          <span>Date de reception</span>
+          <strong>{detail.received_at ? shortDate(detail.received_at) : '-'}</strong>
+        </div>
+      </div>
+
+      <Section title="Lignes">
+        <table>
+          <thead>
+            <tr>
+              <th>Article</th>
+              <th className="right">Quantite</th>
+              <th className="right">Recu</th>
+              <th className="right">Reste</th>
+              <th className="right">Cout unitaire</th>
+              <th className="right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {detail.lines.map((line) => (
+              <tr key={line.id}>
+                <td>
+                  {line.item_name}
+                  {line.item_code ? (
+                    <>
+                      <br />
+                      <small>{line.item_code}</small>
+                    </>
+                  ) : null}
+                </td>
+                <td className="right">{line.quantity}</td>
+                <td className="right">{line.received_quantity}</td>
+                <td className="right">{Math.max(Number(line.quantity ?? 0) - Number(line.received_quantity ?? 0), 0)}</td>
+                <td className="right">{money(line.unit_price)}</td>
+                <td className="right">{money(line.line_total)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Section>
+
+      <Section title="Pieces jointes">
+        {detail.attachments?.length ? (
+          <table>
+            <thead>
+              <tr>
+                <th>Fichier</th>
+                <th>Type</th>
+                <th className="right">Taille</th>
+                <th>Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.attachments.map((attachment) => (
+                <tr key={attachment.id}>
+                  <td>{attachment.file_name}</td>
+                  <td>{attachment.mime_type}</td>
+                  <td className="right">{formatFileSize(Number(attachment.file_size ?? 0))}</td>
+                  <td>{shortDate(attachment.created_at)}</td>
+                  <td className="actions actions-compact">
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Telecharger"
+                      onClick={() =>
+                        void downloadDocument({
+                          fileName: attachment.file_name,
+                          fileUrl: `${api.defaults.baseURL}/stock/purchases/${detail.id}/attachments/${attachment.id}/download`,
+                          title: 'Piece jointe achat fournisseur',
+                          context: detail.purchase_number,
+                        })
+                      }
+                    >
+                      <Paperclip size={15} />
+                    </button>
+                    <button type="button" className="icon-btn danger" title="Supprimer" onClick={() => void deleteAttachment(attachment)}>
+                      <Trash2 size={15} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <EmptyState message="Aucune piece jointe enregistree." />
+        )}
+      </Section>
+
+      <Section title="Paiements">
+        {detail.payments.length ? (
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th className="right">Montant</th>
+                <th>Mode</th>
+                <th>Reference</th>
+                <th>Utilisateur</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.payments.map((row) => (
+                <tr key={row.id}>
+                  <td>{shortDate(row.payment_date)}</td>
+                  <td className="right">{money(row.amount)}</td>
+                  <td>{row.payment_method ?? '-'}</td>
+                  <td>{row.reference ?? '-'}</td>
+                  <td>{row.user_name ?? '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <EmptyState message="Aucun paiement fournisseur." />
+        )}
+      </Section>
+
+      <Section title="Receptions">
+        {detail.receipt_lines.length ? (
+          <table>
+            <thead>
+              <tr>
+                <th>Bon reception</th>
+                <th>Date</th>
+                <th>Article</th>
+                <th className="right">Quantite recue</th>
+                <th className="right">Cout unitaire</th>
+                <th className="right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.receipt_lines.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.receipt_number}</td>
+                  <td>{shortDate(row.receipt_date)}</td>
+                  <td>{row.item_name}</td>
+                  <td className="right">{row.quantity_received}</td>
+                  <td className="right">{money(row.unit_price)}</td>
+                  <td className="right">{money(row.line_total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <EmptyState message="Aucune reception enregistree." />
+        )}
+      </Section>
+
+      <Section title="Mouvements stock">
+        {detail.stock_movements.length ? (
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Article</th>
+                <th className="right">Quantite</th>
+                <th>Reference</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.stock_movements.map((row) => (
+                <tr key={row.id}>
+                  <td>{shortDate(row.movement_date)}</td>
+                  <td>{movementLabel(row)}</td>
+                  <td>{row.item_name}</td>
+                  <td className="right">{row.quantity}</td>
+                  <td>{row.receipt_number ?? row.reference ?? '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <EmptyState message="Aucun mouvement stock." />
+        )}
+      </Section>
+
+      <Section title="Mouvements caisse">
+        {detail.cash_movements.length ? (
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Libelle</th>
+                <th className="right">Montant</th>
+                <th>Reference</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.cash_movements.map((row, index) => (
+                <tr key={String((row as { id?: number }).id ?? index)}>
+                  <td>{shortDate(String((row as { movement_date?: string }).movement_date ?? ''))}</td>
+                  <td>{String((row as { type?: string }).type ?? '-')}</td>
+                  <td>{String((row as { label?: string }).label ?? (row as { description?: string }).description ?? '-')}</td>
+                  <td className="right">{money(Number((row as { amount?: number }).amount ?? 0))}</td>
+                  <td>{String((row as { reference?: string }).reference ?? '-')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <EmptyState message="Aucun mouvement caisse." />
+        )}
+      </Section>
+
+      <Section title="Timeline">
+        {detail.timeline.length ? (
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Evenement</th>
+                <th>Details</th>
+                <th>Utilisateur</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.timeline.map((row) => (
+                <tr key={row.id}>
+                  <td>{shortDate(row.created_at)}</td>
+                  <td>{row.title}</td>
+                  <td>{row.details ?? '-'}</td>
+                  <td>{row.user_name ?? '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <EmptyState message="Aucun historique." />
+        )}
+      </Section>
+
+      {receiveOpen && <PurchaseReceiveModal purchase={detail} onClose={() => setReceiveOpen(false)} onSubmit={receivePurchase} />}
+      {paymentOpen && <PurchasePaymentModal purchase={detail as StockPurchase} onClose={() => setPaymentOpen(false)} onSubmit={payPurchase} />}
+      {attachmentModalOpen && (
+        <AttachmentUploadModal
+          error={attachmentError}
+          loading={uploadingAttachment}
+          onClose={() => {
+            if (!uploadingAttachment) {
+              setAttachmentModalOpen(false);
+              setAttachmentError('');
+            }
+          }}
+          onSubmit={uploadAttachment}
+        />
+      )}
+    </section>
+  );
+}
+
+function AttachmentUploadModal({
+  error,
+  loading,
+  onClose,
+  onSubmit,
+}: {
+  error: string;
+  loading: boolean;
+  onClose: () => void;
+  onSubmit: (file: File) => Promise<void>;
+}) {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  return (
+    <Modal title="Ajouter une piece jointe" onClose={onClose}>
+      <form
+        className="stock-purchase-modal"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (selectedFile) {
+            void onSubmit(selectedFile);
+          }
+        }}
+      >
+        <div className="modal-section">
+          <label className="wide-field">
+            Fichier
+            <input
+              type="file"
+              accept={PURCHASE_ATTACHMENT_ACCEPT}
+              onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+            />
+          </label>
+          {selectedFile ? (
+            <div className="info-message">
+              {selectedFile.name} • {formatFileSize(selectedFile.size)} • {selectedFile.type || 'type inconnu'}
+            </div>
+          ) : (
+            <div className="info-message">Selectionnez un fichier PDF, image, DOCX ou XLSX.</div>
+          )}
+          {error && <div className="error-banner">{error}</div>}
+        </div>
+        <div className="modal-footer-sticky">
+          <button type="button" className="secondary" onClick={onClose} disabled={loading}>
+            Annuler
+          </button>
+          <button type="submit" disabled={!selectedFile || loading}>
+            {loading ? 'Envoi...' : 'Envoyer'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
 }
 
 function Kpi({ label, value }: { label: string; value: string | number }) {
-  return <div className="mini-stat"><span>{label}</span><strong>{value}</strong></div>;
+  return (
+    <div className="mini-stat">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
-  return <div className="detail-section"><h4>{title}</h4>{children}</div>;
+  return (
+    <div className="detail-section">
+      <h4>{title}</h4>
+      {children}
+    </div>
+  );
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) return `${size} o`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} Ko`;
+  return `${(size / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
+function parseApiError(error: any, fallback: string) {
+  const payload = error?.response?.data;
+  if (typeof payload?.message === 'string') return payload.message;
+  if (Array.isArray(payload?.message)) return payload.message.join(' | ');
+  if (payload?.message && typeof payload.message === 'object' && typeof payload.message.message === 'string') {
+    return payload.message.message;
+  }
+  if (typeof payload?.error === 'string') return payload.error;
+  return fallback;
 }

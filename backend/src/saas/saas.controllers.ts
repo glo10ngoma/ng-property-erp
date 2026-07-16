@@ -516,6 +516,31 @@ export class CashController {
   }
 }
 
+@Controller('suppliers')
+export class SuppliersController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get()
+  suppliers() {
+    return this.service.suppliers();
+  }
+
+  @Get(':id')
+  supplier(@Param('id', ParseIntPipe) id: number) {
+    return this.service.supplier(id);
+  }
+
+  @Post()
+  create(@Body() body: Record<string, unknown>) {
+    return this.service.createSupplier(body);
+  }
+
+  @Patch(':id')
+  update(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.updateSupplier(id, body);
+  }
+}
+
 @Controller('stock')
 export class StockController {
   constructor(private readonly service: SaasService) {}
@@ -598,6 +623,38 @@ export class StockController {
   @Post('purchases/:id/pay')
   payPurchase(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
     return this.service.payStockPurchase(id, body);
+  }
+
+  @Get('purchases/:id/attachments')
+  purchaseAttachments(@Param('id', ParseIntPipe) id: number) {
+    return this.service.listPurchaseAttachments(id);
+  }
+
+  @Post('purchases/:id/attachments')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  uploadPurchaseAttachment(@Param('id', ParseIntPipe) id: number, @UploadedFile() file: any) {
+    return this.service.uploadPurchaseAttachment(id, file);
+  }
+
+  @Get('purchases/:id/attachments/:attachmentId/download')
+  async downloadPurchaseAttachment(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('attachmentId', ParseIntPipe) attachmentId: number,
+    @Res() response: any,
+  ) {
+    const file = await this.service.downloadPurchaseAttachment(id, attachmentId);
+    const downloadName = String(file.downloadName ?? 'piece-jointe').replace(/"/g, '');
+    response.setHeader('Content-Type', file.mimeType);
+    response.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+    response.setHeader('Content-Length', String(file.buffer.byteLength));
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.status(200);
+    response.end(file.buffer);
+  }
+
+  @Delete('purchases/:id/attachments/:attachmentId')
+  deletePurchaseAttachment(@Param('id', ParseIntPipe) id: number, @Param('attachmentId', ParseIntPipe) attachmentId: number) {
+    return this.service.deletePurchaseAttachment(id, attachmentId);
   }
 
   @Get('movements/:id')
