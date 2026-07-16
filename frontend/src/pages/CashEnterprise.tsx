@@ -68,6 +68,13 @@ function formatCashAmount(value: number | string | null | undefined, currency: s
   return `${formatted} ${String(currency ?? 'USD').toUpperCase() === 'CDF' ? 'CDF' : '$US'}`;
 }
 
+function debitCreditValues(movement: Pick<CashMovement, 'type' | 'amount' | 'currency'>) {
+  const formattedAmount = formatCashAmount(movement.amount, movement.currency ?? 'USD');
+  return movement.type === 'IN'
+    ? { debit: formattedAmount, credit: '' }
+    : { debit: '', credit: formattedAmount };
+}
+
 export function CashPage() {
   const { can } = useAuth();
   const navigate = useNavigate();
@@ -187,7 +194,8 @@ export function CashPage() {
       type: movementTypeLabel(movement.type),
       libelle: movement.label ?? movement.reference ?? '-',
       categorie: cashCategoryLabel(movement.category),
-      montant: formatCashAmount(movement.amount, movement.currency ?? 'USD'),
+      debit: debitCreditValues(movement).debit,
+      credit: debitCreditValues(movement).credit,
       devise: movement.currency ?? 'USD',
       taux: movement.exchange_rate_used ?? '-',
       equivalent_usd: formatCashAmount(movement.equivalent_usd ?? movement.amount, 'USD'),
@@ -322,7 +330,8 @@ export function CashPage() {
               <th>Type</th>
               <th>Libelle</th>
               <th>Categorie</th>
-              <th className="right">Montant</th>
+              <th className="right">Débit</th>
+              <th className="right">Crédit</th>
               <th>Devise</th>
               <th>Taux</th>
               <th className="right">Eq. USD</th>
@@ -334,14 +343,17 @@ export function CashPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((movement) => (
+            {filtered.map((movement) => {
+              const amounts = debitCreditValues(movement);
+              return (
               <tr key={movement.id} className="clickable-row" onClick={() => navigate(`/cash/${movement.id}`)}>
                 <td>{shortDate(movement.movement_date)}</td>
                 <td>{movement.piece_number ?? '-'}</td>
                 <td>{movementTypeLabel(movement.type)}</td>
                 <td>{movement.label ?? movement.reference ?? '-'}</td>
                 <td>{cashCategoryLabel(movement.category)}</td>
-                <td className="right">{formatCashAmount(movement.amount, movement.currency ?? 'USD')}</td>
+                <td className="right">{amounts.debit}</td>
+                <td className="right">{amounts.credit}</td>
                 <td>{movement.currency ?? 'USD'}</td>
                 <td>{movement.exchange_rate_used ? movement.exchange_rate_used.toLocaleString('fr-FR') : '-'}</td>
                 <td className="right">{formatCashAmount(movement.equivalent_usd ?? movement.amount, 'USD')}</td>
@@ -367,7 +379,7 @@ export function CashPage() {
                   </div>
                 </td>
               </tr>
-            ))}
+            );})}
           </tbody>
         </table>
         {!filtered.length && <EmptyState />}
@@ -790,13 +802,15 @@ function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormD
 }
 
 function cashExportRow(movement: CashMovement) {
+  const amounts = debitCreditValues(movement);
   return {
     date: shortDate(movement.movement_date),
     piece: movement.piece_number ?? '-',
     type: movementTypeLabel(movement.type),
     libelle: movement.label ?? movement.reference ?? '-',
     categorie: cashCategoryLabel(movement.category),
-    montant: formatCashAmount(movement.amount, movement.currency ?? 'USD'),
+    debit: amounts.debit,
+    credit: amounts.credit,
     devise: movement.currency ?? 'USD',
     taux: movement.exchange_rate_used ?? '-',
     equivalent_usd: formatCashAmount(movement.equivalent_usd ?? movement.amount, 'USD'),
