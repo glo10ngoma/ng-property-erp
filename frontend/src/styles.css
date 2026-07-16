@@ -546,6 +546,9 @@ textarea { min-height: 72px; resize: vertical; }
 .locked-file-name { display: grid; gap: 2px; align-content: center; border: 1px solid #e1e8ed; border-radius: 6px; background: #f1f4f6; padding: 7px 9px; color: #6b7f8b; }
 .locked-file-name span { font-size: 11px; text-transform: uppercase; }
 .locked-file-name strong { font-size: 13px; color: #334e68; }
+.stock-article-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stock-article-cell strong { min-width: 0; overflow-wrap: anywhere; }
+.stock-article-code { font-size: 0.8rem; opacity: 0.7; overflow-wrap: anywhere; }
 .tenant-file-field { grid-column: span 2; }
 .tenant-file-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .tenant-file-row .secondary { min-height: 34px; }
