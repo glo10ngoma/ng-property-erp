@@ -22,6 +22,8 @@ type UnitDetailData = {
   tenant_phone?: string;
   tenant_email?: string;
   active_lease_end_date?: string;
+  current_lease_monthly_rent?: number;
+  current_lease_maintenance_fee_amount?: number;
   current_lease_id?: number;
   current_lease_status?: string;
   current_lease_start_date?: string;
@@ -45,10 +47,10 @@ type UnitDetailData = {
   observations?: string;
   situation?: string;
   tenants: Array<{ id: number; first_name: string; last_name: string; post_name?: string; phone?: string; secondary_phone?: string; email?: string; profession?: string; nationality?: string; address?: string; id_number?: string; id_document_file_name?: string; move_in_date?: string; status: string }>;
-  leases: Array<{ id: number; tenant_name: string; phone?: string; email?: string; start_date: string; end_date?: string; monthly_rent: number; monthly_syndic_amount?: number; guarantee_amount?: number; status: string }>;
+  leases: Array<{ id: number; tenant_name: string; phone?: string; email?: string; start_date: string; end_date?: string; monthly_rent: number; maintenance_fee_amount?: number; monthly_syndic_amount?: number; guarantee_amount?: number; status: string }>;
   invoices: Array<{ id: number; invoice_number: string; tenant_name: string; month?: number; year?: number; issue_date: string; due_date: string; total: number; paid_amount: number; remaining_amount: number; rent_amount?: number; syndic_amount?: number; status: string }>;
   payments: Array<{ id: number; invoice_number: string; tenant_name: string; payment_date: string; amount: number; payment_method: string; receipt_number?: string; reference?: string; payer_name?: string }>;
-  rent_history: Array<{ id: number; start_date: string; end_date?: string; monthly_rent: number; monthly_syndic_amount?: number; tenant_name: string }>;
+  rent_history: Array<{ id: number; start_date: string; end_date?: string; monthly_rent: number; maintenance_fee_amount?: number; monthly_syndic_amount?: number; tenant_name: string }>;
   maintenance: Array<{ id: number; request_number?: string; title?: string; description?: string; status: string; priority?: string; reported_at: string; resolved_at?: string; external_provider?: string; cost?: number; resolution_comments?: string }>;
   documents: Array<{ id: number; name: string; type?: string; created_at?: string; author?: string }>;
   photos: Array<{ id: number; name: string; created_at?: string }>;
@@ -75,9 +77,9 @@ export function UnitDetail() {
     locataire: lease.tenant_name,
     debut: dateText(lease.start_date),
     fin: dateText(lease.end_date),
-    loyer: amount(lease.monthly_rent),
+    loyer: amount(leaseRentAmount(lease)),
     syndic: amount(lease.monthly_syndic_amount),
-    total_mensuel: amount(Number(lease.monthly_rent ?? 0) + Number(lease.monthly_syndic_amount ?? 0)),
+    total_mensuel: amount(leaseRentAmount(lease) + Number(lease.monthly_syndic_amount ?? 0)),
     devise: 'USD',
     statut: lease.status,
   }));
@@ -102,9 +104,9 @@ export function UnitDetail() {
         <SummaryItem label="Appartement" value={unit.number} />
         <SummaryItem label="Type" value={unit.type} />
         <SummaryItem label="Statut" value={<StatusBadge value={unit.status} />} />
-        <SummaryItem label="Loyer mensuel" value={`${amount(unit.monthly_rent)} USD`} />
+        <SummaryItem label="Loyer mensuel" value={`${amount(displayUnitRentAmount(unit))} USD`} />
         <SummaryItem label="Syndic mensuel" value={`${amount(unit.monthly_syndic_amount)} USD`} />
-        <SummaryItem label="Total mensuel" value={`${amount(Number(unit.monthly_rent ?? 0) + Number(unit.monthly_syndic_amount ?? 0))} USD`} />
+        <SummaryItem label="Total mensuel" value={`${amount(displayUnitRentAmount(unit) + Number(unit.monthly_syndic_amount ?? 0))} USD`} />
         <SummaryItem label="Surface" value={unit.surface_area ? `${unit.surface_area} m2` : '-'} />
         <SummaryItem label="Chambres" value={text(unit.bedrooms_count)} />
         <SummaryItem label="SDB" value={text(unit.bathrooms_count)} />
@@ -149,7 +151,7 @@ export function UnitDetail() {
       <Section title="Historique des baux">
         <Table
           headers={['Locataire', 'Debut', 'Fin', 'Loyer', 'Syndic', 'Total mensuel', 'Devise', 'Statut']}
-          rows={unit.leases.map((lease) => [lease.tenant_name, dateText(lease.start_date), dateText(lease.end_date), amount(lease.monthly_rent), amount(lease.monthly_syndic_amount), amount(Number(lease.monthly_rent ?? 0) + Number(lease.monthly_syndic_amount ?? 0)), 'USD', <StatusBadge value={lease.status} />])}
+          rows={unit.leases.map((lease) => [lease.tenant_name, dateText(lease.start_date), dateText(lease.end_date), amount(leaseRentAmount(lease)), amount(lease.monthly_syndic_amount), amount(leaseRentAmount(lease) + Number(lease.monthly_syndic_amount ?? 0)), 'USD', <StatusBadge value={lease.status} />])}
         />
       </Section>
 
@@ -164,7 +166,7 @@ export function UnitDetail() {
       <Section title="Historique des loyers">
         <Table
           headers={['Locataire', 'Debut', 'Fin', 'Loyer', 'Syndic', 'Total mensuel', 'Devise']}
-          rows={unit.rent_history.map((row) => [row.tenant_name, dateText(row.start_date), dateText(row.end_date), amount(row.monthly_rent), amount(row.monthly_syndic_amount), amount(Number(row.monthly_rent ?? 0) + Number(row.monthly_syndic_amount ?? 0)), 'USD'])}
+          rows={unit.rent_history.map((row) => [row.tenant_name, dateText(row.start_date), dateText(row.end_date), amount(leaseRentAmount(row)), amount(row.monthly_syndic_amount), amount(leaseRentAmount(row) + Number(row.monthly_syndic_amount ?? 0)), 'USD'])}
           emptyLabel="Aucun historique de loyer."
         />
       </Section>
@@ -294,9 +296,9 @@ function exportUnitWorkbook(unit: UnitDetailData) {
         'Nombre chambres': unit.bedrooms_count ?? '',
         'Nombre salles de bain': unit.bathrooms_count ?? '',
         Etage: unit.floor,
-        Loyer: amount(unit.monthly_rent),
+        Loyer: amount(displayUnitRentAmount(unit)),
         'Syndic mensuel': amount(unit.monthly_syndic_amount),
-        'Total mensuel contractuel': amount(Number(unit.monthly_rent ?? 0) + Number(unit.monthly_syndic_amount ?? 0)),
+        'Total mensuel contractuel': amount(displayUnitRentAmount(unit) + Number(unit.monthly_syndic_amount ?? 0)),
         Devise: 'USD',
         Statut: statusLabel(unit.status),
         Meuble: yesNo(unit.is_furnished),
@@ -338,9 +340,9 @@ function exportUnitWorkbook(unit: UnitDetailData) {
         Debut: dateText(lease.start_date),
         Fin: dateText(lease.end_date),
         Duree: leaseDuration(lease.start_date, lease.end_date),
-        Loyer: amount(lease.monthly_rent),
+        Loyer: amount(leaseRentAmount(lease)),
         Syndic: amount(lease.monthly_syndic_amount),
-        'Total mensuel': amount(Number(lease.monthly_rent ?? 0) + Number(lease.monthly_syndic_amount ?? 0)),
+        'Total mensuel': amount(leaseRentAmount(lease) + Number(lease.monthly_syndic_amount ?? 0)),
         Garantie: amount(lease.guarantee_amount),
         Statut: statusLabel(lease.status),
       })),
@@ -349,8 +351,8 @@ function exportUnitWorkbook(unit: UnitDetailData) {
       name: 'Historique des loyers',
       rows: unit.rent_history.map((row, index) => ({
         Date: dateText(row.start_date),
-        'Ancien loyer': index < unit.rent_history.length - 1 ? amount(unit.rent_history[index + 1].monthly_rent) : '',
-        'Nouveau loyer': amount(row.monthly_rent),
+        'Ancien loyer': index < unit.rent_history.length - 1 ? amount(leaseRentAmount(unit.rent_history[index + 1])) : '',
+        'Nouveau loyer': amount(leaseRentAmount(row)),
         'Ancien syndic': index < unit.rent_history.length - 1 ? amount(unit.rent_history[index + 1].monthly_syndic_amount) : '',
         'Nouveau syndic': amount(row.monthly_syndic_amount),
         Motif: index < unit.rent_history.length - 1 ? 'Revision du loyer' : 'Loyer initial',
@@ -417,7 +419,7 @@ function exportUnitWorkbook(unit: UnitDetailData) {
       rows: [{
         'Total loyers factures': amount(profitability.totalRentInvoiced),
         'Total syndic facture': amount(profitability.totalSyndicInvoiced),
-        'Total mensuel contractuel': amount(Number(unit.monthly_rent ?? 0) + Number(unit.monthly_syndic_amount ?? 0)),
+        'Total mensuel contractuel': amount(displayUnitRentAmount(unit) + Number(unit.monthly_syndic_amount ?? 0)),
         'Total encaisse': amount(profitability.totalCollected),
         'Total impayes': amount(profitability.totalUnpaid),
         'Total depenses maintenance': amount(profitability.totalMaintenanceExpenses),
@@ -442,7 +444,8 @@ function unitProfitability(unit: UnitDetailData) {
   const totalUnpaid = unit.invoices.reduce((sum, invoice) => sum + Number(invoice.remaining_amount ?? 0), 0);
   const totalMaintenanceExpenses = unit.maintenance.reduce((sum, item) => sum + Number(item.cost ?? 0), 0);
   const sortedLeases = [...unit.leases].sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
-  const latestRent = [...unit.rent_history].sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime())[0]?.monthly_rent ?? unit.monthly_rent;
+  const latestRentRow = [...unit.rent_history].sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime())[0];
+  const latestRent = latestRentRow ? leaseRentAmount(latestRentRow) : displayUnitRentAmount(unit);
   const lastPayment = [...unit.payments].sort((a, b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())[0];
   const occupancyDurations = sortedLeases
     .map((lease) => occupancyMonths(lease.start_date, lease.end_date))
@@ -463,6 +466,17 @@ function unitProfitability(unit: UnitDetailData) {
     lastRent: latestRent !== undefined && latestRent !== null ? `${amount(latestRent)} USD` : 'Non disponible',
     lastPaymentDate: lastPayment ? dateText(lastPayment.payment_date) : 'Non disponible',
   };
+}
+
+function leaseRentAmount(lease: { monthly_rent?: number; maintenance_fee_amount?: number }) {
+  return Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
+}
+
+function displayUnitRentAmount(unit: UnitDetailData) {
+  if (unit.current_lease_monthly_rent != null || unit.current_lease_maintenance_fee_amount != null) {
+    return Number(unit.current_lease_monthly_rent ?? 0) + Number(unit.current_lease_maintenance_fee_amount ?? 0);
+  }
+  return Number(unit.monthly_rent ?? 0);
 }
 
 function occupancyRateLabel(leases: Array<{ start_date: string; end_date?: string }>) {

@@ -138,7 +138,7 @@ export class DocumentTemplateService {
   private variables(context: LeaseDocumentRenderContext) {
     const rentLines = [
       context.lease.baseRent > 0 ? `<li>Loyer de base : ${money(context.lease.baseRent, context.lease.currency)}</li>` : '',
-      context.lease.maintenanceFee > 0 ? `<li>Entretien et maintenance : ${money(context.lease.maintenanceFee, context.lease.currency)}</li>` : '',
+      context.lease.maintenanceFee > 0 ? `<li>Frais d'entretien : ${money(context.lease.maintenanceFee, context.lease.currency)}</li>` : '',
       context.lease.syndicFee > 0 ? `<li>Frais de syndic : ${money(context.lease.syndicFee, context.lease.currency)}</li>` : '',
       context.lease.otherCharges > 0 ? `<li>Autres charges : ${money(context.lease.otherCharges, context.lease.currency)}</li>` : '',
     ].filter(Boolean).join('');
@@ -167,8 +167,11 @@ export class DocumentTemplateService {
       destinationPhrase: destinationPhrase(context),
       totalMonthly: money(context.lease.totalMonthly, context.lease.currency),
       baseRent: money(context.lease.baseRent, context.lease.currency),
+      maintenanceFee: money(context.lease.maintenanceFee, context.lease.currency),
+      guaranteeBaseAmount: money(context.lease.guaranteeBaseAmount, context.lease.currency),
       guaranteeMonths: String(context.lease.guaranteeMonths),
       guaranteeAmount: money(context.lease.guaranteeAmount, context.lease.currency),
+      guaranteeFormula: `(${money(context.lease.baseRent, context.lease.currency)} + ${money(context.lease.maintenanceFee, context.lease.currency)}) x ${context.lease.guaranteeMonths} = ${money(context.lease.guaranteeAmount, context.lease.currency)}`,
       rentBreakdown: rentLines ? `<ul>${rentLines}</ul>` : '',
       signature: '',
     };

@@ -9,7 +9,8 @@ export class DocumentRendererService {
     const otherCharges = numberValue(snapshot?.bail?.autres_charges ?? snapshot?.OTHER_CHARGES_AMOUNT);
     const guaranteeMonths = Math.max(0, Math.floor(numberValue(snapshot?.bail?.garantie_nombre_mois ?? snapshot?.GUARANTEE_MONTHS)));
     const totalMonthly = baseRent + maintenanceFee + syndicFee + otherCharges;
-    const guaranteeAmount = baseRent * guaranteeMonths;
+    const guaranteeBaseAmount = baseRent + maintenanceFee;
+    const guaranteeAmount = guaranteeBaseAmount * guaranteeMonths;
     return {
       contract: {
         number: text(snapshot.LEASE_REFERENCE),
@@ -76,6 +77,7 @@ export class DocumentRendererService {
         totalMonthly,
         guaranteeMonths,
         guaranteeAmount,
+        guaranteeBaseAmount,
         currency: text(snapshot?.bail?.devise ?? snapshot.CURRENCY, 'USD'),
       },
       rawSnapshot: snapshot,

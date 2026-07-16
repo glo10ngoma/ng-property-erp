@@ -79,8 +79,9 @@ export function LeaseNew() {
   );
   const selectedUnit = availableUnits.find((unit) => Number(unit.id) === Number(unitId));
   const selectedBuilding = buildings.data.find((building) => Number(building.id) === Number(buildingId));
-  const totalMonthly = Number(rent || 0) + Number(maintenanceFee || 0) + Number(syndicAmount || 0) + Number(otherCharges || 0);
-  const guaranteeAmount = Number(rent || 0) * Number(guaranteeMonths || 0);
+  const rentAmount = Number(rent || 0) + Number(maintenanceFee || 0);
+  const totalMonthly = rentAmount + Number(syndicAmount || 0) + Number(otherCharges || 0);
+  const guaranteeAmount = rentAmount * Number(guaranteeMonths || 0);
   const contractTemplateCode = leaseTemplateCode(leaseUsage);
   const contractTemplateLabel = leaseTemplateLabel(leaseUsage);
   const activityLabel = leaseUsage === 'COMMERCIAL'
@@ -260,10 +261,11 @@ export function LeaseNew() {
             <label>Duree du bail (mois)<input name="duration" type="number" min="1" value={durationMonths} onChange={(event) => updateDuration(event.target.value)} placeholder="12" /></label>
             <label>Preavis (mois)<input name="notice_months" type="number" min="0" value={noticeMonths} onChange={(event) => setNoticeMonths(event.target.value)} /></label>
             <label>Loyer de base<input name="monthly_rent" type="number" required value={rent} onChange={(event) => setRent(Number(event.target.value))} /></label>
-            <label>Frais entretien<input name="maintenance_fee_amount" type="number" min="0" value={maintenanceFee} onChange={(event) => setMaintenanceFee(Number(event.target.value))} /></label>
+            <label>Frais d'entretien<input name="maintenance_fee_amount" type="number" min="0" value={maintenanceFee} onChange={(event) => setMaintenanceFee(Number(event.target.value))} /></label>
             <label>Frais syndic<input name="monthly_syndic_amount" type="number" min="0" value={syndicAmount} onChange={(event) => setSyndicAmount(Number(event.target.value))} /></label>
             <label>Autres charges<input name="other_charges_amount" type="number" min="0" value={otherCharges} onChange={(event) => setOtherCharges(Number(event.target.value))} /></label>
-            <label>Total loyer<input className="locked-field" name="lease_total_amount" value={money(totalMonthly)} readOnly /></label>
+            <label>Loyer<input className="locked-field" value={money(rentAmount)} readOnly /></label>
+            <label>Total mensuel<input className="locked-field" name="lease_total_amount" value={money(totalMonthly)} readOnly /></label>
             <label>Devise<input className="locked-field" value="USD" readOnly /></label>
             <label>Usage du bail<select name="lease_usage" value={leaseUsage} onChange={(event) => setLeaseUsage(normalizeLeaseUsage(event.target.value))}>{LEASE_USAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             {requiresActivity ? (
@@ -289,7 +291,7 @@ export function LeaseNew() {
               <label>Date de paiement<input className="locked-field" value="" placeholder="Renseignee si la garantie est payee" readOnly /></label>
             )}
             <label>Devise<input className="locked-field" value="USD" readOnly /></label>
-            <label className="lease-field-full">Formule<input className="locked-field" value={`${money(rent)} x ${Number(guaranteeMonths || 0)} mois = ${money(guaranteeAmount)}`} readOnly /></label>
+            <label className="lease-field-full">Garantie locative<input className="locked-field" value={money(guaranteeAmount)} readOnly /></label>
           </div>
         </div>
 

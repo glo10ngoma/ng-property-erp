@@ -36,7 +36,7 @@ export class TenantsService {
       LEFT JOIN LATERAL (
         SELECT u.id AS unit_id,
                u.number AS unit_number,
-               COALESCE(l.monthly_rent, u.monthly_rent, 0)::FLOAT AS monthly_rent,
+               (COALESCE(l.monthly_rent, u.monthly_rent, 0) + COALESCE(l.maintenance_fee_amount, 0))::FLOAT AS monthly_rent,
                l.id AS active_lease_id,
                l.end_date AS active_lease_end_date,
                l.status AS active_lease_status,

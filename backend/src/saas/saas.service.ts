@@ -4848,7 +4848,7 @@ export class SaasService {
       const number = `INV-${new Date().getFullYear()}-${String(sequence.rows[0].value).padStart(4, '0')}`;
       const today = new Date();
       const due = new Date(today.getFullYear(), today.getMonth(), 10);
-      const rentAmount = Number(row.monthly_rent ?? 0);
+      const rentAmount = Number(row.monthly_rent ?? 0) + Number(row.maintenance_fee_amount ?? 0);
       const syndicAmount = Number(row.monthly_syndic_amount ?? 0);
       const totalAmount = rentAmount + syndicAmount;
       const invoice = await client.query(
@@ -5012,7 +5012,8 @@ export class SaasService {
     const tenants = await this.db.query(
       `SELECT DISTINCT ON (t.id)
               t.id, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone, t.email,
-              u.number AS unit_number, l.id AS lease_id, l.status AS lease_status, l.monthly_rent, l.monthly_syndic_amount
+              u.number AS unit_number, l.id AS lease_id, l.status AS lease_status,
+              l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount
        FROM tenants t
        JOIN leases l ON l.tenant_id = t.id AND l.deleted_at IS NULL
        JOIN units u ON u.id = l.unit_id
@@ -6682,8 +6683,9 @@ export class SaasService {
     const monthlySyndicAmount = Number(body.monthly_syndic_amount ?? 0);
     const otherChargesAmount = Number(body.other_charges_amount ?? 0);
     const guaranteeMonths = Number(body.guarantee_months ?? 0);
+    const rentGuaranteeBaseAmount = monthlyRent + maintenanceFeeAmount;
     const leaseTotalAmount = monthlyRent + maintenanceFeeAmount + monthlySyndicAmount + otherChargesAmount;
-    const guaranteeAmount = monthlyRent * guaranteeMonths;
+    const guaranteeAmount = rentGuaranteeBaseAmount * guaranteeMonths;
     const guaranteePaid = Number(body.rental_guarantee_paid ?? body.guarantee_paid ?? 0);
     const leaseUsage = this.normalizeLeaseUsageCode(body.lease_usage);
     const leaseActivityDescription = body.lease_activity_description ? String(body.lease_activity_description).trim() : null;
@@ -6849,7 +6851,9 @@ export class SaasService {
     const totalMonthly = Number(lease.lease_total_amount ?? 0);
     const guaranteeMonths = Number(lease.guarantee_months ?? company.default_guarantee_months ?? 0);
     const guaranteeAmount = Number(lease.rental_guarantee_amount ?? lease.guarantee?.amount ?? 0);
-    const guaranteeBaseAmount = Number(lease.monthly_rent ?? 0) * guaranteeMonths;
+    const rentAmount = Number(lease.monthly_rent ?? 0);
+    const maintenanceFeeAmount = Number(lease.maintenance_fee_amount ?? 0);
+    const guaranteeBaseAmount = rentAmount + maintenanceFeeAmount;
     const durationMonths = this.leaseDurationMonths(lease.start_date, lease.end_date) || Number(company.default_lease_duration_months ?? 0);
     const usageCode = this.normalizeLeaseUsageCode(lease.lease_usage ?? company.default_lease_usage ?? lease.usage_type);
     const usageLabel = this.leaseUsageLabel(usageCode);
@@ -6890,8 +6894,8 @@ export class SaasService {
     const leaseEndDate = this.formatDate(lease.end_date) || this.formatDate(new Date().toISOString().slice(0, 10));
     const otherChargesAmount = Number(lease.other_charges_amount ?? 0);
     const rentBreakdown = [
-      lease.monthly_rent > 0 ? `• ${this.formatMoney(lease.monthly_rent)} USD loyer` : null,
-      Number(lease.maintenance_fee_amount ?? 0) > 0 ? `• ${this.formatMoney(lease.maintenance_fee_amount)} USD Entretien et Maintenance` : null,
+      rentAmount > 0 ? `• ${this.formatMoney(rentAmount)} USD loyer de base` : null,
+      maintenanceFeeAmount > 0 ? `• ${this.formatMoney(maintenanceFeeAmount)} USD frais d'entretien` : null,
       Number(lease.monthly_syndic_amount ?? 0) > 0 ? `• ${this.formatMoney(lease.monthly_syndic_amount)} USD syndic` : null,
       otherChargesAmount > 0 ? `• ${this.formatMoney(otherChargesAmount)} USD autres charges` : null,
     ].filter(Boolean).join('\n');
@@ -6899,12 +6903,12 @@ export class SaasService {
     const bedroomCountText = this.frenchNumberWord(bedroomCount);
     const monthlySectionLines = [
       `Le loyer mensuel du local est constitué de ${this.formatMoney(totalMonthly)} USD le mois dont :`,
-      lease.monthly_rent > 0 ? `${this.formatMoney(lease.monthly_rent)} USD loyer` : null,
-      Number(lease.maintenance_fee_amount ?? 0) > 0 ? `${this.formatMoney(lease.maintenance_fee_amount)} USD Entretien et Maintenance` : null,
+      rentAmount > 0 ? `${this.formatMoney(rentAmount)} USD loyer de base` : null,
+      maintenanceFeeAmount > 0 ? `${this.formatMoney(maintenanceFeeAmount)} USD frais d'entretien` : null,
       Number(lease.monthly_syndic_amount ?? 0) > 0 ? `${this.formatMoney(lease.monthly_syndic_amount)} USD syndic` : null,
       otherChargesAmount > 0 ? `${this.formatMoney(otherChargesAmount)} USD autres charges` : null,
     ].filter(Boolean).join('\n');
-    const guaranteeSection = `La garantie locative équivaut à ${guaranteeMonths} mois (= ${this.formatMoney(lease.monthly_rent)} x ${guaranteeMonths})`;
+    const guaranteeSection = `La garantie locative équivaut à ${guaranteeMonths} mois (= (${this.formatMoney(rentAmount)} + ${this.formatMoney(maintenanceFeeAmount)}) x ${guaranteeMonths})`;
     const autresChargesLigne = otherChargesAmount > 0 ? `- Autres charges : ${this.formatMoney(otherChargesAmount)} USD` : '';
     const landlordSigle = String(company.company_acronym ?? '').trim();
     const landlordLegalForm = String(company.company_legal_form ?? '').trim();

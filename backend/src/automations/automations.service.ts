@@ -35,6 +35,7 @@ type EligibleLease = {
   unit_id: number;
   building_id: number;
   monthly_rent: number;
+  maintenance_fee_amount: number;
   monthly_syndic_amount: number;
   status: string;
   start_date: string;
@@ -261,9 +262,9 @@ export class AutomationsService {
         tenant_name: lease.tenant_name,
         unit_number: lease.unit_number,
         building_name: lease.building_name,
-        monthly_rent: Number(lease.monthly_rent ?? 0),
+        monthly_rent: this.leaseRentAmount(lease),
         monthly_syndic_amount: Number(lease.monthly_syndic_amount ?? 0),
-        total_amount: Number(lease.monthly_rent ?? 0) + Number(lease.monthly_syndic_amount ?? 0),
+        total_amount: this.leaseRentAmount(lease) + Number(lease.monthly_syndic_amount ?? 0),
         email_status: lease.tenant_email ? (setting.email_enabled ? 'READY' : 'DISABLED') : 'EMAIL_MISSING',
         whatsapp_status: lease.tenant_phone ? (setting.whatsapp_enabled ? 'READY' : 'DISABLED') : 'PHONE_MISSING',
       });
@@ -374,7 +375,7 @@ export class AutomationsService {
           unitNumber: lease.unit_number ?? null,
           buildingName: lease.building_name ?? null,
           dueDate: String(invoice.due_date),
-          rentAmount: Number(lease.monthly_rent ?? 0),
+          rentAmount: this.leaseRentAmount(lease),
           syndicAmount: Number(lease.monthly_syndic_amount ?? 0),
           totalAmount: Number(invoice.total ?? 0),
           emailEnabled: setting.email_enabled,
@@ -452,7 +453,7 @@ export class AutomationsService {
   }) {
     return this.db.transaction(async (client) => {
       const lockedLease = await client.query<EligibleLease>(
-        `SELECT l.id, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.monthly_syndic_amount,
+        `SELECT l.id, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
                 l.status, l.start_date, l.end_date
          FROM leases l
          JOIN units u ON u.id = l.unit_id
@@ -473,8 +474,8 @@ export class AutomationsService {
 
       const nextId = await this.nextInvoiceId(client);
       const invoiceNumber = await this.nextInvoiceNumber(client, args.period.year);
-      const rentAmount = Number(args.lease.monthly_rent ?? 0);
-      const syndicAmount = Number(args.lease.monthly_syndic_amount ?? 0);
+      const rentAmount = this.leaseRentAmount(lease);
+      const syndicAmount = Number(lease.monthly_syndic_amount ?? 0);
       const totalAmount = rentAmount + syndicAmount;
       const { rows } = await client.query(
         `INSERT INTO invoices (
@@ -847,7 +848,7 @@ export class AutomationsService {
 
   private async fetchEligibleLeases(organizationId: number, period: BillingPeriod) {
     const { rows } = await this.db.query<EligibleLease>(
-      `SELECT l.id, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.monthly_syndic_amount,
+      `SELECT l.id, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
               l.status, l.start_date, l.end_date,
               CASE
                 WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, 'Locataire')
@@ -866,7 +867,7 @@ export class AutomationsService {
          AND l.status = 'ACTIVE'
          AND l.tenant_id IS NOT NULL
          AND l.unit_id IS NOT NULL
-         AND COALESCE(l.monthly_rent, 0) > 0
+         AND (COALESCE(l.monthly_rent, 0) + COALESCE(l.maintenance_fee_amount, 0)) > 0
          AND l.start_date <= $2
          AND (l.end_date IS NULL OR l.end_date >= $3)
        ORDER BY COALESCE(b.name, ''), COALESCE(u.number, ''), l.id`,
@@ -877,7 +878,7 @@ export class AutomationsService {
 
   private async fetchLeaseCandidates(organizationId: number) {
     const { rows } = await this.db.query<EligibleLease>(
-      `SELECT l.id, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.monthly_syndic_amount,
+      `SELECT l.id, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
               l.status, l.start_date, l.end_date,
               CASE
                 WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, 'Locataire')
@@ -1170,12 +1171,12 @@ export class AutomationsService {
     return 'SUCCESS';
   }
 
-  private isLeaseEligible(lease: Pick<EligibleLease, 'status' | 'monthly_rent' | 'start_date' | 'end_date'>, period: BillingPeriod) {
+  private isLeaseEligible(lease: Pick<EligibleLease, 'status' | 'monthly_rent' | 'maintenance_fee_amount' | 'start_date' | 'end_date'>, period: BillingPeriod) {
     return !this.leaseExclusionReason(lease, period);
   }
 
   private leaseExclusionReason(
-    lease: Partial<Pick<EligibleLease, 'tenant_id' | 'unit_id' | 'status' | 'monthly_rent' | 'start_date' | 'end_date'>>,
+    lease: Partial<Pick<EligibleLease, 'tenant_id' | 'unit_id' | 'status' | 'monthly_rent' | 'maintenance_fee_amount' | 'start_date' | 'end_date'>>,
     period: BillingPeriod,
   ) {
     const startDate = this.dateOnly(lease.start_date);
@@ -1183,10 +1184,14 @@ export class AutomationsService {
     if (!lease.tenant_id) return 'TENANT_MISSING';
     if (!lease.unit_id) return 'UNIT_MISSING';
     if (String(lease.status ?? '') !== 'ACTIVE') return `STATUS_${String(lease.status ?? 'UNKNOWN').toUpperCase()}`;
-    if (!(Number(lease.monthly_rent ?? 0) > 0)) return 'RENT_MISSING';
+    if (!(this.leaseRentAmount(lease) > 0)) return 'RENT_MISSING';
     if (!startDate || startDate > period.periodEnd) return 'STARTS_AFTER_PERIOD';
     if (endDate && endDate < period.periodStart) return 'ENDED_BEFORE_PERIOD';
     return null;
+  }
+
+  private leaseRentAmount(lease: Partial<Pick<EligibleLease, 'monthly_rent' | 'maintenance_fee_amount'>>) {
+    return Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
   }
 
   private leaseReference(id: number) {

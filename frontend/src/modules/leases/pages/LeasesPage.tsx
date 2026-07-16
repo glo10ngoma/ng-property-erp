@@ -182,7 +182,7 @@ export function LeasesPage() {
                 <td>{shortDate(lease.start_date)}</td>
                 <td>{lease.end_date ? shortDate(lease.end_date) : '-'}</td>
                 <td>{leaseDurationLabel(lease)}</td>
-                <td className="right">{amount(lease.monthly_rent)}</td>
+                <td className="right">{amount(leaseRentAmount(lease))}</td>
                 <td>USD</td>
                 <td className="right">{amount(guaranteeAmount(lease))}</td>
                 <td className="right">{amount(guaranteePaid(lease))}</td>
@@ -280,6 +280,8 @@ function LeaseEditModal({
     [units, buildingId],
   );
   const selectedUnit = availableUnits.find((unit) => Number(unit.id) === Number(unitId));
+  const rentAmount = Number(rent || 0) + Number(maintenanceFeeAmount || 0);
+  const totalMonthly = rentAmount + Number(syndicAmount ?? 0) + Number(lease.other_charges_amount ?? 0);
   const buildingOptions = buildings.map((building) => ({
     value: building.id,
     label: building.name,
@@ -308,11 +310,11 @@ function LeaseEditModal({
 
   useEffect(() => {
     const monthsValue = Number(guaranteeMonths || 0);
-    setGuaranteeAmountValue(String(Number(rent || 0) * monthsValue));
-  }, [rent, guaranteeMonths]);
+    setGuaranteeAmountValue(String(rentAmount * monthsValue));
+  }, [rentAmount, guaranteeMonths]);
 
   useEffect(() => {
-    const calculatedAmount = String(Number(rent || 0) * Number(guaranteeMonths || 0));
+    const calculatedAmount = String(rentAmount * Number(guaranteeMonths || 0));
     if (guaranteeStatusValue === 'PAID') {
       setGuaranteePaidValue(calculatedAmount);
       return;
@@ -320,7 +322,7 @@ function LeaseEditModal({
     if (guaranteeStatusValue === 'NOT_PAID') {
       setGuaranteePaidValue('0');
     }
-  }, [rent, guaranteeMonths, guaranteeStatusValue]);
+  }, [rentAmount, guaranteeMonths, guaranteeStatusValue]);
 
   useEffect(() => {
     if (leaseUsage !== 'COMMERCIAL' && leaseUsage !== 'PROFESSIONAL') {
@@ -354,7 +356,7 @@ function LeaseEditModal({
       return setError('Renseignez la date de paiement de la garantie.');
     }
     const guaranteeMonthsValue = Number(guaranteeMonths || 0);
-    const calculatedGuaranteeAmount = Number(rent || 0) * guaranteeMonthsValue;
+    const calculatedGuaranteeAmount = rentAmount * guaranteeMonthsValue;
     const normalizedMaintenanceFeeAmount = Number(maintenanceFeeAmount === '' ? 0 : maintenanceFeeAmount);
     const normalizedGuaranteeStatus = guaranteeStatusValue === 'PAID' ? 'PAID' : Number(guaranteePaidValue || 0) <= 0 ? 'NOT_PAID' : guaranteeStatusValue;
     const normalizedGuaranteePaid = normalizedGuaranteeStatus === 'PAID' ? calculatedGuaranteeAmount : 0;
@@ -414,14 +416,15 @@ function LeaseEditModal({
             <label>Date fin<input type="date" value={endDate} onChange={(event) => updateEndDate(event.target.value)} /></label>
             <label>Duree du bail (mois)<input type="number" min="1" value={durationMonths} onChange={(event) => updateDuration(event.target.value)} placeholder="12" /></label>
             <label>Jour limite paiement<input type="number" min="1" max="31" defaultValue="5" /></label>
-            <label>Loyer<input type="number" value={rent} onChange={(event) => setRent(Number(event.target.value))} required /></label>
+            <label>Loyer de base<input type="number" value={rent} onChange={(event) => setRent(Number(event.target.value))} required /></label>
             <label>Frais d'entretien<input type="number" min="0" step="0.01" value={maintenanceFeeAmount} onChange={(event) => setMaintenanceFeeAmount(event.target.value)} /></label>
             <label>Montant syndic<input type="number" min="0" value={syndicAmount} onChange={(event) => setSyndicAmount(Number(event.target.value))} /></label>
             <label>Usage du bail<select value={leaseUsage} onChange={(event) => setLeaseUsage(normalizeLeaseUsageCode(event.target.value))}><option value="RESIDENTIAL">Residentiel</option><option value="COMMERCIAL">Commercial</option><option value="PROFESSIONAL">Professionnel</option><option value="MIXED">Mixte</option></select></label>
             {(leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL' || leaseUsage === 'MIXED') ? (
               <label className="lease-field-wide">{leaseUsage === 'COMMERCIAL' ? 'Activite ou destination commerciale' : leaseUsage === 'PROFESSIONAL' ? 'Activite ou destination professionnelle' : 'Activite ou destination mixte'}<input value={leaseActivityDescription} onChange={(event) => setLeaseActivityDescription(event.target.value)} placeholder={leaseUsage === 'COMMERCIAL' ? 'Ex: Boutique de vente' : leaseUsage === 'PROFESSIONAL' ? 'Ex: Cabinet de conseil' : 'Ex: Activites commerciales et professionnelles'} /></label>
             ) : null}
-            <label>Total mensuel<input className="locked-field" value={`${amount(Number(rent ?? 0) + Number(maintenanceFeeAmount || 0) + Number(syndicAmount ?? 0) + Number(lease.other_charges_amount ?? 0))} USD`} readOnly /></label>
+            <label>Loyer<input className="locked-field" value={`${amount(rentAmount)} USD`} readOnly /></label>
+            <label>Total mensuel<input className="locked-field" value={`${amount(totalMonthly)} USD`} readOnly /></label>
             <label>Devise<input className="locked-field" value="USD" readOnly /></label>
             <label>Statut<select value={leaseStatus} onChange={(event) => setLeaseStatus(event.target.value)}><option value="DRAFT">Brouillon</option><option value="ACTIVE">Actif</option><option value="TERMINATED">Resilie</option></select></label>
           </div>
@@ -436,7 +439,7 @@ function LeaseEditModal({
             <label>Garantie payee<select value={guaranteeStatusValue === 'PAID' ? 'YES' : 'NO'} onChange={(event) => {
               const nextPaid = event.target.value === 'YES';
               setGuaranteeStatusValue(nextPaid ? 'PAID' : 'NOT_PAID');
-              setGuaranteePaidValue(nextPaid ? String(Number(rent || 0) * Number(guaranteeMonths || 0)) : '0');
+              setGuaranteePaidValue(nextPaid ? String(rentAmount * Number(guaranteeMonths || 0)) : '0');
               if (!nextPaid) setGuaranteePaymentDate('');
             }}><option value="NO">Non</option><option value="YES">Oui</option></select></label>
             <label>Date paiement<input type="date" value={guaranteePaymentDate} onChange={(event) => setGuaranteePaymentDate(event.target.value)} disabled={guaranteeStatusValue !== 'PAID'} /></label>
@@ -542,15 +545,19 @@ function leaseExportRow(lease: Lease) {
     debut: shortDate(lease.start_date),
     fin: lease.end_date ? shortDate(lease.end_date) : '',
     duree: leaseDurationLabel(lease),
-    loyer: amount(lease.monthly_rent),
+    loyer: amount(leaseRentAmount(lease)),
     syndic: amount(lease.monthly_syndic_amount),
-    total_mensuel: amount(Number(lease.monthly_rent ?? 0) + Number(lease.monthly_syndic_amount ?? 0)),
+    total_mensuel: amount(leaseRentAmount(lease) + Number(lease.monthly_syndic_amount ?? 0)),
     devise: 'USD',
     garantie: amount(guaranteeAmount(lease)),
     paye: amount(guaranteePaid(lease)),
     contrat: lease.contract_file_name ? 'Present' : 'Absent',
     statut: leaseDeadlineStatus(lease),
   };
+}
+
+function leaseRentAmount(lease: Pick<Lease, 'monthly_rent' | 'maintenance_fee_amount'>) {
+  return Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
 }
 
 function downloadContract(lease: Lease) {

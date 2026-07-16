@@ -38,7 +38,7 @@ type Invoice = {
   whatsapp_delivery_status?: string;
 };
 type Tenant = { id: number; tenant_type?: string; company_name?: string; first_name: string; last_name: string; post_name?: string; phone?: string; monthly_rent: number; building_name: string; unit_number: string };
-type Lease = { id: number; tenant_id: number; tenant_name: string; building_name: string; unit_number: string; monthly_rent: number; monthly_syndic_amount?: number; status: string };
+type Lease = { id: number; tenant_id: number; tenant_name: string; building_name: string; unit_number: string; monthly_rent: number; maintenance_fee_amount?: number; monthly_syndic_amount?: number; status: string };
 
 const lineTypes = ['Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Penalty', 'Other'];
 const emptyFilters = { month: '', year: '', status: '', building: '', tenant: '', type: '', automatic: '', email: '', whatsapp: '' };
@@ -74,13 +74,13 @@ export function Invoices() {
   const invoiceSyndic = Number(syndicAmount ?? 0);
   const subtotal = Number(invoiceRent ?? 0) + Number(invoiceSyndic ?? 0) + extraLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
   const total = Math.max(0, subtotal - Number(discount || 0));
-  const leaseOptions = tenantLeases.map((lease) => ({ value: lease.id, label: `Bail #${lease.id}`, meta: `${lease.building_name} - ${lease.unit_number} - Loyer ${money(lease.monthly_rent)} - Syndic ${money(lease.monthly_syndic_amount ?? 0)}` }));
+  const leaseOptions = tenantLeases.map((lease) => ({ value: lease.id, label: `Bail #${lease.id}`, meta: `${lease.building_name} - ${lease.unit_number} - Loyer ${money(leaseRentAmount(lease))} - Syndic ${money(lease.monthly_syndic_amount ?? 0)}` }));
   const buildingOptions = Array.from(new Set(data.map((invoice) => invoice.building_name).filter(Boolean)));
   const tenantOptions = Array.from(new Set(data.map(invoiceTenantName).filter(Boolean)));
 
   useEffect(() => {
     if (selectedLease) {
-      setRent(Number(selectedLease.monthly_rent ?? 0));
+      setRent(leaseRentAmount(selectedLease));
       setSyndicAmount(Number(selectedLease.monthly_syndic_amount ?? 0));
       if (!leaseId) setLeaseId(selectedLease.id);
     }
@@ -240,8 +240,8 @@ export function Invoices() {
           <div className="invoice-modal-body">
             <div className="form-grid invoice-form-grid">
               <label className="invoice-field-full">Locataire<TenantSearchSelect tenants={tenants.data} value={selectedTenantId} onChange={(value) => { setTenantId(value); setLeaseId(null); setRent(0); setSyndicAmount(0); }} required /></label>
-              <label className="invoice-field-full">Bail actif<SearchableSelect options={leaseOptions} value={selectedLease?.id ?? null} onChange={(value) => { setLeaseId(value ? Number(value) : null); const lease = leases.data.find((item) => item.id === value); if (lease) { setRent(Number(lease.monthly_rent)); setSyndicAmount(Number(lease.monthly_syndic_amount ?? 0)); } }} placeholder="Rechercher un bail" emptyMessage="Aucun bail actif trouve" /></label>
-              {selectedLease && <div className="summary-band invoice-field-full"><div className="summary-item"><span>Immeuble</span><strong>{selectedLease.building_name}</strong></div><div className="summary-item"><span>Unite</span><strong>{selectedLease.unit_number}</strong></div><div className="summary-item"><span>Loyer bail</span><strong>{money(selectedLease.monthly_rent)}</strong></div><div className="summary-item"><span>Syndic bail</span><strong>{money(selectedLease.monthly_syndic_amount ?? 0)}</strong></div><div className="summary-item"><span>Total mensuel</span><strong>{money(Number(selectedLease.monthly_rent ?? 0) + Number(selectedLease.monthly_syndic_amount ?? 0))}</strong></div></div>}
+              <label className="invoice-field-full">Bail actif<SearchableSelect options={leaseOptions} value={selectedLease?.id ?? null} onChange={(value) => { setLeaseId(value ? Number(value) : null); const lease = leases.data.find((item) => item.id === value); if (lease) { setRent(leaseRentAmount(lease)); setSyndicAmount(Number(lease.monthly_syndic_amount ?? 0)); } }} placeholder="Rechercher un bail" emptyMessage="Aucun bail actif trouve" /></label>
+              {selectedLease && <div className="summary-band invoice-field-full"><div className="summary-item"><span>Immeuble</span><strong>{selectedLease.building_name}</strong></div><div className="summary-item"><span>Unite</span><strong>{selectedLease.unit_number}</strong></div><div className="summary-item"><span>Loyer</span><strong>{money(leaseRentAmount(selectedLease))}</strong></div><div className="summary-item"><span>Syndic</span><strong>{money(selectedLease.monthly_syndic_amount ?? 0)}</strong></div><div className="summary-item"><span>Total mensuel</span><strong>{money(leaseRentAmount(selectedLease) + Number(selectedLease.monthly_syndic_amount ?? 0))}</strong></div></div>}
               <div className="invoice-compact-grid invoice-field-full">
                 <label>Date de facture<input type="date" value={invoiceForm.issue_date} onChange={(event) => setInvoiceForm((current) => ({ ...current, issue_date: event.target.value, due_date: addDaysToDateInputValue(event.target.value, 5) }))} required /></label>
                 <label>Date d'echeance<input type="date" value={invoiceForm.due_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, due_date: event.target.value })} required /></label>
@@ -249,7 +249,7 @@ export function Invoices() {
                 <label>Annee du loyer<input type="number" min="2000" max="2100" value={invoiceForm.year} onChange={(event) => setInvoiceForm((current) => ({ ...current, year: event.target.value }))} required /></label>
                 <label>Periode debut<input className="locked-field" type="date" value={periodStart(invoiceForm.month, invoiceForm.year)} readOnly /></label>
                 <label>Periode fin<input className="locked-field" type="date" value={periodEnd(invoiceForm.month, invoiceForm.year)} readOnly /></label>
-                <label>Loyer contractuel<input type="number" value={invoiceRent} onChange={(event) => setRent(Number(event.target.value))} /></label>
+                <label>Loyer<input type="number" value={invoiceRent} onChange={(event) => setRent(Number(event.target.value))} /></label>
                 <label>Syndic mensuel<input type="number" min="0" value={invoiceSyndic} onChange={(event) => setSyndicAmount(Number(event.target.value))} /></label>
                 <label>Total mensuel<input className="locked-field" value={money(Number(invoiceRent ?? 0) + Number(invoiceSyndic ?? 0))} readOnly /></label>
                 <label>Remise<input type="number" min="0" value={discount} onChange={(event) => setDiscount(Number(event.target.value))} /></label>
@@ -296,6 +296,10 @@ export function Invoices() {
 
 function invoiceTenantName(invoice: Pick<Invoice, 'tenant_name' | 'first_name' | 'last_name'>) {
   return invoice.tenant_name || `${invoice.first_name ?? ''} ${invoice.last_name ?? ''}`.trim();
+}
+
+function leaseRentAmount(lease: Pick<Lease, 'monthly_rent' | 'maintenance_fee_amount'>) {
+  return Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
 }
 
 function invoiceExportRow(invoice: Invoice) {

@@ -305,7 +305,8 @@ export function LeaseDetail() {
   if (loading) return <EmptyState message="Chargement..." />;
   if (!lease) return <EmptyState message={error || 'Bail introuvable.'} />;
 
-  const totalMonthly = Number(lease.lease_total_amount ?? (Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0) + Number(lease.monthly_syndic_amount ?? 0) + Number(lease.other_charges_amount ?? 0)));
+  const rentAmount = Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
+  const totalMonthly = Number(lease.lease_total_amount ?? (rentAmount + Number(lease.monthly_syndic_amount ?? 0) + Number(lease.other_charges_amount ?? 0)));
   const exportRows = [
     {
       section: 'Bail',
@@ -314,8 +315,7 @@ export function LeaseDetail() {
       type_locataire: lease.tenant_type === 'COMPANY' ? 'Personne morale' : 'Personne physique',
       immeuble: lease.building_name,
       unite: lease.unit_number,
-      loyer_base: money(lease.monthly_rent),
-      entretien: money(lease.maintenance_fee_amount ?? 0),
+      loyer: money(rentAmount),
       syndic: money(lease.monthly_syndic_amount ?? 0),
       autres_charges: money(lease.other_charges_amount ?? 0),
       total_mensuel: money(totalMonthly),
@@ -358,7 +358,7 @@ export function LeaseDetail() {
         <SummaryItem label="Unite" value={lease.unit_number} />
         <SummaryItem label="Usage" value={leaseUsageLabel(lease.lease_usage ?? lease.usage_type)} />
         <SummaryItem label="Activite / destination" value={lease.lease_activity_description || '-'} />
-        <SummaryItem label="Loyer de base" value={money(lease.monthly_rent)} />
+        <SummaryItem label="Loyer" value={money(rentAmount)} />
         <SummaryItem label="Total mensuel" value={money(totalMonthly)} />
         <SummaryItem label="Garantie" value={`${money(lease.guarantee?.paid_amount ?? lease.rental_guarantee_paid)} / ${money(lease.guarantee?.amount ?? lease.rental_guarantee_amount)}`} />
         <SummaryItem label="Contrat" value={lease.latest_contract ? contractStatusLabel(lease.latest_contract.status) : 'Non genere'} />
@@ -369,8 +369,8 @@ export function LeaseDetail() {
         <h4>Informations bail</h4>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Reference</th><th>Debut</th><th>Fin</th><th className="right">Loyer base</th><th className="right">Entretien</th><th className="right">Syndic</th><th className="right">Autres</th><th className="right">Total</th><th>Devise</th><th>Statut</th></tr></thead>
-            <tbody><tr><td>{leaseReference(lease)}</td><td>{shortDate(lease.start_date)}</td><td>{lease.end_date ? shortDate(lease.end_date) : 'En cours'}</td><td className="right">{amount(lease.monthly_rent)}</td><td className="right">{amount(lease.maintenance_fee_amount)}</td><td className="right">{amount(lease.monthly_syndic_amount)}</td><td className="right">{amount(lease.other_charges_amount)}</td><td className="right">{amount(totalMonthly)}</td><td>USD</td><td><StatusBadge value={lease.status} /></td></tr></tbody>
+            <thead><tr><th>Reference</th><th>Debut</th><th>Fin</th><th className="right">Loyer</th><th className="right">Syndic</th><th className="right">Autres</th><th className="right">Total</th><th>Devise</th><th>Statut</th></tr></thead>
+            <tbody><tr><td>{leaseReference(lease)}</td><td>{shortDate(lease.start_date)}</td><td>{lease.end_date ? shortDate(lease.end_date) : 'En cours'}</td><td className="right">{amount(rentAmount)}</td><td className="right">{amount(lease.monthly_syndic_amount)}</td><td className="right">{amount(lease.other_charges_amount)}</td><td className="right">{amount(totalMonthly)}</td><td>USD</td><td><StatusBadge value={lease.status} /></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -684,6 +684,7 @@ function formatPdfPreviewError(error: any) {
 }
 
 function exportLeaseDetail(lease: LeaseDetailData, totalMonthly: number) {
+  const rentAmount = Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
   exportXlsxWorkbook(`Bail_${leaseReference(lease)}.xlsx`, [
     {
       name: 'Informations',
@@ -693,8 +694,7 @@ function exportLeaseDetail(lease: LeaseDetailData, totalMonthly: number) {
         type_locataire: lease.tenant_type === 'COMPANY' ? 'Personne morale' : 'Personne physique',
         immeuble: lease.building_name,
         unite: lease.unit_number,
-        loyer_base: amount(lease.monthly_rent),
-        entretien: amount(lease.maintenance_fee_amount),
+        loyer: amount(rentAmount),
         syndic: amount(lease.monthly_syndic_amount),
         autres_charges: amount(lease.other_charges_amount),
         total_mensuel: amount(totalMonthly),

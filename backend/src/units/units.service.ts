@@ -22,7 +22,9 @@ export class UnitsService {
              current_lease.current_lease_id,
              current_lease.current_lease_status,
              current_lease.current_lease_start_date,
-             current_lease.current_lease_end_date
+             current_lease.current_lease_end_date,
+             current_lease.current_lease_monthly_rent,
+             current_lease.current_lease_maintenance_fee_amount
       FROM units u
       JOIN buildings b ON b.id = u.building_id
       LEFT JOIN LATERAL (
@@ -30,6 +32,8 @@ export class UnitsService {
                l.status AS current_lease_status,
                l.start_date AS current_lease_start_date,
                l.end_date AS current_lease_end_date,
+               l.monthly_rent AS current_lease_monthly_rent,
+               l.maintenance_fee_amount AS current_lease_maintenance_fee_amount,
                t.id AS current_tenant_id,
                CASE
                  WHEN t.tenant_type = 'COMPANY' THEN COALESCE(NULLIF(TRIM(t.company_name), ''), 'Societe')
@@ -85,7 +89,9 @@ export class UnitsService {
               current_lease.current_lease_id,
               current_lease.current_lease_status,
               current_lease.current_lease_start_date,
-              current_lease.current_lease_end_date
+              current_lease.current_lease_end_date,
+              current_lease.current_lease_monthly_rent,
+              current_lease.current_lease_maintenance_fee_amount
        FROM units u
        JOIN buildings b ON b.id = u.building_id
        LEFT JOIN LATERAL (
@@ -93,6 +99,8 @@ export class UnitsService {
                 l.status AS current_lease_status,
                 l.start_date AS current_lease_start_date,
                 l.end_date AS current_lease_end_date,
+                l.monthly_rent AS current_lease_monthly_rent,
+                l.maintenance_fee_amount AS current_lease_maintenance_fee_amount,
                 t.id AS current_tenant_id,
                 CASE
                   WHEN t.tenant_type = 'COMPANY' THEN COALESCE(NULLIF(TRIM(t.company_name), ''), 'Societe')
@@ -223,6 +231,7 @@ export class UnitsService {
         start_date: lease.start_date,
         end_date: lease.end_date,
         monthly_rent: lease.monthly_rent,
+        maintenance_fee_amount: lease.maintenance_fee_amount,
         monthly_syndic_amount: lease.monthly_syndic_amount,
         tenant_name: lease.tenant_name,
       })),

@@ -20,6 +20,8 @@ type Unit = {
   tenant_name?: string;
   tenant_phone?: string;
   active_lease_end_date?: string;
+  current_lease_monthly_rent?: number;
+  current_lease_maintenance_fee_amount?: number;
   surface_area?: number;
   bedrooms_count?: number;
   bathrooms_count?: number;
@@ -94,7 +96,7 @@ export function Units() {
   const occupied = data.filter((unit) => unit.status === 'OCCUPIED').length;
   const vacant = data.filter((unit) => unit.status === 'VACANT').length;
   const occupancyRate = data.length ? Math.round((occupied / data.length) * 100) : 0;
-  const averageRent = useMemo(() => data.length ? data.reduce((sum, unit) => sum + Number(unit.monthly_rent ?? 0), 0) / data.length : 0, [data]);
+  const averageRent = useMemo(() => data.length ? data.reduce((sum, unit) => sum + displayRentAmount(unit), 0) / data.length : 0, [data]);
 
   async function save(form: FormData) {
     const buildingId = Number(form.get('building_id'));
@@ -155,7 +157,7 @@ export function Units() {
       numero: unit.number,
       etage: unit.floor,
       type: unit.type,
-      loyer: unit.monthly_rent,
+      loyer: displayRentAmount(unit),
       syndic: Number(unit.monthly_syndic_amount ?? 0),
       devise: 'USD',
       statut: unit.status,
@@ -202,7 +204,7 @@ export function Units() {
                 <td>{unit.number}</td>
                 <td>{unit.floor}</td>
                 <td>{unit.type}</td>
-                <td className="right">{amount(unit.monthly_rent)}</td>
+                <td className="right">{amount(displayRentAmount(unit))}</td>
                 <td className="right">{amount(unit.monthly_syndic_amount)}</td>
                 <td>USD</td>
                 <td><StatusBadge value={unit.status} /></td>
@@ -291,8 +293,15 @@ function matchesRentRange(unit: Unit, rangeValue: string) {
   if (!rangeValue) return true;
   const range = RENT_RANGES.find((item) => item.value === rangeValue);
   if (!range) return true;
-  const rent = Number(unit.monthly_rent ?? 0);
+  const rent = displayRentAmount(unit);
   return rent >= range.min && rent <= range.max;
+}
+
+function displayRentAmount(unit: Unit) {
+  if (unit.current_lease_monthly_rent != null || unit.current_lease_maintenance_fee_amount != null) {
+    return Number(unit.current_lease_monthly_rent ?? 0) + Number(unit.current_lease_maintenance_fee_amount ?? 0);
+  }
+  return Number(unit.monthly_rent ?? 0);
 }
 
 function optionalNumber(value: FormDataEntryValue | null) {

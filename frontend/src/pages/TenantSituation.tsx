@@ -279,9 +279,9 @@ function LeaseTable({ rows }: { rows: ReportRow[] }) {
                 <td>#{text(row.id)}</td>
                 <td>{date(row.start_date)}</td>
                 <td>{date(row.end_date)}</td>
-                <td className="right">{amount(row.monthly_rent)}</td>
+                <td className="right">{amount(leaseRentAmount(row))}</td>
                 <td className="right">{amount(row.monthly_syndic_amount)}</td>
-                <td className="right">{amount(Number(row.monthly_rent ?? 0) + Number(row.monthly_syndic_amount ?? 0))}</td>
+                <td className="right">{amount(leaseRentAmount(row) + Number(row.monthly_syndic_amount ?? 0))}</td>
                 <td>USD</td>
                 <td><StatusBadge value={text(row.status)} /></td>
                 <AmountCell value={row.guarantee_amount} />
@@ -561,10 +561,14 @@ function totalGuaranteeAmount(leases: ReportRow[]) {
 function totalLeaseAmount(leases: ReportRow[]) {
   return leases.reduce((sum, lease) => {
     const duration = leaseDurationMonths(lease.start_date, lease.end_date);
-    const rent = Number(lease.monthly_rent ?? lease.rent_amount ?? 0);
+    const rent = leaseRentAmount(lease);
     const syndic = Number(lease.monthly_syndic_amount ?? lease.syndic_amount ?? 0);
     return sum + duration * (rent + syndic);
   }, 0);
+}
+
+function leaseRentAmount(lease: ReportRow) {
+  return Number(lease.monthly_rent ?? lease.rent_amount ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
 }
 
 function leaseDurationMonths(startValue: unknown, endValue: unknown) {

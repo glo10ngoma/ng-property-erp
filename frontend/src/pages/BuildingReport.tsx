@@ -226,7 +226,7 @@ function TenantTable({ rows }: { rows: ReportRow[] }) {
                 <td>{text(row.phone)}</td>
                 <td>{text(row.unit_number)}</td>
                 <td>{text(row.lease_status)}</td>
-                <td className="right">{amount(row.monthly_rent)}</td>
+                <td className="right">{amount(leaseRentAmount(row))}</td>
                 <td className="right">{amount(row.monthly_syndic_amount)}</td>
                 <td><StatusBadge value={String(row.payment_status ?? 'UNPAID')} /></td>
                 <td className="right">{amount(row.total_invoiced)}</td>
@@ -250,7 +250,7 @@ function UnitTable({ title, rows }: { title: string; rows: ReportRow[] }) {
       <div className="table-wrap">
         <table>
           <thead><tr><th>Unite</th><th>Type</th><th>Statut</th><th className="right">Loyer</th><th className="right">Syndic</th><th className="right">Total mensuel</th><th>Devise</th></tr></thead>
-          <tbody>{rows.map((row, index) => <tr key={index}><td>{text(row.number)}</td><td>{text(row.type)}</td><td><StatusBadge value={text(row.status)} /></td><td className="right">{amount(row.monthly_rent)}</td><td className="right">{amount(row.monthly_syndic_amount)}</td><td className="right">{amount(Number(row.monthly_rent ?? 0) + Number(row.monthly_syndic_amount ?? 0))}</td><td>USD</td></tr>)}</tbody>
+          <tbody>{rows.map((row, index) => <tr key={index}><td>{text(row.number)}</td><td>{text(row.type)}</td><td><StatusBadge value={text(row.status)} /></td><td className="right">{amount(leaseRentAmount(row))}</td><td className="right">{amount(row.monthly_syndic_amount)}</td><td className="right">{amount(leaseRentAmount(row) + Number(row.monthly_syndic_amount ?? 0))}</td><td>USD</td></tr>)}</tbody>
         </table>
         {!rows.length && <EmptyState />}
       </div>
@@ -376,7 +376,7 @@ function tenantExportRow(row: ReportRow) {
     telephone: text(row.phone),
     unite: text(row.unit_number),
     bail_actif: text(row.lease_status),
-    loyer: amount(row.monthly_rent),
+    loyer: amount(leaseRentAmount(row)),
     syndic: amount(row.monthly_syndic_amount),
     statut_paiement: text(row.payment_status),
     total_facture: amount(row.total_invoiced),
@@ -391,9 +391,9 @@ function unitExportRow(row: ReportRow) {
     unite: text(row.number),
     type: text(row.type),
     statut: text(row.status),
-    loyer: amount(row.monthly_rent),
+    loyer: amount(leaseRentAmount(row)),
     syndic: amount(row.monthly_syndic_amount),
-    total_mensuel: amount(Number(row.monthly_rent ?? 0) + Number(row.monthly_syndic_amount ?? 0)),
+    total_mensuel: amount(leaseRentAmount(row) + Number(row.monthly_syndic_amount ?? 0)),
     devise: 'USD',
   };
 }
@@ -499,6 +499,10 @@ function date(value: unknown) {
 
 function reminderDate(value: unknown) {
   return value ? shortDate(String(value)) : 'Jamais relance';
+}
+
+function leaseRentAmount(row: ReportRow) {
+  return Number(row.monthly_rent ?? 0) + Number(row.maintenance_fee_amount ?? 0);
 }
 
 function periodText(month: unknown, year: unknown) {
