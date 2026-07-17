@@ -1,13 +1,13 @@
 import { NavLink } from 'react-router-dom';
 
 const links = [
-  ['/personnel/employees', 'Employes'],
+  ['/personnel/employees', 'Employés'],
   ['/personnel/services', 'Services'],
   ['/personnel/positions', 'Fonctions'],
   ['/personnel/contracts', 'Contrats'],
   ['/personnel/attendance', 'Pointage'],
   ['/personnel/advances', 'Avances'],
-  ['/personnel/leaves', 'Conges'],
+  ['/personnel/leaves', 'Congés'],
   ['/personnel/payroll', 'Paie'],
   ['/personnel/reports', 'Rapports'],
 ];

@@ -142,7 +142,7 @@ export function AttendancePage() {
 
   async function validateAttendance(id: number) {
     await api.post(`/employee-attendance/${id}/validate`, {});
-    setSuccess('Pointage mensuel valide.');
+    setSuccess('Pointage mensuel validé.');
     await loadRows();
   }
 
@@ -151,30 +151,30 @@ export function AttendancePage() {
     <StaffNav />
     <SuccessMessage message={success} />
     <div className="mini-stats">
-      <Kpi label="Employes" value={totals.employees} />
+      <Kpi label="Employés" value={totals.employees} />
       <Kpi label="Absences" value={totals.absences} />
       <Kpi label="Retards" value={totals.delays} />
       <Kpi label="Retenues" value={`${money(totals.deductions)} USD`} />
-      <Kpi label="Net estime" value={`${money(totals.estimatedNet)} USD`} />
+      <Kpi label="Net estimé" value={`${money(totals.estimatedNet)} USD`} />
     </div>
     <div className="maintenance-filter-bar hr-filter-bar">
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Recherche" />
       <select value={month} onChange={(event) => setMonth(event.target.value)}>{monthOptions()}</select>
-      <input value={year} onChange={(event) => setYear(event.target.value)} placeholder="Annee" />
+      <input value={year} onChange={(event) => setYear(event.target.value)} placeholder="Année" />
       <select value={department} onChange={(event) => setDepartment(event.target.value)}><option value="">Service</option>{departmentOptions.map((value) => <option key={value}>{value}</option>)}</select>
-      <select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Employe</option>{employees.data.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)}</option>)}</select>
-      <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option><option value="DRAFT">Brouillon</option><option value="VALIDATED">Valide</option></select>
-      <button className="secondary" onClick={() => { setQuery(''); setMonth(String(new Date().getMonth() + 1)); setYear(String(new Date().getFullYear())); setDepartment(''); setEmployeeId(''); setStatus(''); }}><RotateCcw size={15} />Reinitialiser</button>
+      <select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Employé</option>{employees.data.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)}</option>)}</select>
+      <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option><option value="DRAFT">Brouillon</option><option value="VALIDATED">Validé</option></select>
+      <button className="secondary" onClick={() => { setQuery(''); setMonth(String(new Date().getMonth() + 1)); setYear(String(new Date().getFullYear())); setDepartment(''); setEmployeeId(''); setStatus(''); }}><RotateCcw size={15} />Réinitialiser</button>
       <button className="secondary" onClick={() => exportXlsxWorkbook('RH_Pointage_Mensuel.xlsx', [{ name: 'Pointage', rows: filtered.map(exportAttendanceRow) }])}><FileSpreadsheet size={15} />Excel</button>
     </div>
     {loading ? <LoadingState /> : <div className="table-wrap">
       <table>
-        <thead><tr><th>Employe</th><th>Matricule</th><th>Service</th><th>Fonction</th><th className="right">Salaire mensuel</th><th className="right">Jours ouvrables</th><th className="right">Presents</th><th className="right">Conges payes</th><th className="right">Maladie</th><th className="right">Absences</th><th className="right">Retards</th><th className="right">Heures sup.</th><th className="right">Retenue abs.</th><th className="right">Net estime</th><th>Statut</th><th>Observations</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Employé</th><th>Matricule</th><th>Service</th><th>Fonction</th><th className="right">Salaire mensuel</th><th className="right">Jours ouvrables</th><th className="right">Présents</th><th className="right">Congés payés</th><th className="right">Maladie</th><th className="right">Absences</th><th className="right">Retards</th><th className="right">Heures sup.</th><th className="right">Retenue abs.</th><th className="right">Net estimé</th><th>Statut</th><th>Observations</th><th>Actions</th></tr></thead>
         <tbody>{filtered.map((row) => <tr key={row.id}>
           <td>{row.employee_name}</td>
           <td>{employeeCode(row.employee_number, row.employee_id)}</td>
-          <td>{row.department ?? 'â€”'}</td>
-          <td>{row.job_title ?? 'â€”'}</td>
+          <td>{row.department ?? '—'}</td>
+          <td>{row.job_title ?? '—'}</td>
           <td className="right">{money(row.monthly_salary ?? 0)}</td>
           <td className="right">{row.working_days}</td>
           <td className="right">{row.present_days}</td>
@@ -186,11 +186,11 @@ export function AttendancePage() {
           <td className="right">{money(row.absence_deduction ?? 0)}</td>
           <td className="right">{money(row.estimated_net_salary ?? 0)}</td>
           <td>{attendanceStatusLabel(row.status)}</td>
-          <td>{row.observations ?? 'â€”'}</td>
+          <td>{row.observations ?? '—'}</td>
           <td className="actions actions-compact">{can('staff.update') && row.status !== 'VALIDATED' && <IconAction title="Valider" icon={<Eye size={15} />} onClick={() => void validateAttendance(row.id)} />}</td>
         </tr>)}</tbody>
       </table>
-      {!filtered.length && <EmptyState message="Aucun pointage mensuel trouve." />}
+      {!filtered.length && <EmptyState message="Aucun pointage mensuel trouvé." />}
     </div>}
   </section>;
 }
@@ -253,12 +253,12 @@ export function PayrollPage() {
     try {
       const response = await api.post('/payrolls/generate', payrollPayload(form));
       const generatedCount = Array.isArray(response.data) ? response.data.length : response.data ? 1 : 0;
-      setSuccess(generatedCount > 0 ? `Paie du mois generee (${generatedCount} fiche${generatedCount > 1 ? 's' : ''}).` : 'Paie du mois generee.');
+      setSuccess(generatedCount > 0 ? `Paie du mois générée (${generatedCount} fiche${generatedCount > 1 ? 's' : ''}).` : 'Paie du mois générée.');
       setGenerateOpen(false);
       await loadRows();
     } catch (error: any) {
       const message = error?.response?.data?.message;
-      setSuccess(Array.isArray(message) ? message.join(' | ') : message || 'Generation de la paie impossible.');
+      setSuccess(Array.isArray(message) ? message.join(' | ') : message || 'Génération de la paie impossible.');
     } finally {
       setGenerating(false);
     }
@@ -266,41 +266,41 @@ export function PayrollPage() {
 
   async function payrollAction(id: number, action: 'validate' | 'pay') {
     await api.post(`/payrolls/${id}/${action}`, {});
-    setSuccess(action === 'pay' ? 'Paie marquee comme payee.' : 'Paie validee.');
+    setSuccess(action === 'pay' ? 'Paie marquée comme payée.' : 'Paie validée.');
     await loadRows();
   }
 
   return <section>
-    <PageHeader title="Paie mensuelle" action={can('payroll.create') ? <button onClick={() => setGenerateOpen(true)}><Plus size={16} />Generer paie du mois</button> : undefined} />
+    <PageHeader title="Paie mensuelle" action={can('payroll.create') ? <button onClick={() => setGenerateOpen(true)}><Plus size={16} />Générer paie du mois</button> : undefined} />
     <StaffNav />
     <SuccessMessage message={success} />
     <div className="mini-stats">
-      <Kpi label="Employes" value={kpis.count} />
+      <Kpi label="Employés" value={kpis.count} />
       <Kpi label="Masse brute" value={`${money(kpis.gross)} USD`} />
       <Kpi label="Retenues" value={`${money(kpis.deductions)} USD`} />
       <Kpi label="Avances" value={`${money(kpis.advances)} USD`} />
-      <Kpi label="Net a payer" value={`${money(kpis.net)} USD`} />
-      <Kpi label="Validees" value={kpis.validated} />
-      <Kpi label="Payees" value={kpis.paid} />
+      <Kpi label="Net à payer" value={`${money(kpis.net)} USD`} />
+      <Kpi label="Validées" value={kpis.validated} />
+      <Kpi label="Payées" value={kpis.paid} />
     </div>
     <div className="maintenance-filter-bar hr-filter-bar">
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Recherche" />
       <select value={month} onChange={(event) => setMonth(event.target.value)}>{monthOptions()}</select>
-      <input value={year} onChange={(event) => setYear(event.target.value)} placeholder="Annee" />
+      <input value={year} onChange={(event) => setYear(event.target.value)} placeholder="Année" />
       <select value={department} onChange={(event) => setDepartment(event.target.value)}><option value="">Service</option>{departmentOptions.map((value) => <option key={value}>{value}</option>)}</select>
-      <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option><option value="DRAFT">Brouillon</option><option value="VALIDATED">Validee</option><option value="PAID">Payee</option></select>
-      <select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Employe</option>{employees.data.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)}</option>)}</select>
-      <button className="secondary" onClick={() => { setQuery(''); setMonth(String(new Date().getMonth() + 1)); setYear(String(new Date().getFullYear())); setDepartment(''); setStatus(''); setEmployeeId(''); }}><RotateCcw size={15} />Reinitialiser</button>
+      <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option><option value="DRAFT">Brouillon</option><option value="VALIDATED">Validée</option><option value="PAID">Payée</option></select>
+      <select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Employé</option>{employees.data.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)}</option>)}</select>
+      <button className="secondary" onClick={() => { setQuery(''); setMonth(String(new Date().getMonth() + 1)); setYear(String(new Date().getFullYear())); setDepartment(''); setStatus(''); setEmployeeId(''); }}><RotateCcw size={15} />Réinitialiser</button>
       <button className="secondary" onClick={() => exportXlsxWorkbook('RH_Paie_Mensuelle.xlsx', payrollWorkbook(filtered))}><FileSpreadsheet size={15} />Excel</button>
     </div>
     {loading ? <LoadingState /> : <div className="table-wrap">
       <table>
-        <thead><tr><th>Matricule</th><th>Employe</th><th>Service</th><th>Fonction</th><th className="right">Salaire mensuel</th><th className="right">Retenues</th><th className="right">Avances</th><th className="right">Primes</th><th className="right">Net a payer</th><th>Statut</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Matricule</th><th>Employé</th><th>Service</th><th>Fonction</th><th className="right">Salaire mensuel</th><th className="right">Retenues</th><th className="right">Avances</th><th className="right">Primes</th><th className="right">Net à payer</th><th>Statut</th><th>Actions</th></tr></thead>
         <tbody>{filtered.map((row) => <tr key={row.id}>
           <td>{employeeCode(row.employee_number, row.employee_id)}</td>
           <td>{row.employee_name}</td>
-          <td>{row.department ?? 'â€”'}</td>
-          <td>{row.job_title ?? 'â€”'}</td>
+          <td>{row.department ?? '—'}</td>
+          <td>{row.job_title ?? '—'}</td>
           <td className="right">{money(row.gross_salary)}</td>
           <td className="right">{money(row.deductions_total)}</td>
           <td className="right">{money(row.advances_total)}</td>
@@ -314,7 +314,7 @@ export function PayrollPage() {
           </td>
         </tr>)}</tbody>
       </table>
-      {!filtered.length && <EmptyState message="Aucune fiche de paie trouvee." />}
+      {!filtered.length && <EmptyState message="Aucune fiche de paie trouvée." />}
     </div>}
     {generateOpen && <PayrollModal employees={employees.data} loading={generating} onClose={() => setGenerateOpen(false)} onSubmit={generatePayroll} defaultMonth={month} defaultYear={year} />}
   </section>;
@@ -341,28 +341,28 @@ export function HrReportsPage() {
     <StaffNav />
     <div className="maintenance-filter-bar hr-filter-bar">
       <select value={month} onChange={(event) => setMonth(event.target.value)}>{monthOptions()}</select>
-      <input value={year} onChange={(event) => setYear(event.target.value)} placeholder="Annee" />
+      <input value={year} onChange={(event) => setYear(event.target.value)} placeholder="Année" />
       <button className="secondary" onClick={() => exportXlsxWorkbook(`RH_Rapport_${report.current_month}.xlsx`, hrReportWorkbook(report))}><FileSpreadsheet size={15} />Excel</button>
     </div>
     <div className="mini-stats">
       <Kpi label="Masse salariale" value={`${money(report.summary.monthly_payroll)} USD`} />
-      <Kpi label="Employes actifs" value={report.summary.active_employees} />
+      <Kpi label="Employés actifs" value={report.summary.active_employees} />
       <Kpi label="Absences" value={report.summary.absences} />
       <Kpi label="Retards" value={report.summary.delays} />
       <Kpi label="Avances ouvertes" value={report.summary.advances_open} />
       <Kpi label="Contrats expirants" value={report.summary.contracts_expiring} />
     </div>
     <Section title="Pointage mensuel">
-      <SimpleTable headers={['Employe', 'Periode', 'Presence', 'Absences', 'Retenue', 'Net estime', 'Statut']} rows={report.attendance.map((row) => [row.employee_name, `${monthLabel(row.month)} ${row.year}`, `${row.present_days}/${row.working_days}`, row.unjustified_absence_days, `${money(row.absence_deduction ?? 0)} USD`, `${money(row.estimated_net_salary ?? 0)} USD`, attendanceStatusLabel(row.status)])} />
+      <SimpleTable headers={['Employé', 'Période', 'Présence', 'Absences', 'Retenue', 'Net estimé', 'Statut']} rows={report.attendance.map((row) => [row.employee_name, `${monthLabel(row.month)} ${row.year}`, `${row.present_days}/${row.working_days}`, row.unjustified_absence_days, `${money(row.absence_deduction ?? 0)} USD`, `${money(row.estimated_net_salary ?? 0)} USD`, attendanceStatusLabel(row.status)])} />
     </Section>
     <Section title="Retards et absences">
-      <SimpleTable headers={['Employe', 'Service', 'Retards', 'Maladie', 'Conges payes', 'Absences']} rows={report.attendance.map((row) => [row.employee_name, row.department ?? 'â€”', row.late_count ?? 0, row.sick_days, row.paid_leave_days, row.unjustified_absence_days])} />
+      <SimpleTable headers={['Employé', 'Service', 'Retards', 'Maladie', 'Congés payés', 'Absences']} rows={report.attendance.map((row) => [row.employee_name, row.department ?? '—', row.late_count ?? 0, row.sick_days, row.paid_leave_days, row.unjustified_absence_days])} />
     </Section>
     <Section title="Paie du mois">
-      <SimpleTable headers={['Employe', 'Periode', 'Brut', 'Retenues', 'Avances', 'Net', 'Statut']} rows={report.payrolls.map((row) => [row.employee_name, `${monthLabel(row.month)} ${row.year}`, `${money(row.gross_salary)} USD`, `${money(row.deductions_total)} USD`, `${money(row.advances_total)} USD`, `${money(row.net_salary)} USD`, payrollStatusLabel(row.status)])} />
+      <SimpleTable headers={['Employé', 'Période', 'Brut', 'Retenues', 'Avances', 'Net', 'Statut']} rows={report.payrolls.map((row) => [row.employee_name, `${monthLabel(row.month)} ${row.year}`, `${money(row.gross_salary)} USD`, `${money(row.deductions_total)} USD`, `${money(row.advances_total)} USD`, `${money(row.net_salary)} USD`, payrollStatusLabel(row.status)])} />
     </Section>
-    <Section title="Repartition par service">
-      <SimpleTable headers={['Service', 'Employes']} rows={report.by_department.map((row) => [row.department, row.count])} />
+    <Section title="Répartition par service">
+      <SimpleTable headers={['Service', 'Employés']} rows={report.by_department.map((row) => [row.department, row.count])} />
     </Section>
   </section>;
 }
@@ -471,38 +471,38 @@ function AttendanceBulkEditor({ employees, onCancel, onSaved, defaultMonth, defa
       });
     }
     setSubmitting(false);
-    await onSaved(validateAfterSave ? 'Pointage mensuel collectif validÃ©.' : 'Pointage mensuel collectif enregistrÃ©.');
+    await onSaved(validateAfterSave ? 'Pointage mensuel collectif validé.' : 'Pointage mensuel collectif enregistré.');
   }
 
   const content = <div className="stock-purchase-modal">
       <div className="modal-section">
-        <h3>Parametres du mois</h3>
+        <h3>Paramètres du mois</h3>
         <div className="maintenance-grid hr-form-grid">
           {asPage && <button type="button" className="secondary" onClick={onCancel}><ArrowLeft size={15} />Retour</button>}
           <label>Mois<select value={month} onChange={(event) => setMonth(event.target.value)}>{monthOptions()}</select></label>
-          <label>Annee<input value={year} onChange={(event) => setYear(event.target.value)} /></label>
+          <label>Année<input value={year} onChange={(event) => setYear(event.target.value)} /></label>
           <label>Jours ouvrables<input type="number" min="1" value={workingDays} onChange={(event) => setWorkingDays(event.target.value)} /></label>
           <label>Service optionnel<select value={department} onChange={(event) => setDepartment(event.target.value)}><option value="">Tous les services</option>{departmentOptions.map((value) => <option key={value}>{value}</option>)}</select></label>
           {asPage && <button type="button" className="secondary" onClick={() => void loadTemplate()}>Charger employes</button>}
         </div>
         <div className="maintenance-grid hr-form-grid" style={{ marginTop: 12 }}>
-          <div className="summary-item"><span>Employes charges</span><strong>{rows.length}</strong></div>
+          <div className="summary-item"><span>Employés chargés</span><strong>{rows.length}</strong></div>
           <div className="summary-item"><span>Lignes invalides</span><strong>{invalidRows}</strong></div>
-          <div className="summary-item"><span>Net estime total</span><strong>{money(totalEstimatedNet)} USD</strong></div>
+          <div className="summary-item"><span>Net estimé total</span><strong>{money(totalEstimatedNet)} USD</strong></div>
         </div>
       </div>
       <div className="modal-section">
         <h3>Tableau collectif</h3>
         {loading ? <LoadingState /> : <div className="table-wrap">
           <table>
-            <thead><tr><th>Matricule</th><th>Employe</th><th>Service</th><th>Fonction</th><th className="right">Salaire mensuel</th><th className="right">Conges payes</th><th className="right">Maladie</th><th className="right">Absences non justifiees</th><th className="right">Retards</th><th className="right">Heures sup.</th><th className="right">Jours presents</th><th className="right">Retenue absences</th><th className="right">Net estime</th><th>Observations</th><th>Statut</th></tr></thead>
+            <thead><tr><th>Matricule</th><th>Employé</th><th>Service</th><th>Fonction</th><th className="right">Salaire mensuel</th><th className="right">Congés payés</th><th className="right">Maladie</th><th className="right">Absences non justifiées</th><th className="right">Retards</th><th className="right">Heures sup.</th><th className="right">Jours présents</th><th className="right">Retenue absences</th><th className="right">Net estimé</th><th>Observations</th><th>Statut</th></tr></thead>
             <tbody>{rows.map((row) => {
               const error = attendanceRowError(row);
               return <tr key={row.employee_id}>
                 <td>{employeeCode(row.employee_number, row.employee_id)}</td>
                 <td>{row.employee_name}</td>
-                <td>{row.department ?? 'â€”'}</td>
-                <td>{row.job_title ?? 'â€”'}</td>
+                <td>{row.department ?? '—'}</td>
+                <td>{row.job_title ?? '—'}</td>
                 <td className="right">{money(row.monthly_salary ?? 0)}</td>
                 <td><input type="number" min="0" value={row.paid_leave_days} disabled={row.locked} onChange={(event) => updateRow(row.employee_id, 'paid_leave_days', event.target.value)} /></td>
                 <td><input type="number" min="0" value={row.sick_days} disabled={row.locked} onChange={(event) => updateRow(row.employee_id, 'sick_days', event.target.value)} /></td>
@@ -520,7 +520,7 @@ function AttendanceBulkEditor({ employees, onCancel, onSaved, defaultMonth, defa
               </tr>;
             })}</tbody>
           </table>
-          {!rows.length && <EmptyState message="Aucun employe actif pour cette selection." />}
+          {!rows.length && <EmptyState message="Aucun employé actif pour cette sélection." />}
         </div>}
       </div>
       <div className="modal-footer-sticky" style={{ gap: 12 }}>
@@ -538,15 +538,15 @@ function AttendanceBulkEditor({ employees, onCancel, onSaved, defaultMonth, defa
 
 function PayrollModal({ employees, loading, onClose, onSubmit, defaultMonth, defaultYear }: { employees: Employee[]; loading: boolean; onClose: () => void; onSubmit: (form: FormData) => void; defaultMonth: string; defaultYear: string }) {
   const [selectedEmployee, setSelectedEmployee] = useState<string>('all');
-  return <Modal title="Generer paie du mois" onClose={onClose}>
+  return <Modal title="Générer paie du mois" onClose={onClose}>
     <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); if (selectedEmployee !== 'all') form.set('employee_id', selectedEmployee); onSubmit(form); }}>
-      <div className="modal-section"><h3>Generation paie</h3><div className="maintenance-grid hr-form-grid">
+      <div className="modal-section"><h3>Génération paie</h3><div className="maintenance-grid hr-form-grid">
         <label>Mois<select name="month" defaultValue={defaultMonth}>{monthOptions()}</select></label>
-        <label>Annee<input name="year" defaultValue={defaultYear} /></label>
-        <label>Employe<select value={selectedEmployee} onChange={(event) => setSelectedEmployee(event.target.value)}><option value="all">Tous les employes valides</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)}</option>)}</select></label>
-        <label>Statut<select name="status" defaultValue="DRAFT"><option value="DRAFT">Brouillon</option><option value="VALIDATED">Validee</option></select></label>
+        <label>Année<input name="year" defaultValue={defaultYear} /></label>
+        <label>Employé<select value={selectedEmployee} onChange={(event) => setSelectedEmployee(event.target.value)}><option value="all">Tous les employés validés</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)}</option>)}</select></label>
+        <label>Statut<select name="status" defaultValue="DRAFT"><option value="DRAFT">Brouillon</option><option value="VALIDATED">Validée</option></select></label>
       </div></div>
-      <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose} disabled={loading}>Annuler</button><button type="submit" disabled={loading}>{loading ? 'Generationâ€¦' : 'Generer'}</button></div>
+      <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose} disabled={loading}>Annuler</button><button type="submit" disabled={loading}>{loading ? 'Génération...' : 'Générer'}</button></div>
     </form>
   </Modal>;
 }
@@ -592,7 +592,7 @@ export function PayrollDetailPage() {
   async function pay() {
     if (!payroll) return;
     await api.post(`/payrolls/${payroll.id}/pay`, {});
-    setMessage('Paie marquee comme payee.');
+    setMessage('Paie marquée comme payée.');
     await load();
   }
 
@@ -619,7 +619,7 @@ export function PayrollDetailPage() {
       <button className="secondary" onClick={() => navigate('/personnel/payroll')}><ArrowLeft size={16} />Retour</button>
       <button className="secondary" onClick={() => window.print()}><Printer size={15} />Imprimer</button>
       <button className="secondary" onClick={() => exportXlsxWorkbook(`Paie_${employeeCode(payroll.employee_number, payroll.employee_id)}_${payroll.month}_${payroll.year}.xlsx`, payrollWorkbook([payroll]))}><FileSpreadsheet size={15} />Excel</button>
-      {payroll.status !== 'PAID' && <button onClick={() => void pay()}><WalletCards size={15} />Marquer payee</button>}
+      {payroll.status !== 'PAID' && <button onClick={() => void pay()}><WalletCards size={15} />Marquer payée</button>}
     </div>
     <PayrollDetailContent payroll={payroll} />
   </section>;
@@ -630,17 +630,17 @@ function PayrollDetailContent({ payroll, onPay }: { payroll: Payroll; onPay?: ()
     {onPay && <div className="actions-row">
       <button className="secondary" onClick={() => window.print()}><Printer size={15} />Imprimer</button>
       <button className="secondary" onClick={() => exportXlsxWorkbook(`Paie_${employeeCode(payroll.employee_number, payroll.employee_id)}_${payroll.month}_${payroll.year}.xlsx`, payrollWorkbook([payroll]))}><FileSpreadsheet size={15} />Excel</button>
-      {payroll.status !== 'PAID' && <button onClick={onPay}><WalletCards size={15} />Marquer payee</button>}
+      {payroll.status !== 'PAID' && <button onClick={onPay}><WalletCards size={15} />Marquer payée</button>}
     </div>}
     <div className="summary-band">
-      <div className="summary-item"><span>Employe</span><strong>{payroll.employee_name}</strong></div>
+      <div className="summary-item"><span>Employé</span><strong>{payroll.employee_name}</strong></div>
       <div className="summary-item"><span>Matricule</span><strong>{employeeCode(payroll.employee_number, payroll.employee_id)}</strong></div>
       <div className="summary-item"><span>Service</span><strong>{payroll.department ?? '—'}</strong></div>
       <div className="summary-item"><span>Fonction</span><strong>{payroll.job_title ?? '—'}</strong></div>
-      <div className="summary-item"><span>Periode</span><strong>{monthLabel(payroll.month)} {payroll.year}</strong></div>
+      <div className="summary-item"><span>Période</span><strong>{monthLabel(payroll.month)} {payroll.year}</strong></div>
       <div className="summary-item"><span>Statut</span><strong>{payrollStatusLabel(payroll.status)}</strong></div>
     </div>
-    <SimpleTable headers={['Salaire mensuel', 'Salaire journalier', 'Jours ouvrables', 'Jours presents', 'Conges payes', 'Maladie', 'Absences non justifiees', 'Retenue absences', 'Avances', 'Primes', 'Net a payer']} rows={[[
+    <SimpleTable headers={['Salaire mensuel', 'Salaire journalier', 'Jours ouvrables', 'Jours présents', 'Congés payés', 'Maladie', 'Absences non justifiées', 'Retenue absences', 'Avances', 'Primes', 'Net à payer']} rows={[[
       `${money(payroll.gross_salary)} USD`,
       `${money(payroll.daily_salary ?? 0)} USD`,
       payroll.working_days ?? 0,
@@ -661,7 +661,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function SimpleTable({ headers, rows }: { headers: string[]; rows: Array<Array<ReactNode>> }) {
-  return <div className="table-wrap"><table><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{rows.length ? rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>) : <tr><td colSpan={headers.length}><EmptyState message="Aucune donnee." /></td></tr>}</tbody></table></div>;
+  return <div className="table-wrap"><table><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{rows.length ? rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>) : <tr><td colSpan={headers.length}><EmptyState message="Aucune donnée." /></td></tr>}</tbody></table></div>;
 }
 
 function Kpi({ label, value }: { label: string; value: string | number }) {
@@ -681,7 +681,7 @@ function monthOptions() {
 }
 
 function monthLabel(month: number) {
-  return ['Janvier', 'Fevrier', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre'][month - 1] ?? String(month);
+  return ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'][month - 1] ?? String(month);
 }
 
 function uniqueValues(values: Array<string | undefined>) {
@@ -689,11 +689,11 @@ function uniqueValues(values: Array<string | undefined>) {
 }
 
 function attendanceStatusLabel(value?: string) {
-  return ({ DRAFT: 'Brouillon', VALIDATED: 'Valide' } as Record<string, string>)[value ?? ''] ?? value ?? 'Brouillon';
+  return ({ DRAFT: 'Brouillon', VALIDATED: 'Validé' } as Record<string, string>)[value ?? ''] ?? value ?? 'Brouillon';
 }
 
 function payrollStatusLabel(value?: string) {
-  return ({ DRAFT: 'Brouillon', VALIDATED: 'Validee', PAID: 'Payee' } as Record<string, string>)[value ?? ''] ?? value ?? 'Brouillon';
+  return ({ DRAFT: 'Brouillon', VALIDATED: 'Validée', PAID: 'Payée' } as Record<string, string>)[value ?? ''] ?? value ?? 'Brouillon';
 }
 
 function recomputeAttendanceRow(row: AttendanceTemplateRow, workingDays: number) {
@@ -717,7 +717,7 @@ function recomputeAttendanceRow(row: AttendanceTemplateRow, workingDays: number)
 function attendanceRowError(row: AttendanceTemplateRow) {
   const total = Number(row.paid_leave_days ?? 0) + Number(row.sick_days ?? 0) + Number(row.unjustified_absence_days ?? 0);
   if (total > Number(row.working_days ?? 0)) {
-    return 'Conges + maladie + absences non justifiees depassent les jours ouvrables.';
+    return 'Congés + maladie + absences non justifiées dépassent les jours ouvrables.';
   }
   return '';
 }
@@ -795,8 +795,8 @@ function payrollWorkbook(rows: Payroll[]) {
     { name: 'Resume', rows: [{ employees: rows.length, masse_brute: money(rows.reduce((sum, row) => sum + Number(row.gross_salary), 0)), total_retenues: money(rows.reduce((sum, row) => sum + Number(row.deductions_total), 0)), total_avances: money(rows.reduce((sum, row) => sum + Number(row.advances_total), 0)), net_total: money(rows.reduce((sum, row) => sum + Number(row.net_salary), 0)) }] },
     { name: 'Listing paie', rows: rows.map(exportPayrollRow) },
     { name: 'Brouillons', rows: rows.filter((row) => row.status === 'DRAFT').map(exportPayrollRow) },
-    { name: 'Validees', rows: rows.filter((row) => row.status === 'VALIDATED').map(exportPayrollRow) },
-    { name: 'Payees', rows: rows.filter((row) => row.status === 'PAID').map(exportPayrollRow) },
+    { name: 'Validées', rows: rows.filter((row) => row.status === 'VALIDATED').map(exportPayrollRow) },
+    { name: 'Payées', rows: rows.filter((row) => row.status === 'PAID').map(exportPayrollRow) },
     { name: 'Retenues', rows: rows.map((row) => ({ employe: row.employee_name, retenue_absences: money(row.absence_deduction ?? row.deductions_total ?? 0), avances: money(row.advances_total ?? 0) })) },
     { name: 'Avances', rows: rows.map((row) => ({ employe: row.employee_name, avances: money(row.advances_total ?? 0) })) },
   ];
@@ -816,6 +816,6 @@ function hrReportWorkbook(report: HrReport) {
     { name: 'Paie', rows: report.payrolls.map(exportPayrollRow) },
     { name: 'Services', rows: report.by_department },
     { name: 'Avances', rows: report.advances },
-    { name: 'Conges', rows: report.leaves },
+    { name: 'Congés', rows: report.leaves },
   ];
 }

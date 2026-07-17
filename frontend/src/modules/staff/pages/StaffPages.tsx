@@ -202,11 +202,11 @@ type HrPosition = {
 
 const employeeStatuses = ['ACTIVE', 'ON_LEAVE', 'SUSPENDED', 'INACTIVE'];
 const contractTypes = ['CDI', 'CDD', 'Consultance', 'Stage', 'Prestation', 'Autre'];
-const leaveTypes = ['Annuel', 'Maladie', 'MaternitÃ©', 'PaternitÃ©', 'Exceptionnel', 'Sans solde'];
+const leaveTypes = ['Annuel', 'Maladie', 'Maternité', 'Paternité', 'Exceptionnel', 'Sans solde'];
 const leaveStatuses = ['DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'];
 const paymentMethods = ['CASH', 'BANK', 'MOBILE_MONEY'];
-const genders = ['Masculin', 'FÃ©minin'];
-const maritalStatuses = ['CÃ©libataire', 'MariÃ©(e)', 'DivorcÃ©(e)', 'Veuf(ve)'];
+const genders = ['Masculin', 'Féminin'];
+const maritalStatuses = ['Célibataire', 'Marié(e)', 'Divorcé(e)', 'Veuf(ve)'];
 
 export function StaffPage() {
   return <Navigate to="/personnel/employees" replace />;
@@ -262,11 +262,11 @@ export function EmployeesPage() {
     const payload = employeePayload(form);
     if (current?.id) {
       await api.put(`/employees/${current.id}`, payload);
-      setSuccess('EmployÃ© modifiÃ©.');
+      setSuccess('Employé modifié.');
       setEditing(null);
     } else {
       await api.post('/employees', payload);
-      setSuccess('EmployÃ© crÃ©Ã©.');
+      setSuccess('Employé créé.');
       setCreateOpen(false);
     }
     employees.reload();
@@ -274,7 +274,7 @@ export function EmployeesPage() {
 
   async function saveContract(form: FormData, employeeId?: number) {
     await api.post('/employee-contracts', contractPayload(form, employeeId));
-    setSuccess('Contrat employÃ© enregistrÃ©.');
+    setSuccess('Contrat employé enregistré.');
     setContractOpen(null);
     contracts.reload();
     employees.reload();
@@ -282,32 +282,32 @@ export function EmployeesPage() {
 
   async function saveAdvance(form: FormData, employeeId?: number) {
     await api.post('/salary-advances', advancePayload(form, employeeId));
-    setSuccess('Avance enregistrÃ©e.');
+    setSuccess('Avance enregistrée.');
     setAdvanceOpen(null);
     advances.reload();
   }
 
   async function saveLeave(form: FormData, employeeId?: number) {
     await api.post('/leaves', leavePayload(form, employeeId));
-    setSuccess('CongÃ© enregistrÃ©.');
+    setSuccess('Congé enregistré.');
     setLeaveOpen(null);
     leaves.reload();
   }
 
   async function deactivateEmployee(id: number) {
     await api.post(`/employees/${id}/deactivate`);
-    setSuccess('EmployÃ© dÃ©sactivÃ©.');
+    setSuccess('Employé désactivé.');
     employees.reload();
   }
 
   return <section>
-    <PageHeader title="Personnel / RH" action={can('staff.create') ? <button onClick={() => setCreateOpen(true)}><Plus size={16} />Nouvel employÃ©</button> : undefined} />
+    <PageHeader title="Personnel / RH" action={can('staff.create') ? <button onClick={() => setCreateOpen(true)}><Plus size={16} />Nouvel employé</button> : undefined} />
     <StaffNav />
     <SuccessMessage message={success} />
     <div className="mini-stats">
-      <Kpi label="Total employÃ©s" value={employees.data.length} />
+      <Kpi label="Total employés" value={employees.data.length} />
       <Kpi label="Actifs" value={kpis.active} />
-      <Kpi label="En congÃ©" value={kpis.onLeave} />
+      <Kpi label="En congé" value={kpis.onLeave} />
       <Kpi label="Suspendus" value={kpis.suspended} />
       <Kpi label="Contrats expirants" value={kpis.expiring} />
       <Kpi label="Masse salariale mensuelle" value={`${money(kpis.payrollMass)} USD`} />
@@ -320,20 +320,20 @@ export function EmployeesPage() {
       <select value={jobTitle} onChange={(event) => setJobTitle(event.target.value)}><option value="">Fonction</option>{jobOptions.map((value) => <option key={value}>{value}</option>)}</select>
       <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option>{employeeStatuses.map((value) => <option key={value} value={value}>{employeeStatusLabel(value)}</option>)}</select>
       <select value={contractType} onChange={(event) => setContractType(event.target.value)}><option value="">Type contrat</option>{contractTypes.map((value) => <option key={value}>{value}</option>)}</select>
-      <button className="secondary" onClick={() => { setQuery(''); setDepartment(''); setJobTitle(''); setStatus(''); setContractType(''); }}><RotateCcw size={15} />RÃ©initialiser</button>
+      <button className="secondary" onClick={() => { setQuery(''); setDepartment(''); setJobTitle(''); setStatus(''); setContractType(''); }}><RotateCcw size={15} />Réinitialiser</button>
       <button className="secondary" onClick={() => exportCsv('rh-employes.csv', filtered.map(exportEmployeeRow))}>CSV</button>
-      <button className="secondary" onClick={() => exportXlsxWorkbook('RH_Employes.xlsx', [{ name: 'Employes', rows: filtered.map(exportEmployeeRow) }])}><FileSpreadsheet size={15} />Excel</button>
+      <button className="secondary" onClick={() => exportXlsxWorkbook('RH_Employés.xlsx', [{ name: 'Employés', rows: filtered.map(exportEmployeeRow) }])}><FileSpreadsheet size={15} />Excel</button>
     </div>
     {employees.loading ? <LoadingState /> : <div className="table-wrap">
       <table>
-        <thead><tr><th>Matricule</th><th>Nom complet</th><th>TÃ©lÃ©phone</th><th>Service</th><th>Fonction</th><th>Type contrat</th><th className="right">Salaire</th><th>Devise</th><th>Statut</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Matricule</th><th>Nom complet</th><th>Téléphone</th><th>Service</th><th>Fonction</th><th>Type contrat</th><th className="right">Salaire</th><th>Devise</th><th>Statut</th><th>Actions</th></tr></thead>
         <tbody>{filtered.map((row) => <tr key={row.id} className="clickable-row" onClick={() => navigate(`/personnel/employees/${row.id}`)}>
           <td>{employeeCode(row.employee_number, row.id)}</td>
           <td>{employeeName(row)}</td>
-          <td>{row.phone ?? 'â€”'}</td>
-          <td>{row.department ?? 'â€”'}</td>
+          <td>{row.phone ?? '?'}</td>
+          <td>{row.department ?? '?'}</td>
           <td>{row.job_title}</td>
-          <td>{row.current_contract_type ?? row.contract_type ?? 'â€”'}</td>
+          <td>{row.current_contract_type ?? row.contract_type ?? '?'}</td>
           <td className="right">{money(row.monthly_salary)}</td>
           <td>USD</td>
           <td>{employeeStatusLabel(row.status)}</td>
@@ -342,16 +342,16 @@ export function EmployeesPage() {
             {can('staff.update') && <IconAction title="Modifier" icon={<Pencil size={15} />} onClick={() => setEditing(row)} />}
             {can('staff.create') && <IconAction title="Nouveau contrat" icon={<ScrollText size={15} />} onClick={() => setContractOpen(row.id)} />}
             {can('payroll.create') && <IconAction title="Avance" icon={<WalletCards size={15} />} onClick={() => setAdvanceOpen(row.id)} />}
-            {can('payroll.create') && <IconAction title="CongÃ©" icon={<ReceiptText size={15} />} onClick={() => setLeaveOpen(row.id)} />}
-            {can('staff.update') && row.status !== 'INACTIVE' && <IconAction title="DÃ©sactiver" danger icon={<Trash2 size={15} />} onClick={() => void deactivateEmployee(row.id)} />}
+            {can('payroll.create') && <IconAction title="Congé" icon={<ReceiptText size={15} />} onClick={() => setLeaveOpen(row.id)} />}
+            {can('staff.update') && row.status !== 'INACTIVE' && <IconAction title="Désactiver" danger icon={<Trash2 size={15} />} onClick={() => void deactivateEmployee(row.id)} />}
           </td>
         </tr>)}</tbody>
       </table>
-      {!filtered.length && <EmptyState message="Aucun employÃ© trouvÃ©." />}
+      {!filtered.length && <EmptyState message="Aucun employé trouvé." />}
     </div>}
 
-    {createOpen && <EmployeeModal title="Nouvel employÃ©" services={services.data} positions={positions.data} onClose={() => setCreateOpen(false)} onSubmit={(form) => saveEmployee(form, null)} />}
-    {editing && <EmployeeModal title="Modifier employÃ©" employee={editing} services={services.data} positions={positions.data} onClose={() => setEditing(null)} onSubmit={(form) => saveEmployee(form, editing)} />}
+    {createOpen && <EmployeeModal title="Nouvel employé" services={services.data} positions={positions.data} onClose={() => setCreateOpen(false)} onSubmit={(form) => saveEmployee(form, null)} />}
+    {editing && <EmployeeModal title="Modifier employé" employee={editing} services={services.data} positions={positions.data} onClose={() => setEditing(null)} onSubmit={(form) => saveEmployee(form, editing)} />}
     {contractOpen !== null && <ContractModal employees={employees.data} employeeId={contractOpen} onClose={() => setContractOpen(null)} onSubmit={saveContract} />}
     {advanceOpen !== null && <AdvanceModal employees={employees.data} employeeId={advanceOpen} onClose={() => setAdvanceOpen(null)} onSubmit={saveAdvance} />}
     {leaveOpen !== null && <LeaveModal employees={employees.data} employeeId={leaveOpen} onClose={() => setLeaveOpen(null)} onSubmit={saveLeave} />}
@@ -370,18 +370,18 @@ export function ServicesPage() {
     if (current?.id) {
       await api.patch(`/hr/services/${current.id}`, payload);
       setEditing(null);
-      setSuccess('Service RH modifie.');
+      setSuccess('Service RH modifié.');
     } else {
       await api.post('/hr/services', payload);
       setCreateOpen(false);
-      setSuccess('Service RH cree.');
+      setSuccess('Service RH créé.');
     }
     await list.reload();
   }
 
   async function remove(id: number) {
     await api.delete(`/hr/services/${id}`);
-    setSuccess('Service RH desactive.');
+    setSuccess('Service RH désactivé.');
     await list.reload();
   }
 
@@ -393,9 +393,9 @@ export function ServicesPage() {
       <table>
         <thead><tr><th>Code</th><th>Nom</th><th>Description</th><th>Statut</th><th>Actions</th></tr></thead>
         <tbody>{list.data.map((row) => <tr key={row.id}>
-          <td>{row.code ?? 'â€”'}</td>
+          <td>{row.code ?? '?'}</td>
           <td>{row.name}</td>
-          <td>{row.description ?? 'â€”'}</td>
+          <td>{row.description ?? '?'}</td>
           <td>{row.status === 'ACTIVE' ? 'Actif' : 'Inactif'}</td>
           <td className="actions actions-compact">
             {can('staff.update') && <IconAction title="Modifier" icon={<Pencil size={15} />} onClick={() => setEditing(row)} />}
@@ -422,18 +422,18 @@ export function PositionsPage() {
     if (current?.id) {
       await api.patch(`/hr/positions/${current.id}`, payload);
       setEditing(null);
-      setSuccess('Fonction RH modifiee.');
+      setSuccess('Fonction RH modifiée.');
     } else {
       await api.post('/hr/positions', payload);
       setCreateOpen(false);
-      setSuccess('Fonction RH creee.');
+      setSuccess('Fonction RH créée.');
     }
     await list.reload();
   }
 
   async function remove(id: number) {
     await api.delete(`/hr/positions/${id}`);
-    setSuccess('Fonction RH desactivee.');
+    setSuccess('Fonction RH désactivée.');
     await list.reload();
   }
 
@@ -445,9 +445,9 @@ export function PositionsPage() {
       <table>
         <thead><tr><th>Code</th><th>Nom</th><th>Description</th><th>Statut</th><th>Actions</th></tr></thead>
         <tbody>{list.data.map((row) => <tr key={row.id}>
-          <td>{row.code ?? 'â€”'}</td>
+          <td>{row.code ?? '?'}</td>
           <td>{row.name}</td>
-          <td>{row.description ?? 'â€”'}</td>
+          <td>{row.description ?? '?'}</td>
           <td>{row.status === 'ACTIVE' ? 'Actif' : 'Inactif'}</td>
           <td className="actions actions-compact">
             {can('staff.update') && <IconAction title="Modifier" icon={<Pencil size={15} />} onClick={() => setEditing(row)} />}
@@ -491,7 +491,7 @@ export function EmployeeDetailPage() {
     } catch (err: any) {
       const message = err?.response?.data?.message;
       setDetail(null);
-      setError(Array.isArray(message) ? message.join(' | ') : message || "Impossible de charger la fiche employe.");
+      setError(Array.isArray(message) ? message.join(' | ') : message || "Impossible de charger la fiche employé.");
     } finally {
       setLoading(false);
     }
@@ -502,7 +502,7 @@ export function EmployeeDetailPage() {
   async function saveContract(form: FormData) {
     if (!detail) return;
     await api.post('/employee-contracts', contractPayload(form, detail.id));
-    setSuccess('Contrat enregistrÃ©.');
+    setSuccess('Contrat enregistré.');
     setContractOpen(false);
     await load();
   }
@@ -510,7 +510,7 @@ export function EmployeeDetailPage() {
   async function saveAdvance(form: FormData) {
     if (!detail) return;
     await api.post('/salary-advances', advancePayload(form, detail.id));
-    setSuccess('Avance enregistrÃ©e.');
+    setSuccess('Avance enregistrée.');
     setAdvanceOpen(false);
     await load();
   }
@@ -518,99 +518,99 @@ export function EmployeeDetailPage() {
   async function saveLeave(form: FormData) {
     if (!detail) return;
     await api.post('/leaves', leavePayload(form, detail.id));
-    setSuccess('CongÃ© enregistrÃ©.');
+    setSuccess('Congé enregistré.');
     setLeaveOpen(false);
     await load();
   }
 
-  if (loading) return <section><PageHeader title="Fiche employÃ©" /><StaffNav /><LoadingState /></section>;
+  if (loading) return <section><PageHeader title="Fiche employé" /><StaffNav /><LoadingState /></section>;
   if (!detail) return <section>
-    <PageHeader title="Fiche employÃ©" />
+    <PageHeader title="Fiche employé" />
     <StaffNav />
     <div className="actions-row">
       <button className="secondary" onClick={() => navigate('/personnel/employees')}><ArrowLeft size={16} />Retour</button>
     </div>
-    <EmptyState message={error || "EmployÃ© introuvable."} />
+    <EmptyState message={error || "Employé introuvable."} />
   </section>;
 
   return <section>
-    <PageHeader title={`Fiche employÃ© - ${employeeName(detail)}`} />
+    <PageHeader title={`Fiche employé - ${employeeName(detail)}`} />
     <StaffNav />
     <SuccessMessage message={success} />
     <div className="actions-row">
       <button className="secondary" onClick={() => navigate('/personnel/employees')}><ArrowLeft size={16} />Retour</button>
       {can('staff.create') && <button className="secondary" onClick={() => setContractOpen(true)}><ScrollText size={15} />Nouveau contrat</button>}
       {can('payroll.create') && <button className="secondary" onClick={() => setAdvanceOpen(true)}><WalletCards size={15} />Avance</button>}
-      {can('payroll.create') && <button className="secondary" onClick={() => setLeaveOpen(true)}><ReceiptText size={15} />CongÃ©</button>}
+      {can('payroll.create') && <button className="secondary" onClick={() => setLeaveOpen(true)}><ReceiptText size={15} />Congé</button>}
       <button className="secondary" onClick={() => window.print()}><Printer size={15} />Imprimer fiche</button>
-      <button className="secondary" onClick={() => exportXlsxWorkbook(`Employe_${employeeCode(detail.employee_number, detail.id)}.xlsx`, employeeWorkbook(detail))}><FileSpreadsheet size={15} />Excel</button>
+      <button className="secondary" onClick={() => exportXlsxWorkbook(`Employé_${employeeCode(detail.employee_number, detail.id)}.xlsx`, employeeWorkbook(detail))}><FileSpreadsheet size={15} />Excel</button>
     </div>
     <div className="summary-band">
       <div className="summary-item"><span>Matricule</span><strong>{employeeCode(detail.employee_number, detail.id)}</strong></div>
       <div className="summary-item"><span>Nom</span><strong>{employeeName(detail)}</strong></div>
-      <div className="summary-item"><span>Service</span><strong>{detail.department ?? 'â€”'}</strong></div>
+      <div className="summary-item"><span>Service</span><strong>{detail.department ?? '?'}</strong></div>
       <div className="summary-item"><span>Fonction</span><strong>{detail.job_title}</strong></div>
       <div className="summary-item"><span>Statut</span><strong>{employeeStatusLabel(detail.status)}</strong></div>
       <div className="summary-item"><span>Salaire</span><strong>{money(detail.monthly_salary)} USD</strong></div>
-      <div className="summary-item"><span>Contrat actuel</span><strong>{detail.current_contract?.contract_number ?? 'â€”'}</strong></div>
+      <div className="summary-item"><span>Contrat actuel</span><strong>{detail.current_contract?.contract_number ?? '?'}</strong></div>
     </div>
     <div className="mini-stats">
       <Kpi label="Avances" value={detail.advances.length} />
-      <Kpi label="CongÃ©s" value={detail.leaves.length} />
+      <Kpi label="Congés" value={detail.leaves.length} />
       <Kpi label="Pointages" value={detail.attendance.length} />
       <Kpi label="Paies" value={detail.payrolls.length} />
       <Kpi label="Documents" value={detail.documents.length} />
       <Kpi label="Timeline" value={detail.timeline.length} />
     </div>
-    <Section title="IdentitÃ©">
+    <Section title="Identité">
       <div className="detail-list">
-        <span>PrÃ©nom</span><strong>{detail.first_name}</strong>
+        <span>Prénom</span><strong>{detail.first_name}</strong>
         <span>Nom</span><strong>{detail.last_name}</strong>
-        <span>Post-nom</span><strong>{detail.post_name ?? 'â€”'}</strong>
-        <span>Sexe</span><strong>{detail.gender ?? 'â€”'}</strong>
-        <span>Date naissance</span><strong>{detail.birth_date ? shortDate(detail.birth_date) : 'â€”'}</strong>
-        <span>NationalitÃ©</span><strong>{detail.nationality ?? 'â€”'}</strong>
-        <span>Ã‰tat civil</span><strong>{detail.marital_status ?? 'â€”'}</strong>
+        <span>Post-nom</span><strong>{detail.post_name ?? '?'}</strong>
+        <span>Sexe</span><strong>{detail.gender ?? '?'}</strong>
+        <span>Date de naissance</span><strong>{detail.birth_date ? shortDate(detail.birth_date) : '?'}</strong>
+        <span>Nationalité</span><strong>{detail.nationality ?? '?'}</strong>
+        <span>État civil</span><strong>{detail.marital_status ?? '?'}</strong>
       </div>
     </Section>
     <Section title="Contact">
       <div className="detail-list">
-        <span>TÃ©lÃ©phone</span><strong>{detail.phone ?? 'â€”'}</strong>
-        <span>TÃ©lÃ©phone secondaire</span><strong>{detail.secondary_phone ?? 'â€”'}</strong>
-        <span>Email</span><strong>{detail.email ?? 'â€”'}</strong>
-        <span>Adresse</span><strong>{detail.address ?? 'â€”'}</strong>
+        <span>Téléphone</span><strong>{detail.phone ?? '?'}</strong>
+        <span>Téléphone secondaire</span><strong>{detail.secondary_phone ?? '?'}</strong>
+        <span>Email</span><strong>{detail.email ?? '?'}</strong>
+        <span>Adresse</span><strong>{detail.address ?? '?'}</strong>
       </div>
     </Section>
     <Section title="Poste et paie">
       <div className="detail-list">
-        <span>Service</span><strong>{detail.department ?? 'â€”'}</strong>
+        <span>Service</span><strong>{detail.department ?? '?'}</strong>
         <span>Fonction</span><strong>{detail.job_title}</strong>
-        <span>Date embauche</span><strong>{shortDate(detail.hire_date)}</strong>
-        <span>Type contrat</span><strong>{detail.contract_type ?? detail.current_contract?.contract_type ?? 'â€”'}</strong>
-        <span>Site affectÃ©</span><strong>{detail.assigned_site ?? 'â€”'}</strong>
-        <span>Manager</span><strong>{detail.manager_name ?? 'â€”'}</strong>
+        <span>Date d’embauche</span><strong>{shortDate(detail.hire_date)}</strong>
+        <span>Type contrat</span><strong>{detail.contract_type ?? detail.current_contract?.contract_type ?? '?'}</strong>
+        <span>Site affecté</span><strong>{detail.assigned_site ?? '?'}</strong>
+        <span>Manager</span><strong>{detail.manager_name ?? '?'}</strong>
         <span>Mode paiement</span><strong>{paymentMethodLabel(detail.payment_method)}</strong>
-        <span>Banque</span><strong>{detail.bank_name ?? 'â€”'}</strong>
-        <span>Dernier pointage</span><strong>{detail.latest_monthly_attendance ? `${monthLabel(detail.latest_monthly_attendance.month)} ${detail.latest_monthly_attendance.year} - ${attendanceStatusLabel(detail.latest_monthly_attendance.status)}` : 'â€”'}</strong>
-        <span>Net estimÃ©</span><strong>{detail.latest_monthly_attendance ? `${money(detail.latest_monthly_attendance.estimated_net_salary ?? 0)} USD` : 'â€”'}</strong>
+        <span>Banque</span><strong>{detail.bank_name ?? '?'}</strong>
+        <span>Dernier pointage</span><strong>{detail.latest_monthly_attendance ? `${monthLabel(detail.latest_monthly_attendance.month)} ${detail.latest_monthly_attendance.year} - ${attendanceStatusLabel(detail.latest_monthly_attendance.status)}` : '?'}</strong>
+        <span>Net estimé</span><strong>{detail.latest_monthly_attendance ? `${money(detail.latest_monthly_attendance.estimated_net_salary ?? 0)} USD` : '?'}</strong>
       </div>
     </Section>
     <Section title="Contrat actuel">
-      {detail.current_contract ? <SimpleTable headers={['NÂ° contrat', 'Type', 'DÃ©but', 'Fin', 'Salaire', 'Devise', 'Statut']} rows={[
-        [detail.current_contract.contract_number, detail.current_contract.contract_type, shortDate(detail.current_contract.start_date), detail.current_contract.end_date ? shortDate(detail.current_contract.end_date) : 'â€”', money(detail.current_contract.salary_amount), detail.current_contract.currency ?? 'USD', contractStatusLabel(detail.current_contract)],
+      {detail.current_contract ? <SimpleTable headers={['N° contrat', 'Type', 'Début', 'Fin', 'Salaire', 'Devise', 'Statut']} rows={[
+        [detail.current_contract.contract_number, detail.current_contract.contract_type, shortDate(detail.current_contract.start_date), detail.current_contract.end_date ? shortDate(detail.current_contract.end_date) : '?', money(detail.current_contract.salary_amount), detail.current_contract.currency ?? 'USD', contractStatusLabel(detail.current_contract)],
       ]} /> : <CompactEmpty message="Aucun contrat actif." />}
     </Section>
     <Section title="Avances">
-      {detail.advances.length ? <SimpleTable headers={['Date', 'Montant', 'Statut', 'Motif']} rows={detail.advances.map((row) => [shortDate(row.advance_date), `${money(row.amount)} USD`, advanceStatusLabel(row.status), row.reason ?? 'â€”'])} /> : <CompactEmpty message="Aucune avance enregistrÃ©e." />}
+      {detail.advances.length ? <SimpleTable headers={['Date', 'Montant', 'Statut', 'Motif']} rows={detail.advances.map((row) => [shortDate(row.advance_date), `${money(row.amount)} USD`, advanceStatusLabel(row.status), row.reason ?? '?'])} /> : <CompactEmpty message="Aucune avance enregistrée." />}
     </Section>
-    <Section title="CongÃ©s">
-      {detail.leaves.length ? <SimpleTable headers={['DÃ©but', 'Fin', 'Type', 'Statut']} rows={detail.leaves.map((row) => [shortDate(row.start_date), shortDate(row.end_date), row.leave_type, leaveStatusLabel(row.status)])} /> : <CompactEmpty message="Aucun congÃ© enregistrÃ©." />}
+    <Section title="Congés">
+      {detail.leaves.length ? <SimpleTable headers={['Début', 'Fin', 'Type', 'Statut']} rows={detail.leaves.map((row) => [shortDate(row.start_date), shortDate(row.end_date), row.leave_type, leaveStatusLabel(row.status)])} /> : <CompactEmpty message="Aucun congé enregistré." />}
     </Section>
     <Section title="Pointages mensuels">
-      {detail.attendance.length ? <SimpleTable headers={['PÃ©riode', 'PrÃ©sence', 'CongÃ©s', 'Maladie', 'Absences', 'Retards', 'Retenue', 'Net estimÃ©', 'Statut']} rows={detail.attendance.map((row) => [`${monthLabel(row.month)} ${row.year}`, `${row.present_days}/${row.working_days}`, row.paid_leave_days, row.sick_days, row.unjustified_absence_days, row.late_count ?? 0, `${money(row.absence_deduction ?? 0)} USD`, `${money(row.estimated_net_salary ?? 0)} USD`, attendanceStatusLabel(row.status)])} /> : <CompactEmpty message="Aucun pointage mensuel enregistrÃ©." />}
+      {detail.attendance.length ? <SimpleTable headers={['PPériode', 'Présence', 'Congés', 'Maladie', 'Absences', 'Retards', 'Retenue', 'Net estimé', 'Statut']} rows={detail.attendance.map((row) => [`${monthLabel(row.month)} ${row.year}`, `${row.present_days}/${row.working_days}`, row.paid_leave_days, row.sick_days, row.unjustified_absence_days, row.late_count ?? 0, `${money(row.absence_deduction ?? 0)} USD`, `${money(row.estimated_net_salary ?? 0)} USD`, attendanceStatusLabel(row.status)])} /> : <CompactEmpty message="Aucun pointage mensuel enregistré." />}
     </Section>
     <Section title="Paies">
-      {detail.payrolls.length ? <SimpleTable headers={['PÃ©riode', 'Brut', 'Avances', 'Retenues', 'Net', 'Statut']} rows={detail.payrolls.map((row) => [`${monthLabel(row.month)} ${row.year}`, `${money(row.gross_salary)} USD`, `${money(row.advances_total)} USD`, `${money(row.deductions_total)} USD`, `${money(row.net_salary)} USD`, payrollStatusLabel(row.status)])} /> : <CompactEmpty message="Aucune paie gÃ©nÃ©rÃ©e." />}
+      {detail.payrolls.length ? <SimpleTable headers={['PPériode', 'Brut', 'Avances', 'Retenues', 'Net', 'Statut']} rows={detail.payrolls.map((row) => [`${monthLabel(row.month)} ${row.year}`, `${money(row.gross_salary)} USD`, `${money(row.advances_total)} USD`, `${money(row.deductions_total)} USD`, `${money(row.net_salary)} USD`, payrollStatusLabel(row.status)])} /> : <CompactEmpty message="Aucune paie générée." />}
     </Section>
     <Section title="Documents">
       {detail.documents.length ? <SimpleTable headers={['Type', 'Fichier']} rows={detail.documents.map((row) => [row.type, row.file_name])} /> : <CompactEmpty message="Aucun document RH." />}
@@ -619,7 +619,7 @@ export function EmployeeDetailPage() {
       {detail.timeline.length ? <div className="timeline-list">{detail.timeline.map((row, index) => <div className="timeline-item" key={`${row.event}-${index}`}><span>{shortDate(row.date)}</span><strong>{row.event} - {row.description}</strong></div>)}</div> : <CompactEmpty message="Aucun historique disponible." />}
     </Section>
     <Section title="Audit">
-      {detail.audit.length ? <SimpleTable headers={['Date', 'Action', 'Ressource']} rows={detail.audit.map((row) => [shortDate(row.created_at), row.action, `${row.resource} #${row.resource_id}`])} /> : <CompactEmpty message="Aucun audit trouvÃ©." />}
+      {detail.audit.length ? <SimpleTable headers={['Date', 'Action', 'Ressource']} rows={detail.audit.map((row) => [shortDate(row.created_at), row.action, `${row.resource} #${row.resource_id}`])} /> : <CompactEmpty message="Aucun audit trouvé." />}
     </Section>
 
     {contractOpen && <ContractModal employees={employees.data} employeeId={detail.id} onClose={() => setContractOpen(false)} onSubmit={saveContract} />}
@@ -650,7 +650,7 @@ export function ContractsPage() {
 
   async function saveContract(form: FormData) {
     await api.post('/employee-contracts', contractPayload(form));
-    setSuccess('Contrat employÃ© enregistrÃ©.');
+    setSuccess('Contrat employé enregistré.');
     setCreateOpen(false);
     contracts.reload();
   }
@@ -663,23 +663,23 @@ export function ContractsPage() {
       <Kpi label="Total contrats" value={contracts.data.length} />
       <Kpi label="Actifs" value={contracts.data.filter((row) => contractLifecycleStatus(row) === 'ACTIVE').length} />
       <Kpi label="Expirants" value={contracts.data.filter((row) => contractLifecycleStatus(row) === 'EXPIRING').length} />
-      <Kpi label="ExpirÃ©s" value={contracts.data.filter((row) => contractLifecycleStatus(row) === 'EXPIRED').length} />
-      <Kpi label="RÃ©siliÃ©s" value={contracts.data.filter((row) => contractLifecycleStatus(row) === 'TERMINATED').length} />
+      <Kpi label="Expirés" value={contracts.data.filter((row) => contractLifecycleStatus(row) === 'EXPIRED').length} />
+      <Kpi label="Résiliés" value={contracts.data.filter((row) => contractLifecycleStatus(row) === 'TERMINATED').length} />
     </div>
     <div className="maintenance-filter-bar hr-filter-bar">
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Recherche" />
       <select value={contractType} onChange={(event) => setContractType(event.target.value)}><option value="">Type contrat</option>{contractTypes.map((value) => <option key={value}>{value}</option>)}</select>
-      <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option><option value="ACTIVE">Actif</option><option value="EXPIRING">Expirant</option><option value="EXPIRED">ExpirÃ©</option><option value="TERMINATED">RÃ©siliÃ©</option></select>
-      <label className="checkbox-filter"><input type="checkbox" checked={expiringSoon} onChange={(event) => setExpiringSoon(event.target.checked)} />Bail expirant bientÃ´t</label>
+      <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option><option value="ACTIVE">Actif</option><option value="EXPIRING">Expirant</option><option value="EXPIRED">Expiré</option><option value="TERMINATED">Résilié</option></select>
+      <label className="checkbox-filter"><input type="checkbox" checked={expiringSoon} onChange={(event) => setExpiringSoon(event.target.checked)} />Bail expirant bientôt</label>
       <div />
-      <button className="secondary" onClick={() => { setQuery(''); setBuilding(''); setStatus(''); setContractType(''); setExpiringSoon(false); }}><RotateCcw size={15} />RÃ©initialiser</button>
+      <button className="secondary" onClick={() => { setQuery(''); setBuilding(''); setStatus(''); setContractType(''); setExpiringSoon(false); }}><RotateCcw size={15} />Réinitialiser</button>
       <button className="secondary" onClick={() => exportXlsxWorkbook('RH_Contrats.xlsx', [{ name: 'Contrats', rows: filtered.map(exportContractRow) }])}><FileSpreadsheet size={15} />Excel</button>
     </div>
     <div className="table-wrap">
       <table>
-        <thead><tr><th>NÂ° contrat</th><th>EmployÃ©</th><th>Type contrat</th><th>Date dÃ©but</th><th>Date fin</th><th className="right">Salaire</th><th>Devise</th><th>Statut</th><th>Actions</th></tr></thead>
+        <thead><tr><th>N° contrat</th><th>Employé</th><th>Type contrat</th><th>Date début</th><th>Date fin</th><th className="right">Salaire</th><th>Devise</th><th>Statut</th><th>Actions</th></tr></thead>
         <tbody>{filtered.map((row) => <tr key={row.id} className="clickable-row" onClick={() => navigate(`/personnel/employees/${row.employee_id}`)}>
-          <td>{row.contract_number}</td><td>{row.employee_name ?? `EmployÃ© #${row.employee_id}`}</td><td>{row.contract_type}</td><td>{shortDate(row.start_date)}</td><td>{row.end_date ? shortDate(row.end_date) : 'â€”'}</td><td className="right">{money(row.salary_amount)}</td><td>{row.currency ?? 'USD'}</td><td>{contractStatusLabel(row)}</td>
+          <td>{row.contract_number}</td><td>{row.employee_name ?? `Employé #${row.employee_id}`}</td><td>{row.contract_type}</td><td>{shortDate(row.start_date)}</td><td>{row.end_date ? shortDate(row.end_date) : '?'}</td><td className="right">{money(row.salary_amount)}</td><td>{row.currency ?? 'USD'}</td><td>{contractStatusLabel(row)}</td>
           <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}><IconAction title="Voir" icon={<Eye size={15} />} onClick={() => navigate(`/personnel/employees/${row.employee_id}`)} /></td>
         </tr>)}</tbody>
       </table>
@@ -701,14 +701,14 @@ export function AdvancesPage() {
 
   async function saveAdvance(form: FormData) {
     await api.post('/salary-advances', advancePayload(form));
-    setSuccess('Avance enregistrÃ©e.');
+    setSuccess('Avance enregistrée.');
     setCreateOpen(false);
     advances.reload();
   }
 
   async function action(id: number, type: 'approve' | 'reject' | 'pay') {
     await api.post(`/salary-advances/${id}/${type}`, {});
-    setSuccess(type === 'pay' ? 'Avance payÃ©e.' : `Avance ${type === 'approve' ? 'approuvÃ©e' : 'rejetÃ©e'}.`);
+    setSuccess(type === 'pay' ? 'Avance payée.' : `Avance ${type === 'approve' ? 'approuvée' : 'rejetée'}.`);
     advances.reload();
   }
 
@@ -718,17 +718,17 @@ export function AdvancesPage() {
     <SuccessMessage message={success} />
     <div className="maintenance-filter-bar hr-filter-bar">
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Recherche" />
-      <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option><option value="DRAFT">Brouillon</option><option value="PENDING">DemandÃ©</option><option value="APPROVED">ApprouvÃ©</option><option value="REJECTED">RefusÃ©</option><option value="PAID">PayÃ©</option></select>
+      <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option><option value="DRAFT">Brouillon</option><option value="PENDING">Demandé</option><option value="APPROVED">Approuvé</option><option value="REJECTED">Refusé</option><option value="PAID">Payé</option></select>
       <div /><div /><div />
-      <button className="secondary" onClick={() => { setQuery(''); setStatus(''); }}><RotateCcw size={15} />RÃ©initialiser</button>
+      <button className="secondary" onClick={() => { setQuery(''); setStatus(''); }}><RotateCcw size={15} />Réinitialiser</button>
       <button className="secondary" onClick={() => exportXlsxWorkbook('RH_Avances.xlsx', [{ name: 'Avances', rows: filtered.map(exportAdvanceRow) }])}><FileSpreadsheet size={15} />Excel</button>
     </div>
     <div className="table-wrap">
       <table>
-        <thead><tr><th>NÂ° avance</th><th>EmployÃ©</th><th>Date</th><th className="right">Montant</th><th className="right">Montant remboursÃ©</th><th className="right">Solde</th><th>Statut</th><th>Actions</th></tr></thead>
+        <thead><tr><th>N° avance</th><th>Employé</th><th>Date</th><th className="right">Montant</th><th className="right">Montant remboursé</th><th className="right">Solde</th><th>Statut</th><th>Actions</th></tr></thead>
         <tbody>{filtered.map((row) => <tr key={row.id}><td>{`ADV-${row.id}`}</td><td>{row.employee_name}</td><td>{shortDate(row.advance_date)}</td><td className="right">{money(row.amount)}</td><td className="right">{row.status === 'PAID' ? money(row.amount) : money(0)}</td><td className="right">{row.status === 'PAID' ? money(0) : money(row.amount)}</td><td>{advanceStatusLabel(row.status)}</td><td className="actions actions-compact">{can('payroll.update') && row.status !== 'APPROVED' && row.status !== 'PAID' && <IconAction title="Approuver" icon={<Eye size={15} />} onClick={() => void action(row.id, 'approve')} />}{can('payroll.update') && row.status !== 'REJECTED' && row.status !== 'PAID' && <IconAction title="Rejeter" danger icon={<Trash2 size={15} />} onClick={() => void action(row.id, 'reject')} />}{can('payroll.update') && row.status !== 'PAID' && <IconAction title="Payer" icon={<WalletCards size={15} />} onClick={() => void action(row.id, 'pay')} />}</td></tr>)}</tbody>
       </table>
-      {!filtered.length && <EmptyState message="Aucune avance enregistrÃ©e." />}
+      {!filtered.length && <EmptyState message="Aucune avance enregistrée." />}
     </div>
     {createOpen && <AdvanceModal employees={employees.data} onClose={() => setCreateOpen(false)} onSubmit={saveAdvance} />}
   </section>;
@@ -746,34 +746,34 @@ export function LeavesPage() {
 
   async function saveLeave(form: FormData) {
     await api.post('/leaves', leavePayload(form));
-    setSuccess('CongÃ© enregistrÃ©.');
+    setSuccess('Congé enregistré.');
     setCreateOpen(false);
     leaves.reload();
   }
 
   async function action(id: number, type: 'approve' | 'reject' | 'cancel') {
     await api.post(`/leaves/${id}/${type}`, {});
-    setSuccess('Statut congÃ© mis Ã  jour.');
+    setSuccess('Statut congé mis à jour.');
     leaves.reload();
   }
 
   return <section>
-    <PageHeader title="CongÃ©s" action={can('payroll.create') ? <button onClick={() => setCreateOpen(true)}><Plus size={16} />Nouveau congÃ©</button> : undefined} />
+    <PageHeader title="Congés" action={can('payroll.create') ? <button onClick={() => setCreateOpen(true)}><Plus size={16} />Nouveau congé</button> : undefined} />
     <StaffNav />
     <SuccessMessage message={success} />
     <div className="maintenance-filter-bar hr-filter-bar">
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Recherche" />
       <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option>{leaveStatuses.map((value) => <option key={value} value={value}>{leaveStatusLabel(value)}</option>)}</select>
       <div /><div /><div />
-      <button className="secondary" onClick={() => { setQuery(''); setStatus(''); }}><RotateCcw size={15} />RÃ©initialiser</button>
-      <button className="secondary" onClick={() => exportXlsxWorkbook('RH_Conges.xlsx', [{ name: 'Conges', rows: filtered.map(exportLeaveRow) }])}><FileSpreadsheet size={15} />Excel</button>
+      <button className="secondary" onClick={() => { setQuery(''); setStatus(''); }}><RotateCcw size={15} />Réinitialiser</button>
+      <button className="secondary" onClick={() => exportXlsxWorkbook('RH_Congés.xlsx', [{ name: 'Congés', rows: filtered.map(exportLeaveRow) }])}><FileSpreadsheet size={15} />Excel</button>
     </div>
     <div className="table-wrap">
       <table>
-        <thead><tr><th>NÂ° congÃ©</th><th>EmployÃ©</th><th>Type congÃ©</th><th>Date dÃ©but</th><th>Date fin</th><th className="right">Jours</th><th>Statut</th><th>Actions</th></tr></thead>
+        <thead><tr><th>N° congé</th><th>Employé</th><th>Type congé</th><th>Date début</th><th>Date fin</th><th className="right">Jours</th><th>Statut</th><th>Actions</th></tr></thead>
         <tbody>{filtered.map((row) => <tr key={row.id}><td>{`LV-${row.id}`}</td><td>{row.employee_name}</td><td>{row.leave_type}</td><td>{shortDate(row.start_date)}</td><td>{shortDate(row.end_date)}</td><td className="right">{daysBetween(row.start_date, row.end_date)}</td><td>{leaveStatusLabel(row.status)}</td><td className="actions actions-compact">{can('payroll.update') && row.status !== 'APPROVED' && <IconAction title="Approuver" icon={<Eye size={15} />} onClick={() => void action(row.id, 'approve')} />}{can('payroll.update') && row.status !== 'REJECTED' && <IconAction title="Rejeter" danger icon={<Trash2 size={15} />} onClick={() => void action(row.id, 'reject')} />}{can('payroll.update') && row.status !== 'CANCELLED' && <IconAction title="Annuler" icon={<RotateCcw size={15} />} onClick={() => void action(row.id, 'cancel')} />}</td></tr>)}</tbody>
       </table>
-      {!filtered.length && <EmptyState message="Aucun congÃ© enregistrÃ©." />}
+      {!filtered.length && <EmptyState message="Aucun congé enregistré." />}
     </div>
     {createOpen && <LeaveModal employees={employees.data} onClose={() => setCreateOpen(false)} onSubmit={saveLeave} />}
   </section>;
@@ -791,7 +791,7 @@ export function AttendancePage() {
 
   async function saveAttendance(form: FormData) {
     await api.post('/employee-attendance', attendancePayload(form));
-    setSuccess('Pointage enregistrÃ©.');
+    setSuccess('Pointage enregistré.');
     setCreateOpen(false);
     attendance.reload();
   }
@@ -802,17 +802,17 @@ export function AttendancePage() {
     <SuccessMessage message={success} />
     <div className="maintenance-filter-bar hr-filter-bar">
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Recherche" />
-      <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option><option value="PRESENT">PrÃ©sent</option><option value="ABSENT">Absent</option><option value="LATE">Retard</option></select>
+      <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option><option value="PRESENT">Présent</option><option value="ABSENT">Absent</option><option value="LATE">Retard</option></select>
       <div /><div /><div />
-      <button className="secondary" onClick={() => { setQuery(''); setStatus(''); }}><RotateCcw size={15} />RÃ©initialiser</button>
+      <button className="secondary" onClick={() => { setQuery(''); setStatus(''); }}><RotateCcw size={15} />Réinitialiser</button>
       <button className="secondary" onClick={() => exportXlsxWorkbook('RH_Pointage.xlsx', [{ name: 'Pointage', rows: filtered.map(exportAttendanceRow) }])}><FileSpreadsheet size={15} />Excel</button>
     </div>
     <div className="table-wrap">
       <table>
-        <thead><tr><th>Date</th><th>EmployÃ©</th><th>Heure entrÃ©e</th><th>Heure sortie</th><th className="right">Retard</th><th>Absence</th><th className="right">Heures travaillÃ©es</th><th>Statut</th></tr></thead>
-        <tbody>{filtered.map((row) => <tr key={row.id}><td>{row.attendance_date ? shortDate(row.attendance_date) : 'â€”'}</td><td>{row.employee_name}</td><td>{row.check_in_time ?? 'â€”'}</td><td>{row.check_out_time ?? 'â€”'}</td><td className="right">{row.late_minutes ?? 0} min</td><td>{row.absence ? 'Oui' : 'Non'}</td><td className="right">{Number(row.worked_hours ?? 0).toFixed(2)}</td><td>{attendanceStatusLabel(row.status, row.absence)}</td></tr>)}</tbody>
+        <thead><tr><th>Date</th><th>Employé</th><th>Heure entrée</th><th>Heure sortie</th><th className="right">Retard</th><th>Absence</th><th className="right">Heures travaillées</th><th>Statut</th></tr></thead>
+        <tbody>{filtered.map((row) => <tr key={row.id}><td>{row.attendance_date ? shortDate(row.attendance_date) : '?'}</td><td>{row.employee_name}</td><td>{row.check_in_time ?? '?'}</td><td>{row.check_out_time ?? '?'}</td><td className="right">{row.late_minutes ?? 0} min</td><td>{row.absence ? 'Oui' : 'Non'}</td><td className="right">{Number(row.worked_hours ?? 0).toFixed(2)}</td><td>{attendanceStatusLabel(row.status, row.absence)}</td></tr>)}</tbody>
       </table>
-      {!filtered.length && <EmptyState message="Aucun pointage enregistrÃ©." />}
+      {!filtered.length && <EmptyState message="Aucun pointage enregistré." />}
     </div>
     {createOpen && <AttendanceModal employees={employees.data} onClose={() => setCreateOpen(false)} onSubmit={saveAttendance} />}
   </section>;
@@ -830,34 +830,34 @@ export function PayrollPage() {
 
   async function generate(form: FormData) {
     await api.post('/payrolls/generate', payrollPayload(form));
-    setSuccess('Paie gÃ©nÃ©rÃ©e.');
+    setSuccess('Paie générée.');
     setGenerateOpen(false);
     payrolls.reload();
   }
 
   async function action(id: number, type: 'validate' | 'pay') {
     await api.post(`/payrolls/${id}/${type}`, {});
-    setSuccess(type === 'pay' ? 'Salaire payÃ©.' : 'Paie validÃ©e.');
+    setSuccess(type === 'pay' ? 'Salaire payé.' : 'Paie validée.');
     payrolls.reload();
   }
 
   return <section>
-    <PageHeader title="Paie" action={can('payroll.create') ? <button onClick={() => setGenerateOpen(true)}><Plus size={16} />GÃ©nÃ©rer paie</button> : undefined} />
+    <PageHeader title="Paie" action={can('payroll.create') ? <button onClick={() => setGenerateOpen(true)}><Plus size={16} />Générer paie</button> : undefined} />
     <StaffNav />
     <SuccessMessage message={success} />
     <div className="maintenance-filter-bar hr-filter-bar">
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Recherche" />
-      <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option><option value="DRAFT">Brouillon</option><option value="VALIDATED">ValidÃ©</option><option value="PAID">PayÃ©</option></select>
+      <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option><option value="DRAFT">Brouillon</option><option value="VALIDATED">Validé</option><option value="PAID">Payé</option></select>
       <div /><div /><div />
-      <button className="secondary" onClick={() => { setQuery(''); setStatus(''); }}><RotateCcw size={15} />RÃ©initialiser</button>
+      <button className="secondary" onClick={() => { setQuery(''); setStatus(''); }}><RotateCcw size={15} />Réinitialiser</button>
       <button className="secondary" onClick={() => exportXlsxWorkbook('RH_Paie.xlsx', [{ name: 'Paie', rows: filtered.map(exportPayrollRow) }])}><FileSpreadsheet size={15} />Excel</button>
     </div>
     <div className="table-wrap">
       <table>
-        <thead><tr><th>PÃ©riode</th><th>EmployÃ©</th><th className="right">Salaire brut</th><th className="right">Avances</th><th className="right">Primes</th><th className="right">Retenues</th><th className="right">Net Ã  payer</th><th>Statut</th><th>Actions</th></tr></thead>
+        <thead><tr><th>PPériode</th><th>Employé</th><th className="right">Salaire brut</th><th className="right">Avances</th><th className="right">Primes</th><th className="right">Retenues</th><th className="right">Net à payer</th><th>Statut</th><th>Actions</th></tr></thead>
         <tbody>{filtered.map((row) => <tr key={row.id}><td>{monthLabel(row.month)} {row.year}</td><td>{row.employee_name}</td><td className="right">{money(row.gross_salary)}</td><td className="right">{money(row.advances_total)}</td><td className="right">{money(0)}</td><td className="right">{money(row.deductions_total)}</td><td className="right">{money(row.net_salary)}</td><td>{payrollStatusLabel(row.status)}</td><td className="actions actions-compact">{can('payroll.update') && row.status === 'DRAFT' && <IconAction title="Valider" icon={<Eye size={15} />} onClick={() => void action(row.id, 'validate')} />}{can('payroll.update') && row.status !== 'PAID' && <IconAction title="Payer" icon={<WalletCards size={15} />} onClick={() => void action(row.id, 'pay')} />}</td></tr>)}</tbody>
       </table>
-      {!filtered.length && <EmptyState message="Aucune paie gÃ©nÃ©rÃ©e." />}
+      {!filtered.length && <EmptyState message="Aucune paie générée." />}
     </div>
     {generateOpen && <PayrollModal employees={employees.data} onClose={() => setGenerateOpen(false)} onSubmit={generate} />}
   </section>;
@@ -876,14 +876,14 @@ export function HrReportsPage() {
 
   const workbook = [
     { name: 'Resume', rows: [report.summary] },
-    { name: 'Employes', rows: report.employees.map(exportEmployeeRow) },
+    { name: 'Employés', rows: report.employees.map(exportEmployeeRow) },
     { name: 'Contrats', rows: report.contracts.map(exportContractRow) },
     { name: 'Avances', rows: report.advances.map(exportAdvanceRow) },
-    { name: 'Conges', rows: report.leaves.map(exportLeaveRow) },
+    { name: 'Congés', rows: report.leaves.map(exportLeaveRow) },
     { name: 'Pointage', rows: report.attendance.map(exportAttendanceRow) },
     { name: 'Paie', rows: report.payrolls.map(exportPayrollRow) },
     { name: 'Documents', rows: report.contracts.filter((row) => row.contract_file_name).map((row) => ({ employe: row.employee_name ?? '', contrat: row.contract_number, fichier: row.contract_file_name })) },
-    { name: 'Audit', rows: report.expiring_contracts.map((row) => ({ employe: row.employee_name ?? '', contrat: row.contract_number, statut: contractStatusLabel(row), fin: row.end_date ? shortDate(row.end_date) : 'â€”' })) },
+    { name: 'Audit', rows: report.expiring_contracts.map((row) => ({ employe: row.employee_name ?? '', contrat: row.contract_number, statut: contractStatusLabel(row), fin: row.end_date ? shortDate(row.end_date) : '?' })) },
   ];
 
   return <section>
@@ -891,35 +891,35 @@ export function HrReportsPage() {
     <StaffNav />
     <div className="maintenance-filter-bar hr-filter-bar">
       <select value={month} onChange={(event) => setMonth(event.target.value)}>{Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={index + 1}>{monthLabel(index + 1)}</option>)}</select>
-      <input value={year} onChange={(event) => setYear(event.target.value)} placeholder="AnnÃ©e" />
+      <input value={year} onChange={(event) => setYear(event.target.value)} placeholder="Année" />
       <div /><div /><div />
       <button className="secondary" onClick={() => exportXlsxWorkbook(`RH_Rapport_${report.current_month}.xlsx`, workbook)}><FileSpreadsheet size={15} />Excel multi-onglets</button>
     </div>
     <div className="mini-stats">
       <Kpi label="Masse salariale par mois" value={`${money(report.summary.monthly_payroll)} USD`} />
-      <Kpi label="EmployÃ©s actifs" value={report.summary.active_employees} />
+      <Kpi label="Employés actifs" value={report.summary.active_employees} />
       <Kpi label="Contrats expirants" value={report.summary.contracts_expiring} />
       <Kpi label="Avances en cours" value={report.summary.advances_open} />
       <Kpi label="Absences" value={report.summary.absences} />
       <Kpi label="Retards" value={report.summary.delays} />
     </div>
-    <Section title="EmployÃ©s par service">
-      <SimpleTable headers={['Service', 'EmployÃ©s']} rows={report.by_department.map((row) => [row.department, row.count])} />
+    <Section title="Employés par service">
+      <SimpleTable headers={['Service', 'Employés']} rows={report.by_department.map((row) => [row.department, row.count])} />
     </Section>
     <Section title="Contrats expirants">
-      {report.expiring_contracts.length ? <SimpleTable headers={['EmployÃ©', 'Contrat', 'Fin', 'Statut']} rows={report.expiring_contracts.map((row) => [row.employee_name ?? '', row.contract_number, row.end_date ? shortDate(row.end_date) : 'â€”', contractStatusLabel(row)])} /> : <CompactEmpty message="Aucun contrat expirant." />}
+      {report.expiring_contracts.length ? <SimpleTable headers={['Employé', 'Contrat', 'Fin', 'Statut']} rows={report.expiring_contracts.map((row) => [row.employee_name ?? '', row.contract_number, row.end_date ? shortDate(row.end_date) : '?', contractStatusLabel(row)])} /> : <CompactEmpty message="Aucun contrat expirant." />}
     </Section>
     <Section title="Avances en cours">
-      <SimpleTable headers={['EmployÃ©', 'Date', 'Montant', 'Statut']} rows={report.advances.filter((row) => row.status !== 'PAID' && row.status !== 'REJECTED').map((row) => [row.employee_name, shortDate(row.advance_date), `${money(row.amount)} USD`, advanceStatusLabel(row.status)])} />
+      <SimpleTable headers={['Employé', 'Date', 'Montant', 'Statut']} rows={report.advances.filter((row) => row.status !== 'PAID' && row.status !== 'REJECTED').map((row) => [row.employee_name, shortDate(row.advance_date), `${money(row.amount)} USD`, advanceStatusLabel(row.status)])} />
     </Section>
-    <Section title="CongÃ©s par pÃ©riode">
-      <SimpleTable headers={['EmployÃ©', 'DÃ©but', 'Fin', 'Type', 'Statut']} rows={report.leaves.map((row) => [row.employee_name, shortDate(row.start_date), shortDate(row.end_date), row.leave_type, leaveStatusLabel(row.status)])} />
+    <Section title="Congés par pPériode">
+      <SimpleTable headers={['Employé', 'Début', 'Fin', 'Type', 'Statut']} rows={report.leaves.map((row) => [row.employee_name, shortDate(row.start_date), shortDate(row.end_date), row.leave_type, leaveStatusLabel(row.status)])} />
     </Section>
     <Section title="Absences et retards">
-      <SimpleTable headers={['EmployÃ©', 'Date', 'Retard', 'Absence', 'Statut']} rows={report.attendance.map((row) => [row.attendance_date ? shortDate(row.attendance_date) : 'â€”', `${row.employee_name}`, `${row.late_minutes ?? 0} min`, row.absence ? 'Oui' : 'Non', attendanceStatusLabel(row.status, row.absence)])} />
+      <SimpleTable headers={['Employé', 'Date', 'Retard', 'Absence', 'Statut']} rows={report.attendance.map((row) => [row.attendance_date ? shortDate(row.attendance_date) : '?', `${row.employee_name}`, `${row.late_minutes ?? 0} min`, row.absence ? 'Oui' : 'Non', attendanceStatusLabel(row.status, row.absence)])} />
     </Section>
     <Section title="Paie par mois">
-      <SimpleTable headers={['EmployÃ©', 'PÃ©riode', 'Net', 'Statut']} rows={report.payrolls.map((row) => [row.employee_name, `${monthLabel(row.month)} ${row.year}`, `${money(row.net_salary)} USD`, payrollStatusLabel(row.status)])} />
+      <SimpleTable headers={['Employé', 'PPériode', 'Net', 'Statut']} rows={report.payrolls.map((row) => [row.employee_name, `${monthLabel(row.month)} ${row.year}`, `${money(row.net_salary)} USD`, payrollStatusLabel(row.status)])} />
     </Section>
   </section>;
 }
@@ -950,24 +950,24 @@ function EmployeeModal({ title, employee, services, positions, onClose, onSubmit
     <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}>
       <div className="modal-section"><h3>Identite</h3><div className="maintenance-grid hr-form-grid">
         <label className="locked-field">Matricule auto<input name="employee_number" defaultValue={employee?.employee_number ?? 'Automatique'} readOnly /></label>
-        <label>Prenom *<input name="first_name" defaultValue={employee?.first_name} required /></label>
+        <label>Prénom *<input name="first_name" defaultValue={employee?.first_name} required /></label>
         <label>Nom *<input name="last_name" defaultValue={employee?.last_name} required /></label>
         <label>Post-nom<input name="post_name" defaultValue={employee?.post_name} /></label>
-        <label>Sexe<select name="gender" defaultValue={employee?.gender ?? ''}><option value="">Selectionner</option>{genders.map((value) => <option key={value}>{value}</option>)}</select></label>
-        <label>Date naissance<input type="date" name="birth_date" defaultValue={employee?.birth_date?.slice(0, 10)} /></label>
-        <label>Nationalite<input name="nationality" defaultValue={employee?.nationality} /></label>
-        <label>Etat civil<select name="marital_status" defaultValue={employee?.marital_status ?? ''}><option value="">Selectionner</option>{maritalStatuses.map((value) => <option key={value}>{value}</option>)}</select></label>
+        <label>Sexe<select name="gender" defaultValue={employee?.gender ?? ''}><option value="">Sélectionner</option>{genders.map((value) => <option key={value}>{value}</option>)}</select></label>
+        <label>Date de naissance<input type="date" name="birth_date" defaultValue={employee?.birth_date?.slice(0, 10)} /></label>
+        <label>Nationalité<input name="nationality" defaultValue={employee?.nationality} /></label>
+        <label>État civil<select name="marital_status" defaultValue={employee?.marital_status ?? ''}><option value="">Sélectionner</option>{maritalStatuses.map((value) => <option key={value}>{value}</option>)}</select></label>
       </div></div>
       <div className="modal-section"><h3>Contact</h3><div className="maintenance-grid hr-form-grid">
-        <label>Telephone *<input name="phone" defaultValue={employee?.phone} required /></label>
-        <label>Telephone secondaire<input name="secondary_phone" defaultValue={employee?.secondary_phone} /></label>
+        <label>Téléphone *<input name="phone" defaultValue={employee?.phone} required /></label>
+        <label>Téléphone secondaire<input name="secondary_phone" defaultValue={employee?.secondary_phone} /></label>
         <label>Email<input name="email" defaultValue={employee?.email} /></label>
         <label className="wide-field">Adresse<input name="address" defaultValue={employee?.address} /></label>
       </div></div>
       <div className="modal-section"><h3>Professionnel</h3><div className="maintenance-grid hr-form-grid">
         {useServiceCatalog ? (
           <>
-            <label>Service *<select name="service_id" value={serviceValue} onChange={(event) => setServiceValue(event.target.value)} required><option value="">Selectionner</option>{serviceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <label>Service *<select name="service_id" value={serviceValue} onChange={(event) => setServiceValue(event.target.value)} required><option value="">Sélectionner</option>{serviceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <input type="hidden" name="department" value={catalogFallbackLabel(serviceValue, availableServices, employee?.department)} />
           </>
         ) : (
@@ -978,7 +978,7 @@ function EmployeeModal({ title, employee, services, positions, onClose, onSubmit
         )}
         {usePositionCatalog ? (
           <>
-            <label>Fonction *<select name="position_id" value={positionValue} onChange={(event) => setPositionValue(event.target.value)} required><option value="">Selectionner</option>{positionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <label>Fonction *<select name="position_id" value={positionValue} onChange={(event) => setPositionValue(event.target.value)} required><option value="">Sélectionner</option>{positionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <input type="hidden" name="job_title" value={catalogFallbackLabel(positionValue, availablePositions, employee?.job_title)} />
           </>
         ) : (
@@ -987,30 +987,30 @@ function EmployeeModal({ title, employee, services, positions, onClose, onSubmit
             <input type="hidden" name="position_id" value="" />
           </>
         )}
-        <label>Date embauche *<input type="date" name="hire_date" defaultValue={employee?.hire_date?.slice(0, 10)} required /></label>
-        <label>Type contrat<select name="contract_type" defaultValue={employee?.contract_type ?? ''}><option value="">Selectionner</option>{contractTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
-        <label>Site / immeuble affecte<input name="assigned_site" defaultValue={employee?.assigned_site} /></label>
+        <label>Date d’embauche *<input type="date" name="hire_date" defaultValue={employee?.hire_date?.slice(0, 10)} required /></label>
+        <label>Type contrat<select name="contract_type" defaultValue={employee?.contract_type ?? ''}><option value="">Sélectionner</option>{contractTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
+        <label>Site / immeuble affecté<input name="assigned_site" defaultValue={employee?.assigned_site} /></label>
         <label>Manager<input name="manager_name" defaultValue={employee?.manager_name} /></label>
         <label>Statut<select name="status" defaultValue={employee?.status ?? 'ACTIVE'}>{employeeStatuses.map((value) => <option key={value} value={value}>{employeeStatusLabel(value)}</option>)}</select></label>
       </div></div>
       <div className="modal-section"><h3>Paie</h3><div className="maintenance-grid hr-form-grid">
         <label>Salaire de base<input type="number" min="0" step="0.01" name="monthly_salary" defaultValue={employee?.monthly_salary ?? 0} /></label>
         <label className="locked-field">Devise USD<input value="USD" readOnly /></label>
-        <label>Mode paiement<select name="payment_method" defaultValue={employee?.payment_method ?? ''}><option value="">Selectionner</option>{paymentMethods.map((value) => <option key={value} value={value}>{paymentMethodLabel(value)}</option>)}</select></label>
+        <label>Mode paiement<select name="payment_method" defaultValue={employee?.payment_method ?? ''}><option value="">Sélectionner</option>{paymentMethods.map((value) => <option key={value} value={value}>{paymentMethodLabel(value)}</option>)}</select></label>
         <label>Banque<input name="bank_name" defaultValue={employee?.bank_name} /></label>
-        <label>Numero compte<input name="account_number" defaultValue={employee?.account_number} /></label>
+        <label>Numéro compte<input name="account_number" defaultValue={employee?.account_number} /></label>
         <label>Mobile Money<input name="mobile_money_number" defaultValue={employee?.mobile_money_number} /></label>
       </div></div>
       <div className="modal-section"><h3>Documents</h3><div className="maintenance-grid hr-form-grid">
-        <label>Type piece<input name="id_document_type" defaultValue={employee?.id_document_type} /></label>
-        <label>Numero piece<input name="id_document_number" defaultValue={employee?.id_document_number} /></label>
-        <label>Piece jointe identite<input type="file" name="identity_attachment_file" onChange={(event) => syncFileName(event, 'identity_attachment_name')} /><input type="hidden" name="identity_attachment_name" defaultValue={employee?.identity_attachment_name} /></label>
+        <label>Type pièce<input name="id_document_type" defaultValue={employee?.id_document_type} /></label>
+        <label>Numéro pièce<input name="id_document_number" defaultValue={employee?.id_document_number} /></label>
+        <label>Pièce jointe identité<input type="file" name="identity_attachment_file" onChange={(event) => syncFileName(event, 'identity_attachment_name')} /><input type="hidden" name="identity_attachment_name" defaultValue={employee?.identity_attachment_name} /></label>
         <label>CV<input type="file" name="cv_attachment_file" onChange={(event) => syncFileName(event, 'cv_attachment_name')} /><input type="hidden" name="cv_attachment_name" defaultValue={employee?.cv_attachment_name} /></label>
-        <label>Contrat signe<input type="file" name="signed_contract_attachment_file" onChange={(event) => syncFileName(event, 'signed_contract_attachment_name')} /><input type="hidden" name="signed_contract_attachment_name" defaultValue={employee?.signed_contract_attachment_name} /></label>
+        <label>Contrat signé<input type="file" name="signed_contract_attachment_file" onChange={(event) => syncFileName(event, 'signed_contract_attachment_name')} /><input type="hidden" name="signed_contract_attachment_name" defaultValue={employee?.signed_contract_attachment_name} /></label>
       </div></div>
       <div className="modal-section"><h3>Urgence</h3><div className="maintenance-grid hr-form-grid">
         <label>Contact urgence<input name="emergency_contact_name" defaultValue={employee?.emergency_contact_name} /></label>
-        <label>Telephone urgence<input name="emergency_contact_phone" defaultValue={employee?.emergency_contact_phone} /></label>
+        <label>Téléphone urgence<input name="emergency_contact_phone" defaultValue={employee?.emergency_contact_phone} /></label>
       </div></div>
       <div className="modal-section"><h3>Notes</h3><div className="form-grid"><label className="wide-field">Observations internes<textarea name="internal_notes" defaultValue={employee?.internal_notes} rows={4} /></label></div></div>
       <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose}>Annuler</button><button type="submit">Enregistrer</button></div>
@@ -1020,20 +1020,20 @@ function EmployeeModal({ title, employee, services, positions, onClose, onSubmit
 function ContractModal({ employees, employeeId, onClose, onSubmit }: { employees: Employee[]; employeeId?: number | null; onClose: () => void; onSubmit: (form: FormData, employeeId?: number) => void }) {
   const options = employeeOptions(employees);
   const [selectedEmployee, setSelectedEmployee] = useState<number | null>(employeeId ?? null);
-  return <Modal title="CrÃ©er contrat employÃ©" onClose={onClose}>
+  return <Modal title="Créer contrat employé" onClose={onClose}>
     <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); if (selectedEmployee) { const form = new FormData(event.currentTarget); form.set('employee_id', String(selectedEmployee)); onSubmit(form, selectedEmployee); } }}>
       <div className="modal-section"><h3>Contrat</h3><div className="maintenance-grid hr-form-grid">
-        <label className="locked-field">NÂ° contrat auto<input readOnly value="CTR-000001" /></label>
-        <label>EmployÃ© *<SearchableSelect options={options} value={selectedEmployee} onChange={(value) => setSelectedEmployee(value ? Number(value) : null)} placeholder="Choisir employÃ©" emptyMessage="Aucun employÃ©" /></label>
+        <label className="locked-field">N° contrat auto<input readOnly value="CTR-000001" /></label>
+        <label>Employé *<SearchableSelect options={options} value={selectedEmployee} onChange={(value) => setSelectedEmployee(value ? Number(value) : null)} placeholder="Choisir employé" emptyMessage="Aucun employé" /></label>
         <label>Type contrat<select name="contract_type" defaultValue="CDD">{contractTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
-        <label>Date dÃ©but<input type="date" name="start_date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
+        <label>Date début<input type="date" name="start_date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
         <label>Date fin<input type="date" name="end_date" /></label>
         <label>Salaire<input type="number" min="0" step="0.01" name="salary_amount" defaultValue="0" /></label>
         <label className="locked-field">Devise<input readOnly value="USD" /></label>
         <label>Fonction<input name="job_title" /></label>
         <label>Service<input name="department" /></label>
         <label>Fichier contrat<input type="file" name="contract_file" onChange={(event) => syncFileName(event, 'contract_file_name')} /><input type="hidden" name="contract_file_name" /></label>
-        <label>Statut<select name="status" defaultValue="ACTIVE"><option value="ACTIVE">Actif</option><option value="TERMINATED">RÃ©siliÃ©</option></select></label>
+        <label>Statut<select name="status" defaultValue="ACTIVE"><option value="ACTIVE">Actif</option><option value="TERMINATED">Résilié</option></select></label>
         <label className="wide-field">Observations<textarea name="observations" rows={3} /></label>
       </div></div>
       <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose}>Annuler</button><button type="submit" disabled={!selectedEmployee}>Enregistrer</button></div>
@@ -1044,15 +1044,15 @@ function ContractModal({ employees, employeeId, onClose, onSubmit }: { employees
 function AdvanceModal({ employees, employeeId, onClose, onSubmit }: { employees: Employee[]; employeeId?: number | null; onClose: () => void; onSubmit: (form: FormData, employeeId?: number) => void }) {
   const options = employeeOptions(employees);
   const [selectedEmployee, setSelectedEmployee] = useState<number | null>(employeeId ?? null);
-  return <Modal title="CrÃ©er avance" onClose={onClose}>
+  return <Modal title="Créer avance" onClose={onClose}>
     <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); if (selectedEmployee) { const form = new FormData(event.currentTarget); form.set('employee_id', String(selectedEmployee)); onSubmit(form, selectedEmployee); } }}>
       <div className="modal-section"><h3>Avance salaire</h3><div className="maintenance-grid hr-form-grid">
-        <label>EmployÃ© *<SearchableSelect options={options} value={selectedEmployee} onChange={(value) => setSelectedEmployee(value ? Number(value) : null)} placeholder="Choisir employÃ©" emptyMessage="Aucun employÃ©" /></label>
+        <label>Employé *<SearchableSelect options={options} value={selectedEmployee} onChange={(value) => setSelectedEmployee(value ? Number(value) : null)} placeholder="Choisir employé" emptyMessage="Aucun employé" /></label>
         <label>Date<input type="date" name="advance_date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
         <label>Montant<input type="number" min="0" step="0.01" name="amount" required /></label>
         <label>Mode paiement<select name="payment_method" defaultValue="BANK">{paymentMethods.map((value) => <option key={value} value={value}>{paymentMethodLabel(value)}</option>)}</select></label>
-        <label>RÃ©fÃ©rence<input name="reference" /></label>
-        <label>Ã‰chÃ©ancier remboursement<input name="repayment_schedule" /></label>
+        <label>Référence<input name="reference" /></label>
+        <label>Échéancier remboursement<input name="repayment_schedule" /></label>
         <label className="wide-field">Motif<textarea name="reason" rows={3} /></label>
         <label className="wide-field">Observations<textarea name="observations" rows={3} /></label>
       </div></div>
@@ -1064,15 +1064,15 @@ function AdvanceModal({ employees, employeeId, onClose, onSubmit }: { employees:
 function LeaveModal({ employees, employeeId, onClose, onSubmit }: { employees: Employee[]; employeeId?: number | null; onClose: () => void; onSubmit: (form: FormData, employeeId?: number) => void }) {
   const options = employeeOptions(employees);
   const [selectedEmployee, setSelectedEmployee] = useState<number | null>(employeeId ?? null);
-  return <Modal title="CrÃ©er congÃ©" onClose={onClose}>
+  return <Modal title="Créer congé" onClose={onClose}>
     <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); if (selectedEmployee) { const form = new FormData(event.currentTarget); form.set('employee_id', String(selectedEmployee)); onSubmit(form, selectedEmployee); } }}>
-      <div className="modal-section"><h3>CongÃ©</h3><div className="maintenance-grid hr-form-grid">
-        <label>EmployÃ© *<SearchableSelect options={options} value={selectedEmployee} onChange={(value) => setSelectedEmployee(value ? Number(value) : null)} placeholder="Choisir employÃ©" emptyMessage="Aucun employÃ©" /></label>
-        <label>Type congÃ©<select name="leave_type" defaultValue="Annuel">{leaveTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
-        <label>Date dÃ©but<input type="date" name="start_date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
+      <div className="modal-section"><h3>Congé</h3><div className="maintenance-grid hr-form-grid">
+        <label>Employé *<SearchableSelect options={options} value={selectedEmployee} onChange={(value) => setSelectedEmployee(value ? Number(value) : null)} placeholder="Choisir employé" emptyMessage="Aucun employé" /></label>
+        <label>Type congé<select name="leave_type" defaultValue="Annuel">{leaveTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
+        <label>Date début<input type="date" name="start_date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
         <label>Date fin<input type="date" name="end_date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
-        <label>Statut<select name="status" defaultValue="PENDING"><option value="DRAFT">Brouillon</option><option value="PENDING">DemandÃ©</option><option value="APPROVED">ApprouvÃ©</option><option value="REJECTED">RefusÃ©</option><option value="CANCELLED">AnnulÃ©</option></select></label>
-        <label>PiÃ¨ce jointe<input type="file" name="attachment_file" onChange={(event) => syncFileName(event, 'attachment_file_name')} /><input type="hidden" name="attachment_file_name" /></label>
+        <label>Statut<select name="status" defaultValue="PENDING"><option value="DRAFT">Brouillon</option><option value="PENDING">Demandé</option><option value="APPROVED">Approuvé</option><option value="REJECTED">Refusé</option><option value="CANCELLED">Annulé</option></select></label>
+        <label>Pièce jointe<input type="file" name="attachment_file" onChange={(event) => syncFileName(event, 'attachment_file_name')} /><input type="hidden" name="attachment_file_name" /></label>
         <label className="wide-field">Motif<textarea name="reason" rows={3} /></label>
         <label className="wide-field">Observations<textarea name="observations" rows={3} /></label>
       </div></div>
@@ -1088,13 +1088,13 @@ function AttendanceModal({ employees, onClose, onSubmit }: { employees: Employee
   return <Modal title="Pointage manuel" onClose={onClose}>
     <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); if (selectedEmployee) { const form = new FormData(event.currentTarget); form.set('employee_id', String(selectedEmployee)); form.set('absence', String(absence)); onSubmit(form); } }}>
       <div className="modal-section"><h3>Pointage</h3><div className="maintenance-grid hr-form-grid">
-        <label>EmployÃ© *<SearchableSelect options={options} value={selectedEmployee} onChange={(value) => setSelectedEmployee(value ? Number(value) : null)} placeholder="Choisir employÃ©" emptyMessage="Aucun employÃ©" /></label>
+        <label>Employé *<SearchableSelect options={options} value={selectedEmployee} onChange={(value) => setSelectedEmployee(value ? Number(value) : null)} placeholder="Choisir employé" emptyMessage="Aucun employé" /></label>
         <label>Date<input type="date" name="attendance_date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
-        <label>Heure entrÃ©e<input type="time" name="check_in_time" /></label>
+        <label>Heure entrée<input type="time" name="check_in_time" /></label>
         <label>Heure sortie<input type="time" name="check_out_time" /></label>
         <label>Retard (min)<input type="number" min="0" name="late_minutes" defaultValue="0" /></label>
-        <label>Heures travaillÃ©es<input type="number" step="0.25" min="0" name="worked_hours" defaultValue="0" /></label>
-        <label>Statut<select name="status" defaultValue="PRESENT"><option value="PRESENT">PrÃ©sent</option><option value="LATE">Retard</option><option value="ABSENT">Absent</option></select></label>
+        <label>Heures travaillées<input type="number" step="0.25" min="0" name="worked_hours" defaultValue="0" /></label>
+        <label>Statut<select name="status" defaultValue="PRESENT"><option value="PRESENT">Présent</option><option value="LATE">Retard</option><option value="ABSENT">Absent</option></select></label>
         <label className="checkbox-filter"><input type="checkbox" checked={absence} onChange={(event) => setAbsence(event.target.checked)} />Absence</label>
         <label className="wide-field">Notes<textarea name="notes" rows={3} /></label>
       </div></div>
@@ -1106,17 +1106,17 @@ function AttendanceModal({ employees, onClose, onSubmit }: { employees: Employee
 function PayrollModal({ employees, onClose, onSubmit }: { employees: Employee[]; onClose: () => void; onSubmit: (form: FormData) => void }) {
   const options = employeeOptions(employees);
   const [selectedEmployee, setSelectedEmployee] = useState<number | null>(null);
-  return <Modal title="GÃ©nÃ©rer paie" onClose={onClose}>
+  return <Modal title="Générer paie" onClose={onClose}>
     <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); if (selectedEmployee) { const form = new FormData(event.currentTarget); form.set('employee_id', String(selectedEmployee)); onSubmit(form); } }}>
       <div className="modal-section"><h3>Paie mensuelle</h3><div className="maintenance-grid hr-form-grid">
-        <label>EmployÃ© *<SearchableSelect options={options} value={selectedEmployee} onChange={(value) => setSelectedEmployee(value ? Number(value) : null)} placeholder="Choisir employÃ©" emptyMessage="Aucun employÃ©" /></label>
+        <label>Employé *<SearchableSelect options={options} value={selectedEmployee} onChange={(value) => setSelectedEmployee(value ? Number(value) : null)} placeholder="Choisir employé" emptyMessage="Aucun employé" /></label>
         <label>Mois<select name="month" defaultValue={String(new Date().getMonth() + 1)}>{Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={index + 1}>{monthLabel(index + 1)}</option>)}</select></label>
-        <label>AnnÃ©e<input name="year" defaultValue={String(new Date().getFullYear())} /></label>
+        <label>Année<input name="year" defaultValue={String(new Date().getFullYear())} /></label>
         <label>Salaire brut<input type="number" min="0" step="0.01" name="gross_salary" defaultValue="0" /></label>
         <label>Retenues<input type="number" min="0" step="0.01" name="deductions_total" defaultValue="0" /></label>
-        <label>Statut<select name="status" defaultValue="DRAFT"><option value="DRAFT">Brouillon</option><option value="VALIDATED">ValidÃ©</option></select></label>
+        <label>Statut<select name="status" defaultValue="DRAFT"><option value="DRAFT">Brouillon</option><option value="VALIDATED">Validé</option></select></label>
       </div></div>
-      <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose}>Annuler</button><button type="submit" disabled={!selectedEmployee}>GÃ©nÃ©rer</button></div>
+      <div className="modal-footer-sticky"><button type="button" className="secondary" onClick={onClose}>Annuler</button><button type="submit" disabled={!selectedEmployee}>Générer</button></div>
     </form>
   </Modal>;
 }
@@ -1311,7 +1311,7 @@ function employeeOptions(rows: Employee[]): SearchableSelectOption<number>[] {
   return rows.map((row) => ({
     value: row.id,
     label: `${employeeCode(row.employee_number, row.id)} - ${employeeName(row)}`,
-    meta: [`Service : ${row.department ?? '-'}`, `Fonction : ${row.job_title ?? '-'}`, row.phone ? `Telephone : ${row.phone}` : ''].filter(Boolean).join(' | '),
+    meta: [`Service : ${row.department ?? '-'}`, `Fonction : ${row.job_title ?? '-'}`, row.phone ? `Téléphone : ${row.phone}` : ''].filter(Boolean).join(' | '),
   }));
 }
 
@@ -1320,7 +1320,7 @@ function employeeWorkbook(detail: EmployeeDetail) {
     { name: 'Informations', rows: [exportEmployeeRow(detail)] },
     { name: 'Contrats', rows: detail.contracts.map(exportContractRow) },
     { name: 'Avances', rows: detail.advances.map(exportAdvanceRow) },
-    { name: 'Conges', rows: detail.leaves.map(exportLeaveRow) },
+    { name: 'Congés', rows: detail.leaves.map(exportLeaveRow) },
     { name: 'Pointage', rows: detail.attendance.map(exportAttendanceRow) },
     { name: 'Paie', rows: detail.payrolls.map(exportPayrollRow) },
     { name: 'Documents', rows: detail.documents },
@@ -1353,7 +1353,7 @@ function employeeCode(value: string | undefined, id: number) {
 function exportContractRow(row: EmployeeContract) {
   return {
     numero_contrat: row.contract_number,
-    employe: row.employee_name ?? `EmployÃ© #${row.employee_id}`,
+    employe: row.employee_name ?? `Employé #${row.employee_id}`,
     type_contrat: row.contract_type,
     debut: shortDate(row.start_date),
     fin: row.end_date ? shortDate(row.end_date) : '',
@@ -1417,7 +1417,7 @@ function employeeName(row: Pick<Employee, 'first_name' | 'last_name' | 'post_nam
 }
 
 function monthLabel(month: number) {
-  return ['Janvier', 'FÃ©vrier', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'AoÃ»t', 'Septembre', 'Octobre', 'Novembre', 'DÃ©cembre'][month - 1] ?? String(month);
+  return ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'][month - 1] ?? String(month);
 }
 
 function uniqueValues(values: Array<string | undefined>) {
@@ -1436,7 +1436,7 @@ function daysBetween(start: string, end: string) {
 }
 
 function employeeStatusLabel(value?: string) {
-  return ({ ACTIVE: 'Actif', ON_LEAVE: 'En congÃ©', SUSPENDED: 'Suspendu', INACTIVE: 'Inactif' } as Record<string, string>)[value ?? ''] ?? value ?? 'â€”';
+  return ({ ACTIVE: 'Actif', ON_LEAVE: 'En congé', SUSPENDED: 'Suspendu', INACTIVE: 'Inactif' } as Record<string, string>)[value ?? ''] ?? value ?? '?';
 }
 
 function contractLifecycleStatus(row: EmployeeContract) {
@@ -1449,26 +1449,26 @@ function contractLifecycleStatus(row: EmployeeContract) {
 }
 
 function contractStatusLabel(row: EmployeeContract) {
-  return ({ ACTIVE: 'Actif', EXPIRING: 'Expirant', EXPIRED: 'ExpirÃ©', TERMINATED: 'RÃ©siliÃ©' } as Record<string, string>)[contractLifecycleStatus(row)] ?? row.status;
+  return ({ ACTIVE: 'Actif', EXPIRING: 'Expirant', EXPIRED: 'Expiré', TERMINATED: 'Résilié' } as Record<string, string>)[contractLifecycleStatus(row)] ?? row.status;
 }
 
 function advanceStatusLabel(value: string) {
-  return ({ DRAFT: 'Brouillon', PENDING: 'DemandÃ©', APPROVED: 'ApprouvÃ©', REJECTED: 'RefusÃ©', PAID: 'PayÃ©' } as Record<string, string>)[value] ?? value;
+  return ({ DRAFT: 'Brouillon', PENDING: 'Demandé', APPROVED: 'Approuvé', REJECTED: 'Refusé', PAID: 'Payé' } as Record<string, string>)[value] ?? value;
 }
 
 function leaveStatusLabel(value: string) {
-  return ({ DRAFT: 'Brouillon', PENDING: 'DemandÃ©', APPROVED: 'ApprouvÃ©', REJECTED: 'RefusÃ©', CANCELLED: 'AnnulÃ©' } as Record<string, string>)[value] ?? value;
+  return ({ DRAFT: 'Brouillon', PENDING: 'Demandé', APPROVED: 'Approuvé', REJECTED: 'Refusé', CANCELLED: 'Annulé' } as Record<string, string>)[value] ?? value;
 }
 
 function attendanceStatusLabel(value?: string, absence?: boolean) {
   if (absence) return 'Absent';
-  return ({ PRESENT: 'PrÃ©sent', LATE: 'Retard', ABSENT: 'Absent' } as Record<string, string>)[value ?? ''] ?? value ?? 'PrÃ©sent';
+  return ({ PRESENT: 'Présent', LATE: 'Retard', ABSENT: 'Absent' } as Record<string, string>)[value ?? ''] ?? value ?? 'Présent';
 }
 
 function payrollStatusLabel(value: string) {
-  return ({ DRAFT: 'Brouillon', VALIDATED: 'ValidÃ©', PAID: 'PayÃ©' } as Record<string, string>)[value] ?? value;
+  return ({ DRAFT: 'Brouillon', VALIDATED: 'Validé', PAID: 'Payé' } as Record<string, string>)[value] ?? value;
 }
 
 function paymentMethodLabel(value?: string) {
-  return ({ CASH: 'EspÃ¨ces', BANK: 'Banque', MOBILE_MONEY: 'Mobile Money' } as Record<string, string>)[value ?? ''] ?? value ?? 'â€”';
+  return ({ CASH: 'Espèces', BANK: 'Banque', MOBILE_MONEY: 'Mobile Money' } as Record<string, string>)[value ?? ''] ?? value ?? '?';
 }
