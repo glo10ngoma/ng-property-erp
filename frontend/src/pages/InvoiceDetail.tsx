@@ -307,6 +307,13 @@ export function InvoiceDetail() {
           : Number(usdAmount || 0) + invoiceCdfEquivalentUsd
     ).toFixed(2),
   );
+  const paymentTenantDisplay =
+    invoice.tenant_name ||
+    [invoice.first_name, invoice.last_name].filter(Boolean).join(' ').trim() ||
+    'Non renseigné';
+  const paymentBuildingDisplay = invoice.building_name || 'Non renseigné';
+  const paymentUnitDisplay = invoice.unit_number || 'Non renseigné';
+  const paymentLeaseDisplay = invoice.lease_id ? formatLeaseReference(invoice.lease_number, invoice.lease_id) : 'Non renseigné';
 
   return (
     <section>
@@ -563,17 +570,19 @@ export function InvoiceDetail() {
                   <input
                     readOnly
                     className="locked-field"
-                    value={`${invoice.invoice_number} | ${invoice.tenant_name || `${invoice.first_name} ${invoice.last_name}`} | ${invoice.unit_number ?? '-'} | Facture: ${money(invoice.total)} USD | Payé: ${money(invoice.paid_amount)} USD | Reste: ${money(invoice.remaining_amount)} USD`}
+                    value={`${invoice.invoice_number} | ${paymentTenantDisplay} | ${invoice.unit_number ?? '-'} | Facture: ${money(invoice.total)} USD | Payé: ${money(invoice.paid_amount)} USD | Reste: ${money(invoice.remaining_amount)} USD`}
                   />
                 </label>
-                <label>Locataire<input readOnly className="locked-field" value={invoice.tenant_name || `${invoice.first_name} ${invoice.last_name}`} /></label>
-                <label>Bail<input readOnly className="locked-field" value={invoice.lease_id ? formatLeaseReference(invoice.lease_number, invoice.lease_id) : '-'} /></label>
-                <label>Appartement<input readOnly className="locked-field" value={invoice.unit_number ?? '-'} /></label>
+                <label>Locataire<input readOnly className="locked-field" value={paymentTenantDisplay} /></label>
+                <label>Immeuble<input readOnly className="locked-field" value={paymentBuildingDisplay} /></label>
+                <label>Appartement / Unité<input readOnly className="locked-field" value={paymentUnitDisplay} /></label>
+                <label>Bail<input readOnly className="locked-field" value={paymentLeaseDisplay} /></label>
               </div>
             </div>
             <div className="detail-section compact-modal-section">
               <summary>Paiement</summary>
               <div className="lease-section-grid">
+                <label>Reste dû<input readOnly className="locked-field" value={money(invoice.remaining_amount)} /></label>
                 <label>Date<input name="payment_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></label>
                 <label>Montant USD<input name="amount_usd" type="number" step="0.01" min="0" value={paymentCurrency === 'CDF' ? '0' : usdAmount} onChange={(event) => setUsdAmount(event.target.value)} disabled={paymentCurrency === 'CDF'} /></label>
                 <label>Montant CDF<input name="amount_cdf" type="number" step="1" min="0" value={paymentCurrency === 'USD' ? '' : cdfAmount} onChange={(event) => setCdfAmount(event.target.value)} disabled={paymentCurrency === 'USD'} /></label>
