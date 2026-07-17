@@ -6,6 +6,7 @@ import { api, exportCsv, exportXlsxWorkbook, includesText, shortDate, statusLabe
 import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage } from '../components';
 import { useApiList } from '../hooks';
+import { formatLeaseReference } from '../utils/lease-reference';
 
 type Tenant = {
   id: number;
@@ -483,7 +484,7 @@ function clientReference(id: number, tenantNumber?: number | null) {
 }
 
 function leaseReference(id: number, leaseNumber?: number | null) {
-  return `B-${String(leaseNumber ?? id).padStart(6, '0')}`;
+  return formatLeaseReference(leaseNumber, id);
 }
 
 function leaseType(tenant: Tenant) {

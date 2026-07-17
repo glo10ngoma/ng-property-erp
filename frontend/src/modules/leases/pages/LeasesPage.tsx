@@ -6,6 +6,7 @@ import { useAuth } from '../../../auth';
 import { EmptyState, Modal, PageHeader, SearchableSelect, StatusBadge, SuccessMessage, TenantSearchSelect } from '../../../components';
 import { useApiList } from '../../../hooks';
 import { openOrDownloadDocument } from '../../../core/utils/documentActions';
+import { formatLeaseReference } from '../../../utils/lease-reference';
 
 type Lease = {
   id: number;
@@ -473,7 +474,7 @@ function LeaseEditModal({
 }
 
 function leaseReference(lease: Lease) {
-  return `B-${String(lease.lease_number ?? lease.id).padStart(4, '0')}`;
+  return formatLeaseReference(lease.lease_number, lease.id);
 }
 
 function guaranteeStatus(lease: Lease | LeaseDetail) {

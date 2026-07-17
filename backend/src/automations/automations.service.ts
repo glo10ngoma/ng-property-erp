@@ -1196,7 +1196,7 @@ export class AutomationsService {
   }
 
   private leaseReference(lease: Pick<EligibleLease, 'id'> & { lease_number?: number | null }) {
-    return `B-${String(lease.lease_number ?? lease.id).padStart(6, '0')}`;
+    return `B-${String(lease.lease_number ?? lease.id).padStart(5, '0')}`;
   }
 
   private dateOnly(value: unknown) {

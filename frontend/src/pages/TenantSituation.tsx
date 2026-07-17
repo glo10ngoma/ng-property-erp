@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, money, paymentMethodLabel, shortDate } from '../api';
 import { EmptyState, PageHeader, StatusBadge } from '../components';
 import { useAuth } from '../core/auth/AuthContext';
+import { formatLeaseReference } from '../utils/lease-reference';
 
 type ReportRow = Record<string, unknown>;
 type SectionKey =
@@ -287,7 +288,7 @@ export function TenantSituation() {
           <option value="">Tous les baux</option>
           {leases.map((lease) => (
             <option key={String(lease.id)} value={String(lease.id)}>
-              Bail #{text(lease.id)} - {text(lease.status)}
+              {leaseReference(lease)} - {text(lease.status)}
             </option>
           ))}
         </select>
@@ -524,7 +525,7 @@ function GuaranteeTable({ rows }: { rows: ReportRow[] }) {
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
-                <td>#{text(row.lease_id)}</td>
+                <td>{formatLeaseReference(row.lease_number, row.lease_id)}</td>
                 <td>{`${text(row.building_name)} - ${text(row.unit_number)}`}</td>
                 <td className="right">{Number(row.guarantee_months ?? 0)}</td>
                 <td className="right">{amount(row.amount)}</td>
@@ -626,7 +627,7 @@ function DocumentTable({ rows, navigate }: { rows: ReportRow[]; navigate: (path:
                 <td>{text(row.document_type)}</td>
                 <td>{text(row.building_name)}</td>
                 <td>{text(row.unit_number)}</td>
-                <td>#{text(row.lease_id)}</td>
+                <td>{formatLeaseReference(row.lease_number, row.lease_id)}</td>
                 <td>{date(row.document_date ?? row.uploaded_at)}</td>
                 <td>{text(row.source_type, 'DOCUMENT')}</td>
                 <td className="actions">
@@ -698,7 +699,7 @@ function tenantTimeline(report: TenantReportData) {
     ...report.invoices.map((invoice) => ({ Date: date(invoice.issue_date), Evenement: 'Facture creee', Description: text(invoice.invoice_number), Utilisateur: '' })),
     ...report.payments.map((payment) => ({ Date: date(payment.payment_date), Evenement: 'Paiement recu', Description: text(payment.reference ?? payment.invoice_number), Utilisateur: '' })),
     ...report.invoices.filter((invoice) => invoice.last_reminder_at).map((invoice) => ({ Date: date(invoice.last_reminder_at), Evenement: 'Relance', Description: text(invoice.invoice_number), Utilisateur: '' })),
-    ...report.guarantees.filter((guarantee) => Number(guarantee.paid_amount ?? 0) > 0).map((guarantee) => ({ Date: date(guarantee.payment_date), Evenement: 'Garantie payee', Description: `Bail #${text(guarantee.lease_id)}`, Utilisateur: '' })),
+    ...report.guarantees.filter((guarantee) => Number(guarantee.paid_amount ?? 0) > 0).map((guarantee) => ({ Date: date(guarantee.payment_date), Evenement: 'Garantie payee', Description: formatLeaseReference(guarantee.lease_number, guarantee.lease_id), Utilisateur: '' })),
     ...report.documents.map((document) => ({ Date: date(document.document_date ?? document.uploaded_at), Evenement: 'Document ajoute', Description: text(document.file_name), Utilisateur: '' })),
   ].sort((a, b) => new Date(String(b.Date)).getTime() - new Date(String(a.Date)).getTime());
 }
@@ -860,7 +861,7 @@ function activeGuaranteeAmount(lease: ReportRow) {
 }
 
 function leaseReference(lease: ReportRow) {
-  return text(lease.lease_number ?? `#${text(lease.id)}`);
+  return formatLeaseReference(lease.lease_number, lease.id);
 }
 
 function normalizeDateOnly(value: unknown) {

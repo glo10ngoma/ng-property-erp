@@ -5,6 +5,7 @@ import { api, exportXlsxWorkbook, includesText, money, paymentMethodLabel, short
 import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, SuccessMessage } from '../components';
 import { useApiList } from '../hooks';
+import { formatLeaseReference } from '../utils/lease-reference';
 
 type Payment = {
   id: number;
@@ -444,7 +445,7 @@ function PaymentModal({
             </label>
             <label>
               Bail
-              <input value={selectedInvoice?.lease_id ? leaseReference(selectedInvoice.lease_number ?? selectedInvoice.lease_id) : '-'} readOnly className="locked-field" />
+              <input value={selectedInvoice?.lease_id ? formatLeaseReference(selectedInvoice.lease_number, selectedInvoice.lease_id) : '-'} readOnly className="locked-field" />
             </label>
             <label>
               Appartement
@@ -536,10 +537,6 @@ function paymentValidationError({
   if ((paymentCurrency === 'CDF' || paymentCurrency === 'MIXED' || amountCdf > 0) && rate <= 0) return 'Aucun taux de change disponible pour un paiement CDF.';
   if (totalEquivalentUsd > remaining + 0.01) return `Le montant dépasse le restant dû (${money(remaining)} USD).`;
   return '';
-}
-
-function leaseReference(value: number) {
-  return `B-${String(value).padStart(6, '0')}`;
 }
 
 function apiErrorMessage(error: unknown, fallback: string) {

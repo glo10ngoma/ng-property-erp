@@ -4,6 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, money, paymentMethodLabel, shortDate } from '../api';
 import { useAuth } from '../auth';
 import { Modal, SuccessMessage } from '../components';
+import { formatLeaseReference } from '../utils/lease-reference';
 
 type PaymentDetailData = {
   id: number;
@@ -200,7 +201,7 @@ export function PaymentDetail() {
             <strong>{payment.unit_number || '-'}</strong>
             <p>Immeuble: {payment.building_name || '-'}</p>
             <p>Adresse: {payment.building_address || '-'}, {payment.building_city || '-'}</p>
-            <p>Bail: {payment.lease_id ? leaseReference(payment.lease_number ?? payment.lease_id) : '-'}</p>
+            <p>Bail: {payment.lease_id ? formatLeaseReference(payment.lease_number, payment.lease_id) : '-'}</p>
             <p>Loyer contractuel: {payment.monthly_rent ? money(payment.monthly_rent) : '-'}</p>
           </div>
         </div>
@@ -301,7 +302,7 @@ function unitInfo(payment: PaymentDetailData) {
 
 function leaseInfo(payment: PaymentDetailData) {
   return {
-    bail: payment.lease_id ? leaseReference(payment.lease_number ?? payment.lease_id) : '',
+    bail: payment.lease_id ? formatLeaseReference(payment.lease_number, payment.lease_id) : '',
     debut: payment.lease_start_date ? shortDate(payment.lease_start_date) : '',
     fin: payment.lease_end_date ? shortDate(payment.lease_end_date) : '',
     statut: payment.lease_status ?? '',
@@ -319,12 +320,8 @@ function documentRows(payment: PaymentDetailData) {
   return [
     { Document: 'Recu PDF', Statut: 'Disponible', Detail: payment.receipt_number ? `Recu_${payment.receipt_number}.pdf` : 'Non disponible' },
     { Document: 'Piece jointe', Statut: payment.notes ? 'Disponible' : 'Non disponible', Detail: payment.notes ? 'Voir paiement' : 'Non disponible' },
-    { Document: 'Contrat lie', Statut: payment.lease_id ? 'Disponible' : 'Non disponible', Detail: payment.lease_id ? leaseReference(payment.lease_number ?? payment.lease_id) : 'Non disponible' },
+    { Document: 'Contrat lie', Statut: payment.lease_id ? 'Disponible' : 'Non disponible', Detail: payment.lease_id ? formatLeaseReference(payment.lease_number, payment.lease_id) : 'Non disponible' },
   ];
-}
-
-function leaseReference(value: number) {
-  return `B-${String(value).padStart(6, '0')}`;
 }
 
 function auditRows(payment: PaymentDetailData) {

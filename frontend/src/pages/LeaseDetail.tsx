@@ -5,6 +5,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, money, shortDate, statusLabel } from '../api';
 import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage } from '../components';
 import { useAuth } from '../core/auth/AuthContext';
+import { formatLeaseReference } from '../utils/lease-reference';
 
 type Lease = Record<string, any>;
 
@@ -545,7 +546,7 @@ function SimpleSection({ title, empty, children }: { title: string; empty: strin
 }
 
 function leaseReference(lease: Lease) {
-  return `B-${String(lease.lease_number ?? lease.id).padStart(4, '0')}`;
+  return formatLeaseReference(lease.lease_number, lease.id);
 }
 
 function amount(value: unknown) {

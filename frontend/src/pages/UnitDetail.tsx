@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, invoiceDisplayStatus, paymentMethodLabel, shortDate, statusLabel } from '../api';
 import { EmptyState, PageHeader, StatusBadge } from '../components';
 import { LeaseEndBadge } from './Units';
+import { formatLeaseReference } from '../utils/lease-reference';
 
 type UnitDetailData = {
   id: number;
@@ -474,7 +475,7 @@ function leaseRentAmount(lease: { monthly_rent?: number; maintenance_fee_amount?
 }
 
 function leaseReference(lease: { id: number; lease_number?: number | null }) {
-  return `B-${String(lease.lease_number ?? lease.id).padStart(6, '0')}`;
+  return formatLeaseReference(lease.lease_number, lease.id);
 }
 
 function displayUnitRentAmount(unit: UnitDetailData) {

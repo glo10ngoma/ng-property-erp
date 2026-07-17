@@ -64,12 +64,12 @@ export class ActivityService {
       );
       tasks.push(...maintenance.rows.map((row) => this.task(`maintenance-${row.id}`, 'Intervention maintenance', `${row.request_number} - ${row.title}`, 'Maintenance', row.due_date, row.status, '/maintenance', row.priority)));
       const leases = await this.db.query(
-        `SELECT id, end_date FROM leases
+        `SELECT id, lease_number, end_date FROM leases
          WHERE organization_id = $1 AND deleted_at IS NULL AND status = 'ACTIVE' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
          ORDER BY end_date LIMIT 8`,
         [organizationId],
       );
-      tasks.push(...leases.rows.map((row) => this.task(`lease-${row.id}`, 'Contrat à renouveler', `Bail #${row.id}`, 'Baux', row.end_date, 'PENDING', '/leases')));
+      tasks.push(...leases.rows.map((row) => this.task(`lease-${row.id}`, 'Contrat à renouveler', this.leaseReference(row.id, row.lease_number), 'Baux', row.end_date, 'PENDING', '/leases')));
     }
     if (role === 'ADMIN') {
       const inventories = await this.db.query(
@@ -101,12 +101,14 @@ export class ActivityService {
     );
     alerts.push(...stock.rows.map((row) => ({ id: `stock-${row.id}`, level: Number(row.current_quantity) <= 0 ? 'CRITICAL' : 'HIGH', title: 'Stock critique', detail: `${row.code ?? ''} ${row.name}`, path: '/stock' })));
     const guarantees = await this.db.query(
-      `SELECT id, lease_id, status FROM lease_guarantees
-       WHERE organization_id = $1 AND deleted_at IS NULL AND status <> 'PAID'
-       ORDER BY id DESC LIMIT 10`,
+      `SELECT g.id, g.lease_id, l.lease_number, g.status
+       FROM lease_guarantees g
+       LEFT JOIN leases l ON l.id = g.lease_id
+       WHERE g.organization_id = $1 AND g.deleted_at IS NULL AND g.status <> 'PAID'
+       ORDER BY g.id DESC LIMIT 10`,
       [organizationId],
     );
-    alerts.push(...guarantees.rows.map((row) => ({ id: `guarantee-${row.id}`, level: 'NORMAL', title: 'Garantie non payée', detail: `Bail #${row.lease_id}`, path: '/leases' })));
+    alerts.push(...guarantees.rows.map((row) => ({ id: `guarantee-${row.id}`, level: 'NORMAL', title: 'Garantie non payée', detail: this.leaseReference(row.lease_id, row.lease_number), path: '/leases' })));
     const maintenance = await this.db.query(
       `SELECT id, request_number, title, due_date, priority, status FROM maintenance_requests
        WHERE organization_id = $1 AND deleted_at IS NULL AND status NOT IN ('CLOSED', 'CANCELLED')
@@ -221,7 +223,7 @@ export class ActivityService {
     const organizationId = this.context.organizationId();
     const [tenants, leases, invoices, buildings, units, employees] = await Promise.all([
       this.db.query(`SELECT id, CONCAT(first_name,' ',last_name) AS label, 'Locataire' AS type, '/tenants' AS path FROM tenants WHERE organization_id=$1 AND deleted_at IS NULL AND CONCAT(first_name,' ',last_name,' ',COALESCE(phone,'')) ILIKE $2 LIMIT 8`, [organizationId, q]),
-      this.db.query(`SELECT id, CONCAT('Bail #', id) AS label, 'Bail' AS type, '/leases' AS path FROM leases WHERE organization_id=$1 AND deleted_at IS NULL AND id::TEXT ILIKE $2 LIMIT 8`, [organizationId, q]),
+      this.db.query(`SELECT id, CONCAT('B-', LPAD(COALESCE(lease_number, id)::TEXT, 5, '0')) AS label, 'Bail' AS type, '/leases' AS path FROM leases WHERE organization_id=$1 AND deleted_at IS NULL AND (id::TEXT ILIKE $2 OR COALESCE(lease_number, id)::TEXT ILIKE $2) LIMIT 8`, [organizationId, q]),
       this.db.query(`SELECT id, invoice_number AS label, 'Facture' AS type, CONCAT('/invoices/', id) AS path FROM invoices WHERE organization_id=$1 AND deleted_at IS NULL AND invoice_number ILIKE $2 LIMIT 8`, [organizationId, q]),
       this.db.query(`SELECT id, name AS label, 'Immeuble' AS type, '/buildings' AS path FROM buildings WHERE organization_id=$1 AND deleted_at IS NULL AND name ILIKE $2 LIMIT 8`, [organizationId, q]),
       this.db.query(`SELECT id, number AS label, 'Appartement' AS type, '/rental-units' AS path FROM units WHERE organization_id=$1 AND deleted_at IS NULL AND number ILIKE $2 LIMIT 8`, [organizationId, q]),
@@ -232,6 +234,10 @@ export class ActivityService {
 
   private task(id: string, title: string, object: string, module: string, dueDate: string | null, status: string, path: string, priority = 'NORMAL') {
     return { id, title, object, module, due_date: dueDate, status, path, priority };
+  }
+
+  private leaseReference(leaseId: number, leaseNumber?: number | null) {
+    return `B-${String(leaseNumber ?? leaseId).padStart(5, '0')}`;
   }
 
   private progress(tasks: Array<Record<string, unknown>>, validations: Array<Record<string, unknown>>) {

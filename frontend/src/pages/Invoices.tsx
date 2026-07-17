@@ -7,6 +7,7 @@ import { EmptyState, Modal, PageHeader, SearchableSelect, StatusBadge, SuccessMe
 import { useApiList } from '../hooks';
 import { OtherChargeInvoiceModal } from '../modules/invoices/components/OtherChargeInvoiceModal';
 import { addDaysToDateInputValue, todayDateInputValue } from '../modules/invoices/utils/dueDate';
+import { formatLeaseReference } from '../utils/lease-reference';
 
 type Invoice = {
   id: number;
@@ -16,6 +17,7 @@ type Invoice = {
   last_name: string;
   building_name: string;
   unit_number: string;
+  lease_id?: number;
   lease_number?: number;
   issue_date: string;
   due_date: string;
@@ -38,7 +40,7 @@ type Invoice = {
   whatsapp_delivery_status?: string;
 };
 type Tenant = { id: number; tenant_type?: string; company_name?: string; first_name: string; last_name: string; post_name?: string; phone?: string; monthly_rent: number; building_name: string; unit_number: string };
-type Lease = { id: number; tenant_id: number; tenant_name: string; building_name: string; unit_number: string; monthly_rent: number; maintenance_fee_amount?: number; monthly_syndic_amount?: number; status: string };
+type Lease = { id: number; lease_number?: number; tenant_id: number; tenant_name: string; building_name: string; unit_number: string; monthly_rent: number; maintenance_fee_amount?: number; monthly_syndic_amount?: number; status: string };
 
 const lineTypes = ['Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Penalty', 'Other'];
 const emptyFilters = { month: '', year: '', status: '', building: '', tenant: '', type: '', automatic: '', email: '', whatsapp: '' };
@@ -83,7 +85,7 @@ export function Invoices() {
     invoiceRent,
     invoiceSyndic,
   });
-  const leaseOptions = tenantLeases.map((lease) => ({ value: lease.id, label: `Bail #${lease.id}`, meta: `${lease.building_name} - ${lease.unit_number} - Loyer ${money(leaseRentAmount(lease))} - Syndic ${money(lease.monthly_syndic_amount ?? 0)}` }));
+  const leaseOptions = tenantLeases.map((lease) => ({ value: lease.id, label: formatLeaseReference(lease.lease_number, lease.id), meta: `${lease.building_name} - ${lease.unit_number} - Loyer ${money(leaseRentAmount(lease))} - Syndic ${money(lease.monthly_syndic_amount ?? 0)}` }));
   const buildingOptions = Array.from(new Set(data.map((invoice) => invoice.building_name).filter(Boolean)));
   const tenantOptions = Array.from(new Set(data.map(invoiceTenantName).filter(Boolean)));
 
@@ -229,7 +231,7 @@ export function Invoices() {
                 <td>{invoice.invoice_number}</td>
                 <td>{invoiceTypeLabel(invoiceTypeGroup(invoice))}</td>
                 <td>{invoiceTenantName(invoice)}</td>
-                <td>{invoice.lease_number ? leaseReference(invoice.lease_number) : '-'}</td>
+                <td>{invoice.lease_id ? formatLeaseReference(invoice.lease_number, invoice.lease_id) : '-'}</td>
                 <td>{invoice.building_name}</td>
                 <td>{invoice.unit_number}</td>
                 <td>{shortDate(invoice.issue_date)}</td>
@@ -332,10 +334,6 @@ function leaseRentAmount(lease: Pick<Lease, 'monthly_rent' | 'maintenance_fee_am
   return Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
 }
 
-function leaseReference(value: number) {
-  return `B-${String(value).padStart(6, '0')}`;
-}
-
 function rentInvoiceValidationError({
   tenant,
   selectedLease,
@@ -384,7 +382,7 @@ function invoiceExportRow(invoice: Invoice) {
   return {
     numero: invoice.invoice_number,
     locataire: invoiceTenantName(invoice),
-    bail: invoice.lease_number ? leaseReference(invoice.lease_number) : '',
+    bail: invoice.lease_id ? formatLeaseReference(invoice.lease_number, invoice.lease_id) : '',
     immeuble: invoice.building_name,
     unite: invoice.unit_number,
     emission: shortDate(invoice.issue_date),
