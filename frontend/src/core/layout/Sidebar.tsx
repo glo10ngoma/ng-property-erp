@@ -123,8 +123,7 @@ const navGroups: NavGroup[] = [
     label: 'Administration',
     icon: Settings,
     items: [
-      { to: '/platform/users', label: 'Utilisateurs', icon: ShieldCheck, permission: 'users.read', superAdminOnly: true },
-      { to: '/platform/roles', label: 'Rôles et permissions', icon: ShieldCheck, permission: 'users.read', superAdminOnly: true },
+      { to: '/users', label: 'Utilisateurs', icon: ShieldCheck, permission: 'users.read', superAdminOnly: true },
       { to: '/communications', label: 'Communications', icon: MessageSquare, permission: 'communication.read' },
       { label: 'Notifications', icon: MessageSquare, permission: 'communication.read', soon: true },
       { to: '/settings', label: 'Paramètres', icon: Settings, permission: 'settings.read' },
