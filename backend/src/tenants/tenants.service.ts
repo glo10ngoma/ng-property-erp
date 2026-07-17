@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { PoolClient } from 'pg';
 import { RequestContext } from '../auth/request-context';
 import { requireRow } from '../common/not-found';
 import { DatabaseService } from '../database/database.service';
@@ -14,7 +15,7 @@ export class TenantsService {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(`
       SELECT t.*,
-             ('CLI-' || LPAD(t.id::TEXT, 6, '0')) AS client_reference,
+             ('CLI-' || LPAD(COALESCE(t.tenant_number, t.id)::TEXT, 6, '0')) AS client_reference,
              lease_info.unit_id,
              lease_info.unit_number,
              lease_info.monthly_rent,
@@ -161,98 +162,105 @@ export class TenantsService {
   }
 
   async create(dto: CreateTenantDto) {
-    const organizationId = this.context.organizationId();
-    const includesCivilityColumns = await this.hasTenantCivilityColumns();
-    const columns = [
-      'tenant_type',
-      'first_name',
-      'last_name',
-      ...(includesCivilityColumns ? ['civility'] : []),
-      'post_name',
-      'company_name',
-      'rccm',
-      'tax_number',
-      'business_sector',
-      'legal_representative_name',
-      ...(includesCivilityColumns ? ['legal_representative_civility'] : []),
-      'legal_representative_role',
-      'legal_representative_phone',
-      'legal_representative_email',
-      'company_document_name',
-      'legal_form',
-      'national_id_number',
-      'commune',
-      'city',
-      'country',
-      'representative_post_name',
-      'representative_first_name',
-      'phone',
-      'secondary_phone',
-      'email',
-      'profession',
-      'address',
-      'id_document_type',
-      'id_number',
-      'id_document_file_name',
-      'id_document_file_url',
-      'nationality',
-      'emergency_contact_name',
-      'emergency_contact_phone',
-      'notes',
-      'unit_id',
-      'move_in_date',
-      'status',
-      'organization_id',
-    ];
-    const values = [
-      dto.tenant_type ?? 'PHYSICAL',
-      dto.first_name,
-      dto.last_name,
-      ...(includesCivilityColumns ? [this.normalizeCivility(dto.civility)] : []),
-      dto.post_name ?? null,
-      dto.company_name ?? null,
-      dto.rccm ?? null,
-      dto.tax_number ?? null,
-      dto.business_sector ?? null,
-      dto.legal_representative_name ?? null,
-      ...(includesCivilityColumns ? [this.normalizeCivility(dto.legal_representative_civility)] : []),
-      dto.legal_representative_role ?? null,
-      dto.legal_representative_phone ?? null,
-      dto.legal_representative_email || null,
-      dto.company_document_name ?? null,
-      dto.legal_form ?? null,
-      dto.national_id_number ?? null,
-      dto.commune ?? null,
-      dto.city ?? null,
-      dto.country ?? null,
-      dto.representative_post_name ?? null,
-      dto.representative_first_name ?? null,
-      dto.phone,
-      dto.secondary_phone ?? null,
-      dto.email || null,
-      dto.profession ?? null,
-      dto.address ?? null,
-      dto.id_document_type ?? null,
-      dto.id_number ?? null,
-      dto.id_document_file_name ?? null,
-      dto.id_document_file_url ?? null,
-      dto.nationality ?? null,
-      dto.emergency_contact_name ?? null,
-      dto.emergency_contact_phone ?? null,
-      dto.notes ?? null,
-      dto.unit_id ?? null,
-      dto.move_in_date ?? null,
-      dto.status,
-      organizationId,
-    ];
-    const placeholders = values.map((_, index) => `$${index + 1}`);
-    const { rows } = await this.db.query(
-      `INSERT INTO tenants (${columns.join(', ')})
-       VALUES (${placeholders.join(', ')}) RETURNING *`,
-      values,
-    );
-    if (dto.unit_id) await this.db.query(`UPDATE units SET status = 'OCCUPIED' WHERE id = $1 AND organization_id = $2`, [dto.unit_id, organizationId]);
-    return rows[0];
+    return this.db.transaction(async (client) => {
+      const organizationId = this.context.organizationId();
+      const includesCivilityColumns = await this.hasTenantCivilityColumns();
+      const tenantNumber = await this.nextTenantNumber(client, organizationId);
+      const columns = [
+        'tenant_type',
+        'first_name',
+        'last_name',
+        ...(includesCivilityColumns ? ['civility'] : []),
+        'post_name',
+        'company_name',
+        'rccm',
+        'tax_number',
+        'business_sector',
+        'legal_representative_name',
+        ...(includesCivilityColumns ? ['legal_representative_civility'] : []),
+        'legal_representative_role',
+        'legal_representative_phone',
+        'legal_representative_email',
+        'company_document_name',
+        'legal_form',
+        'national_id_number',
+        'commune',
+        'city',
+        'country',
+        'representative_post_name',
+        'representative_first_name',
+        'phone',
+        'secondary_phone',
+        'email',
+        'profession',
+        'address',
+        'id_document_type',
+        'id_number',
+        'id_document_file_name',
+        'id_document_file_url',
+        'nationality',
+        'emergency_contact_name',
+        'emergency_contact_phone',
+        'notes',
+        'unit_id',
+        'move_in_date',
+        'status',
+        'organization_id',
+        'tenant_number',
+      ];
+      const values = [
+        dto.tenant_type ?? 'PHYSICAL',
+        dto.first_name,
+        dto.last_name,
+        ...(includesCivilityColumns ? [this.normalizeCivility(dto.civility)] : []),
+        dto.post_name ?? null,
+        dto.company_name ?? null,
+        dto.rccm ?? null,
+        dto.tax_number ?? null,
+        dto.business_sector ?? null,
+        dto.legal_representative_name ?? null,
+        ...(includesCivilityColumns ? [this.normalizeCivility(dto.legal_representative_civility)] : []),
+        dto.legal_representative_role ?? null,
+        dto.legal_representative_phone ?? null,
+        dto.legal_representative_email || null,
+        dto.company_document_name ?? null,
+        dto.legal_form ?? null,
+        dto.national_id_number ?? null,
+        dto.commune ?? null,
+        dto.city ?? null,
+        dto.country ?? null,
+        dto.representative_post_name ?? null,
+        dto.representative_first_name ?? null,
+        dto.phone,
+        dto.secondary_phone ?? null,
+        dto.email || null,
+        dto.profession ?? null,
+        dto.address ?? null,
+        dto.id_document_type ?? null,
+        dto.id_number ?? null,
+        dto.id_document_file_name ?? null,
+        dto.id_document_file_url ?? null,
+        dto.nationality ?? null,
+        dto.emergency_contact_name ?? null,
+        dto.emergency_contact_phone ?? null,
+        dto.notes ?? null,
+        dto.unit_id ?? null,
+        dto.move_in_date ?? null,
+        dto.status,
+        organizationId,
+        tenantNumber,
+      ];
+      const placeholders = values.map((_, index) => `$${index + 1}`);
+      const { rows } = await client.query(
+        `INSERT INTO tenants (${columns.join(', ')})
+         VALUES (${placeholders.join(', ')}) RETURNING *`,
+        values,
+      );
+      if (dto.unit_id) {
+        await client.query(`UPDATE units SET status = 'OCCUPIED' WHERE id = $1 AND organization_id = $2`, [dto.unit_id, organizationId]);
+      }
+      return rows[0];
+    });
   }
 
   async update(id: number, dto: UpdateTenantDto) {
@@ -417,5 +425,20 @@ export class TenantsService {
         .then(({ rows }) => Number(rows[0]?.count ?? 0) === 2);
     }
     return this.tenantCivilityColumnsPromise;
+  }
+
+  private async nextTenantNumber(client: PoolClient, organizationId: number) {
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`tenant-number-${organizationId}`]);
+    const { rows } = await client.query(
+      `SELECT GREATEST(
+         COALESCE(MAX(tenant_number), 0),
+         COUNT(*) FILTER (WHERE tenant_number IS NULL)
+       ) + 1 AS value
+       FROM tenants
+       WHERE organization_id = $1
+         AND deleted_at IS NULL`,
+      [organizationId],
+    );
+    return Number(rows[0]?.value ?? 1);
   }
 }

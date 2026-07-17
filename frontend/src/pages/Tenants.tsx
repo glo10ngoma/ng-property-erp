@@ -9,6 +9,7 @@ import { useApiList } from '../hooks';
 
 type Tenant = {
   id: number;
+  tenant_number?: number | null;
   client_reference?: string;
   tenant_type?: string;
   civility?: string;
@@ -253,7 +254,7 @@ export function Tenants() {
           <tbody>
             {sorted.map((tenant) => (
               <tr key={tenant.id} className="clickable-row" onClick={() => navigate(`/tenants/${tenant.id}/situation`)}>
-                <td>{tenant.client_reference ?? clientReference(tenant.id)}</td>
+                <td>{tenant.client_reference ?? clientReference(tenant.id, tenant.tenant_number)}</td>
                 <td>{tenantTypeLabel(tenant.tenant_type)}</td>
                 <td>{tenantName(tenant)}</td>
                 <td>{tenant.phone}</td>
@@ -415,7 +416,7 @@ function FormSection({ title, children }: { title: string; children: ReactNode }
 
 function exportTenantRows(rows: Tenant[]) {
   return rows.map((tenant) => ({
-    reference_client: tenant.client_reference ?? clientReference(tenant.id),
+    reference_client: tenant.client_reference ?? clientReference(tenant.id, tenant.tenant_number),
     type: tenantTypeLabel(tenant.tenant_type),
     nom: tenantName(tenant),
     telephone: tenant.phone,
@@ -444,12 +445,12 @@ function exportTenantListWorkbook(rows: Tenant[]) {
   const totalUnpaid = rows.reduce((sum, tenant) => sum + Number(tenant.remaining_amount ?? 0), 0);
   exportXlsxWorkbook('Locataires.xlsx', [
     { name: 'Informations locataire', rows: exportTenantRows(rows) },
-    { name: 'Baux', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), type: tenantTypeLabel(tenant.tenant_type), nom: tenantName(tenant), bail: tenant.active_lease_id ? leaseReference(tenant.active_lease_id, tenant.active_lease_number) : 'Sans bail', nombre_baux_actifs: tenant.active_lease_count ?? tenant.active_leases_count ?? 0, fin_bail: dateText(tenant.active_lease_end_date), statut: tenant.active_lease_status ?? '' })) },
-    { name: 'Factures', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), solde_restant: tenant.remaining_amount ?? 0, factures_retard: tenant.overdue_invoices ?? 0 })) },
-    { name: 'Paiements', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), dernier_paiement: dateText(tenant.last_payment_date) })) },
+    { name: 'Baux', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id, tenant.tenant_number), type: tenantTypeLabel(tenant.tenant_type), nom: tenantName(tenant), bail: tenant.active_lease_id ? leaseReference(tenant.active_lease_id, tenant.active_lease_number) : 'Sans bail', nombre_baux_actifs: tenant.active_lease_count ?? tenant.active_leases_count ?? 0, fin_bail: dateText(tenant.active_lease_end_date), statut: tenant.active_lease_status ?? '' })) },
+    { name: 'Factures', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id, tenant.tenant_number), nom: tenantName(tenant), solde_restant: tenant.remaining_amount ?? 0, factures_retard: tenant.overdue_invoices ?? 0 })) },
+    { name: 'Paiements', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id, tenant.tenant_number), nom: tenantName(tenant), dernier_paiement: dateText(tenant.last_payment_date) })) },
     { name: 'Garanties', rows: [] },
-    { name: 'Relances', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), derniere_relance: tenant.last_reminder_at ? dateText(tenant.last_reminder_at) : 'Jamais', nombre_relances: tenant.reminder_count ?? 0 })) },
-    { name: 'Documents', rows: rows.filter((tenant) => tenant.id_document_file_name || tenant.company_document_name).map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id), nom: tenantName(tenant), document: tenant.id_document_file_name ?? tenant.company_document_name })) },
+    { name: 'Relances', rows: rows.map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id, tenant.tenant_number), nom: tenantName(tenant), derniere_relance: tenant.last_reminder_at ? dateText(tenant.last_reminder_at) : 'Jamais', nombre_relances: tenant.reminder_count ?? 0 })) },
+    { name: 'Documents', rows: rows.filter((tenant) => tenant.id_document_file_name || tenant.company_document_name).map((tenant) => ({ reference_client: tenant.client_reference ?? clientReference(tenant.id, tenant.tenant_number), nom: tenantName(tenant), document: tenant.id_document_file_name ?? tenant.company_document_name })) },
     { name: 'Timeline', rows: rows.map((tenant) => ({ date: dateText(tenant.created_at), evenement: 'Locataire cree', description: tenantName(tenant), utilisateur: '' })) },
     { name: 'Rentabilite', rows: [{ total_loyers_factures: totalInvoiced, total_syndic: totalSyndic, total_general: totalGeneral, total_encaisse: 'Non disponible', total_impayes: totalUnpaid, nombre_baux: rows.reduce((sum, tenant) => sum + Number(tenant.active_lease_count ?? tenant.active_leases_count ?? 0), 0), nombre_relances: rows.reduce((sum, tenant) => sum + Number(tenant.reminder_count ?? 0), 0), date_dernier_paiement: latestDate(rows.map((tenant) => tenant.last_payment_date)), solde_restant: totalUnpaid }] },
   ]);
@@ -477,8 +478,8 @@ function tenantTypeLabel(value?: string) {
   return value === 'COMPANY' ? 'Societe' : 'Physique';
 }
 
-function clientReference(id: number) {
-  return `CLI-${String(id).padStart(6, '0')}`;
+function clientReference(id: number, tenantNumber?: number | null) {
+  return `CLI-${String(tenantNumber ?? id).padStart(6, '0')}`;
 }
 
 function leaseReference(id: number, leaseNumber?: number | null) {
