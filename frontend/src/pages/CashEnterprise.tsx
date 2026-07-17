@@ -5,6 +5,8 @@ import { api, exportXlsxWorkbook, includesText, shortDate } from '../api';
 import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, SuccessMessage } from '../components';
 import { useApiList } from '../hooks';
+import { Trash2 } from 'lucide-react';
+import { useCashExpenseCategories, type CashExpenseCategory } from '../modules/cash/hooks/useCashExpenseCategories';
 
 type CashMovement = {
   id: number;
@@ -64,14 +66,6 @@ type CashSession = {
   difference_amount?: number;
 };
 
-type CashExpenseCategory = {
-  id: number;
-  code: string;
-  name: string;
-  description?: string | null;
-  status: 'ACTIVE' | 'INACTIVE';
-};
-
 function formatCashAmount(value: number | string | null | undefined, currency: string) {
   const amount = Number(value ?? 0);
   const formatted = new Intl.NumberFormat('fr-FR', {
@@ -93,7 +87,7 @@ export function CashPage() {
   const navigate = useNavigate();
   const movements = useApiList<CashMovement>('/cash/movements');
   const sessions = useApiList<CashSession>('/cash/sessions');
-  const expenseCategories = useApiList<CashExpenseCategory>('/cash/expense-categories');
+  const expenseCategories = useCashExpenseCategories();
   const [query, setQuery] = useState('');
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -233,7 +227,7 @@ export function CashPage() {
     setError('');
     const response = await api.post<CashExpenseCategory>('/cash/expense-categories', payload);
     await expenseCategories.reload();
-    setSuccess('Categorie de depense creee.');
+    setSuccess('Cat\u00e9gorie de d\u00e9pense cr\u00e9\u00e9e.');
     return response.data;
   }
 
@@ -313,7 +307,7 @@ export function CashPage() {
         title="Caisse"
         action={
           <button type="button" className="secondary" onClick={() => navigate('/cash/categories')}>
-            Categories de depenses
+            {'Cat\u00e9gories de d\u00e9penses'}
           </button>
         }
       />
@@ -331,27 +325,26 @@ export function CashPage() {
         <div className="mini-stat"><span>Entrees CDF du mois</span><strong>{formatCashAmount(stats.cdf.monthIn, 'CDF')}</strong></div>
         <div className="mini-stat"><span>Depenses CDF du mois</span><strong>{formatCashAmount(stats.cdf.monthOut, 'CDF')}</strong></div>
         <div className="mini-stat"><span>Nombre de mouvements</span><strong>{stats.count}</strong></div>
+        <div className="mini-stat">
+          <span>Session caisse</span>
+          <strong>{openSession ? 'Ouverte' : 'Aucune session ouverte'}</strong>
+        </div>
+        <div className="mini-stat">
+          <span>Ouverture</span>
+          <strong>{openSession ? formatCashAmount(openSession.opening_balance, 'USD') : '-'}</strong>
+        </div>
+        <div className="mini-stat">
+          <span>Solde attendu</span>
+          <strong>{openSession ? formatCashAmount(expectedClosingBalance, 'USD') : '-'}</strong>
+        </div>
+        <div className="mini-stat">
+          <span>Ouverte le</span>
+          <strong>{openSession ? shortDate(openSession.opened_at) : '-'}</strong>
+        </div>
       </div>
 
       <div className="cash-session-panel">
-        <div className="mini-stats cash-kpi-row cash-kpi-row-session">
-          <div className="mini-stat">
-            <span>Session caisse</span>
-            <strong>{openSession ? 'Ouverte' : 'Aucune session ouverte'}</strong>
-          </div>
-          <div className="mini-stat">
-            <span>Ouverture</span>
-            <strong>{openSession ? formatCashAmount(openSession.opening_balance, 'USD') : '-'}</strong>
-          </div>
-          <div className="mini-stat">
-            <span>Solde attendu</span>
-            <strong>{openSession ? formatCashAmount(expectedClosingBalance, 'USD') : '-'}</strong>
-          </div>
-          <div className="mini-stat">
-            <span>Ouverte le</span>
-            <strong>{openSession ? shortDate(openSession.opened_at) : '-'}</strong>
-          </div>
-        </div>
+        {expenseCategories.error ? <div className="error-message">{expenseCategories.error}</div> : null}
         {can('cash.create') ? (
           <div className="actions-row cash-action-row">
             <button type="button" onClick={() => setOpenSessionModal(true)} disabled={Boolean(openSession)}>
@@ -380,7 +373,7 @@ export function CashPage() {
           <option value="OUT">Depense</option>
         </select>
         <select value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}>
-          <option value="">Categorie</option>
+          <option value="">{'Cat\u00e9gorie'}</option>
           {categoryOptions.map((category) => (
             <option key={category} value={category}>
               {cashCategoryLabel(category, categoryNameMap)}
@@ -394,7 +387,7 @@ export function CashPage() {
           <option value="CDF">CDF</option>
         </select>
         <div className="filter-actions cash-filter-actions">
-          <button type="button" className="secondary" onClick={() => setFilters({ type: '', category: '', period: '', currency: '' })}>Reinitialiser</button>
+          <button type="button" className="secondary" onClick={() => setFilters({ type: '', category: '', period: '', currency: '' })}>{'R\u00e9initialiser'}</button>
           <button
             type="button"
             className="secondary"
@@ -495,8 +488,9 @@ export function CashPage() {
                     {can('cash.update') ? (
                       <button
                         type="button"
-                        className="danger compact-action"
-                        title="Supprimer"
+                        className="icon-btn danger"
+                        title="Supprimer le mouvement"
+                        aria-label="Supprimer le mouvement"
                         onClick={(event) => {
                           event.stopPropagation();
                           if (movement.is_locked) {
@@ -506,7 +500,7 @@ export function CashPage() {
                           setDeleteTarget(movement);
                         }}
                       >
-                        Suppr.
+                        <Trash2 size={16} />
                       </button>
                     ) : null}
                   </div>
@@ -948,7 +942,7 @@ function CashExpenseForm({
 
   async function submit() {
     if (!formState.category) {
-      setFormError('La categorie est obligatoire.');
+      setFormError('La cat\u00e9gorie est obligatoire.');
       return;
     }
     setSubmitting(true);
@@ -970,7 +964,7 @@ function CashExpenseForm({
       resetForm();
       setOpen(false);
     } catch (err: any) {
-      setFormError(apiErrorMessage(err, 'Impossible d enregistrer la depense.'));
+      setFormError(apiErrorMessage(err, 'Impossible d enregistrer la d\u00e9pense.'));
       setSubmitting(false);
       return;
     }
@@ -981,11 +975,11 @@ function CashExpenseForm({
     <>
       <div className="actions-row">
         <button type="button" onClick={() => setOpen(true)}>
-          Enregistrer depense
+          {'Enregistrer d\u00e9pense'}
         </button>
       </div>
       {open && (
-        <Modal title="Enregistrer depense" onClose={() => setOpen(false)}>
+        <Modal title={'Enregistrer d\u00e9pense'} onClose={() => setOpen(false)}>
           <form
             className="cash-modal-form"
             onSubmit={(event) => {
@@ -1011,7 +1005,7 @@ function CashExpenseForm({
                   />
                 </label>
                 <label className="lease-field-wide">
-                  Categorie *
+                  {'Cat\u00e9gorie *'}
                   <div className="cash-category-inline">
                     <select
                       name="category"
@@ -1027,7 +1021,7 @@ function CashExpenseForm({
                       ))}
                     </select>
                     <button type="button" className="secondary" onClick={() => setCategoryModalOpen(true)}>
-                      + Nouvelle categorie
+                      {'+ Nouvelle cat\u00e9gorie'}
                     </button>
                   </div>
                 </label>
@@ -1183,7 +1177,7 @@ function CashInlineCategoryModal({
         status: 'ACTIVE',
       });
     } catch (err: any) {
-      setError(apiErrorMessage(err, 'Impossible de creer la categorie.'));
+      setError(apiErrorMessage(err, 'Impossible de cr\u00e9er la cat\u00e9gorie.'));
       setSubmitting(false);
       return;
     }
@@ -1191,7 +1185,7 @@ function CashInlineCategoryModal({
   }
 
   return (
-    <Modal title="Nouvelle categorie" onClose={onClose}>
+    <Modal title={'Nouvelle cat\u00e9gorie'} onClose={onClose}>
       <form
         className="cash-modal-form"
         onSubmit={(event) => {
@@ -1200,7 +1194,7 @@ function CashInlineCategoryModal({
         }}
       >
         <div className="modal-section">
-          <h3>Categorie de depense</h3>
+          <h3>{'Cat\u00e9gorie de d\u00e9pense'}</h3>
           <div className="lease-section-grid">
             <label>
               Code
@@ -1208,7 +1202,7 @@ function CashInlineCategoryModal({
             </label>
             <label>
               Nom *
-              <input name="name" required placeholder="Autre depense" />
+              <input name="name" required placeholder={'Autre d\u00e9pense'} />
             </label>
             <label className="lease-field-full">
               Description
@@ -1257,7 +1251,7 @@ function cashCategoryLabel(value: string, categories?: Record<string, string>) {
       INVOICE_PAYMENT: 'Paiement facture',
       SALARY_ADVANCE: 'Avance salaire',
       OTHER_INCOME: 'Autre entree',
-      OTHER_EXPENSE: 'Autre depense',
+      OTHER_EXPENSE: 'Autre d\u00e9pense',
       LEASE_GUARANTEE: 'Garantie locative',
       LEASE_GUARANTEE_REFUND: 'Remboursement garantie',
       SALARY_PAYMENT: 'Paiement salaire',

@@ -1,6 +1,7 @@
 ﻿import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { HttpException, InternalServerErrorException, Logger } from '@nestjs/common';
+import { ServiceUnavailableException } from '@nestjs/common';
 import { RequestContext } from '../auth/request-context';
 import { hashPassword } from '../auth/password';
 import { requireRow } from '../common/not-found';
@@ -1867,7 +1868,12 @@ export class SaasService {
   }
 
   async cashExpenseCategories() {
-    return this.findAll('cash_expense_categories', 'name');
+    try {
+      return await this.findAll('cash_expense_categories', 'name');
+    } catch (error) {
+      this.handleCashExpenseCategorySchemaError(error);
+      throw error;
+    }
   }
 
   async createCashExpenseCategory(body: Record<string, unknown>) {
@@ -1878,6 +1884,7 @@ export class SaasService {
       if (error?.code === '23505') {
         throw new ConflictException('Une catégorie de dépense avec ce code ou ce nom existe déjà.');
       }
+      this.handleCashExpenseCategorySchemaError(error);
       throw error;
     }
   }
@@ -1901,6 +1908,7 @@ export class SaasService {
       if (error?.code === '23505') {
         throw new ConflictException('Une catégorie de dépense avec ce code ou ce nom existe déjà.');
       }
+      this.handleCashExpenseCategorySchemaError(error);
       throw error;
     }
   }
@@ -8460,6 +8468,14 @@ export class SaasService {
       return 'Ce mouvement est lié à un achat fournisseur et ne peut pas être supprimé.';
     }
     return null;
+  }
+
+  private handleCashExpenseCategorySchemaError(error: any) {
+    if (error?.code === '42P01' || error?.code === '42703') {
+      throw new ServiceUnavailableException(
+        'Le référentiel des catégories de dépense n’est pas disponible. Appliquez la migration 20260717_cash_expense_categories.sql.',
+      );
+    }
   }
 
   private async createHrCatalogRow(table: 'hr_services' | 'hr_positions', body: Record<string, unknown>) {

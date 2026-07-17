@@ -4,20 +4,12 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../../api';
 import { useAuth } from '../../../auth';
 import { EmptyState, LoadingState, Modal, PageHeader, SuccessMessage } from '../../../components';
-import { useApiList } from '../../../hooks';
-
-type CashExpenseCategory = {
-  id: number;
-  code: string;
-  name: string;
-  description?: string | null;
-  status: 'ACTIVE' | 'INACTIVE';
-};
+import { CashExpenseCategory, useCashExpenseCategories } from '../hooks/useCashExpenseCategories';
 
 export function CashExpenseCategoriesPage() {
   const navigate = useNavigate();
   const { can } = useAuth();
-  const list = useApiList<CashExpenseCategory>('/cash/expense-categories');
+  const list = useCashExpenseCategories();
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<CashExpenseCategory | null>(null);
   const [success, setSuccess] = useState('');
@@ -41,11 +33,11 @@ export function CashExpenseCategoriesPage() {
     if (current?.id) {
       await api.patch(`/cash/expense-categories/${current.id}`, payload);
       setEditing(null);
-      setSuccess('Categorie de depense modifiee.');
+      setSuccess('Cat\u00e9gorie de d\u00e9pense modifi\u00e9e.');
     } else {
       await api.post('/cash/expense-categories', payload);
       setCreateOpen(false);
-      setSuccess('Categorie de depense creee.');
+      setSuccess('Cat\u00e9gorie de d\u00e9pense cr\u00e9\u00e9e.');
     }
     await list.reload();
   }
@@ -53,7 +45,7 @@ export function CashExpenseCategoriesPage() {
   return (
     <section>
       <PageHeader
-        title="Categories de depenses"
+        title={'Cat\u00e9gories de d\u00e9penses'}
         action={
           <div className="actions-row">
             <button type="button" className="secondary" onClick={() => navigate('/cash')}>
@@ -63,7 +55,7 @@ export function CashExpenseCategoriesPage() {
             {can('cash.create') ? (
               <button type="button" onClick={() => setCreateOpen(true)}>
                 <Plus size={16} />
-                Nouvelle categorie
+                {'Nouvelle cat\u00e9gorie'}
               </button>
             ) : null}
           </div>
@@ -72,6 +64,15 @@ export function CashExpenseCategoriesPage() {
       <SuccessMessage message={success} />
       {list.loading ? (
         <LoadingState />
+      ) : list.error ? (
+        <div className="stack">
+          <div className="error-message">{list.error}</div>
+          <div className="actions-row">
+            <button type="button" className="secondary" onClick={() => void list.reload()}>
+              {'R\u00e9essayer'}
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="table-wrap">
           <table>
@@ -102,20 +103,20 @@ export function CashExpenseCategoriesPage() {
               ))}
             </tbody>
           </table>
-          {!ordered.length ? <EmptyState message="Aucune categorie de depense." /> : null}
+          {!ordered.length ? <EmptyState message={'Aucune cat\u00e9gorie de d\u00e9pense.'} /> : null}
         </div>
       )}
 
       {createOpen ? (
         <CashExpenseCategoryModal
-          title="Nouvelle categorie"
+          title={'Nouvelle cat\u00e9gorie'}
           onClose={() => setCreateOpen(false)}
           onSubmit={(form) => save(form, null)}
         />
       ) : null}
       {editing ? (
         <CashExpenseCategoryModal
-          title="Modifier categorie"
+          title={'Modifier cat\u00e9gorie'}
           category={editing}
           onClose={() => setEditing(null)}
           onSubmit={(form) => save(form, editing)}
@@ -146,7 +147,7 @@ function CashExpenseCategoryModal({
       await onSubmit(new FormData(form));
     } catch (err: any) {
       const message = err?.response?.data?.message;
-      setError(Array.isArray(message) ? message.join(' | ') : message || 'Impossible d enregistrer la categorie.');
+      setError(Array.isArray(message) ? message.join(' | ') : message || 'Impossible d enregistrer la cat\u00e9gorie.');
       setSubmitting(false);
       return;
     }
@@ -163,7 +164,7 @@ function CashExpenseCategoryModal({
         }}
       >
         <div className="modal-section">
-          <h3>Referentiel</h3>
+          <h3>{'R\u00e9f\u00e9rentiel'}</h3>
           <div className="lease-section-grid">
             <label>
               Code
@@ -171,7 +172,7 @@ function CashExpenseCategoryModal({
             </label>
             <label>
               Nom *
-              <input name="name" required defaultValue={category?.name ?? ''} placeholder="Autre depense" />
+              <input name="name" required defaultValue={category?.name ?? ''} placeholder={'Autre d\u00e9pense'} />
             </label>
             <label>
               Statut
