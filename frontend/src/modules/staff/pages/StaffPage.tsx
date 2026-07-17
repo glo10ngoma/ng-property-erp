@@ -4,6 +4,8 @@ export {
   EmployeeDetailPage,
   EmployeesPage,
   LeavesPage,
+  PositionsPage,
+  ServicesPage,
   StaffPage,
 } from './StaffPages';
 

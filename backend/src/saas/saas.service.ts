@@ -1129,7 +1129,41 @@ export class SaasService {
 
   async employees() {
     const today = new Date().toISOString().slice(0, 10);
-    const { rows } = await this.db.query(
+    const rows = await this.queryOptionalRows(
+      `SELECT e.*,
+              COALESCE(s.name, e.department) AS department,
+              COALESCE(p.name, e.job_title) AS job_title,
+              CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS full_name,
+              c.contract_number AS current_contract_number,
+              c.contract_type AS current_contract_type,
+              c.end_date AS current_contract_end_date,
+              a.status AS attendance_status_today
+       FROM employees e
+       LEFT JOIN hr_services s
+         ON s.id = e.service_id
+        AND s.organization_id = e.organization_id
+        AND s.deleted_at IS NULL
+       LEFT JOIN hr_positions p
+         ON p.id = e.position_id
+        AND p.organization_id = e.organization_id
+        AND p.deleted_at IS NULL
+       LEFT JOIN LATERAL (
+         SELECT ec.contract_number, ec.contract_type, ec.end_date
+         FROM employee_contracts ec
+         WHERE ec.employee_id = e.id
+           AND ec.organization_id = e.organization_id
+           AND ec.deleted_at IS NULL
+         ORDER BY CASE WHEN ec.status = 'ACTIVE' THEN 0 ELSE 1 END, ec.start_date DESC, ec.id DESC
+         LIMIT 1
+       ) c ON TRUE
+       LEFT JOIN employee_attendance a
+         ON a.employee_id = e.id
+        AND a.organization_id = e.organization_id
+        AND a.deleted_at IS NULL
+        AND a.attendance_date = $2::DATE
+       WHERE e.organization_id = $1 AND e.deleted_at IS NULL
+       ORDER BY e.created_at DESC, e.id DESC`,
+      [this.context.organizationId(), today],
       `SELECT e.*,
               CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS full_name,
               c.contract_number AS current_contract_number,
@@ -1160,19 +1194,27 @@ export class SaasService {
 
   async createEmployee(body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
+      const serviceId = this.normalizeOptionalPositiveInt(body.service_id ?? body.serviceId);
+      const positionId = this.normalizeOptionalPositiveInt(body.position_id ?? body.positionId);
+      const serviceName = await this.resolveHrCatalogName(client, 'hr_services', serviceId, body.department);
+      const positionName = await this.resolveHrCatalogName(client, 'hr_positions', positionId, body.job_title);
       const providedEmployeeNumber = String(body.employee_number ?? '').trim();
       const employeeNumber = providedEmployeeNumber && !providedEmployeeNumber.toLowerCase().includes('automatique')
         ? providedEmployeeNumber
         : await this.nextEmployeeNumber(client);
       const payload = {
         ...body,
+        service_id: serviceId,
+        position_id: positionId,
+        department: serviceName,
+        job_title: positionName,
         employee_number: employeeNumber,
         monthly_salary: Number(body.monthly_salary ?? 0),
         status: body.status ?? 'ACTIVE',
       };
       const employee = await this.insertInTransaction(client, 'employees', payload, [
         'employee_number', 'first_name', 'last_name', 'post_name', 'gender', 'birth_date', 'nationality', 'marital_status',
-        'phone', 'secondary_phone', 'email', 'address', 'job_title', 'department', 'hire_date', 'contract_type',
+        'phone', 'secondary_phone', 'email', 'address', 'service_id', 'position_id', 'job_title', 'department', 'hire_date', 'contract_type',
         'assigned_site', 'manager_name', 'status', 'monthly_salary', 'payment_method', 'bank_name', 'account_number',
         'mobile_money_number', 'id_document_type', 'id_document_number', 'identity_attachment_name', 'cv_attachment_name',
         'signed_contract_attachment_name', 'emergency_contact_name', 'emergency_contact_phone', 'internal_notes',
@@ -1182,13 +1224,36 @@ export class SaasService {
   }
 
   async updateEmployee(id: number, body: Record<string, unknown>) {
+    const serviceId = body.service_id !== undefined || body.serviceId !== undefined
+      ? this.normalizeOptionalPositiveInt(body.service_id ?? body.serviceId)
+      : undefined;
+    const positionId = body.position_id !== undefined || body.positionId !== undefined
+      ? this.normalizeOptionalPositiveInt(body.position_id ?? body.positionId)
+      : undefined;
+    const current = await this.db.query(
+      `SELECT id, department, job_title, service_id, position_id
+       FROM employees
+       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+    const employee = requireRow(current.rows[0], 'Employee');
+    const serviceName = body.department !== undefined || serviceId !== undefined
+      ? await this.resolveHrCatalogName(this.db, 'hr_services', serviceId ?? employee.service_id ?? null, body.department)
+      : undefined;
+    const positionName = body.job_title !== undefined || positionId !== undefined
+      ? await this.resolveHrCatalogName(this.db, 'hr_positions', positionId ?? employee.position_id ?? null, body.job_title)
+      : undefined;
     const payload = {
       ...body,
+      service_id: serviceId,
+      position_id: positionId,
+      department: serviceName,
+      job_title: positionName,
       monthly_salary: body.monthly_salary !== undefined ? Number(body.monthly_salary ?? 0) : undefined,
     };
     return this.updateById('employees', id, payload, [
       'employee_number', 'first_name', 'last_name', 'post_name', 'gender', 'birth_date', 'nationality', 'marital_status',
-      'phone', 'secondary_phone', 'email', 'address', 'job_title', 'department', 'hire_date', 'contract_type',
+      'phone', 'secondary_phone', 'email', 'address', 'service_id', 'position_id', 'job_title', 'department', 'hire_date', 'contract_type',
       'assigned_site', 'manager_name', 'status', 'monthly_salary', 'payment_method', 'bank_name', 'account_number',
       'mobile_money_number', 'id_document_type', 'id_document_number', 'identity_attachment_name', 'cv_attachment_name',
       'signed_contract_attachment_name', 'emergency_contact_name', 'emergency_contact_phone', 'internal_notes',
@@ -1198,8 +1263,19 @@ export class SaasService {
   async employeeDetail(id: number) {
     const organizationId = this.context.organizationId();
     const employee = await this.queryOptionalRows(
-      `SELECT e.*, CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS full_name
+      `SELECT e.*,
+              COALESCE(s.name, e.department) AS department,
+              COALESCE(p.name, e.job_title) AS job_title,
+              CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS full_name
        FROM employees e
+       LEFT JOIN hr_services s
+         ON s.id = e.service_id
+        AND s.organization_id = e.organization_id
+        AND s.deleted_at IS NULL
+       LEFT JOIN hr_positions p
+         ON p.id = e.position_id
+        AND p.organization_id = e.organization_id
+        AND p.deleted_at IS NULL
        WHERE e.id = $1 AND e.organization_id = $2 AND e.deleted_at IS NULL`,
       [id, organizationId],
       `SELECT e.*, CONCAT(e.first_name, ' ', COALESCE(e.post_name || ' ', ''), e.last_name) AS full_name
@@ -1285,6 +1361,51 @@ export class SaasService {
       audit,
     };
   }
+
+  async hrServices() {
+    return this.queryOptionalRows(
+      `SELECT *
+       FROM hr_services
+       WHERE organization_id = $1 AND deleted_at IS NULL
+       ORDER BY LOWER(name) ASC, id ASC`,
+      [this.context.organizationId()],
+    );
+  }
+
+  async createHrService(body: Record<string, unknown>) {
+    return this.createHrCatalogRow('hr_services', body);
+  }
+
+  async updateHrService(id: number, body: Record<string, unknown>) {
+    return this.updateHrCatalogRow('hr_services', id, body);
+  }
+
+  async deactivateHrService(id: number) {
+    return this.deactivateHrCatalogRow('hr_services', id);
+  }
+
+  async hrPositions() {
+    return this.queryOptionalRows(
+      `SELECT *
+       FROM hr_positions
+       WHERE organization_id = $1 AND deleted_at IS NULL
+       ORDER BY LOWER(name) ASC, id ASC`,
+      [this.context.organizationId()],
+    );
+  }
+
+  async createHrPosition(body: Record<string, unknown>) {
+    return this.createHrCatalogRow('hr_positions', body);
+  }
+
+  async updateHrPosition(id: number, body: Record<string, unknown>) {
+    return this.updateHrCatalogRow('hr_positions', id, body);
+  }
+
+  async deactivateHrPosition(id: number) {
+    return this.deactivateHrCatalogRow('hr_positions', id);
+  }
+
   async deactivateEmployee(id: number) {
     const { rows } = await this.db.query(
       `UPDATE employees
@@ -8134,6 +8255,91 @@ export class SaasService {
       [this.context.organizationId()],
     );
     return `EMP-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
+  }
+
+  private normalizeOptionalPositiveInt(value: unknown) {
+    if (value === undefined || value === null || value === '') return null;
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new BadRequestException('Identifiant de référentiel RH invalide.');
+    }
+    return parsed;
+  }
+
+  private async resolveHrCatalogName(
+    client: Pick<DatabaseService, 'query'> | PoolClient,
+    table: 'hr_services' | 'hr_positions',
+    id: number | null,
+    fallbackValue: unknown,
+  ) {
+    if (id) {
+      const { rows } = await (client as any).query(
+        `SELECT name
+         FROM ${table}
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+        [id, this.context.organizationId()],
+      );
+      if (!rows[0]?.name) {
+        throw new BadRequestException(table === 'hr_services' ? 'Service introuvable.' : 'Fonction introuvable.');
+      }
+      return String(rows[0].name);
+    }
+    const fallback = String(fallbackValue ?? '').trim();
+    return fallback || null;
+  }
+
+  private normalizeHrCatalogPayload(body: Record<string, unknown>) {
+    const name = String(body.name ?? '').trim();
+    if (!name) {
+      throw new BadRequestException('Le nom est obligatoire.');
+    }
+    const status = String(body.status ?? 'ACTIVE').trim().toUpperCase() || 'ACTIVE';
+    if (!['ACTIVE', 'INACTIVE'].includes(status)) {
+      throw new BadRequestException('Statut RH invalide.');
+    }
+    const code = String(body.code ?? '').trim().toUpperCase();
+    return {
+      code: code || null,
+      name,
+      description: String(body.description ?? '').trim() || null,
+      status,
+    };
+  }
+
+  private async createHrCatalogRow(table: 'hr_services' | 'hr_positions', body: Record<string, unknown>) {
+    const payload = this.normalizeHrCatalogPayload(body);
+    try {
+      return await this.insert(table, payload, ['code', 'name', 'description', 'status']);
+    } catch (error: any) {
+      if (error?.code === '23505') {
+        throw new ConflictException('Cette valeur existe déjà dans le référentiel RH.');
+      }
+      throw error;
+    }
+  }
+
+  private async updateHrCatalogRow(table: 'hr_services' | 'hr_positions', id: number, body: Record<string, unknown>) {
+    const payload = this.normalizeHrCatalogPayload(body);
+    try {
+      return await this.updateById(table, id, payload, ['code', 'name', 'description', 'status']);
+    } catch (error: any) {
+      if (error?.code === '23505') {
+        throw new ConflictException('Cette valeur existe déjà dans le référentiel RH.');
+      }
+      throw error;
+    }
+  }
+
+  private async deactivateHrCatalogRow(table: 'hr_services' | 'hr_positions', id: number) {
+    const { rows } = await this.db.query(
+      `UPDATE ${table}
+       SET status = 'INACTIVE',
+           updated_at = NOW()
+       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+       RETURNING *`,
+      [id, this.context.organizationId()],
+    );
+    return requireRow(rows[0], table);
   }
 
   private async nextEmployeeContractNumber(client: PoolClient) {

@@ -469,6 +469,46 @@ export class HrController {
   report(@Query('month') month?: string, @Query('year') year?: string) {
     return this.service.hrReport(month ? Number(month) : undefined, year ? Number(year) : undefined);
   }
+
+  @Get('services')
+  services() {
+    return this.service.hrServices();
+  }
+
+  @Post('services')
+  createService(@Body() body: Record<string, unknown>) {
+    return this.service.createHrService(body);
+  }
+
+  @Patch('services/:id')
+  updateService(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.updateHrService(id, body);
+  }
+
+  @Delete('services/:id')
+  deleteService(@Param('id', ParseIntPipe) id: number) {
+    return this.service.deactivateHrService(id);
+  }
+
+  @Get('positions')
+  positions() {
+    return this.service.hrPositions();
+  }
+
+  @Post('positions')
+  createPosition(@Body() body: Record<string, unknown>) {
+    return this.service.createHrPosition(body);
+  }
+
+  @Patch('positions/:id')
+  updatePosition(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.updateHrPosition(id, body);
+  }
+
+  @Delete('positions/:id')
+  deletePosition(@Param('id', ParseIntPipe) id: number) {
+    return this.service.deactivateHrPosition(id);
+  }
 }
 
 @Controller('cash')

@@ -109,6 +109,11 @@ export class PermissionsGuard implements CanActivate {
   }
 
   private permissionFor(path: string, method: string) {
+    if (/^\/api\/hr/.test(path)) {
+      if (method === 'GET') return 'staff.read';
+      if (method === 'POST') return 'staff.create';
+      return 'staff.update';
+    }
     if (/^\/api\/reports\/tenants\/\d+$/.test(path)) {
       return method === 'GET' ? 'tenants.read' : 'reports.export';
     }
