@@ -26,6 +26,7 @@ import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from
 import { NavLink, useLocation } from 'react-router-dom';
 import { appConfig } from '../../app/config';
 import { useAuth } from '../auth/AuthContext';
+import { isPlatformSuperAdmin } from '../auth/PlatformRoute';
 
 type NavLinkItem = {
   type?: 'link';
@@ -34,6 +35,7 @@ type NavLinkItem = {
   icon: LucideIcon;
   permission?: string;
   soon?: boolean;
+  superAdminOnly?: boolean;
 };
 
 type NavSubgroup = {
@@ -90,7 +92,6 @@ const navGroups: NavGroup[] = [
       { to: '/invoices', label: 'Factures', icon: FileText, permission: 'invoices.read' },
       { to: '/payments', label: 'Paiements', icon: CreditCard, permission: 'payments.read' },
       { to: '/cash', label: 'Caisse', icon: WalletCards, permission: 'cash.read' },
-      { label: 'Dépenses', icon: WalletCards, permission: 'cash.read', soon: true },
     ],
   },
   {
@@ -122,8 +123,8 @@ const navGroups: NavGroup[] = [
     label: 'Administration',
     icon: Settings,
     items: [
-      { to: '/users', label: 'Utilisateurs', icon: ShieldCheck, permission: 'users.read' },
-      { label: 'Rôles & permissions', icon: ShieldCheck, permission: 'users.read', soon: true },
+      { to: '/platform/users', label: 'Utilisateurs', icon: ShieldCheck, permission: 'users.read', superAdminOnly: true },
+      { to: '/platform/roles', label: 'Rôles et permissions', icon: ShieldCheck, permission: 'users.read', superAdminOnly: true },
       { to: '/communications', label: 'Communications', icon: MessageSquare, permission: 'communication.read' },
       { label: 'Notifications', icon: MessageSquare, permission: 'communication.read', soon: true },
       { to: '/settings', label: 'Paramètres', icon: Settings, permission: 'settings.read' },
@@ -136,9 +137,10 @@ const navGroups: NavGroup[] = [
 const defaultOpenGroups = ['Tableau de bord', 'Gestion immobilière', 'Finance', 'Opérations', 'Ressources humaines'];
 
 export function Sidebar() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const location = useLocation();
   const hasPermission = (permission?: string) => !permission || can(permission);
+  const superAdmin = isPlatformSuperAdmin(user);
   const [openGroups, setOpenGroups] = useState<string[]>(() => {
     if (typeof window === 'undefined') return defaultOpenGroups;
     try {
@@ -156,10 +158,10 @@ export function Sidebar() {
       navGroups
         .map((group) => ({
           ...group,
-          items: filterEntries(group.items, hasPermission),
+          items: filterEntries(group.items, hasPermission, superAdmin),
         }))
         .filter((group) => group.items.length > 0),
-    [can],
+    [can, superAdmin],
   );
 
   const requiredOpenGroups = useMemo(
@@ -296,16 +298,20 @@ function SidebarLink({ item, pathname, nested = false }: { item: NavLinkItem; pa
   );
 }
 
-function filterEntries(entries: NavEntry[], can: (permission?: string) => boolean): NavEntry[] {
+function filterEntries(entries: NavEntry[], can: (permission?: string) => boolean, superAdmin: boolean): NavEntry[] {
   return entries
     .map((entry) => {
       if (entry.type === 'subgroup') {
-        const items = entry.items.filter((item) => !item.permission || can(item.permission));
+        const items = entry.items.filter((item) => (!item.permission || can(item.permission)) && (!item.superAdminOnly || superAdmin));
         return { ...entry, items };
       }
       return entry;
     })
-    .filter((entry) => (entry.type === 'subgroup' ? entry.items.length > 0 : !entry.permission || can(entry.permission)));
+    .filter((entry) =>
+      entry.type === 'subgroup'
+        ? entry.items.length > 0
+        : (!entry.permission || can(entry.permission)) && (!entry.superAdminOnly || superAdmin),
+    );
 }
 
 function collectRequiredOpenGroups(pathname: string, groups: NavGroup[]) {

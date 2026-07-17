@@ -11,6 +11,8 @@ export class UsersController {
   constructor(private readonly service: SaasService) {}
 
   @Get()
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut accéder à la liste des utilisateurs.')
   findUsers() {
     return this.service.listUsers();
   }
@@ -23,11 +25,15 @@ export class UsersController {
   }
 
   @Put(':id')
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut modifier un utilisateur.')
   updateUser(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
     return this.service.updateScopedUser(id, body);
   }
 
   @Get('roles')
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut accéder aux rôles et permissions.')
   roles() {
     return {
       roles: {
@@ -1228,6 +1234,8 @@ export class PlatformController {
   }
 
   @Get('users')
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut accéder aux utilisateurs plateforme.')
   users(@Query('search') search?: string, @Query('status') status?: string) {
     return this.service.platformUsers({ search, status });
   }
@@ -1267,6 +1275,8 @@ export class PlatformController {
   }
 
   @Get('roles')
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut accéder aux rôles et permissions plateforme.')
   roles() {
     return this.service.platformRoles();
   }

@@ -2,7 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from '../core/layout/AppLayout';
 import { PermissionGuard } from '../core/auth/PermissionGuard';
 import { ProtectedRoute } from '../core/auth/ProtectedRoute';
-import { PlatformRoute } from '../core/auth/PlatformRoute';
+import { PlatformRoute, SuperAdminRoute } from '../core/auth/PlatformRoute';
 import { ActivityPage } from '../modules/activity/pages/ActivityPage';
 import { BuildingsPage } from '../modules/buildings/pages/BuildingsPage';
 import { CashPage } from '../modules/cash/pages/CashPage';
@@ -70,11 +70,13 @@ export function AppRouter() {
             <Route index element={<Navigate to="/platform/overview" replace />} />
             <Route path="overview" element={<PlatformOverviewPage />} />
             <Route path="organizations" element={<PlatformOrganizationsPage />} />
-            <Route path="users" element={<PlatformUsersPage />} />
             <Route path="memberships" element={<PlatformMembershipsPage />} />
-            <Route path="roles" element={<PlatformRolesPage />} />
             <Route path="activity" element={<PlatformActivityPage />} />
             <Route path="settings" element={<PlatformSettingsPage />} />
+            <Route element={<SuperAdminRoute />}>
+              <Route path="users" element={<PlatformUsersPage />} />
+              <Route path="roles" element={<PlatformRolesPage />} />
+            </Route>
           </Route>
         </Route>
         <Route element={<AppLayout />}>
@@ -145,7 +147,9 @@ export function AppRouter() {
           <Route path="/documents" element={guarded('documents.read', <DocumentsPage />)} />
           <Route path="/communications" element={guarded('communication.read', <CommunicationsPage />)} />
           <Route path="/workflows" element={guarded('workflow.read', <WorkflowsPage />)} />
-          <Route path="/users" element={guarded('users.read', <UsersPage />)} />
+          <Route element={<SuperAdminRoute />}>
+            <Route path="/users" element={guarded('users.read', <UsersPage />)} />
+          </Route>
           <Route path="/settings" element={guarded('settings.read', <SettingsPage />)} />
         </Route>
       </Route>
