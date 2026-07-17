@@ -32,6 +32,7 @@ type Invoice = {
   invoice_number: string;
   tenant_id: number;
   tenant_name: string;
+  building_name?: string;
   remaining_amount: number;
   total: number;
   status: string;
@@ -334,13 +335,44 @@ function PaymentModal({
   onClose: () => void;
   onSubmit: (form: FormData) => Promise<void>;
 }) {
+  const buildingOptions = useMemo(
+    () =>
+      Array.from(new Set(invoices.map((invoice) => invoice.building_name).filter(Boolean) as string[])).sort((left, right) =>
+        left.localeCompare(right, 'fr', { sensitivity: 'base' }),
+      ),
+    [invoices],
+  );
+  const [selectedBuilding, setSelectedBuilding] = useState('');
+  const [selectedUnit, setSelectedUnit] = useState('');
   const remaining = Number(selectedInvoice?.remaining_amount ?? 0);
   const [paymentCurrency, setPaymentCurrency] = useState<'USD' | 'CDF' | 'MIXED'>('USD');
   const [usdAmount, setUsdAmount] = useState<string>(remaining ? String(remaining) : '');
   const [cdfAmount, setCdfAmount] = useState<string>('');
+  const [rateInput, setRateInput] = useState<string>(exchangeRate?.rate ? String(exchangeRate.rate) : '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const rate = Number(exchangeRate?.rate ?? 0);
+  const rate = Number(rateInput || exchangeRate?.rate || 0);
+  const unitOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          invoices
+            .filter((invoice) => !selectedBuilding || String(invoice.building_name ?? '') === selectedBuilding)
+            .map((invoice) => invoice.unit_number)
+            .filter(Boolean) as string[],
+        ),
+      ).sort((left, right) => left.localeCompare(right, 'fr', { sensitivity: 'base' })),
+    [invoices, selectedBuilding],
+  );
+  const filteredInvoices = useMemo(
+    () =>
+      invoices.filter(
+        (invoice) =>
+          (!selectedBuilding || String(invoice.building_name ?? '') === selectedBuilding) &&
+          (!selectedUnit || String(invoice.unit_number ?? '') === selectedUnit),
+      ),
+    [invoices, selectedBuilding, selectedUnit],
+  );
   const cdfEquivalentUsd = paymentCurrency === 'USD' || rate <= 0 ? 0 : Number((Number(cdfAmount || 0) / rate).toFixed(2));
   const totalEquivalentUsd = Number(
     (
@@ -364,10 +396,23 @@ function PaymentModal({
   useEffect(() => {
     if (!selectedInvoice) return;
     setError('');
-    if (paymentCurrency === 'USD' && !Number(usdAmount || 0)) {
-      setUsdAmount(remaining ? String(remaining) : '');
+    if (paymentCurrency === 'USD') {
+      setUsdAmount(remaining ? remaining.toFixed(2) : '');
+      setCdfAmount('');
+      return;
     }
+    if (paymentCurrency === 'CDF') {
+      setUsdAmount('0');
+      setCdfAmount(rate > 0 && remaining > 0 ? String(Math.round(remaining * rate)) : '');
+      return;
+    }
+    setUsdAmount(remaining ? remaining.toFixed(2) : '');
+    setCdfAmount('');
   }, [selectedInvoice?.id, paymentCurrency, remaining]);
+
+  useEffect(() => {
+    setRateInput(exchangeRate?.rate ? String(exchangeRate.rate) : '');
+  }, [exchangeRate?.rate]);
 
   return (
     <Modal title="Nouveau paiement" onClose={onClose}>
@@ -414,13 +459,54 @@ function PaymentModal({
                     setCdfAmount('');
                   }
                   if (next === 'CDF') {
-                    setUsdAmount('');
+                    setUsdAmount('0');
+                    setCdfAmount(rate > 0 && remaining > 0 ? String(Math.round(remaining * rate)) : '');
+                  }
+                  if (next === 'MIXED') {
+                    setUsdAmount(remaining ? String(remaining) : '');
+                    setCdfAmount('');
                   }
                 }}
               >
                 <option value="USD">USD uniquement</option>
                 <option value="CDF">CDF uniquement</option>
                 <option value="MIXED">Mixte USD + CDF</option>
+              </select>
+            </label>
+            <label>
+              Immeuble
+              <select
+                value={selectedBuilding}
+                onChange={(event) => {
+                  setSelectedBuilding(event.target.value);
+                  setSelectedUnit('');
+                  onSelectInvoice(null);
+                }}
+              >
+                <option value="">Choisir un immeuble</option>
+                {buildingOptions.map((building) => (
+                  <option key={building} value={building}>
+                    {building}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Appartement
+              <select
+                value={selectedUnit}
+                onChange={(event) => {
+                  setSelectedUnit(event.target.value);
+                  onSelectInvoice(null);
+                }}
+                disabled={!selectedBuilding}
+              >
+                <option value="">Choisir un appartement</option>
+                {unitOptions.map((unit) => (
+                  <option key={unit} value={unit}>
+                    {unit}
+                  </option>
+                ))}
               </select>
             </label>
             <label>
@@ -432,9 +518,9 @@ function PaymentModal({
                 onChange={(event) => onSelectInvoice(event.target.value ? Number(event.target.value) : null)}
               >
                 <option value="">Choisir une facture</option>
-                {invoices.map((invoice) => (
+                {filteredInvoices.map((invoice) => (
                   <option key={invoice.id} value={invoice.id}>
-                    {invoice.invoice_number} | {invoice.tenant_name} | {invoice.unit_number ?? '-'} | Facture: {money(invoice.total)} USD | Payé: {money(invoice.paid_amount ?? Math.max(0, Number(invoice.total) - Number(invoice.remaining_amount)))} USD | Reste: {money(invoice.remaining_amount)} USD
+                    {invoice.invoice_number} | {invoice.tenant_name} | {invoice.unit_number ?? '-'} | {invoice.building_name ?? '-'} | Facture: {money(invoice.total)} USD | Payé: {money(invoice.paid_amount ?? Math.max(0, Number(invoice.total) - Number(invoice.remaining_amount)))} USD | Reste: {money(invoice.remaining_amount)} USD
                   </option>
                 ))}
               </select>
@@ -468,9 +554,9 @@ function PaymentModal({
           <summary>Paiement</summary>
           <div className="lease-section-grid">
             <label>Date<input name="payment_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></label>
-            <label>Montant USD<input name="amount_usd" type="number" step="0.01" min="0" value={paymentCurrency === 'CDF' ? '' : usdAmount} onChange={(event) => setUsdAmount(event.target.value)} disabled={paymentCurrency === 'CDF'} /></label>
+            <label>Montant USD<input name="amount_usd" type="number" step="0.01" min="0" value={paymentCurrency === 'CDF' ? '0' : usdAmount} onChange={(event) => setUsdAmount(event.target.value)} disabled={paymentCurrency === 'CDF'} /></label>
             <label>Montant CDF<input name="amount_cdf" type="number" step="1" min="0" value={paymentCurrency === 'USD' ? '' : cdfAmount} onChange={(event) => setCdfAmount(event.target.value)} disabled={paymentCurrency === 'USD'} /></label>
-            <label>Taux appliqué<input name="exchange_rate_used" type="number" value={rate || ''} readOnly className="locked-field" /></label>
+            <label>Taux appliqué<input name="exchange_rate_used" type="number" step="0.000001" min="0" value={rateInput} onChange={(event) => setRateInput(event.target.value)} className={paymentCurrency === 'USD' ? 'locked-field' : ''} readOnly={paymentCurrency === 'USD'} /></label>
             <label>Équivalent USD du CDF<input value={cdfEquivalentUsd.toFixed(2)} readOnly className="locked-field" /></label>
             <label>Total équivalent USD<input name="amount" type="number" value={totalEquivalentUsd || usdAmount || cdfEquivalentUsd || ''} readOnly className="locked-field" /></label>
             <label>Mode de paiement

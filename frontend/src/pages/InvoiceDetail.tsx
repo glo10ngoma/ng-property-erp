@@ -102,6 +102,7 @@ export function InvoiceDetail() {
   const [paymentCurrency, setPaymentCurrency] = useState<'USD' | 'CDF' | 'MIXED'>('USD');
   const [usdAmount, setUsdAmount] = useState('');
   const [cdfAmount, setCdfAmount] = useState('');
+  const [paymentRate, setPaymentRate] = useState('');
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState('');
 
@@ -129,12 +130,32 @@ export function InvoiceDetail() {
   }, []);
 
   useEffect(() => {
+    setPaymentRate(exchangeRate?.rate ? String(exchangeRate.rate) : '');
+  }, [exchangeRate?.rate]);
+
+  useEffect(() => {
     api.get<CompanySettingsHeader>('/settings/company').then((response) => setCompanySettings(response.data ?? null)).catch(() => setCompanySettings(null));
   }, []);
 
   useEffect(() => {
     if (invoice) setUsdAmount(String(Number(invoice.remaining_amount ?? 0).toFixed(2)));
   }, [invoice]);
+
+  useEffect(() => {
+    if (!invoice) return;
+    if (paymentCurrency === 'USD') {
+      setUsdAmount(String(Number(invoice.remaining_amount ?? 0).toFixed(2)));
+      setCdfAmount('');
+      return;
+    }
+    if (paymentCurrency === 'CDF') {
+      setUsdAmount('0');
+      setCdfAmount(paymentRateValue > 0 && Number(invoice.remaining_amount ?? 0) > 0 ? String(Math.round(Number(invoice.remaining_amount ?? 0) * paymentRateValue)) : '');
+      return;
+    }
+    setUsdAmount(String(Number(invoice.remaining_amount ?? 0).toFixed(2)));
+    setCdfAmount('');
+  }, [invoice?.id, invoice?.remaining_amount, paymentCurrency]);
 
   useEffect(() => {
     if (invoice && searchParams.get('edit') === '1') openEdit();
@@ -145,7 +166,7 @@ export function InvoiceDetail() {
     const paymentCurrency = String(form.get('payment_currency') ?? 'USD');
     const amountUsd = Number(form.get('amount_usd') ?? 0);
     const amountCdf = Number(form.get('amount_cdf') ?? 0);
-    const rate = Number(form.get('exchange_rate_used') ?? exchangeRate?.rate ?? 0) || null;
+    const rate = Number(form.get('exchange_rate_used') ?? paymentRate ?? exchangeRate?.rate ?? 0) || null;
     const amount = Number(form.get('amount') ?? 0);
     if (!Number.isFinite(amountUsd) || !Number.isFinite(amountCdf) || !Number.isFinite(amount)) {
       setPaymentError('Montant de paiement invalide.');
@@ -274,6 +295,18 @@ export function InvoiceDetail() {
   const logoUrl = cleanPrintValue(companySettings?.logo_file_url ?? companySettings?.logo_url);
   const titleOnlyInvoiceHeader = isTitleOnlyInvoiceHeaderOrganization(user?.organization_slug);
   const invoicePrintTitle = isRentInvoice ? 'FACTURE LOYER' : 'FACTURE MAINTENANCE ET AUTRES CHARGES';
+  const paymentRateValue = Number(paymentRate || exchangeRate?.rate || 0);
+  const invoiceCdfEquivalentUsd =
+    paymentCurrency === 'USD' || paymentRateValue <= 0 ? 0 : Number((Number(cdfAmount || 0) / paymentRateValue).toFixed(2));
+  const invoiceTotalEquivalentUsd = Number(
+    (
+      paymentCurrency === 'USD'
+        ? Number(usdAmount || 0)
+        : paymentCurrency === 'CDF'
+          ? invoiceCdfEquivalentUsd
+          : Number(usdAmount || 0) + invoiceCdfEquivalentUsd
+    ).toFixed(2),
+  );
 
   return (
     <section>
@@ -511,7 +544,12 @@ export function InvoiceDetail() {
                         setCdfAmount('');
                       }
                       if (next === 'CDF') {
-                        setUsdAmount('');
+                        setUsdAmount('0');
+                        setCdfAmount(paymentRateValue > 0 && Number(invoice.remaining_amount ?? 0) > 0 ? String(Math.round(Number(invoice.remaining_amount ?? 0) * paymentRateValue)) : '');
+                      }
+                      if (next === 'MIXED') {
+                        setUsdAmount(String(Number(invoice.remaining_amount ?? 0).toFixed(2)));
+                        setCdfAmount('');
                       }
                     }}
                   >
@@ -537,19 +575,11 @@ export function InvoiceDetail() {
               <summary>Paiement</summary>
               <div className="lease-section-grid">
                 <label>Date<input name="payment_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></label>
-                <label>Montant USD<input name="amount_usd" type="number" step="0.01" min="0" value={paymentCurrency === 'CDF' ? '' : usdAmount} onChange={(event) => setUsdAmount(event.target.value)} disabled={paymentCurrency === 'CDF'} /></label>
+                <label>Montant USD<input name="amount_usd" type="number" step="0.01" min="0" value={paymentCurrency === 'CDF' ? '0' : usdAmount} onChange={(event) => setUsdAmount(event.target.value)} disabled={paymentCurrency === 'CDF'} /></label>
                 <label>Montant CDF<input name="amount_cdf" type="number" step="1" min="0" value={paymentCurrency === 'USD' ? '' : cdfAmount} onChange={(event) => setCdfAmount(event.target.value)} disabled={paymentCurrency === 'USD'} /></label>
-                <label>Taux appliqué<input name="exchange_rate_used" type="number" step="0.000001" min="0" defaultValue={exchangeRate?.rate ?? ''} /></label>
-                <label>Équivalent USD du CDF<input readOnly className="locked-field" value={exchangeRate?.rate && cdfAmount ? money(Number(cdfAmount || 0) / Number(exchangeRate.rate)) : money(0)} /></label>
-                <label>Total équivalent USD<input name="amount" type="number" readOnly className="locked-field" value={Number(
-                  (
-                    paymentCurrency === 'USD'
-                      ? Number(usdAmount || 0)
-                      : paymentCurrency === 'CDF'
-                        ? (exchangeRate?.rate && cdfAmount ? Number(cdfAmount || 0) / Number(exchangeRate.rate) : 0)
-                        : Number(usdAmount || 0) + (exchangeRate?.rate && cdfAmount ? Number(cdfAmount || 0) / Number(exchangeRate.rate) : 0)
-                  ).toFixed(2),
-                )} /></label>
+                <label>Taux appliqué<input name="exchange_rate_used" type="number" step="0.000001" min="0" value={paymentRate} onChange={(event) => setPaymentRate(event.target.value)} /></label>
+                <label>Équivalent USD du CDF<input readOnly className="locked-field" value={money(invoiceCdfEquivalentUsd)} /></label>
+                <label>Total équivalent USD<input name="amount" type="number" readOnly className="locked-field" value={invoiceTotalEquivalentUsd} /></label>
                 <label>Mode de paiement<select name="payment_method"><option value="CASH">{paymentMethodLabel('CASH')}</option><option value="BANK">{paymentMethodLabel('BANK')}</option><option value="MOBILE_MONEY">{paymentMethodLabel('MOBILE_MONEY')}</option></select></label>
                 <label>Reference<input name="reference" placeholder="Reference" /></label>
               </div>
