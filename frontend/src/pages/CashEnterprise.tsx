@@ -211,7 +211,7 @@ export function CashPage() {
       <PageHeader title="Caisse" />
       <SuccessMessage message={success} />
       {error ? <div className="error-message">{error}</div> : null}
-      <div className="mini-stats">
+      <div className="mini-stats cash-kpi-row cash-kpi-row-primary">
         <div className="mini-stat"><span>Solde USD</span><strong>{formatCashAmount(stats.usd.balance, 'USD')}</strong></div>
         <div className="mini-stat"><span>Entrees USD aujourd'hui</span><strong>{formatCashAmount(stats.usd.todayIn, 'USD')}</strong></div>
         <div className="mini-stat"><span>Depenses USD aujourd'hui</span><strong>{formatCashAmount(stats.usd.todayOut, 'USD')}</strong></div>
@@ -226,7 +226,7 @@ export function CashPage() {
       </div>
 
       <div className="cash-session-panel">
-        <div className="mini-stats">
+        <div className="mini-stats cash-kpi-row cash-kpi-row-session">
           <div className="mini-stat">
             <span>Session caisse</span>
             <strong>{openSession ? 'Ouverte' : 'Aucune session ouverte'}</strong>
@@ -245,22 +245,42 @@ export function CashPage() {
           </div>
         </div>
         {can('cash.create') ? (
-          <div className="actions-row">
+          <div className="actions-row cash-action-row">
             <button type="button" onClick={() => setOpenSessionModal(true)} disabled={Boolean(openSession)}>
               Ouvrir la caisse
             </button>
             <button type="button" className="secondary" onClick={() => setCloseSessionModal(true)} disabled={!openSession}>
               Fermer la caisse
             </button>
+            <CashExpenseForm onSubmit={expense} nextPieceNumber={nextPieceNumber} />
           </div>
         ) : null}
       </div>
 
-      <div className="table-toolbar">
-        <div className="toolbar-main">
+      <div className="quick-form compact-grid cash-filters-row cash-filter-bar">
+        <div className="cash-filter-search">
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" />
         </div>
-        <div className="toolbar-actions">
+        <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}>
+          <option value="">Type</option>
+          <option value="IN">Entree</option>
+          <option value="OUT">Depense</option>
+        </select>
+        <select value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}>
+          <option value="">Categorie</option>
+          {Array.from(new Set(movements.data.map((movement) => movement.category))).map((category) => (
+            <option key={category} value={category}>
+              {cashCategoryLabel(category)}
+            </option>
+          ))}
+        </select>
+        <input type="month" value={filters.period} onChange={(event) => setFilters({ ...filters, period: event.target.value })} />
+        <select value={filters.currency} onChange={(event) => setFilters({ ...filters, currency: event.target.value })}>
+          <option value="">Devise</option>
+          <option value="USD">USD</option>
+          <option value="CDF">CDF</option>
+        </select>
+        <div className="filter-actions cash-filter-actions">
           <button type="button" className="secondary" onClick={() => setFilters({ type: '', category: '', period: '', currency: '' })}>Reinitialiser</button>
           <button
             type="button"
@@ -282,30 +302,6 @@ export function CashPage() {
           </button>
         </div>
       </div>
-
-        <div className="quick-form compact-grid cash-filters-row">
-        <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}>
-          <option value="">Type</option>
-          <option value="IN">Entree</option>
-          <option value="OUT">Depense</option>
-        </select>
-        <select value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}>
-          <option value="">Categorie</option>
-          {Array.from(new Set(movements.data.map((movement) => movement.category))).map((category) => (
-            <option key={category} value={category}>
-              {cashCategoryLabel(category)}
-            </option>
-          ))}
-        </select>
-        <input type="month" value={filters.period} onChange={(event) => setFilters({ ...filters, period: event.target.value })} />
-        <select value={filters.currency} onChange={(event) => setFilters({ ...filters, currency: event.target.value })}>
-          <option value="">Devise</option>
-          <option value="USD">USD</option>
-          <option value="CDF">CDF</option>
-        </select>
-      </div>
-
-      {can('cash.create') && <CashExpenseForm onSubmit={expense} nextPieceNumber={nextPieceNumber} />}
       {openSessionModal ? (
         <CashOpenSessionModal
           onClose={() => setOpenSessionModal(false)}
