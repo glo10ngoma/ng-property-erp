@@ -535,9 +535,29 @@ export class CashController {
     return this.service.cashMovements();
   }
 
+  @Get('expense-categories')
+  expenseCategories() {
+    return this.service.cashExpenseCategories();
+  }
+
+  @Post('expense-categories')
+  createExpenseCategory(@Body() body: Record<string, unknown>) {
+    return this.service.createCashExpenseCategory(body);
+  }
+
+  @Patch('expense-categories/:id')
+  updateExpenseCategory(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.updateCashExpenseCategory(id, body);
+  }
+
   @Get('movements/:id')
   movementDetail(@Param('id', ParseIntPipe) id: number) {
     return this.service.cashMovementDetail(id);
+  }
+
+  @Delete('movements/:id')
+  deleteMovement(@Param('id', ParseIntPipe) id: number) {
+    return this.service.deleteCashMovement(id);
   }
 
   @Post('expenses')

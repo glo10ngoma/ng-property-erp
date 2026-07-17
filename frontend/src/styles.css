@@ -120,7 +120,7 @@ tbody tr.clickable-row:hover { background: #f8fafb; }
 .toolbar-main { display: flex; gap: 8px; align-items: center; flex: 1 1 320px; }
 .toolbar-main input { max-width: 420px; }
 .toolbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.cash-filters-row { display: grid; grid-template-columns: minmax(260px, 1.7fr) repeat(4, minmax(132px, .85fr)) minmax(232px, auto); gap: 8px; margin-bottom: 10px; align-items: end; }
+.cash-filters-row { display: grid; grid-template-columns: minmax(240px, 1.8fr) repeat(4, minmax(118px, .82fr)) minmax(290px, 1.1fr); gap: 8px; margin-bottom: 10px; align-items: end; }
 .cash-modal-form { display: grid; gap: 10px; max-height: 84vh; }
 .modal-section { border: 1px solid #dce5eb; border-radius: 8px; padding: 10px 12px; background: #fafcfd; }
 .modal-section h3 { margin: 0 0 8px; font-size: 13px; color: #255e7e; }
@@ -326,9 +326,11 @@ textarea { min-height: 72px; resize: vertical; }
 .cash-filter-bar { margin-bottom: 10px; }
 .cash-filter-search { min-width: 0; }
 .cash-filter-search input { width: 100%; max-width: none; }
-.cash-filter-actions { justify-content: flex-end; flex-wrap: nowrap; min-width: max-content; gap: 8px; }
-.cash-filter-actions button { min-width: 128px; }
-.cash-table-wrap { max-height: none; overflow-y: visible; overflow-x: auto; }
+.cash-filter-actions { justify-content: stretch; flex-wrap: nowrap; min-width: 0; width: 100%; gap: 8px; }
+.cash-filter-actions button { min-width: 0; flex: 1 1 0; }
+.cash-table-wrap { max-height: calc(100vh - 360px); overflow: auto; overscroll-behavior: contain; }
+.cash-category-inline { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.cash-category-inline button { min-width: 0; white-space: nowrap; }
 .table-sort-button { width: 100%; min-height: auto; padding: 0; background: transparent; color: inherit; justify-content: flex-start; gap: 4px; border-radius: 0; font-size: inherit; font-weight: inherit; text-transform: inherit; }
 .table-sort-button span { display: inline-block; min-width: 10px; text-align: center; color: #7a8d99; }
 .table-sort-button-right { justify-content: flex-end; }

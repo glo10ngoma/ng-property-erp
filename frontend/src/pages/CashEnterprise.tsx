@@ -26,6 +26,11 @@ type CashMovement = {
   reference?: string;
   attachment_file_name?: string;
   attachment_file_url?: string;
+  payment_id?: number | null;
+  invoice_id?: number | null;
+  stock_purchase_id?: number | null;
+  is_locked?: boolean;
+  locked_reason?: string | null;
 };
 
 type CashMovementDetail = CashMovement & {
@@ -59,6 +64,14 @@ type CashSession = {
   difference_amount?: number;
 };
 
+type CashExpenseCategory = {
+  id: number;
+  code: string;
+  name: string;
+  description?: string | null;
+  status: 'ACTIVE' | 'INACTIVE';
+};
+
 function formatCashAmount(value: number | string | null | undefined, currency: string) {
   const amount = Number(value ?? 0);
   const formatted = new Intl.NumberFormat('fr-FR', {
@@ -80,14 +93,36 @@ export function CashPage() {
   const navigate = useNavigate();
   const movements = useApiList<CashMovement>('/cash/movements');
   const sessions = useApiList<CashSession>('/cash/sessions');
+  const expenseCategories = useApiList<CashExpenseCategory>('/cash/expense-categories');
   const [query, setQuery] = useState('');
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [filters, setFilters] = useState({ type: '', category: '', period: '', currency: '' });
   const [openSessionModal, setOpenSessionModal] = useState(false);
   const [closeSessionModal, setCloseSessionModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<CashMovement | null>(null);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const categoryNameMap = useMemo(
+    () => Object.fromEntries(expenseCategories.data.map((category) => [category.code, category.name])),
+    [expenseCategories.data],
+  );
+
+  const categoryOptions = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...movements.data.map((movement) => movement.category).filter(Boolean),
+          ...expenseCategories.data.map((category) => category.code),
+        ]),
+      ).sort((left, right) =>
+        cashCategoryLabel(left, categoryNameMap).localeCompare(cashCategoryLabel(right, categoryNameMap), 'fr', {
+          sensitivity: 'base',
+        }),
+      ),
+    [categoryNameMap, expenseCategories.data, movements.data],
+  );
 
   const filtered = useMemo(
     () =>
@@ -186,10 +221,32 @@ export function CashPage() {
     return `D-${String(next).padStart(4, '0')}`;
   }, [movements.data]);
 
-  async function expense(form: FormData) {
+  async function expense(payload: Record<string, unknown>) {
     setError('');
-    await api.post('/cash/expenses', Object.fromEntries(form));
+    await api.post('/cash/expenses', payload);
     setSuccess('Mouvement de caisse enregistre.');
+    await movements.reload();
+    await sessions.reload();
+  }
+
+  async function createExpenseCategory(payload: { code: string; name: string; description?: string | null; status?: string }) {
+    setError('');
+    const response = await api.post<CashExpenseCategory>('/cash/expense-categories', payload);
+    await expenseCategories.reload();
+    setSuccess('Categorie de depense creee.');
+    return response.data;
+  }
+
+  async function deleteMovement(movement: CashMovement) {
+    setError('');
+    if (movement.is_locked) {
+      setError(movement.locked_reason || 'Ce mouvement ne peut pas etre supprime.');
+      setDeleteTarget(null);
+      return;
+    }
+    await api.delete(`/cash/movements/${movement.id}`);
+    setDeleteTarget(null);
+    setSuccess('Mouvement de caisse supprime.');
     await movements.reload();
     await sessions.reload();
   }
@@ -252,7 +309,14 @@ export function CashPage() {
 
   return (
     <section>
-      <PageHeader title="Caisse" />
+      <PageHeader
+        title="Caisse"
+        action={
+          <button type="button" className="secondary" onClick={() => navigate('/cash/categories')}>
+            Categories de depenses
+          </button>
+        }
+      />
       <SuccessMessage message={success} />
       {error ? <div className="error-message">{error}</div> : null}
       <div className="mini-stats cash-kpi-row cash-kpi-row-primary">
@@ -296,7 +360,12 @@ export function CashPage() {
             <button type="button" className="secondary" onClick={() => setCloseSessionModal(true)} disabled={!openSession}>
               Fermer la caisse
             </button>
-            <CashExpenseForm onSubmit={expense} nextPieceNumber={nextPieceNumber} />
+            <CashExpenseForm
+              categories={expenseCategories.data}
+              onSubmit={expense}
+              onCreateCategory={createExpenseCategory}
+              nextPieceNumber={nextPieceNumber}
+            />
           </div>
         ) : null}
       </div>
@@ -312,9 +381,9 @@ export function CashPage() {
         </select>
         <select value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}>
           <option value="">Categorie</option>
-          {Array.from(new Set(movements.data.map((movement) => movement.category))).map((category) => (
+          {categoryOptions.map((category) => (
             <option key={category} value={category}>
-              {cashCategoryLabel(category)}
+              {cashCategoryLabel(category, categoryNameMap)}
             </option>
           ))}
         </select>
@@ -335,7 +404,7 @@ export function CashPage() {
                 { name: 'Mouvements', rows: exportRows() },
                 { name: 'Entrees', rows: filtered.filter((movement) => movement.type === 'IN').map(cashExportRow) },
                 { name: 'Depenses', rows: filtered.filter((movement) => movement.type === 'OUT').map(cashExportRow) },
-                { name: 'Categories', rows: Array.from(new Set(filtered.map((movement) => movement.category))).map((category) => ({ categorie: cashCategoryLabel(category), nombre: filtered.filter((movement) => movement.category === category).length })) },
+                { name: 'Categories', rows: Array.from(new Set(filtered.map((movement) => movement.category))).map((category) => ({ categorie: cashCategoryLabel(category, categoryNameMap), nombre: filtered.filter((movement) => movement.category === category).length })) },
                 { name: 'Documents', rows: [] },
                 { name: 'Timeline', rows: filtered.map((movement) => ({ date: shortDate(movement.movement_date), evenement: movementTypeLabel(movement.type), description: movement.label ?? movement.reference ?? '-', utilisateur: '-' })) },
                 { name: 'Audit', rows: filtered.map((movement) => ({ piece: movement.piece_number ?? '-', reference: movement.reference ?? '-', statut: 'Disponible' })) },
@@ -358,6 +427,13 @@ export function CashPage() {
           expectedBalance={expectedClosingBalance}
           onClose={() => setCloseSessionModal(false)}
           onSubmit={closeCashSession}
+        />
+      ) : null}
+      {deleteTarget ? (
+        <CashDeleteMovementModal
+          movement={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={() => deleteMovement(deleteTarget)}
         />
       ) : null}
 
@@ -391,7 +467,7 @@ export function CashPage() {
                 <td>{movement.piece_number ?? '-'}</td>
                 <td>{movementTypeLabel(movement.type)}</td>
                 <td>{movement.label ?? movement.reference ?? '-'}</td>
-                <td>{cashCategoryLabel(movement.category)}</td>
+                <td>{cashCategoryLabel(movement.category, categoryNameMap)}</td>
                 <td className="right">{amounts.debit}</td>
                 <td className="right">{amounts.credit}</td>
                 <td>{movement.currency ?? 'USD'}</td>
@@ -416,6 +492,23 @@ export function CashPage() {
                     >
                       <Eye size={16} />
                     </button>
+                    {can('cash.update') ? (
+                      <button
+                        type="button"
+                        className="danger compact-action"
+                        title="Supprimer"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (movement.is_locked) {
+                            setError(movement.locked_reason || 'Ce mouvement ne peut pas etre supprime.');
+                            return;
+                          }
+                          setDeleteTarget(movement);
+                        }}
+                      >
+                        Suppr.
+                      </button>
+                    ) : null}
                   </div>
                 </td>
               </tr>
@@ -553,11 +646,71 @@ function CashCloseSessionModal({
   );
 }
 
+function CashDeleteMovementModal({
+  movement,
+  onClose,
+  onConfirm,
+}: {
+  movement: CashMovement;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    setSubmitting(true);
+    setError('');
+    try {
+      await onConfirm();
+    } catch (err: any) {
+      setError(apiErrorMessage(err, 'Impossible de supprimer ce mouvement.'));
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <Modal title="Supprimer le mouvement" onClose={onClose}>
+      <div className="modal-section">
+        <h3>Confirmation</h3>
+        <p>Supprimer définitivement ce mouvement ?</p>
+        <p>Cette opération est irréversible.</p>
+        <div className="mini-stats">
+          <div className="mini-stat">
+            <span>Piece</span>
+            <strong>{movement.piece_number ?? '-'}</strong>
+          </div>
+          <div className="mini-stat">
+            <span>Montant</span>
+            <strong>{formatCashAmount(movement.amount, movement.currency ?? 'USD')}</strong>
+          </div>
+          <div className="mini-stat">
+            <span>Catégorie</span>
+            <strong>{cashCategoryLabel(movement.category)}</strong>
+          </div>
+        </div>
+        {error ? <div className="error-message">{error}</div> : null}
+      </div>
+      <div className="modal-footer-sticky">
+        <button type="button" className="secondary" onClick={onClose} disabled={submitting}>
+          Annuler
+        </button>
+        <button type="button" className="danger" onClick={() => void submit()} disabled={submitting}>
+          {submitting ? 'Suppression...' : 'Supprimer'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 export function CashDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { can } = useAuth();
   const [movement, setMovement] = useState<CashMovementDetail | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -597,6 +750,21 @@ export function CashDetailPage() {
               Modifier
             </button>
           )}
+          {can('cash.update') ? (
+            <button
+              type="button"
+              className="danger"
+              onClick={() => {
+                if (movement.is_locked) {
+                  window.alert(movement.locked_reason || 'Ce mouvement ne peut pas etre supprime.');
+                  return;
+                }
+                setDeleteOpen(true);
+              }}
+            >
+              Supprimer
+            </button>
+          ) : null}
           <button onClick={() => window.print()}>
             <Printer size={16} />
             Imprimer
@@ -713,14 +881,102 @@ export function CashDetailPage() {
           <SimpleBlock rows={movement.history ?? []} />
         </details>
       </div>
+      {deleteOpen ? (
+        <CashDeleteMovementModal
+          movement={movement}
+          onClose={() => setDeleteOpen(false)}
+          onConfirm={async () => {
+            await api.delete(`/cash/movements/${movement.id}`);
+            navigate('/cash');
+          }}
+        />
+      ) : null}
     </section>
   );
 }
 
-function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormData) => void; nextPieceNumber: string }) {
+function CashExpenseForm({
+  categories,
+  onSubmit,
+  onCreateCategory,
+  nextPieceNumber,
+}: {
+  categories: CashExpenseCategory[];
+  onSubmit: (payload: Record<string, unknown>) => Promise<void>;
+  onCreateCategory: (payload: { code: string; name: string; description?: string | null; status?: string }) => Promise<CashExpenseCategory>;
+  nextPieceNumber: string;
+}) {
   const [open, setOpen] = useState(false);
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [attachmentName, setAttachmentName] = useState('');
   const [currency, setCurrency] = useState<'USD' | 'CDF'>('USD');
+  const activeCategories = useMemo(
+    () => categories.filter((category) => category.status === 'ACTIVE'),
+    [categories],
+  );
+  const [formState, setFormState] = useState({
+    label: '',
+    category: '',
+    amount: '',
+    movement_date: new Date().toISOString().slice(0, 10),
+    supplier: '',
+    payment_method: '',
+    reference: '',
+    description: '',
+    notes: '',
+  });
+
+  function resetForm() {
+    setFormState({
+      label: '',
+      category: '',
+      amount: '',
+      movement_date: new Date().toISOString().slice(0, 10),
+      supplier: '',
+      payment_method: '',
+      reference: '',
+      description: '',
+      notes: '',
+    });
+    setAttachmentName('');
+    setCurrency('USD');
+    setFormError('');
+    setCategoryModalOpen(false);
+  }
+
+  async function submit() {
+    if (!formState.category) {
+      setFormError('La categorie est obligatoire.');
+      return;
+    }
+    setSubmitting(true);
+    setFormError('');
+    try {
+      await onSubmit({
+        label: formState.label,
+        category: formState.category,
+        amount: formState.amount,
+        movement_date: formState.movement_date,
+        supplier: formState.supplier || null,
+        payment_method: formState.payment_method || null,
+        reference: formState.reference || null,
+        description: formState.description || null,
+        notes: formState.notes || null,
+        attachment_file_name: attachmentName || null,
+        currency,
+      });
+      resetForm();
+      setOpen(false);
+    } catch (err: any) {
+      setFormError(apiErrorMessage(err, 'Impossible d enregistrer la depense.'));
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
+  }
+
   return (
     <>
       <div className="actions-row">
@@ -734,18 +990,7 @@ function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormD
             className="cash-modal-form"
             onSubmit={(event) => {
               event.preventDefault();
-              const formData = new FormData(event.currentTarget);
-              const file = formData.get('attachment_file');
-              if (file instanceof File && file.name) {
-                formData.set('attachment_file_name', file.name);
-              }
-              formData.delete('attachment_file');
-              formData.set('currency', currency);
-              onSubmit(formData);
-              event.currentTarget.reset();
-              setAttachmentName('');
-              setCurrency('USD');
-              setOpen(false);
+              void submit();
             }}
           >
             <div className="modal-section">
@@ -757,19 +1002,55 @@ function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormD
                 </label>
                 <label>
                   Libelle *
-                  <input name="label" required placeholder="Libelle" />
+                  <input
+                    name="label"
+                    required
+                    placeholder="Libelle"
+                    value={formState.label}
+                    onChange={(event) => setFormState((current) => ({ ...current, label: event.target.value }))}
+                  />
                 </label>
-                <label>
+                <label className="lease-field-wide">
                   Categorie *
-                  <input name="category" required placeholder="Categorie" />
+                  <div className="cash-category-inline">
+                    <select
+                      name="category"
+                      required
+                      value={formState.category}
+                      onChange={(event) => setFormState((current) => ({ ...current, category: event.target.value }))}
+                    >
+                      <option value="">Selectionner</option>
+                      {activeCategories.map((category) => (
+                        <option key={category.id} value={category.code}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button type="button" className="secondary" onClick={() => setCategoryModalOpen(true)}>
+                      + Nouvelle categorie
+                    </button>
+                  </div>
                 </label>
                 <label>
                   Montant *
-                  <input name="amount" type="number" required step="0.01" />
+                  <input
+                    name="amount"
+                    type="number"
+                    required
+                    step="0.01"
+                    value={formState.amount}
+                    onChange={(event) => setFormState((current) => ({ ...current, amount: event.target.value }))}
+                  />
                 </label>
                 <label>
                   Date *
-                  <input name="movement_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} />
+                  <input
+                    name="movement_date"
+                    type="date"
+                    required
+                    value={formState.movement_date}
+                    onChange={(event) => setFormState((current) => ({ ...current, movement_date: event.target.value }))}
+                  />
                 </label>
                 <label>
                   Devise
@@ -786,11 +1067,20 @@ function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormD
               <div className="lease-section-grid">
                 <label>
                   Fournisseur
-                  <input name="supplier" placeholder="Fournisseur" />
+                  <input
+                    name="supplier"
+                    placeholder="Fournisseur"
+                    value={formState.supplier}
+                    onChange={(event) => setFormState((current) => ({ ...current, supplier: event.target.value }))}
+                  />
                 </label>
                 <label>
                   Moyen de paiement
-                  <select name="payment_method">
+                  <select
+                    name="payment_method"
+                    value={formState.payment_method}
+                    onChange={(event) => setFormState((current) => ({ ...current, payment_method: event.target.value }))}
+                  >
                     <option value="">-</option>
                     <option value="CASH">Especes</option>
                     <option value="BANK">Banque</option>
@@ -799,7 +1089,12 @@ function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormD
                 </label>
                 <label>
                   Reference
-                  <input name="reference" placeholder="Reference" />
+                  <input
+                    name="reference"
+                    placeholder="Reference"
+                    value={formState.reference}
+                    onChange={(event) => setFormState((current) => ({ ...current, reference: event.target.value }))}
+                  />
                 </label>
                 <label>
                   Pièce jointe
@@ -822,22 +1117,116 @@ function CashExpenseForm({ onSubmit, nextPieceNumber }: { onSubmit: (form: FormD
               <div className="lease-section-grid">
                 <label>
                   Description
-                  <textarea name="description" rows={2} placeholder="Description" />
+                  <textarea
+                    name="description"
+                    rows={2}
+                    placeholder="Description"
+                    value={formState.description}
+                    onChange={(event) => setFormState((current) => ({ ...current, description: event.target.value }))}
+                  />
                 </label>
                 <label>
                   Observations internes
-                  <textarea name="notes" rows={2} placeholder="Observations internes" />
+                  <textarea
+                    name="notes"
+                    rows={2}
+                    placeholder="Observations internes"
+                    value={formState.notes}
+                    onChange={(event) => setFormState((current) => ({ ...current, notes: event.target.value }))}
+                  />
                 </label>
               </div>
             </div>
+            {formError ? <div className="error-message">{formError}</div> : null}
 
             <div className="modal-footer-sticky">
-              <button type="submit">Enregistrer</button>
+              <button type="button" className="secondary" onClick={() => { resetForm(); setOpen(false); }} disabled={submitting}>
+                Annuler
+              </button>
+              <button type="submit" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer'}</button>
             </div>
           </form>
+          {categoryModalOpen ? (
+            <CashInlineCategoryModal
+              onClose={() => setCategoryModalOpen(false)}
+              onSubmit={async (payload) => {
+                const created = await onCreateCategory(payload);
+                setFormState((current) => ({ ...current, category: created.code }));
+                setCategoryModalOpen(false);
+              }}
+            />
+          ) : null}
         </Modal>
       )}
     </>
+  );
+}
+
+function CashInlineCategoryModal({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (payload: { code: string; name: string; description?: string | null; status?: string }) => Promise<void>;
+}) {
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(form: HTMLFormElement) {
+    setSubmitting(true);
+    setError('');
+    try {
+      await onSubmit({
+        code: String(new FormData(form).get('code') ?? '').trim(),
+        name: String(new FormData(form).get('name') ?? '').trim(),
+        description: String(new FormData(form).get('description') ?? '').trim() || null,
+        status: 'ACTIVE',
+      });
+    } catch (err: any) {
+      setError(apiErrorMessage(err, 'Impossible de creer la categorie.'));
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <Modal title="Nouvelle categorie" onClose={onClose}>
+      <form
+        className="cash-modal-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit(event.currentTarget);
+        }}
+      >
+        <div className="modal-section">
+          <h3>Categorie de depense</h3>
+          <div className="lease-section-grid">
+            <label>
+              Code
+              <input name="code" placeholder="AUTRE_DEPENSE" />
+            </label>
+            <label>
+              Nom *
+              <input name="name" required placeholder="Autre depense" />
+            </label>
+            <label className="lease-field-full">
+              Description
+              <textarea name="description" rows={3} placeholder="Description" />
+            </label>
+          </div>
+          {error ? <div className="error-message">{error}</div> : null}
+        </div>
+        <div className="modal-footer-sticky">
+          <button type="button" className="secondary" onClick={onClose} disabled={submitting}>
+            Annuler
+          </button>
+          <button type="submit" disabled={submitting}>
+            {submitting ? 'Enregistrement...' : 'Enregistrer'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -861,7 +1250,8 @@ function cashExportRow(movement: CashMovement) {
   };
 }
 
-function cashCategoryLabel(value: string) {
+function cashCategoryLabel(value: string, categories?: Record<string, string>) {
+  if (categories?.[value]) return categories[value];
   return (
     {
       INVOICE_PAYMENT: 'Paiement facture',
@@ -873,6 +1263,7 @@ function cashCategoryLabel(value: string) {
       SALARY_PAYMENT: 'Paiement salaire',
       MAINTENANCE_EXPENSE: 'Depense maintenance',
       PAYMENT_REFUND: 'Remboursement paiement',
+      STOCK_PURCHASE: 'Achat fournisseur',
     } as Record<string, string>
   )[value] ?? value;
 }

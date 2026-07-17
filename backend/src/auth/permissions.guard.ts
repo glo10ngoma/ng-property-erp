@@ -164,6 +164,7 @@ export class PermissionsGuard implements CanActivate {
       return method === 'GET' ? 'documents.read' : method === 'DELETE' ? 'documents.delete' : 'documents.upload';
     }
     if (resource === 'cash' && path.includes('/close')) return 'cash.close';
+    if (resource === 'cash' && method === 'DELETE' && path.includes('/movements/')) return 'cash.update';
     const action = method === 'GET' ? 'read' : method === 'POST' ? 'create' : method === 'PUT' || method === 'PATCH' ? 'update' : method === 'DELETE' ? 'delete' : 'read';
     return `${resource}.${action}`;
   }

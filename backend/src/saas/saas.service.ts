@@ -1866,11 +1866,68 @@ export class SaasService {
     );
   }
 
+  async cashExpenseCategories() {
+    return this.findAll('cash_expense_categories', 'name');
+  }
+
+  async createCashExpenseCategory(body: Record<string, unknown>) {
+    const payload = this.normalizeCashExpenseCategoryPayload(body);
+    try {
+      return await this.insert('cash_expense_categories', payload, ['code', 'name', 'description', 'status']);
+    } catch (error: any) {
+      if (error?.code === '23505') {
+        throw new ConflictException('Une catégorie de dépense avec ce code ou ce nom existe déjà.');
+      }
+      throw error;
+    }
+  }
+
+  async updateCashExpenseCategory(id: number, body: Record<string, unknown>) {
+    const payload = this.normalizeCashExpenseCategoryPayload(body);
+    try {
+      const { rows } = await this.db.query(
+        `UPDATE cash_expense_categories
+         SET code = $2,
+             name = $3,
+             description = $4,
+             status = $5,
+             updated_at = NOW()
+         WHERE id = $1 AND organization_id = $6 AND deleted_at IS NULL
+         RETURNING *`,
+        [id, payload.code, payload.name, payload.description, payload.status, this.context.organizationId()],
+      );
+      return requireRow(rows[0], 'Cash expense category');
+    } catch (error: any) {
+      if (error?.code === '23505') {
+        throw new ConflictException('Une catégorie de dépense avec ce code ou ce nom existe déjà.');
+      }
+      throw error;
+    }
+  }
+
   async cashMovements() {
     const { rows } = await this.db.query(`
       SELECT cm.*, cs.status AS session_status, i.invoice_number,
              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
-             CONCAT(e.first_name, ' ', e.last_name) AS employee_name
+             CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+             CASE
+               WHEN cm.payment_id IS NOT NULL THEN TRUE
+               WHEN cm.invoice_id IS NOT NULL THEN TRUE
+               WHEN cm.stock_purchase_id IS NOT NULL THEN TRUE
+               WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND') THEN TRUE
+               ELSE FALSE
+             END AS is_locked,
+             CASE
+               WHEN cm.payment_id IS NOT NULL THEN 'Ce mouvement est lié à un paiement.'
+               WHEN cm.invoice_id IS NOT NULL THEN 'Ce mouvement est lié à une facture.'
+               WHEN cm.stock_purchase_id IS NOT NULL THEN 'Ce mouvement est lié à un achat fournisseur.'
+               WHEN cm.category IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND') THEN 'Ce mouvement est généré automatiquement pour une garantie.'
+               WHEN cm.category IN ('SALARY_ADVANCE', 'SALARY_PAYMENT') THEN 'Ce mouvement est généré automatiquement pour la paie.'
+               WHEN cm.category = 'MAINTENANCE_EXPENSE' THEN 'Ce mouvement est lié à une dépense de maintenance.'
+               WHEN cm.category IN ('INVOICE_PAYMENT', 'PAYMENT_REFUND') THEN 'Ce mouvement est généré automatiquement pour un paiement.'
+               WHEN cm.category = 'STOCK_PURCHASE' THEN 'Ce mouvement est lié à un achat fournisseur.'
+               ELSE NULL
+             END AS locked_reason
       FROM cash_movements cm
       JOIN cash_sessions cs ON cs.id = cm.cash_session_id
       LEFT JOIN invoices i ON i.id = cm.invoice_id
@@ -1891,6 +1948,24 @@ export class SaasService {
               t.phone AS tenant_phone, t.email AS tenant_email,
               CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
               u.number AS unit_number, b.name AS building_name,
+              CASE
+                WHEN cm.payment_id IS NOT NULL THEN TRUE
+                WHEN cm.invoice_id IS NOT NULL THEN TRUE
+                WHEN cm.stock_purchase_id IS NOT NULL THEN TRUE
+                WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND') THEN TRUE
+                ELSE FALSE
+              END AS is_locked,
+              CASE
+                WHEN cm.payment_id IS NOT NULL THEN 'Ce mouvement est lié à un paiement.'
+                WHEN cm.invoice_id IS NOT NULL THEN 'Ce mouvement est lié à une facture.'
+                WHEN cm.stock_purchase_id IS NOT NULL THEN 'Ce mouvement est lié à un achat fournisseur.'
+                WHEN cm.category IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND') THEN 'Ce mouvement est généré automatiquement pour une garantie.'
+                WHEN cm.category IN ('SALARY_ADVANCE', 'SALARY_PAYMENT') THEN 'Ce mouvement est généré automatiquement pour la paie.'
+                WHEN cm.category = 'MAINTENANCE_EXPENSE' THEN 'Ce mouvement est lié à une dépense de maintenance.'
+                WHEN cm.category IN ('INVOICE_PAYMENT', 'PAYMENT_REFUND') THEN 'Ce mouvement est généré automatiquement pour un paiement.'
+                WHEN cm.category = 'STOCK_PURCHASE' THEN 'Ce mouvement est lié à un achat fournisseur.'
+                ELSE NULL
+              END AS locked_reason,
               al.action AS audit_action, al.created_at AS audit_date, al.metadata AS audit_metadata
        FROM cash_movements cm
        JOIN cash_sessions cs ON cs.id = cm.cash_session_id
@@ -1918,12 +1993,38 @@ export class SaasService {
       [this.context.organizationId(), String(id)],
     );
     const documents = [
-      { name: 'ReÃƒÂ§u PDF', exists: true, detail: `Mouvement_${movement.id}.pdf` },
-      { name: 'PiÃƒÂ¨ce jointe', exists: Boolean((movement as Record<string, unknown>).attachment_file_name), detail: String((movement as Record<string, unknown>).attachment_file_name ?? 'Non disponible') },
+      { name: 'Reçu PDF', exists: true, detail: `Mouvement_${movement.id}.pdf` },
+      {
+        name: 'Pièce jointe',
+        exists: Boolean((movement as Record<string, unknown>).attachment_file_name),
+        detail: String((movement as Record<string, unknown>).attachment_file_name ?? 'Non disponible'),
+      },
       { name: 'QR Code', exists: true, detail: 'Placeholder' },
       { name: 'Code barre', exists: true, detail: 'Placeholder' },
     ];
     return { ...movement, timeline: timeline.rows, documents, history: timeline.rows };
+  }
+
+  async deleteCashMovement(id: number) {
+    const { rows } = await this.db.query(
+      `SELECT id, payment_id, invoice_id, stock_purchase_id, category
+       FROM cash_movements
+       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+       LIMIT 1`,
+      [id, this.context.organizationId()],
+    );
+    const movement = requireRow(rows[0], 'Cash movement');
+    const protectionReason = this.cashMovementProtectionReason(movement as Record<string, unknown>);
+    if (protectionReason) {
+      throw new ConflictException(protectionReason);
+    }
+    await this.db.query(
+      `UPDATE cash_movements
+       SET deleted_at = NOW(), deleted_by = $2
+       WHERE id = $1 AND organization_id = $3 AND deleted_at IS NULL`,
+      [id, this.context.userId() ?? null, this.context.organizationId()],
+    );
+    return { deleted: true };
   }
 
   async stockCategories() {
@@ -8304,6 +8405,61 @@ export class SaasService {
       description: String(body.description ?? '').trim() || null,
       status,
     };
+  }
+
+  private normalizeCashExpenseCategoryPayload(body: Record<string, unknown>) {
+    const name = String(body.name ?? '').trim();
+    if (!name) {
+      throw new BadRequestException('Le nom de la catégorie est obligatoire.');
+    }
+    const status = String(body.status ?? 'ACTIVE').trim().toUpperCase() || 'ACTIVE';
+    if (!['ACTIVE', 'INACTIVE'].includes(status)) {
+      throw new BadRequestException('Statut de catégorie de dépense invalide.');
+    }
+    return {
+      code: this.buildCashExpenseCategoryCode(body.code, name),
+      name,
+      description: String(body.description ?? '').trim() || null,
+      status,
+    };
+  }
+
+  private buildCashExpenseCategoryCode(value: unknown, fallbackName: string) {
+    const raw = String(value ?? '').trim() || fallbackName;
+    const normalized = raw
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 40);
+    if (!normalized) {
+      throw new BadRequestException('Code de catégorie de dépense invalide.');
+    }
+    return normalized;
+  }
+
+  private cashMovementProtectionReason(movement: Record<string, unknown>) {
+    if (movement.payment_id) return 'Ce mouvement est lié à un paiement et ne peut pas être supprimé.';
+    if (movement.invoice_id) return 'Ce mouvement est lié à une facture et ne peut pas être supprimé.';
+    if (movement.stock_purchase_id) return 'Ce mouvement est lié à un achat fournisseur et ne peut pas être supprimé.';
+    const category = String(movement.category ?? '');
+    if (['LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND'].includes(category)) {
+      return 'Ce mouvement de garantie est généré automatiquement et ne peut pas être supprimé.';
+    }
+    if (['SALARY_ADVANCE', 'SALARY_PAYMENT'].includes(category)) {
+      return 'Ce mouvement de paie est généré automatiquement et ne peut pas être supprimé.';
+    }
+    if (category === 'MAINTENANCE_EXPENSE') {
+      return 'Ce mouvement est lié à une dépense de maintenance et ne peut pas être supprimé.';
+    }
+    if (['INVOICE_PAYMENT', 'PAYMENT_REFUND'].includes(category)) {
+      return 'Ce mouvement de paiement est généré automatiquement et ne peut pas être supprimé.';
+    }
+    if (category === 'STOCK_PURCHASE') {
+      return 'Ce mouvement est lié à un achat fournisseur et ne peut pas être supprimé.';
+    }
+    return null;
   }
 
   private async createHrCatalogRow(table: 'hr_services' | 'hr_positions', body: Record<string, unknown>) {

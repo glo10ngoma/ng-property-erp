@@ -6,6 +6,7 @@ import { PlatformRoute } from '../core/auth/PlatformRoute';
 import { ActivityPage } from '../modules/activity/pages/ActivityPage';
 import { BuildingsPage } from '../modules/buildings/pages/BuildingsPage';
 import { CashPage } from '../modules/cash/pages/CashPage';
+import { CashExpenseCategoriesPage } from '../modules/cash/pages/CashExpenseCategoriesPage';
 import { CommunicationsPage } from '../modules/communications/pages/CommunicationsPage';
 import { DashboardPage } from '../modules/dashboard/pages/DashboardPage';
 import { DocumentsPage } from '../modules/documents/pages/DocumentsPage';
@@ -103,6 +104,7 @@ export function AppRouter() {
           <Route path="/payments/:id" element={guarded('payments.read', <PaymentDetail />)} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/cash" element={guarded('cash.read', <CashPage />)} />
+          <Route path="/cash/categories" element={guarded('cash.read', <CashExpenseCategoriesPage />)} />
           <Route path="/cash/:id" element={guarded('cash.read', <CashDetailPage />)} />
           <Route path="/staff" element={guarded('staff.read', <StaffPage />)} />
           <Route path="/staff/:id" element={guarded('staff.read', <Navigate to="/personnel/employees" replace />)} />
