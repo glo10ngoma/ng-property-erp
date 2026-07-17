@@ -86,6 +86,8 @@ export function CashPage() {
   const [filters, setFilters] = useState({ type: '', category: '', period: '', currency: '' });
   const [openSessionModal, setOpenSessionModal] = useState(false);
   const [closeSessionModal, setCloseSessionModal] = useState(false);
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   const filtered = useMemo(
     () =>
@@ -99,6 +101,29 @@ export function CashPage() {
       ),
     [movements.data, query, filters],
   );
+
+  const sortedMovements = useMemo(() => {
+    if (!sortKey) return filtered;
+    const direction = sortDirection === 'asc' ? 1 : -1;
+    return filtered
+      .map((movement, index) => ({ movement, index }))
+      .sort((left, right) => {
+        const a = sortValue(left.movement, sortKey);
+        const b = sortValue(right.movement, sortKey);
+        if (a === null && b === null) return left.index - right.index;
+        if (a === null) return 1;
+        if (b === null) return -1;
+        let comparison = 0;
+        if (typeof a === 'number' && typeof b === 'number') {
+          comparison = a - b;
+        } else {
+          comparison = String(a).localeCompare(String(b), 'fr', { sensitivity: 'base', numeric: true });
+        }
+        if (comparison === 0) return left.index - right.index;
+        return comparison * direction;
+      })
+      .map((row) => row.movement);
+  }, [filtered, sortDirection, sortKey]);
 
   const stats = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -188,7 +213,7 @@ export function CashPage() {
   }
 
   function exportRows() {
-    return filtered.map((movement) => ({
+    return sortedMovements.map((movement) => ({
       date: shortDate(movement.movement_date),
       piece: movement.piece_number ?? '-',
       type: movementTypeLabel(movement.type),
@@ -204,6 +229,25 @@ export function CashPage() {
       reference: movement.reference ?? '-',
       statut: movement.type === 'IN' ? 'Entree' : 'Depense',
     }));
+  }
+
+  function toggleSort(key: string) {
+    if (sortKey !== key) {
+      setSortKey(key);
+      setSortDirection('asc');
+      return;
+    }
+    if (sortDirection === 'asc') {
+      setSortDirection('desc');
+      return;
+    }
+    setSortKey(null);
+    setSortDirection('asc');
+  }
+
+  function sortIndicator(key: string) {
+    if (sortKey !== key) return '';
+    return sortDirection === 'asc' ? '↑' : '↓';
   }
 
   return (
@@ -317,29 +361,29 @@ export function CashPage() {
         />
       ) : null}
 
-      <div className="table-wrap">
+      <div className="table-wrap cash-table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Date</th>
-              <th>N° piece</th>
-              <th>Type</th>
-              <th>Libelle</th>
-              <th>Categorie</th>
-              <th className="right">Débit</th>
-              <th className="right">Crédit</th>
-              <th>Devise</th>
-              <th>Taux</th>
-              <th className="right">Eq. USD</th>
-              <th>Facture</th>
-              <th>Locataire / Fournisseur</th>
-              <th>Reference</th>
-              <th>Statut</th>
+              <th><button type="button" className="table-sort-button" onClick={() => toggleSort('movement_date')}>Date <span>{sortIndicator('movement_date')}</span></button></th>
+              <th><button type="button" className="table-sort-button" onClick={() => toggleSort('piece_number')}>N° piece <span>{sortIndicator('piece_number')}</span></button></th>
+              <th><button type="button" className="table-sort-button" onClick={() => toggleSort('type')}>Type <span>{sortIndicator('type')}</span></button></th>
+              <th><button type="button" className="table-sort-button" onClick={() => toggleSort('label')}>Libelle <span>{sortIndicator('label')}</span></button></th>
+              <th><button type="button" className="table-sort-button" onClick={() => toggleSort('category')}>Categorie <span>{sortIndicator('category')}</span></button></th>
+              <th className="right"><button type="button" className="table-sort-button table-sort-button-right" onClick={() => toggleSort('debit')}>Débit <span>{sortIndicator('debit')}</span></button></th>
+              <th className="right"><button type="button" className="table-sort-button table-sort-button-right" onClick={() => toggleSort('credit')}>Crédit <span>{sortIndicator('credit')}</span></button></th>
+              <th><button type="button" className="table-sort-button" onClick={() => toggleSort('currency')}>Devise <span>{sortIndicator('currency')}</span></button></th>
+              <th><button type="button" className="table-sort-button" onClick={() => toggleSort('exchange_rate_used')}>Taux <span>{sortIndicator('exchange_rate_used')}</span></button></th>
+              <th className="right"><button type="button" className="table-sort-button table-sort-button-right" onClick={() => toggleSort('equivalent_usd')}>Eq. USD <span>{sortIndicator('equivalent_usd')}</span></button></th>
+              <th><button type="button" className="table-sort-button" onClick={() => toggleSort('invoice_number')}>Facture <span>{sortIndicator('invoice_number')}</span></button></th>
+              <th><button type="button" className="table-sort-button" onClick={() => toggleSort('counterparty')}>Locataire / Fournisseur <span>{sortIndicator('counterparty')}</span></button></th>
+              <th><button type="button" className="table-sort-button" onClick={() => toggleSort('reference')}>Reference <span>{sortIndicator('reference')}</span></button></th>
+              <th><button type="button" className="table-sort-button" onClick={() => toggleSort('status')}>Statut <span>{sortIndicator('status')}</span></button></th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((movement) => {
+            {sortedMovements.map((movement) => {
               const amounts = debitCreditValues(movement);
               return (
               <tr key={movement.id} className="clickable-row" onClick={() => navigate(`/cash/${movement.id}`)}>
@@ -835,6 +879,41 @@ function cashCategoryLabel(value: string) {
 
 function movementTypeLabel(value: string) {
   return ({ IN: 'Entree', OUT: 'Depense' } as Record<string, string>)[value] ?? value;
+}
+
+function sortValue(movement: CashMovement, key: string) {
+  switch (key) {
+    case 'movement_date':
+      return movement.movement_date ? new Date(movement.movement_date).getTime() : null;
+    case 'piece_number':
+      return movement.piece_number ?? null;
+    case 'type':
+      return movementTypeLabel(movement.type);
+    case 'label':
+      return movement.label ?? movement.reference ?? null;
+    case 'category':
+      return cashCategoryLabel(movement.category);
+    case 'debit':
+      return movement.type === 'IN' ? Number(movement.amount ?? 0) : null;
+    case 'credit':
+      return movement.type === 'OUT' ? Number(movement.amount ?? 0) : null;
+    case 'currency':
+      return movement.currency ?? null;
+    case 'exchange_rate_used':
+      return movement.exchange_rate_used == null ? null : Number(movement.exchange_rate_used);
+    case 'equivalent_usd':
+      return movement.equivalent_usd == null ? Number(movement.amount ?? 0) : Number(movement.equivalent_usd);
+    case 'invoice_number':
+      return movement.invoice_number ?? null;
+    case 'counterparty':
+      return movement.tenant_name ?? movement.supplier ?? null;
+    case 'reference':
+      return movement.reference ?? null;
+    case 'status':
+      return movementTypeLabel(movement.type);
+    default:
+      return null;
+  }
 }
 
 function apiErrorMessage(error: any, fallback: string) {
