@@ -350,8 +350,8 @@ export function EmployeesPage() {
       {!filtered.length && <EmptyState message="Aucun employÃ© trouvÃ©." />}
     </div>}
 
-    {createOpen && <EmployeeModal title="Nouvel employÃ©" onClose={() => setCreateOpen(false)} onSubmit={(form) => saveEmployee(form, null)} />}
-    {editing && <EmployeeModal title="Modifier employÃ©" employee={editing} onClose={() => setEditing(null)} onSubmit={(form) => saveEmployee(form, editing)} />}
+    {createOpen && <EmployeeModal title="Nouvel employÃ©" services={services.data} positions={positions.data} onClose={() => setCreateOpen(false)} onSubmit={(form) => saveEmployee(form, null)} />}
+    {editing && <EmployeeModal title="Modifier employÃ©" employee={editing} services={services.data} positions={positions.data} onClose={() => setEditing(null)} onSubmit={(form) => saveEmployee(form, editing)} />}
     {contractOpen !== null && <ContractModal employees={employees.data} employeeId={contractOpen} onClose={() => setContractOpen(null)} onSubmit={saveContract} />}
     {advanceOpen !== null && <AdvanceModal employees={employees.data} employeeId={advanceOpen} onClose={() => setAdvanceOpen(null)} onSubmit={saveAdvance} />}
     {leaveOpen !== null && <LeaveModal employees={employees.data} employeeId={leaveOpen} onClose={() => setLeaveOpen(null)} onSubmit={saveLeave} />}
@@ -938,18 +938,18 @@ function HrCatalogModal({ title, label, item, onClose, onSubmit }: { title: stri
   </Modal>;
 }
 function EmployeeModal({ title, employee, services, positions, onClose, onSubmit }: { title: string; employee?: Employee | null; services?: HrService[]; positions?: HrPosition[]; onClose: () => void; onSubmit: (form: FormData) => void }) {
-  const servicesList = useApiList<HrService>('/hr/services');
-  const positionsList = useApiList<HrPosition>('/hr/positions');
-  const availableServices = services ?? servicesList.data;
-  const availablePositions = positions ?? positionsList.data;
+  const availableServices = services ?? [];
+  const availablePositions = positions ?? [];
   const [serviceValue, setServiceValue] = useState(() => selectedCatalogValue(employee?.service_id, employee?.department));
   const [positionValue, setPositionValue] = useState(() => selectedCatalogValue(employee?.position_id, employee?.job_title));
   const serviceOptions = useMemo(() => catalogSelectOptions(availableServices, serviceValue, employee?.department), [availableServices, serviceValue, employee?.department]);
   const positionOptions = useMemo(() => catalogSelectOptions(availablePositions, positionValue, employee?.job_title), [availablePositions, positionValue, employee?.job_title]);
+  const useServiceCatalog = serviceOptions.length > 0;
+  const usePositionCatalog = positionOptions.length > 0;
   return <Modal title={title} onClose={onClose}>
     <form className="stock-purchase-modal" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}>
       <div className="modal-section"><h3>Identite</h3><div className="maintenance-grid hr-form-grid">
-        <label className="locked-field">Matricule auto<input name="employee_number" defaultValue={employeeCode(employee?.employee_number, employee?.id ?? 1)} readOnly /></label>
+        <label className="locked-field">Matricule auto<input name="employee_number" defaultValue={employee?.employee_number ?? 'Automatique'} readOnly /></label>
         <label>Prenom *<input name="first_name" defaultValue={employee?.first_name} required /></label>
         <label>Nom *<input name="last_name" defaultValue={employee?.last_name} required /></label>
         <label>Post-nom<input name="post_name" defaultValue={employee?.post_name} /></label>
@@ -965,10 +965,28 @@ function EmployeeModal({ title, employee, services, positions, onClose, onSubmit
         <label className="wide-field">Adresse<input name="address" defaultValue={employee?.address} /></label>
       </div></div>
       <div className="modal-section"><h3>Professionnel</h3><div className="maintenance-grid hr-form-grid">
-        <label>Service *<select name="service_id" value={serviceValue} onChange={(event) => setServiceValue(event.target.value)} required><option value="">Selectionner</option>{serviceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-        <label>Fonction *<select name="position_id" value={positionValue} onChange={(event) => setPositionValue(event.target.value)} required><option value="">Selectionner</option>{positionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-        <input type="hidden" name="department" value={catalogFallbackLabel(serviceValue, availableServices, employee?.department)} />
-        <input type="hidden" name="job_title" value={catalogFallbackLabel(positionValue, availablePositions, employee?.job_title)} />
+        {useServiceCatalog ? (
+          <>
+            <label>Service *<select name="service_id" value={serviceValue} onChange={(event) => setServiceValue(event.target.value)} required><option value="">Selectionner</option>{serviceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <input type="hidden" name="department" value={catalogFallbackLabel(serviceValue, availableServices, employee?.department)} />
+          </>
+        ) : (
+          <>
+            <label>Service *<input name="department" defaultValue={employee?.department ?? ''} required /></label>
+            <input type="hidden" name="service_id" value="" />
+          </>
+        )}
+        {usePositionCatalog ? (
+          <>
+            <label>Fonction *<select name="position_id" value={positionValue} onChange={(event) => setPositionValue(event.target.value)} required><option value="">Selectionner</option>{positionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <input type="hidden" name="job_title" value={catalogFallbackLabel(positionValue, availablePositions, employee?.job_title)} />
+          </>
+        ) : (
+          <>
+            <label>Fonction *<input name="job_title" defaultValue={employee?.job_title ?? ''} required /></label>
+            <input type="hidden" name="position_id" value="" />
+          </>
+        )}
         <label>Date embauche *<input type="date" name="hire_date" defaultValue={employee?.hire_date?.slice(0, 10)} required /></label>
         <label>Type contrat<select name="contract_type" defaultValue={employee?.contract_type ?? ''}><option value="">Selectionner</option>{contractTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
         <label>Site / immeuble affecte<input name="assigned_site" defaultValue={employee?.assigned_site} /></label>
@@ -1128,37 +1146,37 @@ function employeePayload(form: FormData) {
     employee_number: stringValue(form, 'employee_number'),
     first_name: stringValue(form, 'first_name'),
     last_name: stringValue(form, 'last_name'),
-    post_name: stringValue(form, 'post_name'),
-    gender: stringValue(form, 'gender'),
-    birth_date: stringValue(form, 'birth_date'),
-    nationality: stringValue(form, 'nationality'),
-    marital_status: stringValue(form, 'marital_status'),
+    post_name: optionalStringValue(form, 'post_name'),
+    gender: optionalStringValue(form, 'gender'),
+    birth_date: optionalStringValue(form, 'birth_date'),
+    nationality: optionalStringValue(form, 'nationality'),
+    marital_status: optionalStringValue(form, 'marital_status'),
     phone: stringValue(form, 'phone'),
-    secondary_phone: stringValue(form, 'secondary_phone'),
-    email: stringValue(form, 'email'),
-    address: stringValue(form, 'address'),
+    secondary_phone: optionalStringValue(form, 'secondary_phone'),
+    email: optionalStringValue(form, 'email'),
+    address: optionalStringValue(form, 'address'),
     service_id: parseCatalogValue(stringValue(form, 'service_id')),
     position_id: parseCatalogValue(stringValue(form, 'position_id')),
     department: stringValue(form, 'department'),
     job_title: stringValue(form, 'job_title'),
     hire_date: stringValue(form, 'hire_date'),
-    contract_type: stringValue(form, 'contract_type'),
-    assigned_site: stringValue(form, 'assigned_site'),
-    manager_name: stringValue(form, 'manager_name'),
+    contract_type: optionalStringValue(form, 'contract_type'),
+    assigned_site: optionalStringValue(form, 'assigned_site'),
+    manager_name: optionalStringValue(form, 'manager_name'),
     status: stringValue(form, 'status') || 'ACTIVE',
     monthly_salary: Number(form.get('monthly_salary') ?? 0),
-    payment_method: stringValue(form, 'payment_method'),
-    bank_name: stringValue(form, 'bank_name'),
-    account_number: stringValue(form, 'account_number'),
-    mobile_money_number: stringValue(form, 'mobile_money_number'),
-    id_document_type: stringValue(form, 'id_document_type'),
-    id_document_number: stringValue(form, 'id_document_number'),
-    identity_attachment_name: stringValue(form, 'identity_attachment_name'),
-    cv_attachment_name: stringValue(form, 'cv_attachment_name'),
-    signed_contract_attachment_name: stringValue(form, 'signed_contract_attachment_name'),
-    emergency_contact_name: stringValue(form, 'emergency_contact_name'),
-    emergency_contact_phone: stringValue(form, 'emergency_contact_phone'),
-    internal_notes: stringValue(form, 'internal_notes'),
+    payment_method: optionalStringValue(form, 'payment_method'),
+    bank_name: optionalStringValue(form, 'bank_name'),
+    account_number: optionalStringValue(form, 'account_number'),
+    mobile_money_number: optionalStringValue(form, 'mobile_money_number'),
+    id_document_type: optionalStringValue(form, 'id_document_type'),
+    id_document_number: optionalStringValue(form, 'id_document_number'),
+    identity_attachment_name: optionalStringValue(form, 'identity_attachment_name'),
+    cv_attachment_name: optionalStringValue(form, 'cv_attachment_name'),
+    signed_contract_attachment_name: optionalStringValue(form, 'signed_contract_attachment_name'),
+    emergency_contact_name: optionalStringValue(form, 'emergency_contact_name'),
+    emergency_contact_phone: optionalStringValue(form, 'emergency_contact_phone'),
+    internal_notes: optionalStringValue(form, 'internal_notes'),
   };
 }
 
@@ -1232,6 +1250,11 @@ function payrollPayload(form: FormData) {
 
 function stringValue(form: FormData, key: string) {
   return String(form.get(key) ?? '').trim();
+}
+
+function optionalStringValue(form: FormData, key: string) {
+  const value = stringValue(form, key);
+  return value || null;
 }
 
 function hrCatalogPayload(form: FormData) {
