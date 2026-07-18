@@ -22,20 +22,22 @@ export class PaymentsService {
   async findAll() {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(`
-      SELECT p.*, i.invoice_number, i.total, i.status AS invoice_status,
+      SELECT p.*, i.invoice_number, i.invoice_type, i.total, i.status AS invoice_status,
              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
              END AS tenant_name,
              t.phone AS tenant_phone,
              t.email AS tenant_email,
              u.number AS unit_number,
-             COALESCE(l.lease_number, l.id) AS lease_number,
+             COALESCE(l.lease_number, gl.lease_number, l.id, gl.id) AS lease_number,
              b.name AS building_name
       FROM payments p
       LEFT JOIN invoices i ON i.id = p.invoice_id
-      JOIN tenants t ON t.id = i.tenant_id
+      LEFT JOIN lease_guarantees g ON g.id = p.lease_guarantee_id
+      LEFT JOIN leases gl ON gl.id = g.lease_id
+      LEFT JOIN tenants t ON t.id = COALESCE(i.tenant_id, gl.tenant_id)
       LEFT JOIN leases l ON l.id = i.lease_id
-      LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+      LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, gl.unit_id, t.unit_id)
       LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
       WHERE p.organization_id = $1 AND p.deleted_at IS NULL
       ORDER BY p.payment_date DESC, p.id DESC
@@ -46,7 +48,7 @@ export class PaymentsService {
   async findOne(id: number) {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(
-      `SELECT p.*, i.invoice_number, i.month, i.year, i.issue_date, i.due_date, i.total AS invoice_total, i.status AS invoice_status,
+      `SELECT p.*, i.invoice_number, i.invoice_type, i.month, i.year, i.issue_date, i.due_date, i.total AS invoice_total, i.status AS invoice_status,
               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
                    ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
               END AS tenant_name,
@@ -54,13 +56,20 @@ export class PaymentsService {
               t.company_name, t.rccm, t.tax_number, t.business_sector,
               u.number AS unit_number, u.monthly_rent, u.status AS unit_status,
               b.name AS building_name, b.address AS building_address, b.city AS building_city, b.commune AS building_commune,
-              l.id AS lease_id, COALESCE(l.lease_number, l.id) AS lease_number,
-              l.start_date AS lease_start_date, l.end_date AS lease_end_date, l.status AS lease_status
+              COALESCE(l.id, gl.id) AS lease_id, COALESCE(l.lease_number, gl.lease_number, l.id, gl.id) AS lease_number,
+              COALESCE(l.start_date, gl.start_date) AS lease_start_date,
+              COALESCE(l.end_date, gl.end_date) AS lease_end_date,
+              COALESCE(l.status, gl.status) AS lease_status,
+              g.amount AS guarantee_amount,
+              g.paid_amount AS guarantee_paid_amount,
+              g.status AS guarantee_status
        FROM payments p
        LEFT JOIN invoices i ON i.id = p.invoice_id
-       LEFT JOIN tenants t ON t.id = i.tenant_id
+       LEFT JOIN lease_guarantees g ON g.id = p.lease_guarantee_id
+       LEFT JOIN leases gl ON gl.id = g.lease_id
+       LEFT JOIN tenants t ON t.id = COALESCE(i.tenant_id, gl.tenant_id)
        LEFT JOIN leases l ON l.id = i.lease_id
-       LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+       LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, gl.unit_id, t.unit_id)
        LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
        WHERE p.id = $1 AND p.organization_id = $2 AND p.deleted_at IS NULL`,
       [id, organizationId],

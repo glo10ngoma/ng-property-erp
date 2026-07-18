@@ -3791,6 +3791,7 @@ export class SaasService {
     return {
       ...row,
       guarantee: await this.leaseGuarantee(id),
+      guarantee_payments: await this.leaseGuaranteePayments(id),
       documents: await this.leaseDocuments(id),
       history: await this.unitOccupationHistory(lease.rows[0]?.unit_id ?? 0),
       latest_contract: await this.latestLeaseContract(id),
@@ -4253,6 +4254,23 @@ export class SaasService {
       [id, this.context.organizationId()],
     );
     return rows[0] ?? null;
+  }
+
+  async leaseGuaranteePayments(id: number) {
+    const { rows } = await this.db.query(
+      `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference, p.receipt_number, p.cash_movement_id
+       FROM payments p
+       JOIN lease_guarantees g ON g.id = p.lease_guarantee_id
+       WHERE g.lease_id = $1
+         AND p.organization_id = $2
+         AND g.organization_id = $2
+         AND p.payment_type = 'GUARANTEE'
+         AND p.deleted_at IS NULL
+         AND g.deleted_at IS NULL
+       ORDER BY p.payment_date DESC, p.id DESC`,
+      [id, this.context.organizationId()],
+    );
+    return rows;
   }
 
   async leaseDocuments(id: number) {
@@ -5269,14 +5287,21 @@ export class SaasService {
 
   async payLeaseGuarantee(id: number, amount: number, reference?: string) {
     return this.db.transaction(async (client) => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`lease-guarantee-payment-${this.context.organizationId()}-${id}`]);
       const lease = await client.query(
         `SELECT * FROM leases WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
         [id, this.context.organizationId()],
       );
       const row = requireRow(lease.rows[0], 'Lease');
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new BadRequestException('Le montant de la garantie doit etre superieur a 0.');
+      }
       const guarantee = await this.leaseGuarantee(id);
       const guaranteeAmount = Number(guarantee?.amount ?? row.rental_guarantee_amount ?? 0);
       const paidAmount = Number(guarantee?.paid_amount ?? row.rental_guarantee_paid ?? 0) + amount;
+      if (guaranteeAmount > 0 && paidAmount > guaranteeAmount + 0.01) {
+        throw new BadRequestException('Le paiement depasse le montant restant de la garantie.');
+      }
       const status = paidAmount >= guaranteeAmount ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'NOT_PAID';
       await this.upsertLeaseGuarantee(client, id, {
         amount: guaranteeAmount,
@@ -5284,16 +5309,70 @@ export class SaasService {
         payment_date: new Date().toISOString().slice(0, 10),
         status,
       });
+      const persistedGuarantee = await this.leaseGuaranteeInTransaction(client, id);
+      const receiptNumber = await this.nextPaymentReceiptNumber(client);
+      const paymentDate = new Date().toISOString().slice(0, 10);
+      const normalizedReference = reference ?? `GAR-${id}`;
+      const idempotencyKey = [
+        'GUARANTEE',
+        this.context.organizationId(),
+        id,
+        persistedGuarantee.id,
+        paymentDate,
+        amount.toFixed(2),
+        normalizedReference,
+      ].join(':');
+      const paymentResult = await client.query(
+        `INSERT INTO payments
+          (invoice_id, payment_date, amount, payment_method, reference, notes, payer_name, receipt_number,
+           currency, amount_usd, amount_cdf, cdf_equivalent_usd, total_equivalent_usd, organization_id,
+           payment_type, lease_guarantee_id, idempotency_key)
+         VALUES
+          (NULL, $1, $2, 'CASH', $3, $4, $5, $6,
+           'USD', $2, 0, 0, $2, $7,
+           'GUARANTEE', $8, $9)
+         ON CONFLICT (organization_id, idempotency_key)
+         WHERE deleted_at IS NULL AND idempotency_key IS NOT NULL
+         DO NOTHING
+         RETURNING *`,
+        [
+          paymentDate,
+          amount,
+          normalizedReference,
+          'Paiement garantie locative',
+          row.tenant_id ? `Locataire #${row.tenant_id}` : null,
+          receiptNumber,
+          this.context.organizationId(),
+          persistedGuarantee.id,
+          idempotencyKey,
+        ],
+      );
+      if (!paymentResult.rows[0]) {
+        throw new ConflictException('Ce paiement de garantie est deja en cours de traitement ou deja enregistre.');
+      }
       const movement = await this.createCashMovementInTransaction(client, {
         type: 'IN',
         category: 'LEASE_GUARANTEE',
         amount,
         movement_date: new Date().toISOString().slice(0, 10),
+        payment_id: paymentResult.rows[0].id,
         tenant_id: row.tenant_id,
         description: 'Paiement garantie locative',
-        reference: reference ?? `GAR-${id}`,
+        reference: normalizedReference,
       });
-      return { guarantee: await this.leaseGuaranteeInTransaction(client, id), movement };
+      await client.query(
+        `UPDATE payments
+         SET cash_movement_id = $2
+         WHERE id = $1 AND organization_id = $3`,
+        [paymentResult.rows[0].id, movement.id, this.context.organizationId()],
+      );
+      return {
+        guarantee: await this.leaseGuaranteeInTransaction(client, id),
+        payment_id: paymentResult.rows[0].id,
+        receipt_number: paymentResult.rows[0].receipt_number,
+        cash_movement_id: movement.id,
+        movement,
+      };
     });
   }
 
@@ -5325,6 +5404,17 @@ export class SaasService {
       });
       return { guarantee: await this.leaseGuaranteeInTransaction(client, id), movement };
     });
+  }
+
+  private async nextPaymentReceiptNumber(client: PoolClient) {
+    const year = new Date().getFullYear();
+    const { rows } = await client.query(
+      `SELECT COALESCE(MAX((SUBSTRING(receipt_number FROM $1))::INT), 0) + 1 AS value
+       FROM payments
+       WHERE receipt_number LIKE $2 AND organization_id = $3`,
+      [`RCPT-${year}-([0-9]+)`, `RCPT-${year}-%`, this.context.organizationId()],
+    );
+    return `RCPT-${year}-${String(rows[0].value).padStart(4, '0')}`;
   }
 
   async unitOccupationHistory(unitId: number) {

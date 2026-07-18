@@ -33,6 +33,7 @@ type LeaseContractGeneration = {
 
 type LeaseDetailData = Lease & {
   guarantee?: { amount: number; paid_amount: number; status: string; payment_date?: string };
+  guarantee_payments?: Array<{ id: number; payment_date: string; amount: number; payment_method: string; reference?: string; receipt_number?: string; cash_movement_id?: number }>;
   documents: Array<{ id: number; document_type: string; file_name: string; file_url?: string; uploaded_at?: string }>;
   history: Lease[];
   latest_contract?: LeaseContractGeneration | null;
@@ -407,6 +408,16 @@ export function LeaseDetail() {
             <tbody><tr><td><StatusBadge value={lease.guarantee?.status ?? lease.rental_guarantee_status} /></td><td className="right">{lease.guarantee_months ?? 0}</td><td className="right">{amount(lease.guarantee?.amount ?? lease.rental_guarantee_amount)}</td><td className="right">{amount(lease.guarantee?.paid_amount ?? lease.rental_guarantee_paid)}</td><td>USD</td><td>{lease.guarantee?.payment_date ? shortDate(lease.guarantee.payment_date) : '-'}</td></tr></tbody>
           </table>
         </div>
+        {lease.guarantee_payments?.length ? (
+          <div className="compact-list">
+            {lease.guarantee_payments.map((payment) => (
+              <div className="compact-item" key={payment.id}>
+                <span>{payment.receipt_number ?? `PAY-${payment.id}`} | {shortDate(payment.payment_date)} | {money(payment.amount)}</span>
+                <button type="button" className="secondary" onClick={() => navigate(`/payments/${payment.id}`)}><Receipt size={16} />Reçu</button>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <SimpleSection title="Contrat genere" empty="Aucun contrat genere pour ce bail.">
