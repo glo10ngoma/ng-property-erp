@@ -1,5 +1,5 @@
 ﻿import { ArrowLeft, CreditCard, FileSpreadsheet, Mail, MessageCircle, Pencil, Plus, Printer, Smartphone, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, invoiceDisplayStatus, itemLabel, money, paymentMethodLabel, shortDate } from '../api';
 import { useAuth } from '../auth';
@@ -105,6 +105,7 @@ export function InvoiceDetail() {
   const [paymentRate, setPaymentRate] = useState('');
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState('');
+  const printTitleRef = useRef<string | null>(null);
 
   async function reload() {
     if (!id) return;
@@ -140,6 +141,31 @@ export function InvoiceDetail() {
   useEffect(() => {
     if (invoice) setUsdAmount(String(Number(invoice.remaining_amount ?? 0).toFixed(2)));
   }, [invoice]);
+
+  useEffect(() => {
+    const applyPrintTitle = () => {
+      if (printTitleRef.current === null) {
+        printTitleRef.current = document.title;
+      }
+      document.title = ' ';
+    };
+
+    const restorePrintTitle = () => {
+      if (printTitleRef.current !== null) {
+        document.title = printTitleRef.current;
+        printTitleRef.current = null;
+      }
+    };
+
+    window.addEventListener('beforeprint', applyPrintTitle);
+    window.addEventListener('afterprint', restorePrintTitle);
+
+    return () => {
+      window.removeEventListener('beforeprint', applyPrintTitle);
+      window.removeEventListener('afterprint', restorePrintTitle);
+      restorePrintTitle();
+    };
+  }, []);
 
   useEffect(() => {
     if (!invoice) return;
@@ -315,6 +341,23 @@ export function InvoiceDetail() {
   const paymentUnitDisplay = invoice.unit_number || 'Non renseigné';
   const paymentLeaseDisplay = invoice.lease_id ? formatLeaseReference(invoice.lease_number, invoice.lease_id) : 'Non renseigné';
 
+  function printInvoice() {
+    if (printTitleRef.current === null) {
+      printTitleRef.current = document.title;
+    }
+    document.title = ' ';
+    try {
+      window.print();
+    } finally {
+      window.setTimeout(() => {
+        if (printTitleRef.current !== null) {
+          document.title = printTitleRef.current;
+          printTitleRef.current = null;
+        }
+      }, 0);
+    }
+  }
+
   return (
     <section>
       <div className="page-header no-print">
@@ -322,7 +365,7 @@ export function InvoiceDetail() {
         <div className="actions invoice-detail-actions">
           <button className="secondary" onClick={() => navigate('/invoices')}><ArrowLeft size={16} />Retour</button>
           {can('invoices.update') && <button onClick={openEdit}><Pencil size={16} />Modifier</button>}
-          <button onClick={() => window.print()}><Printer size={16} />Imprimer</button>
+          <button onClick={printInvoice}><Printer size={16} />Imprimer</button>
           {can('payments.create') && <button title="Enregistrer un paiement" onClick={() => setPaymentOpen(true)}><CreditCard size={16} />Paiement</button>}
           {can('communication.send') && <button className="secondary" title="Envoyer par WhatsApp" onClick={() => sendReminder('WHATSAPP')}><MessageCircle size={16} />WhatsApp</button>}
           {can('communication.send') && <button className="secondary" title="Envoyer par e-mail" onClick={() => sendReminder('EMAIL')}><Mail size={16} />Email</button>}
@@ -409,6 +452,7 @@ export function InvoiceDetail() {
 
         {invoice.public_notes && <p className="thanks">{invoice.public_notes}</p>}
         <p className="thanks">Merci pour votre confiance.</p>
+        <footer className="print-invoice-footer">Powered by Property ERP</footer>
       </article>
 
       <details className="detail-section no-print invoice-collapsible">

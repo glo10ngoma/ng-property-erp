@@ -270,6 +270,7 @@ textarea { min-height: 72px; resize: vertical; }
 .print-invoice tbody tr:nth-child(even) { background: #f8fafb; }
 .print-invoice tbody td { border-bottom: 1px solid #edf1f4; }
 .print-invoice tfoot td { font-weight: 900; font-size: 19px; border-top: 2px solid #dce5eb; }
+.print-invoice-footer { margin-top: 22px; text-align: center; font-size: 11px; color: #7a8d99; }
 .invoice-amount-cards { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px; margin-top: 14px; }
 .invoice-amount-card { border: 1px solid #dce5eb; border-radius: 8px; padding: 10px 12px; background: #f8fafb; display: grid; gap: 2px; }
 .invoice-amount-card span { color: #637783; font-size: 11px; font-weight: 800; text-transform: uppercase; }
@@ -769,8 +770,10 @@ textarea { min-height: 72px; resize: vertical; }
 }
 
 @media print {
+  @page { margin: 12mm; }
   .sidebar, .topbar, .no-print, .modal-backdrop { display: none !important; }
   .app-shell { display: block; }
   .main { padding: 0; }
-  .print-invoice { border: 0; border-radius: 0; max-width: none; }
+  .print-invoice { border: 0; border-radius: 0; max-width: none; min-height: calc(100vh - 24mm); padding-bottom: 18mm; position: relative; }
+  .print-invoice-footer { position: fixed; left: 0; right: 0; bottom: 0; margin: 0; text-align: center; font-size: 10px; color: #6b7f8b; background: white; }
 }
