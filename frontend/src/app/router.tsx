@@ -32,6 +32,7 @@ import { UsersPage } from '../modules/users/pages/UsersPage';
 import { WorkflowsPage } from '../modules/workflows/pages/WorkflowsPage';
 import { PlatformLayout } from '../core/layout/PlatformLayout';
 import { BuildingReport } from '../pages/BuildingReport';
+import { ArchivesPage } from '../pages/ArchivesPage';
 import { CashDetailPage } from '../pages/CashEnterprise';
 import { LeaseDetail } from '../pages/LeaseDetail';
 import { LeaseNew } from '../pages/LeaseNew';
@@ -42,6 +43,7 @@ import { SelectOrganization } from '../pages/SelectOrganization';
 import { BuildingStatementPage, TenantStatementPage, UnitStatementPage } from '../pages/StatementPage';
 import { StockDetailPage } from '../pages/StockDetailPage';
 import { TenantSituation } from '../pages/TenantSituation';
+import { TrashPage } from '../pages/TrashPage';
 import { UnitDetail } from '../pages/UnitDetail';
 import { InvoiceDetailPage } from '../modules/invoices/pages/InvoiceDetailPage';
 import { InvoicePrintPage } from '../modules/invoices/pages/InvoicePrintPage';
@@ -99,6 +101,8 @@ export function AppRouter() {
           <Route path="/leases" element={guarded('documents.read', <LeasesPage />)} />
           <Route path="/leases/new" element={guarded('documents.upload', <LeaseNew />)} />
           <Route path="/leases/:id" element={guarded('documents.read', <LeaseDetail />)} />
+          <Route path="/trash" element={guarded('leases.trash.read', <TrashPage />)} />
+          <Route path="/archives" element={guarded('leases.archives.read', <ArchivesPage />)} />
           <Route path="/invoices" element={guarded('invoices.read', <InvoicesPage />)} />
           <Route path="/invoices/:id" element={guarded('invoices.read', <InvoiceDetailPage />)} />
           <Route path="/invoices/:id/print" element={guarded('invoices.read', <InvoicePrintPage />)} />

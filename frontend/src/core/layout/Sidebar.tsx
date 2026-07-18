@@ -1,5 +1,6 @@
 ﻿import {
   Activity,
+  Archive,
   Boxes,
   BriefcaseBusiness,
   Building2,
@@ -16,6 +17,7 @@
   ScrollText,
   Settings,
   ShieldCheck,
+  Trash2,
   Users,
   WalletCards,
   Workflow,
@@ -126,6 +128,8 @@ const navGroups: NavGroup[] = [
       { to: '/users', label: 'Utilisateurs', icon: ShieldCheck, permission: 'users.read', superAdminOnly: true },
       { to: '/communications', label: 'Communications', icon: MessageSquare, permission: 'communication.read' },
       { label: 'Notifications', icon: MessageSquare, permission: 'communication.read', soon: true },
+      { to: '/trash', label: 'Corbeille', icon: Trash2, permission: 'leases.trash.read' },
+      { to: '/archives', label: 'Archives', icon: Archive, permission: 'leases.archives.read' },
       { to: '/settings', label: 'Paramètres', icon: Settings, permission: 'settings.read' },
       { to: '/documents', label: 'Documents', icon: FolderOpen, permission: 'documents.read' },
       { to: '/workflows', label: 'Workflows', icon: Workflow, permission: 'workflow.read' },
