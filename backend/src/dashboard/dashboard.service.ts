@@ -53,8 +53,9 @@ export class DashboardService {
            AND ($3::TEXT IS NULL OR b.city = $3)
            AND p.payment_date >= $4::DATE
            AND p.payment_date < $5::DATE) AS period_collected,
-        (SELECT COALESCE(SUM(i.total - COALESCE(i.paid_amount, 0)), 0)::FLOAT
+        (SELECT COALESCE(SUM(COALESCE(s.remaining_amount, i.total)), 0)::FLOAT
          FROM invoices i
+         LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
          LEFT JOIN buildings b ON b.id = i.building_id
          WHERE i.organization_id = $1
            AND i.deleted_at IS NULL
