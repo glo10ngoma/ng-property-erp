@@ -58,10 +58,12 @@ export function LeaseDetail() {
   const pdfPreviewUrlRef = useRef('');
 
   const previewRequested = useMemo(() => new URLSearchParams(location.search).get('previewContract') === '1', [location.search]);
+  const detailScope = useMemo(() => new URLSearchParams(location.search).get('scope'), [location.search]);
+  const isReadOnlyLifecycleView = detailScope === 'trash' || detailScope === 'archive';
   const activeTemplateVersion = Number(lease?.active_contract_template_version ?? 0);
   const currentContractVersion = Number(lease?.latest_contract?.template_version ?? 0);
   const contractVersionOutdated = Boolean(lease?.latest_contract && activeTemplateVersion > 0 && currentContractVersion < activeTemplateVersion);
-  const canManageLeaseContract = can('documents.upload');
+  const canManageLeaseContract = can('documents.upload') && !isReadOnlyLifecycleView;
   const canReadLeaseContract = can('documents.read');
   const hasGeneratedDocx = Boolean(lease?.latest_contract?.docx_file_name);
   const hasGeneratedPdf = Boolean(lease?.latest_contract?.pdf_file_name);
@@ -70,7 +72,9 @@ export function LeaseDetail() {
     if (!id) return;
     setLoading(true);
     try {
-      const response = await api.get<LeaseDetailData>(`/leases/${id}`);
+      const response = await api.get<LeaseDetailData>(`/leases/${id}`, {
+        params: detailScope ? { scope: detailScope } : undefined,
+      });
       setLease(response.data);
       setSignedFileName(response.data.latest_contract?.signed_contract_file_name ?? response.data.signed_contract_file_name ?? '');
       setError('');
@@ -147,7 +151,7 @@ export function LeaseDetail() {
 
   useEffect(() => {
     void load();
-  }, [id]);
+  }, [id, detailScope]);
 
   useEffect(() => {
     if (!previewRequested || autoPreviewHandled || !lease) return;
@@ -342,7 +346,7 @@ export function LeaseDetail() {
             )}
             {canReadLeaseContract && hasGeneratedPdf ? <button className="secondary" onClick={() => void downloadGeneratedPdf()} disabled={contractBusy}><Download size={16} />Telecharger PDF</button> : null}
             {canReadLeaseContract && !hasGeneratedPdf && hasGeneratedDocx ? <button className="secondary" onClick={() => void downloadGeneratedDocx()} disabled={contractBusy}><Download size={16} />Ancien format Word</button> : null}
-            {can('invoices.create') && <button className="secondary" onClick={invoice}><Receipt size={16} />Facturer</button>}
+            {!isReadOnlyLifecycleView && can('invoices.create') && <button className="secondary" onClick={invoice}><Receipt size={16} />Facturer</button>}
             <button className="secondary" onClick={() => exportCsv(`bail-${lease.id}.csv`, exportRows)}><Download size={16} />CSV</button>
             <button className="secondary" onClick={() => exportLeaseDetail(lease, totalMonthly)}><FileSpreadsheet size={16} />Excel</button>
             <button className="secondary" onClick={() => window.print()}><Printer size={16} />Imprimer</button>
@@ -351,6 +355,8 @@ export function LeaseDetail() {
       />
       <SuccessMessage message={success} />
       {error && <div className="error-banner">{error}</div>}
+      {lease.deleted_at && !lease.archived_at ? <div className="warning-banner">Ce bail se trouve actuellement dans la corbeille. Consultation en lecture seule.</div> : null}
+      {lease.archived_at ? <div className="warning-banner">Ce bail est archive definitivement. Consultation en lecture seule.</div> : null}
 
       <div className="summary-band">
         <SummaryItem label="Locataire" value={lease.tenant_name} />
@@ -484,11 +490,11 @@ export function LeaseDetail() {
           footer={
             <>
               <button type="button" className="secondary" onClick={() => setPreviewOpen(false)}>Retour au bail</button>
-              <button type="button" className="secondary" onClick={() => void generateContract(true)} disabled={contractBusy}><RefreshCcw size={16} />Regenerer PDF</button>
+              {canManageLeaseContract ? <button type="button" className="secondary" onClick={() => void generateContract(true)} disabled={contractBusy}><RefreshCcw size={16} />Regenerer PDF</button> : null}
               {hasGeneratedPdf ? <button type="button" className="secondary" onClick={() => void downloadGeneratedPdf()} disabled={contractBusy}><Download size={16} />Telecharger PDF</button> : null}
               {!hasGeneratedPdf && hasGeneratedDocx ? <button type="button" className="secondary" onClick={() => void downloadGeneratedDocx()} disabled={contractBusy}><Download size={16} />Ancien format Word</button> : null}
               <button type="button" className="secondary" onClick={() => void printGeneratedPreview()} disabled={!hasGeneratedPdf && !lease.latest_contract?.generated_html}><Printer size={16} />Imprimer</button>
-              <button type="button" className="secondary" onClick={() => void markSigned()} disabled={!lease.latest_contract}><ShieldCheck size={16} />Marquer comme signe</button>
+              {canManageLeaseContract ? <button type="button" className="secondary" onClick={() => void markSigned()} disabled={!lease.latest_contract}><ShieldCheck size={16} />Marquer comme signe</button> : null}
             </>
           }
         >
@@ -510,7 +516,7 @@ export function LeaseDetail() {
                 <div className="lease-contract-preview-html" dangerouslySetInnerHTML={{ __html: lease.latest_contract.generated_html ?? '<p>Apercu indisponible.</p>' }} />
               )}
 
-              <div className="detail-section report-section">
+              {canManageLeaseContract ? <div className="detail-section report-section">
                 <h4>Contrat signe</h4>
                 <div className="lease-section-grid">
                   <label className="lease-field-wide">Televerser le contrat signe
@@ -523,7 +529,7 @@ export function LeaseDetail() {
                 <div className="actions" style={{ marginTop: 10 }}>
                   <button type="button" onClick={() => void uploadSignedContract()} disabled={!signedFileName || contractBusy}><Upload size={16} />Televerser le contrat signe</button>
                 </div>
-              </div>
+              </div> : null}
             </div>
           )}
         </Modal>

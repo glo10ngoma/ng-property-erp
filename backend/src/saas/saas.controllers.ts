@@ -917,6 +917,16 @@ export class LeasesController {
     return this.service.leases();
   }
 
+  @Get('trash')
+  trash() {
+    return this.service.trashedLeases();
+  }
+
+  @Get('archives')
+  archives() {
+    return this.service.archivedLeases();
+  }
+
   @Get('units/:id/history')
   unitHistory(@Param('id', ParseIntPipe) id: number) {
     return this.service.unitOccupationHistory(id);
@@ -938,8 +948,8 @@ export class LeasesController {
   }
 
   @Get(':id')
-  lease(@Param('id', ParseIntPipe) id: number) {
-    return this.service.leaseDetail(id);
+  lease(@Param('id', ParseIntPipe) id: number, @Query('scope') scope?: string) {
+    return this.service.leaseDetail(id, scope === 'trash' || scope === 'archive' || scope === 'any' ? scope : undefined);
   }
 
   @Post()
@@ -955,6 +965,31 @@ export class LeasesController {
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.service.deleteLease(id);
+  }
+
+  @Get(':id/deletion-impact')
+  deletionImpact(@Param('id', ParseIntPipe) id: number) {
+    return this.service.leaseDeletionImpact(id);
+  }
+
+  @Patch(':id/trash')
+  trashLease(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.trashLease(id, String(body.reason ?? 'Suppression sans motif'));
+  }
+
+  @Post(':id/restore')
+  restore(@Param('id', ParseIntPipe) id: number) {
+    return this.service.restoreLease(id);
+  }
+
+  @Delete(':id/permanent')
+  permanentDelete(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.permanentlyDeleteLease(id, body.reason ? String(body.reason) : undefined);
+  }
+
+  @Post(':id/archive')
+  archiveLease(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.archiveLease(id, body.reason ? String(body.reason) : undefined);
   }
 
   @Post(':id/activate')

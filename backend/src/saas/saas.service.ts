@@ -3671,55 +3671,90 @@ export class SaasService {
     return rows;
   }
 
-  async leases() {
-    const { rows } = await this.db.query(`
-      SELECT l.*,
-             CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
-                  ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
-             END AS tenant_name,
-             u.number AS unit_number, b.name AS building_name,
-             latest_contract.id AS latest_contract_id,
-             latest_contract.status AS latest_contract_status,
-             COALESCE(g.amount, l.rental_guarantee_amount, 0)::FLOAT AS guarantee_amount,
-             COALESCE(g.paid_amount, l.rental_guarantee_paid, 0)::FLOAT AS guarantee_paid,
-             COALESCE(g.status, l.rental_guarantee_status) AS guarantee_status,
-             COALESCE(
-               latest_contract.signed_contract_file_name,
-               latest_contract.docx_file_name,
-               latest_contract.pdf_file_name,
-               l.signed_contract_file_name,
-               l.generated_contract_file_name,
-               l.contract_file_name
-             ) AS contract_file_name,
-             COALESCE(
-               latest_contract.signed_contract_file_url,
-               latest_contract.docx_file_url,
-               latest_contract.pdf_file_url,
-               l.signed_contract_url,
-               l.generated_contract_url,
-               l.contract_file_url
-             ) AS contract_file_url
-      FROM leases l
-      JOIN tenants t ON t.id = l.tenant_id
-      JOIN units u ON u.id = l.unit_id
-      JOIN buildings b ON b.id = u.building_id
-      LEFT JOIN lease_guarantees g ON g.lease_id = l.id AND g.deleted_at IS NULL
-      LEFT JOIN LATERAL (
-        SELECT cg.id, cg.status, cg.docx_file_name, cg.docx_file_url, cg.pdf_file_name, cg.pdf_file_url, cg.signed_contract_file_name, cg.signed_contract_file_url
-        FROM lease_contract_generations cg
-        WHERE cg.lease_id = l.id
-          AND cg.organization_id = l.organization_id
-          AND cg.deleted_at IS NULL
-        ORDER BY cg.generated_at DESC, cg.id DESC
-        LIMIT 1
-      ) latest_contract ON TRUE
-      WHERE l.organization_id = $1 AND l.deleted_at IS NULL
-      ORDER BY l.start_date DESC, l.id DESC
-    `, [this.context.organizationId()]);
+  private async leaseRowsByScope(scope: 'active' | 'trash' | 'archive') {
+    const visibilityClause =
+      scope === 'trash'
+        ? 'l.deleted_at IS NOT NULL AND l.archived_at IS NULL'
+        : scope === 'archive'
+          ? 'l.archived_at IS NOT NULL'
+          : 'l.deleted_at IS NULL AND l.archived_at IS NULL';
+    const { rows } = await this.db.query(
+      `
+        SELECT l.*,
+               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                    ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+               END AS tenant_name,
+               u.number AS unit_number,
+               b.name AS building_name,
+               latest_contract.id AS latest_contract_id,
+               latest_contract.status AS latest_contract_status,
+               COALESCE(g.amount, l.rental_guarantee_amount, 0)::FLOAT AS guarantee_amount,
+               COALESCE(g.paid_amount, l.rental_guarantee_paid, 0)::FLOAT AS guarantee_paid,
+               COALESCE(g.status, l.rental_guarantee_status) AS guarantee_status,
+               COALESCE(
+                 latest_contract.signed_contract_file_name,
+                 latest_contract.docx_file_name,
+                 latest_contract.pdf_file_name,
+                 l.signed_contract_file_name,
+                 l.generated_contract_file_name,
+                 l.contract_file_name
+               ) AS contract_file_name,
+               COALESCE(
+                 latest_contract.signed_contract_file_url,
+                 latest_contract.docx_file_url,
+                 latest_contract.pdf_file_url,
+                 l.signed_contract_url,
+                 l.generated_contract_url,
+                 l.contract_file_url
+               ) AS contract_file_url,
+               deleted_user.email AS deleted_by_name,
+               archived_user.email AS archived_by_name
+        FROM leases l
+        JOIN tenants t ON t.id = l.tenant_id
+        JOIN units u ON u.id = l.unit_id
+        JOIN buildings b ON b.id = u.building_id
+        LEFT JOIN lease_guarantees g ON g.lease_id = l.id AND g.deleted_at IS NULL
+        LEFT JOIN app_users deleted_user ON deleted_user.id = l.deleted_by
+        LEFT JOIN app_users archived_user ON archived_user.id = l.archived_by
+        LEFT JOIN LATERAL (
+          SELECT cg.id, cg.status, cg.docx_file_name, cg.docx_file_url, cg.pdf_file_name, cg.pdf_file_url, cg.signed_contract_file_name, cg.signed_contract_file_url
+          FROM lease_contract_generations cg
+          WHERE cg.lease_id = l.id
+            AND cg.organization_id = l.organization_id
+            AND cg.deleted_at IS NULL
+          ORDER BY cg.generated_at DESC, cg.id DESC
+          LIMIT 1
+        ) latest_contract ON TRUE
+        WHERE l.organization_id = $1
+          AND ${visibilityClause}
+        ORDER BY COALESCE(l.deleted_at, l.archived_at, l.start_date) DESC, l.id DESC
+      `,
+      [this.context.organizationId()],
+    );
     return rows;
   }
 
-  async leaseDetail(id: number) {
+  async leases() {
+    return this.leaseRowsByScope('active');
+  }
+
+  async trashedLeases() {
+    return this.leaseRowsByScope('trash');
+  }
+
+  async archivedLeases() {
+    return this.leaseRowsByScope('archive');
+  }
+
+  async leaseDetail(id: number, scope: 'trash' | 'archive' | 'any' | 'active' = 'active') {
+    const visibilityClause =
+      scope === 'trash'
+        ? 'l.deleted_at IS NOT NULL AND l.archived_at IS NULL'
+        : scope === 'archive'
+          ? 'l.archived_at IS NOT NULL'
+          : scope === 'any'
+            ? '(l.deleted_at IS NULL OR l.deleted_at IS NOT NULL OR l.archived_at IS NOT NULL)'
+            : 'l.deleted_at IS NULL AND l.archived_at IS NULL';
     const lease = await this.db.query(
       `SELECT l.*,
               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
@@ -3735,12 +3770,16 @@ export class SaasService {
               u.number AS unit_number, u.status AS unit_status, u.type AS unit_type, u.surface_area, u.bedrooms_count,
               u.parking_spaces_count, u.has_parking, u.is_furnished, u.usage_type,
               b.name AS building_name, b.address AS building_address, b.commune AS building_commune,
-              b.city AS building_city, b.neighborhood AS building_neighborhood
+              b.city AS building_city, b.neighborhood AS building_neighborhood,
+              deleted_user.email AS deleted_by_name,
+              archived_user.email AS archived_by_name
        FROM leases l
        JOIN tenants t ON t.id = l.tenant_id
        JOIN units u ON u.id = l.unit_id
        JOIN buildings b ON b.id = u.building_id
-       WHERE l.id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL`,
+       LEFT JOIN app_users deleted_user ON deleted_user.id = l.deleted_by
+       LEFT JOIN app_users archived_user ON archived_user.id = l.archived_by
+       WHERE l.id = $1 AND l.organization_id = $2 AND ${visibilityClause}`,
       [id, this.context.organizationId()],
     );
     const row = requireRow(lease.rows[0], 'Lease');
@@ -3947,6 +3986,159 @@ export class SaasService {
     });
   }
 
+  async leaseDeletionImpact(id: number) {
+    return this.db.transaction((client) => this.leaseDeletionImpactInTransaction(client, id));
+  }
+
+  async trashLease(id: number, reason: string) {
+    const deletionReason = String(reason ?? '').trim();
+    if (!deletionReason) {
+      throw new BadRequestException('Le motif de suppression est obligatoire.');
+    }
+    return this.db.transaction(async (client) => {
+      const organizationId = this.context.organizationId();
+      const userId = this.context.userId() ?? null;
+      const leaseResult = await client.query(
+        `SELECT id, unit_id, status
+         FROM leases
+         WHERE id = $1
+           AND organization_id = $2
+           AND deleted_at IS NULL
+           AND archived_at IS NULL`,
+        [id, organizationId],
+      );
+      const lease = requireRow(leaseResult.rows[0], 'Lease') as Record<string, unknown>;
+      await client.query(
+        `UPDATE leases
+         SET deleted_at = NOW(),
+             deleted_by = $2,
+             deletion_reason = $3,
+             updated_at = NOW()
+         WHERE id = $1 AND organization_id = $4`,
+        [id, userId, deletionReason, organizationId],
+      );
+      if (String(lease.status ?? '').toUpperCase() === 'ACTIVE') {
+        await client.query(
+          `UPDATE units
+           SET status = 'VACANT'
+           WHERE id = $1
+             AND organization_id = $2
+             AND deleted_at IS NULL
+             AND NOT EXISTS (
+               SELECT 1
+               FROM leases
+               WHERE unit_id = $1
+                 AND organization_id = $2
+                 AND status = 'ACTIVE'
+                 AND deleted_at IS NULL
+                 AND archived_at IS NULL
+             )`,
+          [Number(lease.unit_id), organizationId],
+        );
+      }
+      await this.writeLeaseAudit(client, 'LEASE_MOVED_TO_TRASH', id, { deletion_reason: deletionReason });
+      return { trashed: true, id };
+    });
+  }
+
+  async restoreLease(id: number) {
+    return this.db.transaction(async (client) => {
+      const organizationId = this.context.organizationId();
+      const leaseResult = await client.query(
+        `SELECT *
+         FROM leases
+         WHERE id = $1
+           AND organization_id = $2
+           AND deleted_at IS NOT NULL
+           AND archived_at IS NULL`,
+        [id, organizationId],
+      );
+      const lease = requireRow(leaseResult.rows[0], 'Lease') as Record<string, unknown>;
+      const linkedRecords = await client.query(
+        `SELECT t.id AS tenant_id, u.id AS unit_id, b.id AS building_id
+         FROM tenants t
+         JOIN units u ON u.id = $1 AND u.organization_id = $2 AND u.deleted_at IS NULL
+         JOIN buildings b ON b.id = u.building_id AND b.organization_id = $2 AND b.deleted_at IS NULL
+         WHERE t.id = $3 AND t.organization_id = $2 AND t.deleted_at IS NULL`,
+        [Number(lease.unit_id), organizationId, Number(lease.tenant_id)],
+      );
+      if (!linkedRecords.rows[0]) {
+        throw new ConflictException("Ce contrat ne peut pas etre restaure car le locataire, l unite ou l immeuble lie n existe plus dans l etat actif.");
+      }
+      if (String(lease.status ?? '').toUpperCase() === 'ACTIVE') {
+        await this.ensureNoLeaseConflict(client, Number(lease.unit_id), String(lease.start_date), lease.end_date ? String(lease.end_date) : null, id);
+      }
+      await client.query(
+        `UPDATE leases
+         SET deleted_at = NULL,
+             deleted_by = NULL,
+             deletion_reason = NULL,
+             updated_at = NOW()
+         WHERE id = $1 AND organization_id = $2`,
+        [id, organizationId],
+      );
+      if (String(lease.status ?? '').toUpperCase() === 'ACTIVE') {
+        await client.query(
+          `UPDATE units
+           SET status = 'OCCUPIED'
+           WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+          [Number(lease.unit_id), organizationId],
+        );
+      }
+      await this.writeLeaseAudit(client, 'LEASE_RESTORED', id, {});
+      return { restored: true, id };
+    });
+  }
+
+  async archiveLease(id: number, reason?: string) {
+    return this.db.transaction(async (client) => {
+      await this.archiveLeaseInTransaction(client, id, reason);
+      return { archived: true, id };
+    });
+  }
+
+  async permanentlyDeleteLease(id: number, reason?: string) {
+    return this.db.transaction(async (client) => {
+      const organizationId = this.context.organizationId();
+      const leaseResult = await client.query(
+        `SELECT id, unit_id, status
+         FROM leases
+         WHERE id = $1
+           AND organization_id = $2
+           AND deleted_at IS NOT NULL
+           AND archived_at IS NULL`,
+        [id, organizationId],
+      );
+      const lease = requireRow(leaseResult.rows[0], 'Lease') as Record<string, unknown>;
+      const impact = await this.leaseDeletionImpactInTransaction(client, id);
+      if (!impact.canHardDelete) {
+        await this.archiveLeaseInTransaction(client, id, String(reason ?? '').trim() || 'Archive automatique apres tentative de suppression definitive');
+        return { deleted: false, archived: true, id, impact };
+      }
+      await client.query('DELETE FROM lease_guarantees WHERE lease_id = $1 AND organization_id = $2', [id, organizationId]);
+      await client.query('DELETE FROM leases WHERE id = $1 AND organization_id = $2', [id, organizationId]);
+      await client.query(
+        `UPDATE units
+         SET status = 'VACANT'
+         WHERE id = $1
+           AND organization_id = $2
+           AND deleted_at IS NULL
+           AND NOT EXISTS (
+             SELECT 1
+             FROM leases
+             WHERE unit_id = $1
+               AND organization_id = $2
+               AND status = 'ACTIVE'
+               AND deleted_at IS NULL
+               AND archived_at IS NULL
+           )`,
+        [Number(lease.unit_id), organizationId],
+      );
+      await this.writeLeaseAudit(client, 'LEASE_PERMANENTLY_DELETED', id, { reason: String(reason ?? '').trim() || null });
+      return { deleted: true, archived: false, id, impact };
+    });
+  }
+
   async deleteLease(id: number) {
     return this.db.transaction(async (client) => {
       const organizationId = this.context.organizationId();
@@ -3954,7 +4146,7 @@ export class SaasService {
       const leaseResult = await client.query(
         `SELECT id, unit_id, tenant_id, status
          FROM leases
-         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL AND archived_at IS NULL`,
         [id, organizationId],
       );
       const lease = requireRow(leaseResult.rows[0], 'Lease') as Record<string, unknown>;
@@ -4017,6 +4209,7 @@ export class SaasService {
                AND organization_id = $2
                AND status = 'ACTIVE'
                AND deleted_at IS NULL
+               AND archived_at IS NULL
            )`,
         [Number(lease.unit_id), organizationId],
       );
@@ -4032,7 +4225,7 @@ export class SaasService {
   async terminateLease(id: number, reason: string) {
     return this.db.transaction(async (client) => {
       const lease = await client.query(
-        `SELECT * FROM leases WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+        `SELECT * FROM leases WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL AND archived_at IS NULL`,
         [id, this.context.organizationId()],
       );
       const row = requireRow(lease.rows[0], 'Lease');
@@ -4046,7 +4239,7 @@ export class SaasService {
         `UPDATE units SET status = 'VACANT'
          WHERE id = $1 AND organization_id = $2 AND NOT EXISTS (
            SELECT 1 FROM leases
-           WHERE unit_id = $1 AND organization_id = $2 AND status = 'ACTIVE' AND deleted_at IS NULL AND id <> $3
+           WHERE unit_id = $1 AND organization_id = $2 AND status = 'ACTIVE' AND deleted_at IS NULL AND archived_at IS NULL AND id <> $3
          )`,
         [row.unit_id, this.context.organizationId(), id],
       );
@@ -5140,7 +5333,7 @@ export class SaasService {
        FROM leases l
        JOIN tenants t ON t.id = l.tenant_id
        LEFT JOIN lease_guarantees g ON g.lease_id = l.id AND g.deleted_at IS NULL
-       WHERE l.unit_id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL
+       WHERE l.unit_id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL AND l.archived_at IS NULL
        ORDER BY l.start_date DESC, l.id DESC`,
       [unitId, this.context.organizationId()],
     );
@@ -5154,7 +5347,7 @@ export class SaasService {
        JOIN units u ON u.id = l.unit_id
        JOIN buildings b ON b.id = u.building_id
        LEFT JOIN lease_guarantees g ON g.lease_id = l.id AND g.deleted_at IS NULL
-       WHERE l.tenant_id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL
+       WHERE l.tenant_id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL AND l.archived_at IS NULL
        ORDER BY l.start_date DESC, l.id DESC`,
       [tenantId, this.context.organizationId()],
     );
@@ -5168,7 +5361,7 @@ export class SaasService {
        JOIN tenants t ON t.id = l.tenant_id
        JOIN units u ON u.id = l.unit_id
        JOIN buildings b ON b.id = u.building_id
-       WHERE l.organization_id = $1 AND l.deleted_at IS NULL AND l.status = 'ACTIVE'
+       WHERE l.organization_id = $1 AND l.deleted_at IS NULL AND l.archived_at IS NULL AND l.status = 'ACTIVE'
          AND ($2::INT IS NULL OR b.id = $2)
        ORDER BY b.name, u.number`,
       [this.context.organizationId(), buildingId ?? null],
@@ -5182,7 +5375,7 @@ export class SaasService {
               CASE WHEN l.id IS NULL THEN 'Libre' ELSE 'OccupÃƒÂ©e' END AS occupancy
        FROM units u
        JOIN buildings b ON b.id = u.building_id
-       LEFT JOIN leases l ON l.unit_id = u.id AND l.status = 'ACTIVE' AND l.deleted_at IS NULL
+       LEFT JOIN leases l ON l.unit_id = u.id AND l.status = 'ACTIVE' AND l.deleted_at IS NULL AND l.archived_at IS NULL
        WHERE u.organization_id = $1 AND u.deleted_at IS NULL
        ORDER BY b.name, u.number`,
       [this.context.organizationId()],
@@ -5193,7 +5386,7 @@ export class SaasService {
   async createLeaseInvoice(id: number) {
     return this.db.transaction(async (client) => {
       const lease = await client.query(
-        `SELECT l.*, u.building_id FROM leases l JOIN units u ON u.id = l.unit_id WHERE l.id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL`,
+        `SELECT l.*, u.building_id FROM leases l JOIN units u ON u.id = l.unit_id WHERE l.id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL AND l.archived_at IS NULL`,
         [id, this.context.organizationId()],
       );
       const row = requireRow(lease.rows[0], 'Lease');
@@ -6886,6 +7079,7 @@ export class SaasService {
        WHERE unit_id = $1
          AND organization_id = $2
          AND deleted_at IS NULL
+         AND archived_at IS NULL
          AND status = 'ACTIVE'
          AND ($5::INT IS NULL OR id <> $5)
          AND daterange(start_date, COALESCE(end_date, '2999-12-31'::DATE), '[]')
@@ -6898,7 +7092,7 @@ export class SaasService {
 
   private async activateLeaseInTransaction(client: PoolClient, id: number) {
     const lease = await client.query(
-      `SELECT * FROM leases WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+      `SELECT * FROM leases WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL AND archived_at IS NULL`,
       [id, this.context.organizationId()],
     );
     const row = requireRow(lease.rows[0], 'Lease');
@@ -7885,11 +8079,148 @@ export class SaasService {
          COUNT(*) FILTER (WHERE lease_number IS NULL)
        ) + 1 AS value
        FROM leases
-       WHERE organization_id = $1
-         AND deleted_at IS NULL`,
+       WHERE organization_id = $1`,
       [organizationId],
     );
     return Number(rows[0]?.value ?? 1);
+  }
+
+  private async archiveLeaseInTransaction(client: PoolClient, id: number, reason?: string) {
+    const organizationId = this.context.organizationId();
+    const archiveReason = String(reason ?? '').trim() || 'Archivage definitif';
+    const leaseResult = await client.query(
+      `SELECT id
+       FROM leases
+       WHERE id = $1
+         AND organization_id = $2
+         AND deleted_at IS NOT NULL
+         AND archived_at IS NULL`,
+      [id, organizationId],
+    );
+    requireRow(leaseResult.rows[0], 'Lease');
+    await client.query(
+      `UPDATE leases
+       SET deleted_at = NULL,
+           deleted_by = NULL,
+           deletion_reason = NULL,
+           archived_at = NOW(),
+           archived_by = $2,
+           archive_reason = $3,
+           updated_at = NOW()
+       WHERE id = $1 AND organization_id = $4`,
+      [id, this.context.userId() ?? null, archiveReason, organizationId],
+    );
+    await this.writeLeaseAudit(client, 'LEASE_ARCHIVED', id, { archive_reason: archiveReason });
+  }
+
+  private async leaseDeletionImpactInTransaction(client: PoolClient, id: number) {
+    const organizationId = this.context.organizationId();
+    const leaseResult = await client.query(
+      `SELECT id, status, deleted_at, archived_at
+       FROM leases
+       WHERE id = $1 AND organization_id = $2`,
+      [id, organizationId],
+    );
+    const lease = requireRow(leaseResult.rows[0], 'Lease') as Record<string, unknown>;
+    const { rows } = await client.query(
+      `
+        WITH invoice_ids AS (
+          SELECT id
+          FROM invoices
+          WHERE lease_id = $1
+            AND organization_id = $2
+            AND deleted_at IS NULL
+        ),
+        payment_ids AS (
+          SELECT DISTINCT p.id
+          FROM payments p
+          LEFT JOIN payment_allocations pa
+            ON pa.payment_id = p.id
+           AND pa.organization_id = $2
+           AND pa.deleted_at IS NULL
+          WHERE p.organization_id = $2
+            AND p.deleted_at IS NULL
+            AND (
+              p.invoice_id IN (SELECT id FROM invoice_ids)
+              OR pa.invoice_id IN (SELECT id FROM invoice_ids)
+            )
+        )
+        SELECT
+          (SELECT COUNT(*)::INT FROM invoice_ids) AS invoices_count,
+          (SELECT COUNT(*)::INT FROM payment_ids) AS payments_count,
+          (
+            SELECT COUNT(*)::INT
+            FROM cash_movements cm
+            WHERE cm.organization_id = $2
+              AND cm.deleted_at IS NULL
+              AND (
+                cm.invoice_id IN (SELECT id FROM invoice_ids)
+                OR cm.payment_id IN (SELECT id FROM payment_ids)
+              )
+          ) AS cash_movements_count,
+          (
+            SELECT COUNT(*)::INT
+            FROM lease_guarantees g
+            WHERE g.lease_id = $1
+              AND g.organization_id = $2
+              AND g.deleted_at IS NULL
+          ) AS guarantees_count,
+          (
+            SELECT COUNT(*)::INT
+            FROM lease_documents d
+            WHERE d.lease_id = $1
+              AND d.organization_id = $2
+              AND d.deleted_at IS NULL
+          ) AS documents_count,
+          (
+            SELECT COUNT(*)::INT
+            FROM lease_contract_generations cg
+            WHERE cg.lease_id = $1
+              AND cg.organization_id = $2
+              AND cg.deleted_at IS NULL
+          ) AS contract_generations_count
+      `,
+      [id, organizationId],
+    );
+    const counts = rows[0] ?? {};
+    const dependencies = [
+      { type: 'invoices', count: Number(counts.invoices_count ?? 0) },
+      { type: 'payments', count: Number(counts.payments_count ?? 0) },
+      { type: 'cash_movements', count: Number(counts.cash_movements_count ?? 0) },
+      { type: 'lease_guarantees', count: Number(counts.guarantees_count ?? 0) },
+      { type: 'lease_documents', count: Number(counts.documents_count ?? 0) },
+      { type: 'lease_contract_generations', count: Number(counts.contract_generations_count ?? 0) },
+    ].filter((entry) => entry.count > 0);
+    const hasFinancialHistory = dependencies.some((entry) =>
+      entry.type === 'invoices'
+      || entry.type === 'payments'
+      || entry.type === 'cash_movements'
+      || entry.type === 'lease_guarantees',
+    );
+    return {
+      lease_id: id,
+      lease_status: String(lease.status ?? ''),
+      deleted_at: lease.deleted_at ?? null,
+      archived_at: lease.archived_at ?? null,
+      canHardDelete: dependencies.length === 0,
+      hasFinancialHistory,
+      dependencies,
+    };
+  }
+
+  private async writeLeaseAudit(client: PoolClient, action: string, leaseId: number, metadata: Record<string, unknown>) {
+    await client.query(
+      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+       VALUES ($1, $2, $3, 'leases', $4, 'PATCH', $5, 200, $6)`,
+      [
+        this.context.organizationId(),
+        this.context.userId() ?? null,
+        action,
+        String(leaseId),
+        `/api/leases/${leaseId}`,
+        JSON.stringify(metadata),
+      ],
+    );
   }
 
   private buildLeasePdfFileName(leaseId: number, contractId: number, templateVersion: number) {

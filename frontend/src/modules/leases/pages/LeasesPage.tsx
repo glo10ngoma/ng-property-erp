@@ -1,4 +1,4 @@
-import { Download, Eye, FileDown, FilePlus, Pencil, Receipt, ScrollText, Trash2 } from 'lucide-react';
+import { Archive, Download, Eye, FileDown, FilePlus, Pencil, Receipt, RotateCcw, ScrollText, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, includesText, shortDate, statusLabel } from '../../../api';
@@ -39,17 +39,33 @@ type Lease = {
   contract_file_url?: string;
   notes?: string;
   status: string;
+  deleted_at?: string | null;
+  deleted_by?: number | null;
+  deleted_by_name?: string | null;
+  deletion_reason?: string | null;
+  archived_at?: string | null;
+  archived_by?: number | null;
+  archived_by_name?: string | null;
+  archive_reason?: string | null;
 };
 
 type LeaseDetail = Lease & {
   guarantee?: { amount?: number; paid_amount?: number; payment_date?: string; status?: string } | null;
 };
 
+type LeaseDeletionImpact = {
+  canHardDelete: boolean;
+  hasFinancialHistory: boolean;
+  dependencies: Array<{ type: string; count: number }>;
+};
+const permanentDeleteConfirmationText = 'SUPPRIMER DÉFINITIVEMENT';
+
 type Building = { id: number; name: string; city?: string; building_type?: string };
 type Unit = { id: number; building_id: number; building_name: string; number: string; monthly_rent: number; monthly_syndic_amount?: number; status: string };
 type Tenant = { id: number; first_name: string; last_name: string; phone?: string; building_name?: string; unit_number?: string; company_name?: string; tenant_type?: string };
 
 const emptyFilters = { building: '', unit: '', tenant: '', status: '', guarantee: '', start: '', end: '', contract: '', expiring: '' };
+type LeaseView = 'active' | 'trash' | 'archive';
 
 export function LeasesPage() {
   const { can } = useAuth();
@@ -61,12 +77,31 @@ export function LeasesPage() {
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState(emptyFilters);
   const [editing, setEditing] = useState<LeaseDetail | null>(null);
-  const [deletingLeaseId, setDeletingLeaseId] = useState<number | null>(null);
   const [success, setSuccess] = useState('');
+  const [view, setView] = useState<LeaseView>('active');
+  const [trashData, setTrashData] = useState<Lease[]>([]);
+  const [archiveData, setArchiveData] = useState<Lease[]>([]);
+  const [secondaryLoading, setSecondaryLoading] = useState(false);
+  const [actionLeaseId, setActionLeaseId] = useState<number | null>(null);
+  const [trashTarget, setTrashTarget] = useState<Lease | null>(null);
+  const [trashReason, setTrashReason] = useState('');
+  const [trashError, setTrashError] = useState('');
+  const [permanentTarget, setPermanentTarget] = useState<Lease | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deletionImpact, setDeletionImpact] = useState<LeaseDeletionImpact | null>(null);
 
-  const buildingOptions = useMemo(() => Array.from(new Set(data.map((lease) => lease.building_name).filter(Boolean))).sort(), [data]);
+  const canTrashRead = can('leases.trash.read');
+  const canArchiveRead = can('leases.archives.read');
+  const canTrashLease = can('leases.delete');
+  const canRestoreLease = can('leases.restore');
+  const canHardDeleteLease = can('leases.hard_delete');
+
+  const currentRows = view === 'active' ? data : view === 'trash' ? trashData : archiveData;
+  const buildingOptions = useMemo(() => Array.from(new Set(currentRows.map((lease) => lease.building_name).filter(Boolean))).sort(), [currentRows]);
   const filtered = useMemo(
-    () => data
+    () => currentRows
       .filter((lease) => includesText(lease, query))
       .filter((lease) => !filters.building || lease.building_name === filters.building)
       .filter((lease) => !filters.unit || String(lease.unit_number ?? '').toLowerCase().includes(filters.unit.toLowerCase()))
@@ -77,7 +112,7 @@ export function LeasesPage() {
       .filter((lease) => !filters.end || String(lease.end_date ?? lease.start_date).slice(0, 10) <= filters.end)
       .filter((lease) => !filters.contract || (filters.contract === 'PRESENT' ? Boolean(lease.contract_file_name) : !lease.contract_file_name))
       .filter((lease) => !filters.expiring || leaseExpiringSoon(lease)),
-    [data, filters, query],
+    [currentRows, filters, query],
   );
 
   const kpis = useMemo(() => ({
@@ -115,19 +150,115 @@ export function LeasesPage() {
     setSuccess(`Facture ${response.data.invoice_number} creee depuis le bail.`);
   }
 
-  async function removeLease(id: number) {
-    if (!window.confirm('Supprimer definitivement ce bail en brouillon ?')) return;
-    setDeletingLeaseId(id);
+  async function loadTrash() {
+    if (!canTrashRead) return;
+    setSecondaryLoading(true);
     try {
-      await api.delete(`/leases/${id}`);
-      setSuccess('Bail en brouillon supprime avec succes.');
-      await reload();
+      const response = await api.get<Lease[]>('/leases/trash');
+      setTrashData(response.data);
+    } finally {
+      setSecondaryLoading(false);
+    }
+  }
+
+  async function loadArchives() {
+    if (!canArchiveRead) return;
+    setSecondaryLoading(true);
+    try {
+      const response = await api.get<Lease[]>('/leases/archives');
+      setArchiveData(response.data);
+    } finally {
+      setSecondaryLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (view === 'trash') {
+      void loadTrash();
+    }
+    if (view === 'archive') {
+      void loadArchives();
+    }
+  }, [view]);
+
+  async function refreshCurrentView(nextView = view) {
+    await reload();
+    if (nextView === 'trash') await loadTrash();
+    if (nextView === 'archive') await loadArchives();
+  }
+
+  async function confirmTrashLease() {
+    if (!trashTarget) return;
+    if (!trashReason.trim()) {
+      setTrashError('Le motif de suppression est obligatoire.');
+      return;
+    }
+    setActionLeaseId(trashTarget.id);
+    setTrashError('');
+    try {
+      await api.patch(`/leases/${trashTarget.id}/trash`, { reason: trashReason.trim() });
+      setSuccess('Le bail a ete deplace dans la corbeille.');
+      setTrashTarget(null);
+      setTrashReason('');
+      await refreshCurrentView('active');
     } catch (err: any) {
       const message = err?.response?.data?.message;
-      const text = Array.isArray(message) ? message.join(' | ') : message || 'Impossible de supprimer ce bail.';
-      window.alert(text);
+      setTrashError(Array.isArray(message) ? message.join(' | ') : message || 'Impossible de placer ce bail dans la corbeille.');
     } finally {
-      setDeletingLeaseId(null);
+      setActionLeaseId(null);
+    }
+  }
+
+  async function restoreLease(id: number) {
+    setActionLeaseId(id);
+    try {
+      await api.post(`/leases/${id}/restore`);
+      setSuccess('Le bail a ete restaure.');
+      await refreshCurrentView('trash');
+    } catch (err: any) {
+      const message = err?.response?.data?.message;
+      window.alert(Array.isArray(message) ? message.join(' | ') : message || 'Impossible de restaurer ce bail.');
+    } finally {
+      setActionLeaseId(null);
+    }
+  }
+
+  async function openPermanentDelete(lease: Lease) {
+    setPermanentTarget(lease);
+    setDeleteReason('');
+    setDeleteConfirmation('');
+    setDeleteError('');
+    setDeletionImpact(null);
+    try {
+      const response = await api.get<LeaseDeletionImpact>(`/leases/${lease.id}/deletion-impact`);
+      setDeletionImpact(response.data);
+    } catch (err: any) {
+      const message = err?.response?.data?.message;
+      setDeleteError(Array.isArray(message) ? message.join(' | ') : message || 'Impossible de charger les dependances de ce bail.');
+    }
+  }
+
+  async function confirmPermanentDelete() {
+    if (!permanentTarget) return;
+    setActionLeaseId(permanentTarget.id);
+    setDeleteError('');
+    try {
+      const response = await api.delete(`/leases/${permanentTarget.id}/permanent`, { data: { reason: deleteReason.trim() || null } });
+      if (response.data?.archived) {
+        setSuccess('Le bail n a pas pu etre supprime physiquement et a ete archive definitivement.');
+      } else {
+        setSuccess('Le bail a ete supprime definitivement.');
+      }
+      setPermanentTarget(null);
+      setDeletionImpact(null);
+      setDeleteReason('');
+      setDeleteConfirmation('');
+      await refreshCurrentView('trash');
+    } catch (err: any) {
+      const message = err?.response?.data?.message;
+      setDeleteError(Array.isArray(message) ? message.join(' | ') : message || 'Impossible de finaliser cette suppression.');
+    } finally {
+      setActionLeaseId(null);
     }
   }
 
@@ -146,6 +277,12 @@ export function LeasesPage() {
       <PageHeader title="Baux & contrats" action={can('documents.upload') ? <button onClick={() => navigate('/leases/new')}><FilePlus size={16} />Creer bail</button> : undefined} />
       <SuccessMessage message={success} />
 
+      <div className="segmented-control" style={{ marginBottom: 12 }}>
+        <button type="button" className={view === 'active' ? 'active' : ''} onClick={() => setView('active')}>Liste des contrats</button>
+        {canTrashRead ? <button type="button" className={view === 'trash' ? 'active' : ''} onClick={() => setView('trash')}>Corbeille</button> : null}
+        {canArchiveRead ? <button type="button" className={view === 'archive' ? 'active' : ''} onClick={() => setView('archive')}>Archives</button> : null}
+      </div>
+
       <div className="mini-stats">
         <div className="mini-stat"><span>Total baux</span><strong>{kpis.total}</strong></div>
         <div className="mini-stat"><span>Baux actifs</span><strong>{kpis.active}</strong></div>
@@ -156,6 +293,8 @@ export function LeasesPage() {
         <div className="mini-stat"><span>Garanties payees</span><strong>{kpis.guaranteePaid}</strong></div>
         <div className="mini-stat"><span>Garanties non payees</span><strong>{kpis.guaranteeUnpaid}</strong></div>
         <div className="mini-stat"><span>Sans contrat scanne</span><strong>{kpis.missingContracts}</strong></div>
+        {view === 'trash' ? <div className="mini-stat"><span>En corbeille</span><strong>{filtered.length}</strong></div> : null}
+        {view === 'archive' ? <div className="mini-stat"><span>Archives</span><strong>{filtered.length}</strong></div> : null}
       </div>
 
       <div className="quick-form leases-filter-bar">
@@ -177,49 +316,100 @@ export function LeasesPage() {
       </div>
 
       <div className="table-wrap">
-        <table>
-          <thead>
-            <tr><th>Reference bail</th><th>Locataire</th><th>Immeuble</th><th>Unite</th><th>Debut</th><th>Fin</th><th>Duree</th><th className="right">Loyer</th><th>Devise</th><th className="right">Garantie</th><th className="right">Paye</th><th>Devise</th><th>Contrat</th><th>Statut</th><th>Actions</th></tr>
-          </thead>
-          <tbody>
-            {filtered.map((lease) => (
-              <tr key={lease.id} className="clickable-row" onClick={() => navigate(`/leases/${lease.id}`)}>
-                <td>{leaseReference(lease)}</td>
-                <td>{lease.tenant_name}</td>
-                <td>{lease.building_name}</td>
-                <td>{lease.unit_number}</td>
-                <td>{shortDate(lease.start_date)}</td>
-                <td>{lease.end_date ? shortDate(lease.end_date) : '-'}</td>
-                <td>{leaseDurationLabel(lease)}</td>
-                <td className="right">{amount(leaseRentAmount(lease))}</td>
-                <td>USD</td>
-                <td className="right">{amount(guaranteeAmount(lease))}</td>
-                <td className="right">{amount(guaranteePaid(lease))}</td>
-                <td>USD</td>
-                <td><span className={lease.contract_file_name ? 'badge active' : 'badge'}>{lease.contract_file_name ? 'Present' : 'Absent'}</span></td>
-                <td><StatusBadge value={leaseDeadlineStatus(lease)} /></td>
-                <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}>
-                  <button className="icon-btn" title="Voir" onClick={() => navigate(`/leases/${lease.id}`)}><Eye size={16} /></button>
-                  {can('documents.upload') && <button className="icon-btn" title="Modifier" onClick={() => void openEdit(lease.id)}><Pencil size={16} /></button>}
-                  {can('documents.upload') && lease.status === 'ACTIVE' && <button className="icon-btn danger" title="Resilier" onClick={() => void terminate(lease.id)}><Trash2 size={16} /></button>}
-                  {can('documents.upload') && lease.status === 'DRAFT' && (
-                    <button
-                      className="icon-btn danger"
-                      title={deletingLeaseId === lease.id ? 'Suppression en cours' : 'Supprimer'}
-                      onClick={() => void removeLease(lease.id)}
-                      disabled={deletingLeaseId === lease.id}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  )}
-                  {can('invoices.create') && <button className="icon-btn" title="Facturer" onClick={() => void invoice(lease.id)}><Receipt size={16} /></button>}
-                  {lease.contract_file_name && <button className="icon-btn" title="Telecharger contrat" onClick={() => downloadContract(lease)}><ScrollText size={16} /></button>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!filtered.length && <EmptyState />}
+        {view === 'active' ? (
+          <table>
+            <thead>
+              <tr><th>Reference bail</th><th>Locataire</th><th>Immeuble</th><th>Unite</th><th>Debut</th><th>Fin</th><th>Duree</th><th className="right">Loyer</th><th>Devise</th><th className="right">Garantie</th><th className="right">Paye</th><th>Devise</th><th>Contrat</th><th>Statut</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              {filtered.map((lease) => (
+                <tr key={lease.id} className="clickable-row" onClick={() => navigate(`/leases/${lease.id}`)}>
+                  <td>{leaseReference(lease)}</td>
+                  <td>{lease.tenant_name}</td>
+                  <td>{lease.building_name}</td>
+                  <td>{lease.unit_number}</td>
+                  <td>{shortDate(lease.start_date)}</td>
+                  <td>{lease.end_date ? shortDate(lease.end_date) : '-'}</td>
+                  <td>{leaseDurationLabel(lease)}</td>
+                  <td className="right">{amount(leaseRentAmount(lease))}</td>
+                  <td>USD</td>
+                  <td className="right">{amount(guaranteeAmount(lease))}</td>
+                  <td className="right">{amount(guaranteePaid(lease))}</td>
+                  <td>USD</td>
+                  <td><span className={lease.contract_file_name ? 'badge active' : 'badge'}>{lease.contract_file_name ? 'Present' : 'Absent'}</span></td>
+                  <td><StatusBadge value={leaseDeadlineStatus(lease)} /></td>
+                  <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}>
+                    <button className="icon-btn" title="Voir" onClick={() => navigate(`/leases/${lease.id}`)}><Eye size={16} /></button>
+                    {can('documents.upload') && <button className="icon-btn" title="Modifier" onClick={() => void openEdit(lease.id)}><Pencil size={16} /></button>}
+                    {can('documents.upload') && lease.status === 'ACTIVE' && <button className="icon-btn danger" title="Resilier" onClick={() => void terminate(lease.id)}><Trash2 size={16} /></button>}
+                    {canTrashLease && (
+                      <button
+                        className="icon-btn danger"
+                        title={actionLeaseId === lease.id ? 'Suppression en cours' : 'Supprimer'}
+                        onClick={() => { setTrashTarget(lease); setTrashReason(''); setTrashError(''); }}
+                        disabled={actionLeaseId === lease.id}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                    {can('invoices.create') && <button className="icon-btn" title="Facturer" onClick={() => void invoice(lease.id)}><Receipt size={16} /></button>}
+                    {lease.contract_file_name && <button className="icon-btn" title="Telecharger contrat" onClick={() => downloadContract(lease)}><ScrollText size={16} /></button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : view === 'trash' ? (
+          <table>
+            <thead>
+              <tr><th>Reference bail</th><th>Locataire</th><th>Immeuble</th><th>Unite</th><th>Statut avant suppression</th><th>Supprime le</th><th>Supprime par</th><th>Motif</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              {filtered.map((lease) => (
+                <tr key={lease.id}>
+                  <td>{leaseReference(lease)}</td>
+                  <td>{lease.tenant_name}</td>
+                  <td>{lease.building_name}</td>
+                  <td>{lease.unit_number}</td>
+                  <td><StatusBadge value={lease.status} /></td>
+                  <td>{lease.deleted_at ? shortDate(lease.deleted_at) : '-'}</td>
+                  <td>{lease.deleted_by_name || '-'}</td>
+                  <td>{lease.deletion_reason || '-'}</td>
+                  <td className="actions actions-compact">
+                    <button className="icon-btn" title="Consulter" onClick={() => navigate(`/leases/${lease.id}?scope=trash`)}><Eye size={16} /></button>
+                    {canRestoreLease ? <button className="icon-btn" title="Restaurer" onClick={() => void restoreLease(lease.id)} disabled={actionLeaseId === lease.id}><RotateCcw size={16} /></button> : null}
+                    {canHardDeleteLease ? <button className="icon-btn danger" title="Supprimer definitivement" onClick={() => void openPermanentDelete(lease)} disabled={actionLeaseId === lease.id}><Trash2 size={16} /></button> : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <table>
+            <thead>
+              <tr><th>Reference bail</th><th>Locataire</th><th>Immeuble</th><th>Unite</th><th>Statut</th><th>Archive le</th><th>Archive par</th><th>Motif archive</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              {filtered.map((lease) => (
+                <tr key={lease.id}>
+                  <td>{leaseReference(lease)}</td>
+                  <td>{lease.tenant_name}</td>
+                  <td>{lease.building_name}</td>
+                  <td>{lease.unit_number}</td>
+                  <td><StatusBadge value={lease.status} /></td>
+                  <td>{lease.archived_at ? shortDate(lease.archived_at) : '-'}</td>
+                  <td>{lease.archived_by_name || '-'}</td>
+                  <td>{lease.archive_reason || '-'}</td>
+                  <td className="actions actions-compact">
+                    <button className="icon-btn" title="Consulter" onClick={() => navigate(`/leases/${lease.id}?scope=archive`)}><Eye size={16} /></button>
+                    <button className="icon-btn" title="Archive definitive" disabled><Archive size={16} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {!filtered.length && <EmptyState message={secondaryLoading ? 'Chargement...' : undefined} />}
       </div>
 
       {editing && (
@@ -236,6 +426,66 @@ export function LeasesPage() {
           }}
         />
       )}
+
+      {trashTarget ? (
+        <Modal
+          title="Supprimer ce contrat ?"
+          onClose={() => { setTrashTarget(null); setTrashReason(''); setTrashError(''); }}
+          footer={(
+            <>
+              <button type="button" className="secondary" onClick={() => { setTrashTarget(null); setTrashReason(''); setTrashError(''); }}>Annuler</button>
+              <button type="button" onClick={() => void confirmTrashLease()} disabled={actionLeaseId === trashTarget.id}>Confirmer la suppression</button>
+            </>
+          )}
+        >
+          <p>Le contrat sera deplace dans la corbeille. Il pourra etre restaure tant qu il n aura pas ete supprime definitivement ou archive.</p>
+          <label style={{ display: 'grid', gap: 6 }}>
+            Motif de suppression
+            <textarea rows={4} value={trashReason} onChange={(event) => setTrashReason(event.target.value)} placeholder="Motif obligatoire" />
+          </label>
+          {trashError ? <div className="error-banner" style={{ marginTop: 10 }}>{trashError}</div> : null}
+        </Modal>
+      ) : null}
+
+      {permanentTarget ? (
+        <Modal
+          title="Suppression definitive du contrat"
+          onClose={() => { setPermanentTarget(null); setDeletionImpact(null); setDeleteReason(''); setDeleteError(''); }}
+          footer={(
+            <>
+              <button type="button" className="secondary" onClick={() => { setPermanentTarget(null); setDeletionImpact(null); setDeleteReason(''); setDeleteConfirmation(''); setDeleteError(''); }}>Annuler</button>
+              <button type="button" onClick={() => void confirmPermanentDelete()} disabled={actionLeaseId === permanentTarget.id || !deletionImpact || deleteConfirmation !== permanentDeleteConfirmationText}>Supprimer definitivement</button>
+            </>
+          )}
+        >
+          <p>Le systeme verifie d abord si ce bail peut etre supprime physiquement. En presence d un historique, il sera archive definitivement en lecture seule.</p>
+          {deletionImpact ? (
+            <div className="compact-list">
+              <div className="compact-item"><span>Suppression physique possible</span><strong>{deletionImpact.canHardDelete ? 'Oui' : 'Non'}</strong></div>
+              <div className="compact-item"><span>Historique financier</span><strong>{deletionImpact.hasFinancialHistory ? 'Oui' : 'Non'}</strong></div>
+              {deletionImpact.dependencies.length ? (
+                <div className="compact-item" style={{ alignItems: 'flex-start' }}>
+                  <span>Dependances</span>
+                  <strong>{deletionImpact.dependencies.map((entry) => `${entry.type} (${entry.count})`).join(' · ')}</strong>
+                </div>
+              ) : (
+                <div className="compact-item"><span>Dependances</span><strong>Aucune</strong></div>
+              )}
+            </div>
+          ) : (
+            <div className="compact-empty">Chargement de l analyse d impact...</div>
+          )}
+          <label style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+            Commentaire
+            <textarea rows={3} value={deleteReason} onChange={(event) => setDeleteReason(event.target.value)} placeholder="Commentaire facultatif" />
+          </label>
+          <label style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+            Confirmation obligatoire
+            <input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} placeholder={permanentDeleteConfirmationText} />
+          </label>
+          {deleteError ? <div className="error-banner" style={{ marginTop: 10 }}>{deleteError}</div> : null}
+        </Modal>
+      ) : null}
     </section>
   );
 }

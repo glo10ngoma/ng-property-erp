@@ -109,6 +109,27 @@ export class PermissionsGuard implements CanActivate {
   }
 
   private permissionFor(path: string, method: string) {
+    if (/^\/api\/leases\/trash$/.test(path)) {
+      return 'leases.trash.read';
+    }
+    if (/^\/api\/leases\/archives$/.test(path)) {
+      return 'leases.archives.read';
+    }
+    if (/^\/api\/leases\/\d+\/deletion-impact$/.test(path)) {
+      return 'leases.delete';
+    }
+    if (/^\/api\/leases\/\d+\/trash$/.test(path)) {
+      return 'leases.delete';
+    }
+    if (/^\/api\/leases\/\d+\/restore$/.test(path)) {
+      return 'leases.restore';
+    }
+    if (/^\/api\/leases\/\d+\/permanent$/.test(path)) {
+      return 'leases.hard_delete';
+    }
+    if (/^\/api\/leases\/\d+\/archive$/.test(path)) {
+      return 'leases.archive';
+    }
     if (/^\/api\/hr/.test(path)) {
       if (method === 'GET') return 'staff.read';
       if (method === 'POST') return 'staff.create';
