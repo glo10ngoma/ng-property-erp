@@ -772,32 +772,34 @@ function VerticalBarChart({
 
   return (
     <div className="dashboard-vertical-chart">
-      <div className="dashboard-vertical-grid">
-        {steps.map((step) => (
-          <div key={step} className="dashboard-vertical-gridline">
-            <span>{axisFormatter(step)}</span>
-          </div>
-        ))}
-      </div>
-      <div className="dashboard-vertical-bars" style={{ gridTemplateColumns: `repeat(${Math.max(data.length, 1)}, minmax(0, 1fr))` }}>
-        {data.map((item) => {
-          const height = max > 0 ? (Number(item.value ?? 0) / max) * 100 : 0;
-          return (
-            <button
-              key={item.name}
-              type="button"
-              className="dashboard-vertical-bar"
-              onClick={onClick}
-              title={item.tooltip}
-            >
-              <span className="dashboard-vertical-bar-value">{valueLabelFormatter ? valueLabelFormatter(Number(item.value ?? 0)) : String(item.value ?? 0)}</span>
-              <div className="dashboard-vertical-bar-track">
-                <div className="dashboard-vertical-bar-fill" style={{ height: `${height}%` }} />
-              </div>
-              <strong>{item.label}</strong>
-            </button>
-          );
-        })}
+      <div className="dashboard-vertical-plot">
+        <div className="dashboard-vertical-grid" aria-hidden="true">
+          {steps.map((step) => (
+            <div key={step} className="dashboard-vertical-gridline">
+              <span className="sr-only">{axisFormatter(step)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="dashboard-vertical-bars" style={{ gridTemplateColumns: `repeat(${Math.max(data.length, 1)}, minmax(0, 1fr))` }}>
+          {data.map((item) => {
+            const height = max > 0 ? (Number(item.value ?? 0) / max) * 100 : 0;
+            return (
+              <button
+                key={item.name}
+                type="button"
+                className="dashboard-vertical-bar"
+                onClick={onClick}
+                title={item.tooltip}
+              >
+                <span className="dashboard-vertical-bar-value">{valueLabelFormatter ? valueLabelFormatter(Number(item.value ?? 0)) : String(item.value ?? 0)}</span>
+                <div className="dashboard-vertical-bar-track">
+                  <div className="dashboard-vertical-bar-fill" style={{ height: `${height}%` }} />
+                </div>
+                <strong>{item.label}</strong>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
