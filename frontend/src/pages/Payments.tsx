@@ -1,5 +1,5 @@
 ﻿import { ChevronRight, FileSpreadsheet, Filter, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, exportXlsxWorkbook, includesText, money, paymentMethodLabel, shortDate } from '../api';
 import { useAuth } from '../auth';
@@ -62,7 +62,9 @@ const paymentMethods = [
 export function Payments() {
   const { can } = useAuth();
   const navigate = useNavigate();
-  const { data, reload } = useApiList<Payment>('/payments');
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(true);
+  const [paymentsError, setPaymentsError] = useState('');
   const invoices = useApiList<Invoice>('/invoices');
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -84,6 +86,19 @@ export function Payments() {
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
 
+  const reloadPayments = useCallback(async () => {
+    setPaymentsLoading(true);
+    setPaymentsError('');
+    try {
+      const response = await api.get<Payment[]>('/payments');
+      setPayments(response.data);
+    } catch (error) {
+      setPaymentsError(apiErrorMessage(error, 'Impossible de charger les paiements. Veuillez réessayer ou contacter l’administrateur.'));
+    } finally {
+      setPaymentsLoading(false);
+    }
+  }, []);
+
   async function refreshExchangeRate() {
     try {
       const response = await api.get<ExchangeRate | null>('/settings/exchange-rate');
@@ -97,6 +112,10 @@ export function Payments() {
     refreshExchangeRate();
   }, []);
 
+  useEffect(() => {
+    reloadPayments();
+  }, [reloadPayments]);
+
   const invoiceOptions = useMemo(
     () => invoices.data.filter((invoice) => ['UNPAID', 'PARTIAL', 'OVERDUE'].includes(invoice.status) && Number(invoice.remaining_amount) > 0),
     [invoices.data],
@@ -107,7 +126,7 @@ export function Payments() {
     [invoiceOptions, selectedInvoiceId],
   );
 
-  const filtered = data.filter((payment) => {
+  const filtered = payments.filter((payment) => {
     const date = payment.payment_date.slice(0, 10);
     return (
       includesText(
@@ -138,16 +157,16 @@ export function Payments() {
     const month = new Date().getMonth() + 1;
     const year = new Date().getFullYear();
     return {
-      total: data.length,
-      today: data.filter((payment) => payment.payment_date.slice(0, 10) === today).length,
-      month: data.filter((payment) => new Date(payment.payment_date).getMonth() + 1 === month && new Date(payment.payment_date).getFullYear() === year).length,
-      cash: data.filter((payment) => payment.payment_method === 'CASH').length,
-      bank: data.filter((payment) => payment.payment_method === 'BANK').length,
-      mobile: data.filter((payment) => payment.payment_method === 'MOBILE_MONEY').length,
-      partial: data.filter((payment) => payment.status === 'PARTIAL' || payment.invoice_status === 'PARTIAL').length,
-      collected: data.reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0),
+      total: payments.length,
+      today: payments.filter((payment) => payment.payment_date.slice(0, 10) === today).length,
+      month: payments.filter((payment) => new Date(payment.payment_date).getMonth() + 1 === month && new Date(payment.payment_date).getFullYear() === year).length,
+      cash: payments.filter((payment) => payment.payment_method === 'CASH').length,
+      bank: payments.filter((payment) => payment.payment_method === 'BANK').length,
+      mobile: payments.filter((payment) => payment.payment_method === 'MOBILE_MONEY').length,
+      partial: payments.filter((payment) => payment.status === 'PARTIAL' || payment.invoice_status === 'PARTIAL').length,
+      collected: payments.reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0),
     };
-  }, [data]);
+  }, [payments]);
 
   async function save(form: FormData) {
     const payload = {
@@ -168,7 +187,7 @@ export function Payments() {
     setSuccess('Paiement enregistré avec succès.');
     setOpen(false);
     setSelectedInvoiceId(null);
-    reload();
+    reloadPayments();
     invoices.reload();
   }
 
@@ -201,6 +220,7 @@ export function Payments() {
     <section>
       <PageHeader title="Paiements" action={can('payments.create') ? <button onClick={() => { setOpen(true); refreshExchangeRate(); }}><Plus size={16} />Nouveau paiement</button> : undefined} />
       <SuccessMessage message={success} />
+      {paymentsError ? <div className="error-banner">{paymentsError}</div> : null}
 
       <div className="summary-band">
         {quickStats.map(([label, value]) => (
@@ -295,7 +315,10 @@ export function Payments() {
             })}
           </tbody>
         </table>
-        {!data.length && <EmptyState />}
+        {paymentsLoading ? <EmptyState message="Chargement des paiements..." /> : null}
+        {!paymentsLoading && !paymentsError && !payments.length ? (
+          <EmptyState message="Aucun élément trouvé. Ajustez les filtres ou créez le premier élément si vous avez les droits." />
+        ) : null}
       </div>
 
       {open && (
@@ -318,7 +341,7 @@ export function Payments() {
   async function cancelPayment(paymentId: number) {
     if (!window.confirm('Annuler ce paiement ?')) return;
     await api.delete(`/payments/${paymentId}`);
-    reload();
+    reloadPayments();
     invoices.reload();
   }
 }
