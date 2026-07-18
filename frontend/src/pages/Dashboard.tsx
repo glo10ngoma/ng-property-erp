@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -604,61 +604,154 @@ function PieDonutChart({
   onClick?: (item: DonutDatum) => void;
   valueFormatter: (value: number) => string;
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const total = data.reduce((sum, item) => sum + Number(item.value), 0);
-  const radius = 44;
+  const radius = 48;
+  const strokeWidth = 18;
   const circumference = 2 * Math.PI * radius;
-  let offset = 0;
+  const chartData = data.map((item) => {
+    const numericValue = Number(item.value ?? 0);
+    const percent = total ? roundTo((numericValue / total) * 100, 1) : 0;
+    return {
+      ...item,
+      numericValue,
+      percent,
+      tooltip: `${item.label} - ${valueFormatter(numericValue)} - ${percent}%`,
+    };
+  });
+  const activeItem = chartData.find((item) => item.key === (hoveredKey ?? activeKey)) ?? null;
+
+  useEffect(() => {
+    setActiveKey((current) => (current && chartData.some((item) => item.key === current) ? current : null));
+  }, [chartData]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!containerRef.current) return;
+      if (event.target instanceof Node && containerRef.current.contains(event.target)) return;
+      setActiveKey(null);
+      setHoveredKey(null);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, []);
+
+  const activateItem = (item: DonutDatum) => {
+    setActiveKey(item.key);
+    onClick?.(item);
+  };
+
+  const handleSegmentKeyDown = (event: KeyboardEvent<SVGCircleElement>, item: DonutDatum) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    activateItem(item);
+  };
+
+  if (total <= 0) {
+    return (
+      <div className="dashboard-donut-panel dashboard-donut-panel-empty">
+        <div className="dashboard-donut-empty-state" role="status" aria-live="polite">
+          <strong>{centerTitle}</strong>
+          <span>Aucune donnée disponible pour la période sélectionnée.</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="donut-content dashboard-donut-content">
-      <svg className="donut-svg dashboard-donut-svg" viewBox="0 0 120 120" role="img" aria-label={centerTitle}>
-        <circle cx="60" cy="60" r={radius} className="donut-bg" />
-        {data.map((item) => {
-          const ratio = total ? Number(item.value) / total : 0;
-          const length = ratio * circumference;
-          const percent = total ? roundTo((Number(item.value) / total) * 100, 1) : 0;
-          const tooltip = `${item.label} - ${valueFormatter(item.value)} - ${percent}%`;
-          const segment = (
-            <circle
-              key={item.key}
-              cx="60"
-              cy="60"
-              r={radius}
-              className="donut-segment"
-              stroke={item.color}
-              strokeDasharray={`${length} ${circumference - length}`}
-              strokeDashoffset={-offset}
-              onClick={() => onClick?.(item)}
-            >
-              <title>{tooltip}</title>
-            </circle>
-          );
-          offset += length;
-          return segment;
-        })}
-        <text x="60" y="46" textAnchor="middle" className="dashboard-donut-center-title">{centerTitle}</text>
-        <text x="60" y="64" textAnchor="middle" className="dashboard-donut-center-value">{centerValue}</text>
-        <text x="60" y="79" textAnchor="middle" className="dashboard-donut-center-footer">{centerFooter}</text>
-      </svg>
-      <div className="donut-legend dashboard-donut-legend">
-        {data.map((item) => {
-          const percent = total ? roundTo((Number(item.value) / total) * 100, 1) : 0;
-          return (
+    <div className="dashboard-donut-panel" ref={containerRef}>
+      <div className="donut-content dashboard-donut-content">
+        <div className="dashboard-donut-visual">
+          <svg
+            className="donut-svg dashboard-donut-svg"
+            viewBox="0 0 120 120"
+            role="img"
+            aria-label={`${centerTitle} - ${centerValue} - ${centerFooter}`}
+          >
+            <circle cx="60" cy="60" r={radius} className="donut-bg" style={{ strokeWidth }} />
+            {(() => {
+              let offset = 0;
+              return chartData.map((item) => {
+                const ratio = total ? item.numericValue / total : 0;
+                const length = ratio * circumference;
+                const isActive = activeItem?.key === item.key;
+                const segment = (
+                  <circle
+                    key={item.key}
+                    cx="60"
+                    cy="60"
+                    r={radius}
+                    className={`donut-segment${isActive ? ' is-active' : ''}`}
+                    stroke={item.color}
+                    strokeWidth={strokeWidth}
+                    strokeDasharray={`${length} ${circumference - length}`}
+                    strokeDashoffset={-offset}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`${item.label}, ${valueFormatter(item.numericValue)}, ${item.percent}% du total`}
+                    aria-pressed={isActive}
+                    onMouseEnter={() => setHoveredKey(item.key)}
+                    onMouseLeave={() => setHoveredKey((current) => (current === item.key ? null : current))}
+                    onFocus={() => setHoveredKey(item.key)}
+                    onBlur={() => setHoveredKey((current) => (current === item.key ? null : current))}
+                    onClick={() => activateItem(item)}
+                    onKeyDown={(event) => handleSegmentKeyDown(event, item)}
+                  >
+                    <title>{item.tooltip}</title>
+                  </circle>
+                );
+                offset += length;
+                return segment;
+              });
+            })()}
+            <text x="60" y="45" textAnchor="middle" className="dashboard-donut-center-title">{centerTitle}</text>
+            <text x="60" y="63" textAnchor="middle" className="dashboard-donut-center-value">{centerValue}</text>
+            <text x="60" y="79" textAnchor="middle" className="dashboard-donut-center-footer">{centerFooter}</text>
+          </svg>
+        </div>
+        <div className={`dashboard-donut-tooltip${activeItem ? ' is-visible' : ''}`} role="status" aria-live="polite">
+          {activeItem ? (
+            <>
+              <div className="dashboard-donut-tooltip-head">
+                <span className="donut-dot" style={{ background: activeItem.color }} />
+                <strong>{activeItem.label}</strong>
+              </div>
+              <div className="dashboard-donut-tooltip-value">{valueFormatter(activeItem.numericValue)}</div>
+              <div className="dashboard-donut-tooltip-meta">
+                <span>{activeItem.percent}%</span>
+                <span>Total: {valueFormatter(total)}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="dashboard-donut-tooltip-head">
+                <strong>Détail du segment</strong>
+              </div>
+              <div className="dashboard-donut-tooltip-hint">
+                Survolez ou touchez une portion du graphique pour afficher sa valeur et son pourcentage.
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+      {chartData.length > 1 ? (
+        <div className="dashboard-donut-mini-legend" aria-label={`Légende ${centerTitle}`}>
+          {chartData.map((item) => (
             <button
               key={item.key}
               type="button"
-              className="donut-legend-row dashboard-donut-legend-row"
-              onClick={() => onClick?.(item)}
-              title={`${item.label} - ${valueFormatter(item.value)} - ${percent}%`}
+              className={`dashboard-donut-mini-legend-item${activeItem?.key === item.key ? ' is-active' : ''}`}
+              onClick={() => activateItem(item)}
+              title={item.tooltip}
             >
               <span className="donut-dot" style={{ background: item.color }} />
               <span>{item.label}</span>
-              <strong>{item.value}</strong>
-              <em>{percent}%</em>
             </button>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
