@@ -43,6 +43,10 @@ type Summary = {
   period_collected: number;
   leases_expiring_30_days: number;
   vacant_units: number;
+  tenant_rent_bands?: Array<{ label: string; min: number; max: number; tenant_count: number }>;
+  maintenance_by_building?: Array<{ building_id: number; building_name: string; maintenance_count: number; open_count: number; completed_count: number; urgent_count: number }>;
+  tenant_solvency?: Array<{ status: string; label: string; tenant_count: number; description: string }>;
+  maintenance_by_type?: Array<{ type_name: string; maintenance_count: number; open_count: number; completed_count: number }>;
   revenue_by_building: Array<ChartPoint & { id?: number; city?: string; occupancy_rate?: number }>;
   invoice_statuses: ChartPoint[];
   unit_occupancy: ChartPoint[];
@@ -71,6 +75,15 @@ type RevenueDatum = {
   value: number;
   color: string;
   path: string;
+};
+
+type HorizontalBarDatum = {
+  key: string;
+  label: string;
+  value: number;
+  subtitle?: string;
+  tooltip: string;
+  path?: string;
 };
 
 const STATUS_COLORS = {
@@ -103,6 +116,9 @@ export function Dashboard() {
   const [error, setError] = useState('');
   const [filters, setFilters] = useState({ period: 'month', buildingId: '', city: '', manager: '', currency: 'USD' });
   const navigate = useNavigate();
+  const canSeeTenantRentAnalytics = can('tenants.read') && can('leases.read');
+  const canSeeTenantSolvency = can('tenants.read') && can('invoices.read') && can('payments.read');
+  const canSeeMaintenanceAnalytics = can('maintenance.read');
 
   async function load() {
     setLoading(true);
@@ -189,6 +205,10 @@ export function Dashboard() {
       ...(summary?.invoice_statuses ?? []).map((row) => ({ rapport: 'factures_statut', ...row })),
       ...(summary?.unit_occupancy ?? []).map((row) => ({ rapport: 'occupation', ...row })),
       ...(summary?.collections_by_month ?? []).map((row) => ({ rapport: 'encaissements_mois', ...row })),
+      ...(summary?.tenant_rent_bands ?? []).map((row) => ({ rapport: 'locataires_tranches_loyer', ...row })),
+      ...(summary?.maintenance_by_building ?? []).map((row) => ({ rapport: 'maintenances_immeuble', ...row })),
+      ...(summary?.tenant_solvency ?? []).map((row) => ({ rapport: 'solvabilite_locataires', ...row })),
+      ...(summary?.maintenance_by_type ?? []).map((row) => ({ rapport: 'maintenances_type', ...row })),
     ],
     [summary],
   );
@@ -228,6 +248,64 @@ export function Dashboard() {
 
     return { overdueInvoices, overdueAmount, expiringLeases, vacantUnits, immediateAttentionCount, message };
   }, [summary]);
+
+  const tenantRentBands = useMemo(
+    () => (summary?.tenant_rent_bands ?? []).map((band) => ({
+      ...band,
+      value: Number(band.tenant_count ?? 0),
+      name: band.label,
+      tooltip: `${band.label} - ${band.tenant_count} locataire${band.tenant_count > 1 ? 's' : ''} - ${formatPercent(
+        rentBandPercentage(band.tenant_count, summary?.tenant_rent_bands ?? []),
+      )} % - ${filters.currency}`,
+    })),
+    [filters.currency, summary],
+  );
+
+  const maintenanceByBuilding = useMemo<HorizontalBarDatum[]>(
+    () => (summary?.maintenance_by_building ?? []).map((row) => ({
+      key: `maintenance-building-${row.building_id}`,
+      label: row.building_name,
+      value: Number(row.maintenance_count ?? 0),
+      subtitle: `Ouvertes : ${row.open_count} · Terminées : ${row.completed_count}${Number(row.urgent_count ?? 0) > 0 ? ` · Urgentes : ${row.urgent_count}` : ''}`,
+      tooltip: `${row.building_name} - ${row.maintenance_count} maintenances - ouvertes ${row.open_count} - terminées ${row.completed_count} - urgentes ${row.urgent_count}`,
+      path: `/maintenance?building_id=${row.building_id}`,
+    })),
+    [summary],
+  );
+
+  const tenantSolvency = useMemo<DonutDatum[]>(
+    () => (summary?.tenant_solvency ?? [])
+      .filter((row) => Number(row.tenant_count ?? 0) > 0)
+      .map((row, index) => ({
+        key: `solvency-${row.status}`,
+        label: row.label,
+        rawName: row.status,
+        value: Number(row.tenant_count ?? 0),
+        color: solvencyColor(row.status, index),
+        subtitle: row.description,
+      })),
+    [summary],
+  );
+
+  const evaluatedTenants = useMemo(
+    () => tenantSolvency
+      .filter((row) => row.rawName !== 'UNASSESSED')
+      .reduce((sum, row) => sum + row.value, 0),
+    [tenantSolvency],
+  );
+
+  const maintenanceByType = useMemo<DonutDatum[]>(
+    () => (summary?.maintenance_by_type ?? [])
+      .filter((row) => Number(row.maintenance_count ?? 0) > 0)
+      .map((row, index) => ({
+        key: `maintenance-type-${row.type_name}-${index}`,
+        label: row.type_name,
+        value: Number(row.maintenance_count ?? 0),
+        color: maintenanceTypeColor(index),
+        subtitle: `Ouvertes : ${row.open_count} · Terminées : ${row.completed_count}`,
+      })),
+    [summary],
+  );
 
   return (
     <section>
@@ -318,8 +396,8 @@ export function Dashboard() {
           ) : collectionsByMonth.some((item) => item.value > 0) ? (
             <VerticalBarChart
               data={collectionsByMonth}
-              currency={filters.currency}
               onClick={() => navigate('/payments')}
+              valueLabelFormatter={(value) => value > 0 ? `${formatMoney(value)} ${filters.currency}` : '0'}
             />
           ) : (
             <EmptyState title="Aucun encaissement enregistré durant les 12 derniers mois." />
@@ -361,6 +439,86 @@ export function Dashboard() {
             <EmptyState title="Aucune unité immobilière disponible pour calculer l'occupation." />
           )}
         </article>
+
+        {canSeeTenantRentAnalytics ? (
+          <article className="chart-card dashboard-analytics-card">
+            <h3>Locataires par niveau de loyer</h3>
+            <p className="dashboard-card-subtitle">Tranches calculées dans la devise affichée du Dashboard.</p>
+            {loading && !summary ? (
+              <LoadingState message="Chargement des tranches de loyer..." />
+            ) : tenantRentBands.length ? (
+              <VerticalBarChart
+                data={tenantRentBands.map((band) => ({
+                  name: band.label,
+                  label: band.label,
+                  value: band.value,
+                  tooltip: band.tooltip,
+                }))}
+                onClick={() => navigate('/tenants')}
+                valueLabelFormatter={(value) => `${value} locataire${value > 1 ? 's' : ''}`}
+                axisFormatter={(value) => String(Math.round(value))}
+              />
+            ) : (
+              <EmptyState title="Aucun locataire avec un bail actif pour la période et les filtres sélectionnés." />
+            )}
+          </article>
+        ) : null}
+
+        {canSeeMaintenanceAnalytics ? (
+          <article className="chart-card dashboard-analytics-card">
+            <h3>Immeubles par nombre de maintenances</h3>
+            <p className="dashboard-card-subtitle">{maintenanceByBuilding.length >= 10 ? 'Top 10 des immeubles les plus sollicités.' : 'Classement des immeubles les plus sollicités.'}</p>
+            {loading && !summary ? (
+              <LoadingState message="Chargement des maintenances par immeuble..." />
+            ) : maintenanceByBuilding.length ? (
+              <HorizontalBarChart data={maintenanceByBuilding} onClick={(item) => item.path ? navigate(item.path) : undefined} />
+            ) : (
+              <EmptyState title="Aucune maintenance enregistrée par immeuble sur la période sélectionnée." />
+            )}
+          </article>
+        ) : null}
+
+        {canSeeTenantSolvency ? (
+          <article className="chart-card dashboard-analytics-card">
+            <h3>Locataires par solvabilité</h3>
+            <p className="dashboard-card-subtitle">Analyse déterministe sur la période filtrée du Dashboard.</p>
+            {loading && !summary ? (
+              <LoadingState message="Chargement de la solvabilité..." />
+            ) : tenantSolvency.length ? (
+              <PieDonutChart
+                data={tenantSolvency}
+                centerTitle="Locataires évalués"
+                centerValue={String(evaluatedTenants)}
+                centerFooter="sur la période"
+                onClick={() => navigate('/tenants')}
+                valueFormatter={(value) => `${value} locataire${value > 1 ? 's' : ''}`}
+              />
+            ) : (
+              <EmptyState title="Aucune donnée financière suffisante pour évaluer la solvabilité des locataires." />
+            )}
+          </article>
+        ) : null}
+
+        {canSeeMaintenanceAnalytics ? (
+          <article className="chart-card dashboard-analytics-card">
+            <h3>Maintenances par type</h3>
+            <p className="dashboard-card-subtitle">Les catégories sans libellé exploitable sont regroupées dans « Autres ».</p>
+            {loading && !summary ? (
+              <LoadingState message="Chargement des types de maintenance..." />
+            ) : maintenanceByType.length ? (
+              <PieDonutChart
+                data={maintenanceByType}
+                centerTitle="Maintenances"
+                centerValue={String(maintenanceByType.reduce((sum, item) => sum + item.value, 0))}
+                centerFooter="catégorisées"
+                onClick={() => navigate('/maintenance')}
+                valueFormatter={(value) => `${value} maintenance${value > 1 ? 's' : ''}`}
+              />
+            ) : (
+              <EmptyState title="Aucune maintenance catégorisée sur la période sélectionnée." />
+            )}
+          </article>
+        ) : null}
 
         <InsightCard title="Performance des encaissements" icon={TrendingUp}>
           {loading && !summary ? (
@@ -507,12 +665,14 @@ function PieDonutChart({
 
 function VerticalBarChart({
   data,
-  currency,
   onClick,
+  valueLabelFormatter,
+  axisFormatter = formatMoney,
 }: {
   data: Array<ChartPoint & { label: string; tooltip: string }>;
-  currency: string;
   onClick?: () => void;
+  valueLabelFormatter?: (value: number) => string;
+  axisFormatter?: (value: number) => string;
 }) {
   const max = Math.max(...data.map((item) => Number(item.value ?? 0)), 1);
   const steps = buildAxisSteps(max);
@@ -522,11 +682,11 @@ function VerticalBarChart({
       <div className="dashboard-vertical-grid">
         {steps.map((step) => (
           <div key={step} className="dashboard-vertical-gridline">
-            <span>{formatMoney(step)}</span>
+            <span>{axisFormatter(step)}</span>
           </div>
         ))}
       </div>
-      <div className="dashboard-vertical-bars">
+      <div className="dashboard-vertical-bars" style={{ gridTemplateColumns: `repeat(${Math.max(data.length, 1)}, minmax(0, 1fr))` }}>
         {data.map((item) => {
           const height = max > 0 ? (Number(item.value ?? 0) / max) * 100 : 0;
           return (
@@ -537,7 +697,7 @@ function VerticalBarChart({
               onClick={onClick}
               title={item.tooltip}
             >
-              <span className="dashboard-vertical-bar-value">{item.value > 0 ? `${formatMoney(item.value)} ${currency}` : '0'}</span>
+              <span className="dashboard-vertical-bar-value">{valueLabelFormatter ? valueLabelFormatter(Number(item.value ?? 0)) : String(item.value ?? 0)}</span>
               <div className="dashboard-vertical-bar-track">
                 <div className="dashboard-vertical-bar-fill" style={{ height: `${height}%` }} />
               </div>
@@ -546,6 +706,38 @@ function VerticalBarChart({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function HorizontalBarChart({
+  data,
+  onClick,
+}: {
+  data: HorizontalBarDatum[];
+  onClick?: (item: HorizontalBarDatum) => void;
+}) {
+  const max = Math.max(...data.map((item) => Number(item.value ?? 0)), 1);
+  return (
+    <div className="dashboard-horizontal-bars">
+      {data.map((item) => (
+        <button
+          key={item.key}
+          type="button"
+          className="bar-row chart-clickable dashboard-horizontal-bar"
+          onClick={() => onClick?.(item)}
+          title={item.tooltip}
+        >
+          <span>
+            {item.label}
+            {item.subtitle ? <small>{item.subtitle}</small> : null}
+          </span>
+          <div className="bar-track">
+            <div className="bar-fill" style={{ width: `${Math.max((Number(item.value ?? 0) / max) * 100, 4)}%` }} />
+          </div>
+          <strong>{item.value}</strong>
+        </button>
+      ))}
     </div>
   );
 }
@@ -628,10 +820,28 @@ function occupancyStatusColor(value: string, index: number) {
   return REVENUE_COLORS[index % REVENUE_COLORS.length];
 }
 
+function solvencyColor(value: string, index: number) {
+  const normalized = String(value ?? '').toUpperCase();
+  if (normalized === 'SOLVENT') return STATUS_COLORS.paid;
+  if (normalized === 'WATCH') return STATUS_COLORS.partial;
+  if (normalized === 'AT_RISK') return STATUS_COLORS.unpaid;
+  if (normalized === 'UNASSESSED') return STATUS_COLORS.slate;
+  return REVENUE_COLORS[index % REVENUE_COLORS.length];
+}
+
+function maintenanceTypeColor(index: number) {
+  return REVENUE_COLORS[index % REVENUE_COLORS.length];
+}
+
 function sumByStatus(data: ChartPoint[] = [], statuses: string[]) {
   return data
     .filter((item) => statuses.includes(String(item.name).toUpperCase()))
     .reduce((sum, item) => sum + Number(item.value ?? 0), 0);
+}
+
+function rentBandPercentage(count: number, bands: Array<{ tenant_count: number }> = []) {
+  const total = bands.reduce((sum, band) => sum + Number(band.tenant_count ?? 0), 0);
+  return total > 0 ? (count / total) * 100 : 0;
 }
 
 function monthLabel(value: string) {
