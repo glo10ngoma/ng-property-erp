@@ -206,10 +206,10 @@ export function PaymentDetail() {
         </header>
 
         {!useCustomReceipt && (
-        <div className="invoice-amount-cards">
-          <div className="invoice-amount-card"><span>Montant USD</span><strong>{money(payment.amount_usd ?? payment.amount)}</strong><em>USD</em></div>
-          <div className="invoice-amount-card"><span>Montant CDF</span><strong>{Number(payment.amount_cdf ?? 0).toLocaleString('fr-FR')}</strong><em>CDF</em></div>
-          <div className="invoice-amount-card due"><span>Total équivalent</span><strong>{money(summary?.paid ?? 0)}</strong><em>USD</em></div>
+        <div className="receipt-amount-summary">
+          <div><span>Montant payé (USD)</span><strong>{money(payment.amount_usd ?? payment.amount)}</strong></div>
+          <div><span>Montant payé (CDF)</span><strong>{Number(payment.amount_cdf ?? 0).toLocaleString('fr-FR')} CDF</strong></div>
+          <div><span>Équivalent total (USD)</span><strong>{money(summary?.paid ?? 0)}</strong></div>
         </div>
         )}
 

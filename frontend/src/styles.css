@@ -276,13 +276,10 @@ textarea { min-height: 72px; resize: vertical; }
 .print-invoice tbody td { border-bottom: 1px solid #edf1f4; }
 .print-invoice tfoot td { font-weight: 900; font-size: 19px; border-top: 2px solid #dce5eb; }
 .print-invoice-footer { margin-top: 22px; text-align: center; font-size: 11px; color: #7a8d99; }
-.invoice-amount-cards { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px; margin-top: 14px; }
-.invoice-amount-card { border: 1px solid #dce5eb; border-radius: 8px; padding: 10px 12px; background: #f8fafb; display: grid; gap: 2px; }
-.invoice-amount-card span { color: #637783; font-size: 11px; font-weight: 800; text-transform: uppercase; }
-.invoice-amount-card strong { color: #203845; font-size: 22px; line-height: 1.1; text-align: right; }
-.invoice-amount-card em { color: #637783; font-style: normal; font-size: 12px; font-weight: 800; text-align: right; }
-.invoice-amount-card.due { background: white; border-color: #b7c7d2; box-shadow: inset 3px 0 0 #255e7e; }
-.invoice-amount-card.due strong { font-size: 27px; color: #1f2933; }
+.receipt-amount-summary { border: 1px solid #dce5eb; border-radius: 6px; margin-top: 14px; padding: 8px 10px; display: grid; gap: 4px; background: #f8fafb; }
+.receipt-amount-summary div { display: grid; grid-template-columns: minmax(180px, 1fr) auto; gap: 12px; align-items: baseline; }
+.receipt-amount-summary span { color: #637783; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.receipt-amount-summary strong { color: #203845; font-size: 13px; text-align: right; }
 .payment-summary { display: none; }
 .thanks { margin-top: 18px; color: #526a78; }
 .invoice-stamp { margin: 8px 0; border: 1px solid #dce5eb; border-radius: 6px; padding: 8px 12px; display: inline-flex; font-weight: 900; color: #425466; letter-spacing: .02em; }
@@ -784,7 +781,7 @@ textarea { min-height: 72px; resize: vertical; }
   .settings-grid { grid-template-columns: 1fr; }
   .document-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
   .invoice-chart-row { grid-template-columns: 150px 1fr 90px; }
-  .invoice-amount-cards, .invoice-accordion-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+  .invoice-accordion-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
   .invoice-form-grid, .invoice-two-col { grid-template-columns: 1fr; }
   .invoice-compact-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .invoice-field-span-2 { grid-column: 1 / -1; }
@@ -849,7 +846,7 @@ textarea { min-height: 72px; resize: vertical; }
   .statement-filters { grid-template-columns: 1fr; }
   .statement-filters .filter-actions { grid-column: auto; }
   .document-grid, .invoice-print-codes, .invoice-signature-row, .invoice-chart-row { grid-template-columns: 1fr; }
-  .invoice-amount-cards, .invoice-accordion-grid, .invoice-parties, .print-invoice header { grid-template-columns: 1fr; }
+  .invoice-accordion-grid, .invoice-parties, .print-invoice header { grid-template-columns: 1fr; }
   .invoice-form-grid, .invoice-compact-grid, .invoice-two-col { grid-template-columns: 1fr; }
   .invoice-field-span-2 { grid-column: auto; }
   .invoice-charge-lines-table table { min-width: 640px; }
