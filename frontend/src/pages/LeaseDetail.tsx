@@ -89,6 +89,8 @@ export function LeaseDetail() {
   const guaranteeRequired = Number(lease?.guarantee?.amount ?? lease?.rental_guarantee_amount ?? 0);
   const guaranteePaid = Number(lease?.guarantee?.paid_amount ?? lease?.rental_guarantee_paid ?? 0);
   const guaranteeRemaining = Math.max(guaranteeRequired - guaranteePaid, 0);
+  const guaranteePayments = lease?.guarantee_payments ?? [];
+  const hasGuaranteeReceipts = guaranteePayments.length > 0;
   const guaranteeDisplayStatus = guaranteeStatusFromAmounts(guaranteeRequired, guaranteePaid);
   const canPayGuarantee = Boolean(lease && can('payments.create') && !isReadOnlyLifecycleView && guaranteeRequired > 0 && guaranteeRemaining > 0 && ['DRAFT', 'ACTIVE'].includes(String(lease.status ?? '').toUpperCase()));
   const guaranteeRate = Number(guaranteePaymentRate || exchangeRate?.rate || 0);
@@ -518,15 +520,23 @@ export function LeaseDetail() {
             <tbody><tr><td><StatusBadge value={guaranteeDisplayStatus} /></td><td className="right">{lease.guarantee_months ?? 0}</td><td className="right">{amount(guaranteeRequired)}</td><td className="right">{amount(guaranteePaid)}</td><td>USD</td><td>{lease.guarantee?.payment_date ? shortDate(lease.guarantee.payment_date) : '-'}</td></tr></tbody>
           </table>
         </div>
-        {canPayGuarantee ? (
+        {canPayGuarantee || hasGuaranteeReceipts ? (
           <div className="actions" style={{ marginTop: 10 }}>
-            <button type="button" className="secondary" onClick={openGuaranteePayment}><Receipt size={16} />Payer la garantie</button>
+            {canPayGuarantee ? (
+              <button type="button" className="secondary" onClick={openGuaranteePayment}><Receipt size={16} />Payer la garantie</button>
+            ) : null}
+            {guaranteePayments.length === 1 ? (
+              <button type="button" className="secondary" onClick={() => navigate(`/payments/${guaranteePayments[0].id}`)}><Printer size={16} />Imprimer le recu</button>
+            ) : null}
+            {guaranteePayments.length > 1 ? (
+              <button type="button" className="secondary" onClick={() => document.getElementById('guarantee-receipts')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}><Receipt size={16} />Voir les recus</button>
+            ) : null}
           </div>
         ) : null}
-        {lease.guarantee_payments?.length ? (
-          <div className="compact-list">
-            <div className="compact-item"><span>{lease.guarantee_payments.length === 1 ? 'Recu de garantie disponible' : 'Voir / imprimer les recus de garantie'}</span><strong>{lease.guarantee_payments.length}</strong></div>
-            {lease.guarantee_payments.map((payment) => (
+        {hasGuaranteeReceipts ? (
+          <div className="compact-list" id="guarantee-receipts">
+            <div className="compact-item"><span>{guaranteePayments.length === 1 ? 'Recu de garantie disponible' : 'Recus de garantie disponibles'}</span><strong>{guaranteePayments.length}</strong></div>
+            {guaranteePayments.map((payment) => (
               <div className="compact-item" key={payment.id}>
                 <span>{payment.receipt_number ?? `PAY-${payment.id}`} | {shortDate(payment.payment_date)} | USD {money(payment.amount_usd ?? payment.amount)} | CDF {money(payment.amount_cdf ?? 0)} | Eq. {money(payment.total_equivalent_usd ?? payment.amount)}</span>
                 <button type="button" className="secondary" onClick={() => navigate(`/payments/${payment.id}`)}><Receipt size={16} />Recu</button>
