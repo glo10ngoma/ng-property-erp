@@ -340,6 +340,8 @@ export function InvoiceDetail() {
   const paymentBuildingDisplay = invoice.building_name || 'Non renseigné';
   const paymentUnitDisplay = invoice.unit_number || 'Non renseigné';
   const paymentLeaseDisplay = invoice.lease_id ? formatLeaseReference(invoice.lease_number, invoice.lease_id) : 'Non renseigné';
+  const receiptPayments = invoice.payments ?? [];
+  const canPrintReceipt = ['PARTIAL', 'PAID'].includes(String(invoice.status).toUpperCase()) && receiptPayments.length > 0;
 
   function printInvoice() {
     if (printTitleRef.current === null) {
@@ -366,6 +368,19 @@ export function InvoiceDetail() {
           <button className="secondary" onClick={() => navigate('/invoices')}><ArrowLeft size={16} />Retour</button>
           {can('invoices.update') && <button onClick={openEdit}><Pencil size={16} />Modifier</button>}
           <button onClick={printInvoice}><Printer size={16} />Imprimer</button>
+          {canPrintReceipt && receiptPayments.length === 1 && (
+            <button className="secondary" onClick={() => navigate(`/payments/${receiptPayments[0].id}`)}><Printer size={16} />Imprimer le reçu</button>
+          )}
+          {canPrintReceipt && receiptPayments.length > 1 && (
+            <details>
+              <summary>Imprimer le reçu</summary>
+              {receiptPayments.map((payment) => (
+                <button key={payment.id} type="button" className="secondary" onClick={() => navigate(`/payments/${payment.id}`)}>
+                  {payment.receipt_number ?? `PAY-${payment.id}`}
+                </button>
+              ))}
+            </details>
+          )}
           {can('payments.create') && <button title="Enregistrer un paiement" onClick={() => setPaymentOpen(true)}><CreditCard size={16} />Paiement</button>}
           {can('communication.send') && <button className="secondary" title="Envoyer par WhatsApp" onClick={() => sendReminder('WHATSAPP')}><MessageCircle size={16} />WhatsApp</button>}
           {can('communication.send') && <button className="secondary" title="Envoyer par e-mail" onClick={() => sendReminder('EMAIL')}><Mail size={16} />Email</button>}
