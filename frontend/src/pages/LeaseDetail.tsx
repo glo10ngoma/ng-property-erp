@@ -40,6 +40,11 @@ type LeaseDetailData = Lease & {
   active_contract_template_version?: number | null;
 };
 
+type ExchangeRate = {
+  rate: number;
+  effectiveDate?: string;
+};
+
 export function LeaseDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -52,9 +57,18 @@ export function LeaseDetail() {
   const [loading, setLoading] = useState(true);
   const [contractBusy, setContractBusy] = useState(false);
   const [guaranteePaymentOpen, setGuaranteePaymentOpen] = useState(false);
-  const [guaranteePaymentAmount, setGuaranteePaymentAmount] = useState('');
-  const [guaranteePaymentReference, setGuaranteePaymentReference] = useState('');
+  const [guaranteePaymentCurrency, setGuaranteePaymentCurrency] = useState<'USD' | 'CDF' | 'MIXED'>('USD');
+  const [guaranteePaymentDate, setGuaranteePaymentDate] = useState(todayDate());
+  const [guaranteePaymentUsdAmount, setGuaranteePaymentUsdAmount] = useState('');
+  const [guaranteePaymentUsdMethod, setGuaranteePaymentUsdMethod] = useState('CASH');
+  const [guaranteePaymentUsdReference, setGuaranteePaymentUsdReference] = useState('');
+  const [guaranteePaymentCdfAmount, setGuaranteePaymentCdfAmount] = useState('');
+  const [guaranteePaymentRate, setGuaranteePaymentRate] = useState('');
+  const [guaranteePaymentCdfMethod, setGuaranteePaymentCdfMethod] = useState('CASH');
+  const [guaranteePaymentCdfReference, setGuaranteePaymentCdfReference] = useState('');
+  const [guaranteePaymentNotes, setGuaranteePaymentNotes] = useState('');
   const [guaranteePaymentBusy, setGuaranteePaymentBusy] = useState(false);
+  const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [autoPreviewHandled, setAutoPreviewHandled] = useState(false);
   const [signedFileName, setSignedFileName] = useState('');
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
@@ -77,6 +91,25 @@ export function LeaseDetail() {
   const guaranteeRemaining = Math.max(guaranteeRequired - guaranteePaid, 0);
   const guaranteeDisplayStatus = guaranteeStatusFromAmounts(guaranteeRequired, guaranteePaid);
   const canPayGuarantee = Boolean(lease && can('payments.create') && !isReadOnlyLifecycleView && guaranteeRequired > 0 && guaranteeRemaining > 0 && ['DRAFT', 'ACTIVE'].includes(String(lease.status ?? '').toUpperCase()));
+  const guaranteeRate = Number(guaranteePaymentRate || exchangeRate?.rate || 0);
+  const guaranteeCdfEquivalentUsd = guaranteePaymentCurrency === 'USD' || guaranteeRate <= 0 ? 0 : Number((Number(guaranteePaymentCdfAmount || 0) / guaranteeRate).toFixed(2));
+  const guaranteeTotalEquivalentUsd = Number(
+    (
+      guaranteePaymentCurrency === 'USD'
+        ? Number(guaranteePaymentUsdAmount || 0)
+        : guaranteePaymentCurrency === 'CDF'
+          ? guaranteeCdfEquivalentUsd
+          : Number(guaranteePaymentUsdAmount || 0) + guaranteeCdfEquivalentUsd
+    ).toFixed(2),
+  );
+  const guaranteePaymentValidation = guaranteePaymentValidationError({
+    paymentCurrency: guaranteePaymentCurrency,
+    usdAmount: guaranteePaymentUsdAmount,
+    cdfAmount: guaranteePaymentCdfAmount,
+    rate: guaranteeRate,
+    totalEquivalentUsd: guaranteeTotalEquivalentUsd,
+    remaining: guaranteeRemaining,
+  });
 
   async function load() {
     if (!id) return;
@@ -164,6 +197,12 @@ export function LeaseDetail() {
   }, [id, detailScope]);
 
   useEffect(() => {
+    api.get<ExchangeRate | null>('/settings/exchange-rate')
+      .then((response) => setExchangeRate(response.data ?? null))
+      .catch(() => setExchangeRate(null));
+  }, []);
+
+  useEffect(() => {
     if (!previewRequested || autoPreviewHandled || !lease) return;
     setAutoPreviewHandled(true);
     if (lease.latest_contract && !contractVersionOutdated) {
@@ -180,33 +219,50 @@ export function LeaseDetail() {
   }
 
   function openGuaranteePayment() {
-    setGuaranteePaymentAmount(guaranteeRemaining.toFixed(2));
-    setGuaranteePaymentReference('');
+    const currentRate = exchangeRate?.rate ? String(exchangeRate.rate) : '';
+    setGuaranteePaymentCurrency('USD');
+    setGuaranteePaymentDate(todayDate());
+    setGuaranteePaymentUsdAmount(guaranteeRemaining.toFixed(2));
+    setGuaranteePaymentUsdMethod('CASH');
+    setGuaranteePaymentUsdReference('');
+    setGuaranteePaymentCdfAmount('');
+    setGuaranteePaymentRate(currentRate);
+    setGuaranteePaymentCdfMethod('CASH');
+    setGuaranteePaymentCdfReference('');
+    setGuaranteePaymentNotes('');
     setGuaranteePaymentOpen(true);
     setError('');
   }
 
   async function payGuarantee() {
     if (!lease) return;
-    const amountValue = Number(guaranteePaymentAmount);
-    if (!Number.isFinite(amountValue) || amountValue <= 0) {
-      setError('Le montant du paiement de garantie doit etre superieur a 0.');
+    if (guaranteePaymentValidation) {
+      setError(guaranteePaymentValidation);
       return;
     }
-    if (amountValue > guaranteeRemaining + 0.01) {
-      setError('Le montant du paiement depasse le reste a payer de la garantie.');
-      return;
-    }
+    const amountUsd = guaranteePaymentCurrency === 'CDF' ? 0 : Number(guaranteePaymentUsdAmount || 0);
+    const amountCdf = guaranteePaymentCurrency === 'USD' ? 0 : Number(guaranteePaymentCdfAmount || 0);
+    const reference = guaranteePaymentReference(guaranteePaymentUsdReference, guaranteePaymentCdfReference);
     setGuaranteePaymentBusy(true);
     setError('');
     try {
       const response = await api.post(`/leases/${lease.id}/guarantee/pay`, {
-        amount: amountValue,
-        reference: guaranteePaymentReference.trim() || undefined,
+        payment_date: guaranteePaymentDate,
+        amount: guaranteeTotalEquivalentUsd,
+        payment_currency: guaranteePaymentCurrency,
+        amount_usd: amountUsd,
+        amount_cdf: amountCdf,
+        exchange_rate_used: guaranteeRate || undefined,
+        exchange_rate_date: exchangeRate?.effectiveDate ?? todayDate(),
+        payment_method: amountUsd > 0 ? guaranteePaymentUsdMethod : guaranteePaymentCdfMethod,
+        payment_method_usd: guaranteePaymentUsdMethod,
+        payment_method_cdf: guaranteePaymentCdfMethod,
+        reference: reference || undefined,
+        reference_usd: guaranteePaymentUsdReference.trim() || undefined,
+        reference_cdf: guaranteePaymentCdfReference.trim() || undefined,
+        notes: guaranteePaymentNotes.trim() || undefined,
       });
       setGuaranteePaymentOpen(false);
-      setGuaranteePaymentAmount('');
-      setGuaranteePaymentReference('');
       setSuccess(response.data?.receipt_number ? `Paiement de garantie enregistre. Recu ${response.data.receipt_number}.` : 'Paiement de garantie enregistre.');
       await load();
     } catch (err: any) {
@@ -622,9 +678,64 @@ export function LeaseDetail() {
             <SummaryItem label="Reste a payer" value={money(guaranteeRemaining)} />
           </div>
           <div className="lease-section-grid">
-            <label>Montant a payer (USD)<input type="number" min="0.01" step="0.01" max={guaranteeRemaining} value={guaranteePaymentAmount} onChange={(event) => setGuaranteePaymentAmount(event.target.value)} /></label>
-            <label>Reference<input value={guaranteePaymentReference} onChange={(event) => setGuaranteePaymentReference(event.target.value)} placeholder="Reference facultative" /></label>
+            <label>
+              Mode de reglement
+              <select
+                value={guaranteePaymentCurrency}
+                onChange={(event) => {
+                  const next = event.target.value as 'USD' | 'CDF' | 'MIXED';
+                  setGuaranteePaymentCurrency(next);
+                  if (next === 'USD') {
+                    setGuaranteePaymentUsdAmount(guaranteeRemaining.toFixed(2));
+                    setGuaranteePaymentCdfAmount('');
+                  }
+                  if (next === 'CDF') {
+                    setGuaranteePaymentUsdAmount('0');
+                    setGuaranteePaymentCdfAmount(guaranteeRate > 0 ? String(Math.round(guaranteeRemaining * guaranteeRate)) : '');
+                  }
+                  if (next === 'MIXED') {
+                    setGuaranteePaymentUsdAmount(guaranteeRemaining.toFixed(2));
+                    setGuaranteePaymentCdfAmount('');
+                  }
+                }}
+              >
+                <option value="USD">USD uniquement</option>
+                <option value="CDF">CDF uniquement</option>
+                <option value="MIXED">Mixte USD + CDF</option>
+              </select>
+            </label>
+            <label>Date paiement<input type="date" required value={guaranteePaymentDate} onChange={(event) => setGuaranteePaymentDate(event.target.value)} /></label>
+            <label>Montant USD<input type="number" min="0" step="0.01" value={guaranteePaymentCurrency === 'CDF' ? '0' : guaranteePaymentUsdAmount} onChange={(event) => setGuaranteePaymentUsdAmount(event.target.value)} disabled={guaranteePaymentCurrency === 'CDF'} /></label>
+            <label>Mode paiement USD
+              <select value={guaranteePaymentUsdMethod} onChange={(event) => setGuaranteePaymentUsdMethod(event.target.value)} disabled={guaranteePaymentCurrency === 'CDF'}>
+                <option value="CASH">Especes</option>
+                <option value="BANK">Banque</option>
+                <option value="MOBILE_MONEY">Mobile Money</option>
+              </select>
+            </label>
+            <label>Reference USD<input value={guaranteePaymentUsdReference} onChange={(event) => setGuaranteePaymentUsdReference(event.target.value)} placeholder="Reference facultative" disabled={guaranteePaymentCurrency === 'CDF'} /></label>
+            <label>Montant CDF<input type="number" min="0" step="1" value={guaranteePaymentCurrency === 'USD' ? '' : guaranteePaymentCdfAmount} onChange={(event) => setGuaranteePaymentCdfAmount(event.target.value)} disabled={guaranteePaymentCurrency === 'USD'} /></label>
+            <label>Taux applique<input type="number" min="0" step="0.000001" value={guaranteePaymentRate} onChange={(event) => setGuaranteePaymentRate(event.target.value)} className={guaranteePaymentCurrency === 'USD' ? 'locked-field' : ''} readOnly={guaranteePaymentCurrency === 'USD'} /></label>
+            <label>Equivalent USD<input value={guaranteeCdfEquivalentUsd.toFixed(2)} readOnly className="locked-field" /></label>
+            <label>Mode paiement CDF
+              <select value={guaranteePaymentCdfMethod} onChange={(event) => setGuaranteePaymentCdfMethod(event.target.value)} disabled={guaranteePaymentCurrency === 'USD'}>
+                <option value="CASH">Especes</option>
+                <option value="BANK">Banque</option>
+                <option value="MOBILE_MONEY">Mobile Money</option>
+              </select>
+            </label>
+            <label>Reference CDF<input value={guaranteePaymentCdfReference} onChange={(event) => setGuaranteePaymentCdfReference(event.target.value)} placeholder="Reference facultative" disabled={guaranteePaymentCurrency === 'USD'} /></label>
+            <label>Total equivalent USD<input value={guaranteeTotalEquivalentUsd.toFixed(2)} readOnly className="locked-field" /></label>
+            <label>Observations<textarea rows={2} value={guaranteePaymentNotes} onChange={(event) => setGuaranteePaymentNotes(event.target.value)} placeholder="Observations" /></label>
           </div>
+          <div className="payment-summary-strip">
+            <span>USD recu: <strong>{Number(guaranteePaymentUsdAmount || 0).toFixed(2)}</strong></span>
+            <span>CDF recu: <strong>{Number(guaranteePaymentCdfAmount || 0).toLocaleString('fr-FR')}</strong></span>
+            <span>Taux: <strong>{guaranteeRate ? `1 USD = ${guaranteeRate.toLocaleString('fr-FR')} CDF` : 'Non disponible'}</strong></span>
+            <span>Total: <strong>{guaranteeTotalEquivalentUsd.toFixed(2)} USD</strong></span>
+            <span>Reste: <strong>{Math.max(guaranteeRemaining - guaranteeTotalEquivalentUsd, 0).toFixed(2)} USD</strong></span>
+          </div>
+          {guaranteePaymentValidation ? <div className="error-message">{guaranteePaymentValidation}</div> : null}
         </Modal>
       ) : null}
     </section>
@@ -650,6 +761,41 @@ function leaseReference(lease: Lease) {
 
 function amount(value: unknown) {
   return Number(value ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+}
+
+function todayDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function guaranteePaymentReference(referenceUsd: string, referenceCdf: string) {
+  const usd = referenceUsd.trim();
+  const cdf = referenceCdf.trim();
+  if (usd && cdf) return `USD: ${usd} | CDF: ${cdf}`;
+  return usd || cdf;
+}
+
+function guaranteePaymentValidationError({
+  paymentCurrency,
+  usdAmount,
+  cdfAmount,
+  rate,
+  totalEquivalentUsd,
+  remaining,
+}: {
+  paymentCurrency: 'USD' | 'CDF' | 'MIXED';
+  usdAmount: string;
+  cdfAmount: string;
+  rate: number;
+  totalEquivalentUsd: number;
+  remaining: number;
+}) {
+  const amountUsd = Number(usdAmount || 0);
+  const amountCdf = Number(cdfAmount || 0);
+  if (!Number.isFinite(amountUsd) || amountUsd < 0 || !Number.isFinite(amountCdf) || amountCdf < 0 || !Number.isFinite(totalEquivalentUsd)) return 'Montant invalide.';
+  if (amountUsd <= 0 && amountCdf <= 0) return 'Le paiement doit contenir au moins un montant USD ou CDF.';
+  if ((paymentCurrency === 'CDF' || paymentCurrency === 'MIXED' || amountCdf > 0) && rate <= 0) return 'Aucun taux de change disponible pour un paiement CDF.';
+  if (totalEquivalentUsd > remaining + 0.01) return `Le montant depasse le reste a payer (${money(remaining)} USD).`;
+  return '';
 }
 
 function guaranteeStatusFromAmounts(required: number, paid: number) {

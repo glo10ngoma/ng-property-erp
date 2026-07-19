@@ -5301,7 +5301,7 @@ export class SaasService {
     return this.emailService.sendTestEmail(recipient, this.context.organizationId(), this.context.userId() ?? 1);
   }
 
-  async payLeaseGuarantee(id: number, amount: number, reference?: string) {
+  async payLeaseGuarantee(id: number, body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`lease-guarantee-payment-${this.context.organizationId()}-${id}`]);
       const lease = await client.query(
@@ -5309,9 +5309,26 @@ export class SaasService {
         [id, this.context.organizationId()],
       );
       const row = requireRow(lease.rows[0], 'Lease');
-      if (!Number.isFinite(amount) || amount <= 0) {
+      const exchangeRate = await this.exchangeRate();
+      const paymentCurrency = String(body.payment_currency ?? 'USD').toUpperCase();
+      const amountUsd = Number(body.amount_usd ?? (paymentCurrency === 'USD' ? body.amount : 0)) || 0;
+      const amountCdf = Number(body.amount_cdf ?? 0) || 0;
+      const exchangeRateUsed = Number(body.exchange_rate_used ?? exchangeRate?.rate ?? 0) || null;
+      const exchangeRateDate = body.exchange_rate_date ?? exchangeRate?.effectiveDate ?? null;
+      if (!['USD', 'CDF', 'MIXED'].includes(paymentCurrency)) {
+        throw new BadRequestException('Devise de paiement invalide.');
+      }
+      if (!Number.isFinite(amountUsd) || amountUsd < 0 || !Number.isFinite(amountCdf) || amountCdf < 0) {
+        throw new BadRequestException('Montant de paiement invalide.');
+      }
+      if (amountUsd <= 0 && amountCdf <= 0) {
         throw new BadRequestException('Le montant de la garantie doit etre superieur a 0.');
       }
+      if ((paymentCurrency === 'CDF' || paymentCurrency === 'MIXED' || amountCdf > 0) && (!exchangeRateUsed || exchangeRateUsed <= 0)) {
+        throw new BadRequestException('Un taux de change est requis pour un paiement de garantie en CDF.');
+      }
+      const cdfEquivalentUsd = amountCdf > 0 && exchangeRateUsed ? Number((amountCdf / exchangeRateUsed).toFixed(2)) : 0;
+      const amount = Number((amountUsd + cdfEquivalentUsd).toFixed(2));
       const guarantee = await this.leaseGuarantee(id);
       const guaranteeAmount = Number(guarantee?.amount ?? row.rental_guarantee_amount ?? 0);
       const paidAmount = Number(guarantee?.paid_amount ?? row.rental_guarantee_paid ?? 0) + amount;
@@ -5322,13 +5339,17 @@ export class SaasService {
       await this.upsertLeaseGuarantee(client, id, {
         amount: guaranteeAmount,
         paid_amount: paidAmount,
-        payment_date: new Date().toISOString().slice(0, 10),
+        payment_date: String(body.payment_date ?? new Date().toISOString().slice(0, 10)),
         status,
       });
       const persistedGuarantee = await this.leaseGuaranteeInTransaction(client, id);
       const receiptNumber = await this.nextPaymentReceiptNumber(client);
-      const paymentDate = new Date().toISOString().slice(0, 10);
-      const normalizedReference = reference ?? `GAR-${id}`;
+      const paymentDate = String(body.payment_date ?? new Date().toISOString().slice(0, 10));
+      const normalizedReference = body.reference ? String(body.reference) : `GAR-${id}`;
+      const paymentMethod = String(body.payment_method ?? 'CASH').toUpperCase();
+      if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethod)) {
+        throw new BadRequestException('Mode de paiement invalide.');
+      }
       const idempotencyKey = [
         'GUARANTEE',
         this.context.organizationId(),
@@ -5336,17 +5357,19 @@ export class SaasService {
         persistedGuarantee.id,
         paymentDate,
         amount.toFixed(2),
+        amountUsd.toFixed(2),
+        amountCdf.toFixed(2),
         normalizedReference,
       ].join(':');
       const paymentResult = await client.query(
         `INSERT INTO payments
           (invoice_id, payment_date, amount, payment_method, reference, notes, payer_name, receipt_number,
-           currency, amount_usd, amount_cdf, cdf_equivalent_usd, total_equivalent_usd, organization_id,
+           currency, amount_usd, amount_cdf, exchange_rate_used, exchange_rate_date, cdf_equivalent_usd, total_equivalent_usd, organization_id,
            payment_type, lease_guarantee_id, idempotency_key)
          VALUES
-          (NULL, $1, $2, 'CASH', $3, $4, $5, $6,
-           'USD', $2, 0, 0, $2, $7,
-           'GUARANTEE', $8, $9)
+          (NULL, $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11, $12, $13, $2, $14,
+           'GUARANTEE', $15, $16)
          ON CONFLICT (organization_id, idempotency_key)
          WHERE deleted_at IS NULL AND idempotency_key IS NOT NULL
          DO NOTHING
@@ -5354,10 +5377,17 @@ export class SaasService {
         [
           paymentDate,
           amount,
+          paymentMethod,
           normalizedReference,
-          'Paiement garantie locative',
+          body.notes ? String(body.notes) : 'Paiement garantie locative',
           row.tenant_id ? `Locataire #${row.tenant_id}` : null,
           receiptNumber,
+          paymentCurrency,
+          amountUsd,
+          amountCdf,
+          exchangeRateUsed,
+          exchangeRateDate,
+          cdfEquivalentUsd,
           this.context.organizationId(),
           persistedGuarantee.id,
           idempotencyKey,
@@ -5366,28 +5396,49 @@ export class SaasService {
       if (!paymentResult.rows[0]) {
         throw new ConflictException('Ce paiement de garantie est deja en cours de traitement ou deja enregistre.');
       }
-      const movement = await this.createCashMovementInTransaction(client, {
-        type: 'IN',
-        category: 'LEASE_GUARANTEE',
-        amount,
-        movement_date: new Date().toISOString().slice(0, 10),
-        payment_id: paymentResult.rows[0].id,
-        tenant_id: row.tenant_id,
-        description: 'Paiement garantie locative',
-        reference: normalizedReference,
-      });
+      const movements = [];
+      if (amountUsd > 0) {
+        movements.push(await this.createCashMovementInTransaction(client, {
+          type: 'IN',
+          category: 'LEASE_GUARANTEE',
+          amount: amountUsd,
+          movement_date: paymentDate,
+          payment_id: paymentResult.rows[0].id,
+          tenant_id: row.tenant_id,
+          description: 'Paiement garantie locative',
+          reference: normalizedReference,
+          currency: 'USD',
+          equivalent_usd: amountUsd,
+        }));
+      }
+      if (amountCdf > 0) {
+        movements.push(await this.createCashMovementInTransaction(client, {
+          type: 'IN',
+          category: 'LEASE_GUARANTEE',
+          amount: amountCdf,
+          movement_date: paymentDate,
+          payment_id: paymentResult.rows[0].id,
+          tenant_id: row.tenant_id,
+          description: 'Paiement garantie locative',
+          reference: normalizedReference,
+          currency: 'CDF',
+          exchange_rate_used: exchangeRateUsed,
+          exchange_rate_date: exchangeRateDate,
+          equivalent_usd: cdfEquivalentUsd,
+        }));
+      }
       await client.query(
         `UPDATE payments
          SET cash_movement_id = $2
          WHERE id = $1 AND organization_id = $3`,
-        [paymentResult.rows[0].id, movement.id, this.context.organizationId()],
+        [paymentResult.rows[0].id, movements[0]?.id ?? null, this.context.organizationId()],
       );
       return {
         guarantee: await this.leaseGuaranteeInTransaction(client, id),
         payment_id: paymentResult.rows[0].id,
         receipt_number: paymentResult.rows[0].receipt_number,
-        cash_movement_id: movement.id,
-        movement,
+        cash_movement_id: movements[0]?.id ?? null,
+        movements,
       };
     });
   }
