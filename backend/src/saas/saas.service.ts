@@ -3880,8 +3880,20 @@ export class SaasService {
         throw new BadRequestException("La base doit d'abord appliquer la migration 20260715_lease_commercial_professional_templates.sql pour modifier l'activité du bail.");
       }
 
+      const currentGuarantee = current.guarantee as Record<string, unknown> | undefined;
       const normalized = this.normalizeLeasePayload(
-        { ...current, ...body, lease_usage: requestedUsage, lease_activity_description: requestedActivityDescription || null },
+        {
+          ...current,
+          ...body,
+          lease_usage: requestedUsage,
+          lease_activity_description: requestedActivityDescription || null,
+          rental_guarantee_paid: currentGuarantee?.paid_amount ?? current.rental_guarantee_paid ?? current.guarantee_paid ?? 0,
+          guarantee_paid: currentGuarantee?.paid_amount ?? current.rental_guarantee_paid ?? current.guarantee_paid ?? 0,
+          rental_guarantee_payment_date: currentGuarantee?.payment_date ?? current.rental_guarantee_payment_date ?? current.guarantee_payment_date ?? null,
+          guarantee_payment_date: currentGuarantee?.payment_date ?? current.rental_guarantee_payment_date ?? current.guarantee_payment_date ?? null,
+          rental_guarantee_status: currentGuarantee?.status ?? current.rental_guarantee_status ?? current.guarantee_status ?? 'NOT_PAID',
+          guarantee_status: currentGuarantee?.status ?? current.rental_guarantee_status ?? current.guarantee_status ?? 'NOT_PAID',
+        },
         { requireBusinessActivity },
       );
       if (normalized.status === 'ACTIVE') {
