@@ -255,7 +255,9 @@ textarea { min-height: 72px; resize: vertical; }
 .print-invoice header h2 { margin: 0 0 4px; font-size: 18px; }
 .print-invoice header p { margin: 1px 0; font-size: 12px; color: #526a78; line-height: 1.25; }
 .print-invoice header.invoice-header-title-only { grid-template-columns: 1fr auto; }
-.print-invoice header.receipt-header-custom { grid-template-columns: 1fr auto; align-items: center; }
+.print-invoice header.receipt-header-custom { grid-template-columns: 1fr; align-items: start; }
+.receipt-header-custom .receipt-title-block { text-align: left; justify-self: stretch; }
+.receipt-header-custom .invoice-meta { justify-items: start; }
 .receipt-title-block { text-align: center; justify-self: center; width: 100%; }
 .receipt-title-block h2 { margin: 0; font-size: 22px; font-weight: 900; letter-spacing: 0; color: #203845; }
 .invoice-title-only h2 { text-transform: uppercase; letter-spacing: .02em; }
