@@ -69,7 +69,9 @@ export class PaymentsService {
               COALESCE(l.status, gl.status) AS lease_status,
               g.amount AS guarantee_amount,
               g.paid_amount AS guarantee_paid_amount,
-              g.status AS guarantee_status
+              g.status AS guarantee_status,
+              pcm.created_by AS created_by_user_id,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(creator.first_name, ''), ' ', COALESCE(creator.last_name, ''))), ''), creator.email) AS created_by_name
        FROM payments p
        LEFT JOIN invoices i ON i.id = p.invoice_id
        LEFT JOIN lease_guarantees g ON g.id = p.lease_guarantee_id
@@ -78,6 +80,16 @@ export class PaymentsService {
        LEFT JOIN leases l ON l.id = i.lease_id
        LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, gl.unit_id, t.unit_id)
        LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
+       LEFT JOIN LATERAL (
+         SELECT cm.created_by
+         FROM cash_movements cm
+         WHERE cm.payment_id = p.id
+           AND cm.organization_id = p.organization_id
+           AND cm.deleted_at IS NULL
+         ORDER BY cm.id
+         LIMIT 1
+       ) pcm ON TRUE
+       LEFT JOIN app_users creator ON creator.id = pcm.created_by AND creator.deleted_at IS NULL
        WHERE p.id = $1 AND p.organization_id = $2 AND p.deleted_at IS NULL`,
       [id, organizationId],
     );
@@ -159,13 +171,25 @@ export class PaymentsService {
               l.status AS lease_status,
               NULL::NUMERIC AS guarantee_amount,
               NULL::NUMERIC AS guarantee_paid_amount,
-              NULL::TEXT AS guarantee_status
+              NULL::TEXT AS guarantee_status,
+              pcm.created_by AS created_by_user_id,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(creator.first_name, ''), ' ', COALESCE(creator.last_name, ''))), ''), creator.email) AS created_by_name
        FROM payments p
        LEFT JOIN invoices i ON i.id = p.invoice_id
        LEFT JOIN tenants t ON t.id = i.tenant_id
        LEFT JOIN leases l ON l.id = i.lease_id
        LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
        LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
+       LEFT JOIN LATERAL (
+         SELECT cm.created_by
+         FROM cash_movements cm
+         WHERE cm.payment_id = p.id
+           AND cm.organization_id = p.organization_id
+           AND cm.deleted_at IS NULL
+         ORDER BY cm.id
+         LIMIT 1
+       ) pcm ON TRUE
+       LEFT JOIN app_users creator ON creator.id = pcm.created_by AND creator.deleted_at IS NULL
        WHERE p.id = $1 AND p.organization_id = $2 AND p.deleted_at IS NULL`,
       [id, organizationId],
     );

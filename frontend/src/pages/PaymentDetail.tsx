@@ -55,6 +55,8 @@ type PaymentDetailData = {
   guarantee_amount?: number;
   guarantee_paid_amount?: number;
   guarantee_status?: string;
+  created_by_user_id?: number;
+  created_by_name?: string;
   allocations?: { id: number; invoice_id: number; invoice_number: string; amount: number }[];
   reminders?: { id: number; channel: string; message: string; status: string; reminded_at: string; reminded_by?: number }[];
   audit?: { id: number; date: string; action: string; resource: string; method: string; path: string; status_code?: number; metadata?: Record<string, unknown>; user_name?: string }[];
@@ -99,6 +101,8 @@ export function PaymentDetail() {
   const useCustomReceipt = payment ? CUSTOM_RECEIPT_ORGANIZATION_IDS.has(Number(payment.organization_id)) : false;
   const receiptTitle = payment ? paymentReceiptTitle(payment) : 'Reçu de paiement';
   const isGuaranteeReceipt = payment ? isGuaranteePayment(payment) : false;
+  const displayReference = payment ? displayValue(payment.reference) : '—';
+  const displayCreator = payment ? displayValue(payment.created_by_name) : '—';
 
   async function send(channel: 'EMAIL' | 'SMS' | 'WHATSAPP') {
     if (!payment) return;
@@ -233,12 +237,12 @@ export function PaymentDetail() {
           <thead><tr><th>Référence</th><th>Facture</th><th>Mode</th><th className="right">Montant</th><th>Devise</th><th>Utilisateur</th></tr></thead>
         <tbody>
             <tr>
-              <td>{payment.reference ?? payment.receipt_number ?? '-'}</td>
+              <td>{displayReference}</td>
               <td>{isGuaranteePayment(payment) ? 'Garantie locative' : payment.invoice_number}</td>
               <td>{paymentMethodLabel(payment.payment_method)}</td>
               <td className="right">{money(payment.amount)}</td>
               <td>USD</td>
-              <td>{payment.payer_name ?? '-'}</td>
+              <td>{displayCreator}</td>
             </tr>
           </tbody>
         </table>
@@ -290,13 +294,13 @@ function exportPaymentExcel(payment: PaymentDetailData) {
 
 function paymentInfo(payment: PaymentDetailData) {
   return {
-    reference: payment.reference ?? payment.receipt_number ?? '',
+    reference: displayValue(payment.reference),
     facture: payment.invoice_number ?? (isGuaranteePayment(payment) ? 'Garantie locative' : ''),
     date: shortDate(payment.payment_date),
     montant: money(payment.amount),
     devise: 'USD',
     mode: paymentMethodLabel(payment.payment_method),
-    banque: payment.payer_name ?? '',
+    banque: displayValue(payment.created_by_name),
     notes: payment.notes ?? '',
   };
 }
@@ -334,7 +338,7 @@ function leaseInfo(payment: PaymentDetailData) {
 
 function timelineRows(payment: PaymentDetailData) {
   return [
-    { Date: shortDate(payment.payment_date), Evenement: 'Paiement', Description: payment.receipt_number ?? payment.id, Utilisateur: payment.payer_name ?? '-' },
+    { Date: shortDate(payment.payment_date), Evenement: 'Paiement', Description: payment.receipt_number ?? payment.id, Utilisateur: displayValue(payment.created_by_name) },
     ...(payment.reminders ?? []).map((reminder) => ({ Date: shortDate(reminder.reminded_at), Evenement: `Relance ${reminder.channel}`, Description: reminder.status, Utilisateur: reminder.reminded_by ? `Utilisateur #${reminder.reminded_by}` : '-' })),
   ];
 }
@@ -364,7 +368,7 @@ function generalRows(payment: PaymentDetailData) {
     montant: money(payment.amount),
     devise: 'USD',
     mode: paymentMethodLabel(payment.payment_method),
-    utilisateur: payment.payer_name ?? '-',
+    utilisateur: displayValue(payment.created_by_name),
     observations: payment.notes ?? '-',
   }];
 }
@@ -409,6 +413,11 @@ function label(key: string) {
 
 function isGuaranteePayment(payment: PaymentDetailData) {
   return String(payment.payment_type ?? '').toUpperCase() === 'GUARANTEE';
+}
+
+function displayValue(value: unknown) {
+  const normalized = String(value ?? '').trim();
+  return normalized || '—';
 }
 
 function paymentReceiptTitle(payment: PaymentDetailData) {
