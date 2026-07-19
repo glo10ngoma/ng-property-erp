@@ -3803,7 +3803,7 @@ export class SaasService {
   async createLease(body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
       const organizationId = this.context.organizationId();
-      const normalized = this.normalizeLeasePayload(body);
+      const normalized = this.normalizeLeasePayload(body, { forceInitialGuaranteeUnpaid: true });
       if (normalized.status === 'ACTIVE') {
         await this.ensureNoLeaseConflict(client, normalized.unitId, normalized.startDate, normalized.endDate);
       }
@@ -4262,7 +4262,8 @@ export class SaasService {
       return [];
     }
     const { rows } = await this.db.query(
-      `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference, p.receipt_number, p.cash_movement_id
+      `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference, p.receipt_number, p.cash_movement_id,
+              p.amount_usd, p.amount_cdf, p.total_equivalent_usd
        FROM payments p
        JOIN lease_guarantees g ON g.id = p.lease_guarantee_id
        WHERE g.lease_id = $1
@@ -7667,7 +7668,7 @@ export class SaasService {
     return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => String(variables[key] ?? ''));
   }
 
-  private normalizeLeasePayload(body: Record<string, unknown>, options?: { requireBusinessActivity?: boolean }) {
+  private normalizeLeasePayload(body: Record<string, unknown>, options?: { requireBusinessActivity?: boolean; forceInitialGuaranteeUnpaid?: boolean }) {
     const tenantId = Number(body.tenant_id ?? body.tenantId ?? 0);
     const unitId = Number(body.unit_id ?? body.unitId ?? 0);
     const startDate = String(body.start_date ?? '').trim();
@@ -7684,11 +7685,12 @@ export class SaasService {
     const rentGuaranteeBaseAmount = monthlyRent + maintenanceFeeAmount;
     const leaseTotalAmount = monthlyRent + maintenanceFeeAmount + monthlySyndicAmount + otherChargesAmount;
     const guaranteeAmount = rentGuaranteeBaseAmount * guaranteeMonths;
-    const guaranteePaid = Number(body.rental_guarantee_paid ?? body.guarantee_paid ?? 0);
+    const forceInitialGuaranteeUnpaid = options?.forceInitialGuaranteeUnpaid === true;
+    const guaranteePaid = forceInitialGuaranteeUnpaid ? 0 : Number(body.rental_guarantee_paid ?? body.guarantee_paid ?? 0);
     const leaseUsage = this.normalizeLeaseUsageCode(body.lease_usage);
     const leaseActivityDescription = body.lease_activity_description ? String(body.lease_activity_description).trim() : null;
-    const guaranteePaymentDateValue = String(body.rental_guarantee_payment_date ?? body.guarantee_payment_date ?? '').trim();
-    const rawGuaranteeStatus = String(body.rental_guarantee_status ?? body.guarantee_status ?? '').trim().toUpperCase();
+    const guaranteePaymentDateValue = forceInitialGuaranteeUnpaid ? '' : String(body.rental_guarantee_payment_date ?? body.guarantee_payment_date ?? '').trim();
+    const rawGuaranteeStatus = forceInitialGuaranteeUnpaid ? 'NOT_PAID' : String(body.rental_guarantee_status ?? body.guarantee_status ?? '').trim().toUpperCase();
     const guaranteeMarkedPaid = rawGuaranteeStatus === 'PAID' || guaranteePaid > 0;
 
     const requireBusinessActivity = options?.requireBusinessActivity ?? true;

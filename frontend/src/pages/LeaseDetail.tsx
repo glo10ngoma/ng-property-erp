@@ -33,7 +33,7 @@ type LeaseContractGeneration = {
 
 type LeaseDetailData = Lease & {
   guarantee?: { amount: number; paid_amount: number; status: string; payment_date?: string };
-  guarantee_payments?: Array<{ id: number; payment_date: string; amount: number; payment_method: string; reference?: string; receipt_number?: string; cash_movement_id?: number }>;
+  guarantee_payments?: Array<{ id: number; payment_date: string; amount: number; payment_method: string; reference?: string; receipt_number?: string; cash_movement_id?: number; amount_usd?: number; amount_cdf?: number; total_equivalent_usd?: number }>;
   documents: Array<{ id: number; document_type: string; file_name: string; file_url?: string; uploaded_at?: string }>;
   history: Lease[];
   latest_contract?: LeaseContractGeneration | null;
@@ -51,6 +51,10 @@ export function LeaseDetail() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [contractBusy, setContractBusy] = useState(false);
+  const [guaranteePaymentOpen, setGuaranteePaymentOpen] = useState(false);
+  const [guaranteePaymentAmount, setGuaranteePaymentAmount] = useState('');
+  const [guaranteePaymentReference, setGuaranteePaymentReference] = useState('');
+  const [guaranteePaymentBusy, setGuaranteePaymentBusy] = useState(false);
   const [autoPreviewHandled, setAutoPreviewHandled] = useState(false);
   const [signedFileName, setSignedFileName] = useState('');
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
@@ -68,6 +72,11 @@ export function LeaseDetail() {
   const canReadLeaseContract = can('documents.read');
   const hasGeneratedDocx = Boolean(lease?.latest_contract?.docx_file_name);
   const hasGeneratedPdf = Boolean(lease?.latest_contract?.pdf_file_name);
+  const guaranteeRequired = Number(lease?.guarantee?.amount ?? lease?.rental_guarantee_amount ?? 0);
+  const guaranteePaid = Number(lease?.guarantee?.paid_amount ?? lease?.rental_guarantee_paid ?? 0);
+  const guaranteeRemaining = Math.max(guaranteeRequired - guaranteePaid, 0);
+  const guaranteeDisplayStatus = guaranteeStatusFromAmounts(guaranteeRequired, guaranteePaid);
+  const canPayGuarantee = Boolean(lease && can('payments.create') && !isReadOnlyLifecycleView && guaranteeRequired > 0 && guaranteeRemaining > 0 && ['DRAFT', 'ACTIVE'].includes(String(lease.status ?? '').toUpperCase()));
 
   async function load() {
     if (!id) return;
@@ -168,6 +177,45 @@ export function LeaseDetail() {
     if (!lease) return;
     const response = await api.post(`/leases/${lease.id}/invoice`);
     setSuccess(`Facture ${response.data.invoice_number} creee depuis le bail.`);
+  }
+
+  function openGuaranteePayment() {
+    setGuaranteePaymentAmount(guaranteeRemaining.toFixed(2));
+    setGuaranteePaymentReference('');
+    setGuaranteePaymentOpen(true);
+    setError('');
+  }
+
+  async function payGuarantee() {
+    if (!lease) return;
+    const amountValue = Number(guaranteePaymentAmount);
+    if (!Number.isFinite(amountValue) || amountValue <= 0) {
+      setError('Le montant du paiement de garantie doit etre superieur a 0.');
+      return;
+    }
+    if (amountValue > guaranteeRemaining + 0.01) {
+      setError('Le montant du paiement depasse le reste a payer de la garantie.');
+      return;
+    }
+    setGuaranteePaymentBusy(true);
+    setError('');
+    try {
+      const response = await api.post(`/leases/${lease.id}/guarantee/pay`, {
+        amount: amountValue,
+        reference: guaranteePaymentReference.trim() || undefined,
+      });
+      setGuaranteePaymentOpen(false);
+      setGuaranteePaymentAmount('');
+      setGuaranteePaymentReference('');
+      setSuccess(response.data?.receipt_number ? `Paiement de garantie enregistre. Recu ${response.data.receipt_number}.` : 'Paiement de garantie enregistre.');
+      await load();
+    } catch (err: any) {
+      const responseMessage = err?.response?.data?.message;
+      const message = Array.isArray(responseMessage) ? responseMessage.join(' | ') : responseMessage;
+      setError(message || 'Impossible d enregistrer le paiement de garantie.');
+    } finally {
+      setGuaranteePaymentBusy(false);
+    }
   }
 
   async function generateContract(openPreview = false) {
@@ -402,18 +450,30 @@ export function LeaseDetail() {
 
       <div className="detail-section report-section">
         <h4>Garantie locative</h4>
+        <div className="summary-band">
+          <SummaryItem label="Montant exige" value={money(guaranteeRequired)} />
+          <SummaryItem label="Deja paye" value={money(guaranteePaid)} />
+          <SummaryItem label="Reste a payer" value={money(guaranteeRemaining)} />
+          <SummaryItem label="Statut" value={guaranteeStatusLabel(guaranteeDisplayStatus)} />
+        </div>
         <div className="table-wrap">
           <table>
             <thead><tr><th>Statut</th><th className="right">Nombre de mois</th><th className="right">Montant</th><th className="right">Paye</th><th>Devise</th><th>Date paiement</th></tr></thead>
-            <tbody><tr><td><StatusBadge value={lease.guarantee?.status ?? lease.rental_guarantee_status} /></td><td className="right">{lease.guarantee_months ?? 0}</td><td className="right">{amount(lease.guarantee?.amount ?? lease.rental_guarantee_amount)}</td><td className="right">{amount(lease.guarantee?.paid_amount ?? lease.rental_guarantee_paid)}</td><td>USD</td><td>{lease.guarantee?.payment_date ? shortDate(lease.guarantee.payment_date) : '-'}</td></tr></tbody>
+            <tbody><tr><td><StatusBadge value={guaranteeDisplayStatus} /></td><td className="right">{lease.guarantee_months ?? 0}</td><td className="right">{amount(guaranteeRequired)}</td><td className="right">{amount(guaranteePaid)}</td><td>USD</td><td>{lease.guarantee?.payment_date ? shortDate(lease.guarantee.payment_date) : '-'}</td></tr></tbody>
           </table>
         </div>
+        {canPayGuarantee ? (
+          <div className="actions" style={{ marginTop: 10 }}>
+            <button type="button" className="secondary" onClick={openGuaranteePayment}><Receipt size={16} />Payer la garantie</button>
+          </div>
+        ) : null}
         {lease.guarantee_payments?.length ? (
           <div className="compact-list">
+            <div className="compact-item"><span>{lease.guarantee_payments.length === 1 ? 'Recu de garantie disponible' : 'Voir / imprimer les recus de garantie'}</span><strong>{lease.guarantee_payments.length}</strong></div>
             {lease.guarantee_payments.map((payment) => (
               <div className="compact-item" key={payment.id}>
-                <span>{payment.receipt_number ?? `PAY-${payment.id}`} | {shortDate(payment.payment_date)} | {money(payment.amount)}</span>
-                <button type="button" className="secondary" onClick={() => navigate(`/payments/${payment.id}`)}><Receipt size={16} />Reçu</button>
+                <span>{payment.receipt_number ?? `PAY-${payment.id}`} | {shortDate(payment.payment_date)} | USD {money(payment.amount_usd ?? payment.amount)} | CDF {money(payment.amount_cdf ?? 0)} | Eq. {money(payment.total_equivalent_usd ?? payment.amount)}</span>
+                <button type="button" className="secondary" onClick={() => navigate(`/payments/${payment.id}`)}><Receipt size={16} />Recu</button>
               </div>
             ))}
           </div>
@@ -545,6 +605,28 @@ export function LeaseDetail() {
           )}
         </Modal>
       )}
+      {guaranteePaymentOpen && lease ? (
+        <Modal
+          title={`Payer la garantie ${leaseReference(lease)}`}
+          onClose={() => setGuaranteePaymentOpen(false)}
+          footer={
+            <>
+              <button type="button" className="secondary" onClick={() => setGuaranteePaymentOpen(false)}>Annuler</button>
+              <button type="button" onClick={() => void payGuarantee()} disabled={guaranteePaymentBusy}>{guaranteePaymentBusy ? 'Enregistrement...' : 'Enregistrer le paiement'}</button>
+            </>
+          }
+        >
+          <div className="summary-band">
+            <SummaryItem label="Montant exige" value={money(guaranteeRequired)} />
+            <SummaryItem label="Deja paye" value={money(guaranteePaid)} />
+            <SummaryItem label="Reste a payer" value={money(guaranteeRemaining)} />
+          </div>
+          <div className="lease-section-grid">
+            <label>Montant a payer (USD)<input type="number" min="0.01" step="0.01" max={guaranteeRemaining} value={guaranteePaymentAmount} onChange={(event) => setGuaranteePaymentAmount(event.target.value)} /></label>
+            <label>Reference<input value={guaranteePaymentReference} onChange={(event) => setGuaranteePaymentReference(event.target.value)} placeholder="Reference facultative" /></label>
+          </div>
+        </Modal>
+      ) : null}
     </section>
   );
 }
@@ -568,6 +650,16 @@ function leaseReference(lease: Lease) {
 
 function amount(value: unknown) {
   return Number(value ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+}
+
+function guaranteeStatusFromAmounts(required: number, paid: number) {
+  if (paid <= 0) return 'NOT_PAID';
+  if (required > 0 && paid + 0.01 < required) return 'PARTIAL';
+  return 'PAID';
+}
+
+function guaranteeStatusLabel(status: string) {
+  return ({ NOT_PAID: 'Non payee', UNPAID: 'Non payee', PARTIAL: 'Partiellement payee', PARTIALLY_PAID: 'Partiellement payee', PAID: 'Payee' } as Record<string, string>)[status] ?? status;
 }
 
 function dateText(value?: string) {

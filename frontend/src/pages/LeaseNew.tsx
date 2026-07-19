@@ -62,8 +62,6 @@ export function LeaseNew() {
   const [syndicAmount, setSyndicAmount] = useState(0);
   const [otherCharges, setOtherCharges] = useState(0);
   const [guaranteeMonths, setGuaranteeMonths] = useState('3');
-  const [guaranteePaid, setGuaranteePaid] = useState(false);
-  const [guaranteePaymentDate, setGuaranteePaymentDate] = useState('');
   const [noticeMonths, setNoticeMonths] = useState('1');
   const [signaturePlace, setSignaturePlace] = useState('Kinshasa');
   const [signatureDate, setSignatureDate] = useState(new Date().toISOString().slice(0, 10));
@@ -184,15 +182,11 @@ export function LeaseNew() {
     const tenantValue = Number(form.get('tenant_id') ?? 0);
     const unitValue = Number(form.get('unit_id') ?? 0);
     const startValue = String(form.get('start_date') ?? '').trim();
-    const guaranteePaymentDateValue = guaranteePaid ? guaranteePaymentDate.trim() : '';
     const activityDescriptionValue = requiresActivity ? leaseActivityDescription.trim() : '';
 
     if (!tenantValue) return setError('Selectionnez un locataire avant de creer le bail.');
     if (!unitValue) return setError('Selectionnez une unite avant de creer le bail.');
     if (!startValue) return setError('Selectionnez une date de debut.');
-    if (guaranteePaid && !guaranteePaymentDateValue) {
-      return setError('Renseignez la date de paiement de la garantie.');
-    }
     if (requiresActivity && !activityDescriptionValue) {
       return setError('Renseignez l activite ou la destination des lieux.');
     }
@@ -209,9 +203,9 @@ export function LeaseNew() {
       lease_total_amount: totalMonthly,
       guarantee_months: Number(guaranteeMonths || 0),
       rental_guarantee_amount: guaranteeAmount,
-      rental_guarantee_paid: guaranteePaid ? guaranteeAmount : 0,
-      rental_guarantee_payment_date: guaranteePaid ? guaranteePaymentDateValue : null,
-      rental_guarantee_status: guaranteePaid ? 'PAID' : 'NOT_PAID',
+      rental_guarantee_paid: 0,
+      rental_guarantee_payment_date: null,
+      rental_guarantee_status: 'NOT_PAID',
       notice_months: Number(noticeMonths || 0),
       signature_place: signaturePlace || null,
       signature_date: signatureDate || null,
@@ -280,16 +274,8 @@ export function LeaseNew() {
           <div className="lease-section-grid">
             <label>Garantie (nombre de mois)<input name="guarantee_months" type="number" min="0" value={guaranteeMonths} onChange={(event) => setGuaranteeMonths(event.target.value)} /></label>
             <label>Montant garantie<input className="locked-field" name="rental_guarantee_amount" value={money(guaranteeAmount)} readOnly /></label>
-            <label>Garantie payee<select value={guaranteePaid ? 'YES' : 'NO'} onChange={(event) => {
-              const nextPaid = event.target.value === 'YES';
-              setGuaranteePaid(nextPaid);
-              if (!nextPaid) setGuaranteePaymentDate('');
-            }}><option value="NO">Non</option><option value="YES">Oui</option></select></label>
-            {guaranteePaid ? (
-              <label>Date de paiement<input type="date" value={guaranteePaymentDate} onChange={(event) => setGuaranteePaymentDate(event.target.value)} required /></label>
-            ) : (
-              <label>Date de paiement<input className="locked-field" value="" placeholder="Renseignee si la garantie est payee" readOnly /></label>
-            )}
+            <label>Statut garantie<input className="locked-field" value="Non payee" readOnly /></label>
+            <label>Date de paiement<input className="locked-field" value="" placeholder="Renseignee apres paiement trace" readOnly /></label>
             <label>Devise<input className="locked-field" value="USD" readOnly /></label>
             <label className="lease-field-full">Garantie locative<input className="locked-field" value={money(guaranteeAmount)} readOnly /></label>
           </div>
