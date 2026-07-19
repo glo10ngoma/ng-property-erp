@@ -793,6 +793,19 @@ export class MaintenanceController {
     return this.service.maintenanceCategories();
   }
 
+  @Get('dashboard')
+  dashboard(
+    @Query('period') period?: string,
+    @Query('start') start?: string,
+    @Query('end') end?: string,
+    @Query('building_id') buildingId?: string,
+    @Query('employee_id') employeeId?: string,
+    @Query('priority') priority?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.service.maintenanceDashboard({ period, start, end, building_id: buildingId, employee_id: employeeId, priority, status });
+  }
+
   @Get('requests')
   requests() {
     return this.service.maintenanceRequests();

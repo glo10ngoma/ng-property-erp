@@ -1,9 +1,13 @@
 import {
   ArrowLeft,
+  AlertTriangle,
+  CalendarDays,
   CheckCircle2,
   CircleAlert,
   CirclePause,
   CircleX,
+  Clock3,
+  DollarSign,
   Eye,
   FileSpreadsheet,
   Mail,
@@ -14,7 +18,9 @@ import {
   Printer,
   RotateCcw,
   UserCog,
+  Wrench,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -74,6 +80,19 @@ type MaintenanceDetail = MaintenanceRequest & {
 type BuildingOption = { id: number; name: string; city?: string; commune?: string };
 type UnitOption = { id: number; number: string; building_id?: number; building_name?: string; tenant_id?: number | null; tenant_name?: string; monthly_rent?: number };
 type EmployeeOption = { id: number; first_name: string; last_name: string; job_title?: string };
+type MaintenanceDashboard = {
+  filters?: { period?: string; start?: string | null; end?: string | null };
+  kpis: Record<string, number | string | null>;
+  by_status: Array<{ status: string; count: number }>;
+  by_priority: Array<{ priority: string; count: number }>;
+  monthly_interventions: Array<{ month: string; intervention_count: number }>;
+  monthly_costs: Array<{ month: string; stock_cost: number; expenses_cost: number; total_cost: number }>;
+  top_buildings: Array<{ building_name: string; intervention_count: number; total_cost: number }>;
+  top_technicians: Array<{ technician_name: string; interventions_done: number; closed_interventions: number; average_resolution_hours: number }>;
+  recent_interventions: Array<{ id: number; request_number: string; reported_at: string; title: string; priority: string; status: string; building_name: string; technician_name: string; total_cost: number }>;
+  overdue_interventions: Array<{ id: number; request_number: string; title: string; priority: string; due_date: string; days_overdue: number; building_name: string; technician_name: string }>;
+  generated_at?: string;
+};
 
 const PRIORITY_OPTIONS = [
   { value: 'LOW', label: 'Faible' },
@@ -121,10 +140,32 @@ export function MaintenancePage() {
   const tenants = useApiList<TenantSearchOption>('/tenants');
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState({ status: '', priority: '', category: '', building_id: '', employee_id: '', overdue: false, week: false });
+  const [dashboardFilters, setDashboardFilters] = useState({ period: '30d', start: '', end: '', building_id: '', employee_id: '', priority: '', status: '' });
+  const [dashboard, setDashboard] = useState<MaintenanceDashboard | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState('');
   const [success, setSuccess] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<MaintenanceRequest | null>(null);
   const [assigning, setAssigning] = useState<MaintenanceRequest | null>(null);
+
+  const loadDashboard = useCallback(async () => {
+    setDashboardLoading(true);
+    setDashboardError('');
+    try {
+      const params = Object.fromEntries(Object.entries(dashboardFilters).filter(([, value]) => value !== ''));
+      const response = await api.get<MaintenanceDashboard>('/maintenance/dashboard', { params });
+      setDashboard(response.data);
+    } catch (caught) {
+      setDashboardError(extractApiMessage(caught, 'Impossible de charger le tableau de bord maintenance.'));
+    } finally {
+      setDashboardLoading(false);
+    }
+  }, [dashboardFilters]);
+
+  useEffect(() => {
+    void loadDashboard();
+  }, [loadDashboard]);
 
   const filtered = useMemo(() => requests.data.filter((item) => {
     const weekStart = startOfWeekISO();
@@ -142,22 +183,6 @@ export function MaintenancePage() {
     );
   }), [requests.data, query, filters]);
   const filteredCoûtTotal = useMemo(() => filtered.reduce((sum, item) => sum + Number(item.total_cost ?? item.estimated_cost ?? 0), 0), [filtered]);
-
-  const kpis = useMemo(() => {
-    const totalCoût = requests.data.reduce((sum, item) => sum + Number(item.total_cost ?? item.estimated_cost ?? 0), 0);
-    const month = new Date().toISOString().slice(0, 7);
-    const monthCoût = requests.data.filter((item) => String(item.reported_at ?? '').slice(0, 7) === month).reduce((sum, item) => sum + Number(item.total_cost ?? item.estimated_cost ?? 0), 0);
-    return {
-      total: requests.data.length,
-      open: requests.data.filter((item) => !['CLOSED', 'CANCELLED'].includes(item.status)).length,
-      urgent: requests.data.filter((item) => item.priority === 'URGENT').length,
-      overdue: requests.data.filter((item) => item.is_overdue).length,
-      inProgress: requests.data.filter((item) => ['ASSIGNED', 'IN_PROGRESS', 'ON_HOLD'].includes(item.status)).length,
-      finished: requests.data.filter((item) => resolvedStatuses.has(item.status)).length,
-      totalCoût,
-      monthCoût,
-    };
-  }, [requests.data]);
 
   const nextRequestNumber = useMemo(() => {
     const numbers = requests.data
@@ -182,6 +207,7 @@ export function MaintenancePage() {
     setCreateOpen(false);
     setEditing(null);
     await requests.reload();
+    await loadDashboard();
   }
 
   async function assignRequest(requestId: number, body: Record<string, unknown>) {
@@ -189,12 +215,14 @@ export function MaintenancePage() {
     setSuccess('Technicien affecté.');
     setAssigning(null);
     requests.reload();
+    void loadDashboard();
   }
 
   async function postAction(path: string, message: string, body: Record<string, unknown> = {}) {
     await api.post(path, body);
     setSuccess(message);
     requests.reload();
+    void loadDashboard();
   }
 
   function exportRows() {
@@ -229,6 +257,11 @@ export function MaintenancePage() {
     ]);
   }
 
+  function exportDashboardWorkbook() {
+    if (!dashboard) return;
+    exportXlsxWorkbook('Dashboard_maintenance.xlsx', maintenanceDashboardWorkbook(dashboard));
+  }
+
   return (
     <section>
       <PageHeader
@@ -242,16 +275,17 @@ export function MaintenancePage() {
           ) : undefined
         }
       />
-      <div className="mini-stats maintenance-kpis">
-        <div className="mini-stat"><span>Total demandes</span><strong>{kpis.total}</strong></div>
-        <div className="mini-stat"><span>Ouvertes</span><strong>{kpis.open}</strong></div>
-        <div className="mini-stat"><span>Urgentes</span><strong>{kpis.urgent}</strong></div>
-        <div className="mini-stat"><span>En retard</span><strong>{kpis.overdue}</strong></div>
-        <div className="mini-stat"><span>En cours</span><strong>{kpis.inProgress}</strong></div>
-        <div className="mini-stat"><span>Terminées</span><strong>{kpis.finished}</strong></div>
-        <div className="mini-stat"><span>Coût total</span><strong>{money(kpis.totalCoût)}</strong></div>
-        <div className="mini-stat"><span>Coût du mois</span><strong>{money(kpis.monthCoût)}</strong></div>
-      </div>
+      <MaintenanceDashboardPanel
+        dashboard={dashboard}
+        filters={dashboardFilters}
+        buildings={buildings.data}
+        employees={employees.data}
+        loading={dashboardLoading}
+        error={dashboardError}
+        onFiltersChange={setDashboardFilters}
+        onExportExcel={exportDashboardWorkbook}
+        onExportPdf={() => window.print()}
+      />
 
       <div className="maintenance-filter-bar">
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" />
@@ -374,6 +408,181 @@ export function MaintenancePage() {
         />
       )}
     </section>
+  );
+}
+
+function MaintenanceDashboardPanel({
+  dashboard,
+  filters,
+  buildings,
+  employees,
+  loading,
+  error,
+  onFiltersChange,
+  onExportExcel,
+  onExportPdf,
+}: {
+  dashboard: MaintenanceDashboard | null;
+  filters: { period: string; start: string; end: string; building_id: string; employee_id: string; priority: string; status: string };
+  buildings: BuildingOption[];
+  employees: EmployeeOption[];
+  loading: boolean;
+  error: string;
+  onFiltersChange: (filters: { period: string; start: string; end: string; building_id: string; employee_id: string; priority: string; status: string }) => void;
+  onExportExcel: () => void;
+  onExportPdf: () => void;
+}) {
+  const kpis = dashboard?.kpis ?? {};
+  const statusRows = normalizeStatusRows(dashboard?.by_status ?? []);
+  const priorityRows = normalizePriorityRows(dashboard?.by_priority ?? []);
+  const monthlyRows = dashboard?.monthly_interventions ?? [];
+  const monthlyCostRows = dashboard?.monthly_costs ?? [];
+  return (
+    <section className="maintenance-dashboard">
+      <div className="page-header">
+        <div>
+          <h3>Dashboard maintenance</h3>
+          <p className="dashboard-card-subtitle">Pilotage opérationnel des interventions, coûts et retards.</p>
+        </div>
+        <div className="actions">
+          <button className="secondary" onClick={onExportPdf}><Printer size={16} />Exporter PDF</button>
+          <button className="secondary" onClick={onExportExcel} disabled={!dashboard}><FileSpreadsheet size={16} />Exporter Excel</button>
+        </div>
+      </div>
+
+      <div className="maintenance-filter-bar">
+        <select value={filters.period} onChange={(event) => onFiltersChange({ ...filters, period: event.target.value, start: event.target.value === 'custom' ? filters.start : '', end: event.target.value === 'custom' ? filters.end : '' })}>
+          <option value="today">Aujourd'hui</option>
+          <option value="7d">7 jours</option>
+          <option value="30d">30 jours</option>
+          <option value="year">Cette année</option>
+          <option value="custom">Personnalisée</option>
+        </select>
+        {filters.period === 'custom' ? (
+          <>
+            <input type="date" value={filters.start} onChange={(event) => onFiltersChange({ ...filters, start: event.target.value })} />
+            <input type="date" value={filters.end} onChange={(event) => onFiltersChange({ ...filters, end: event.target.value })} />
+          </>
+        ) : null}
+        <SearchableSelect
+          options={buildingOptions(buildings)}
+          value={filters.building_id ? Number(filters.building_id) : null}
+          onChange={(value) => onFiltersChange({ ...filters, building_id: value ? String(value) : '' })}
+          placeholder="Immeuble"
+          emptyMessage="Aucun immeuble trouvé"
+        />
+        <SearchableSelect
+          options={employeeOptions(employees)}
+          value={filters.employee_id ? Number(filters.employee_id) : null}
+          onChange={(value) => onFiltersChange({ ...filters, employee_id: value ? String(value) : '' })}
+          placeholder="Technicien"
+          emptyMessage="Aucun technicien trouvé"
+        />
+        <select value={filters.priority} onChange={(event) => onFiltersChange({ ...filters, priority: event.target.value })}>
+          <option value="">Priorité</option>
+          {PRIORITY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        <select value={filters.status} onChange={(event) => onFiltersChange({ ...filters, status: event.target.value })}>
+          <option value="">Statut</option>
+          {MAINTENANCE_STATUSES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        <button type="button" className="secondary" onClick={() => onFiltersChange({ period: '30d', start: '', end: '', building_id: '', employee_id: '', priority: '', status: '' })}><RotateCcw size={15} />Réinitialiser</button>
+      </div>
+
+      {error ? <div className="error-message dashboard-error-banner">{error}</div> : null}
+      {loading ? <div className="compact-empty">Chargement du dashboard maintenance...</div> : null}
+
+      <div className="mini-stats maintenance-kpis">
+        <MaintenanceKpi icon={Wrench} title="Demandes ouvertes" value={dashboardNumber(kpis.open_requests)} />
+        <MaintenanceKpi icon={CirclePause} title="En cours" value={dashboardNumber(kpis.in_progress)} />
+        <MaintenanceKpi icon={CheckCircle2} title="Résolues" value={dashboardNumber(kpis.resolved)} />
+        <MaintenanceKpi icon={CheckCircle2} title="Clôturées" value={dashboardNumber(kpis.closed)} />
+        <MaintenanceKpi icon={CircleAlert} title="Priorité critique" value={dashboardNumber(kpis.critical_priority)} />
+        <MaintenanceKpi icon={AlertTriangle} title="Priorité haute" value={dashboardNumber(kpis.high_priority)} />
+        <MaintenanceKpi icon={CalendarDays} title="Interventions aujourd'hui" value={dashboardNumber(kpis.interventions_today)} />
+        <MaintenanceKpi icon={CalendarDays} title="Interventions ce mois" value={dashboardNumber(kpis.interventions_this_month)} />
+        <MaintenanceKpi icon={Clock3} title="Temps moyen résolution" value={`${Math.round(dashboardNumber(kpis.average_resolution_hours))} h`} />
+        <MaintenanceKpi icon={DollarSign} title="Coût total interventions" value={money(dashboardNumber(kpis.total_cost))} />
+        <MaintenanceKpi icon={Paperclip} title="Valeur stock consommé" value={money(dashboardNumber(kpis.stock_cost))} />
+        <MaintenanceKpi icon={FileSpreadsheet} title="Valeur dépenses" value={money(dashboardNumber(kpis.expenses_cost))} />
+      </div>
+
+      <div className="chart-grid dashboard-chart-grid">
+        <MaintenanceChartCard title="Répartition par statut">
+          <MaintenanceHorizontalBars rows={statusRows.map((row) => ({ label: maintenanceStatusLabel(row.status), value: row.count }))} />
+        </MaintenanceChartCard>
+        <MaintenanceChartCard title="Répartition par priorité">
+          <MaintenanceHorizontalBars rows={priorityRows.map((row) => ({ label: priorityLabel(row.priority), value: row.count }))} />
+        </MaintenanceChartCard>
+        <MaintenanceChartCard title="Évolution mensuelle">
+          <MaintenanceVerticalBars rows={monthlyRows.map((row) => ({ label: monthLabel(row.month), value: Number(row.intervention_count ?? 0) }))} />
+        </MaintenanceChartCard>
+        <MaintenanceChartCard title="Coûts mensuels">
+          <MaintenanceVerticalBars rows={monthlyCostRows.map((row) => ({ label: monthLabel(row.month), value: Number(row.total_cost ?? 0), secondary: Number(row.stock_cost ?? 0), tertiary: Number(row.expenses_cost ?? 0) }))} moneyValues />
+        </MaintenanceChartCard>
+      </div>
+
+      <div className="chart-grid dashboard-chart-grid">
+        <MaintenanceChartCard title="Top immeubles">
+          <SimpleTable headers={['Immeuble', 'Interventions', 'Coût total']} rows={(dashboard?.top_buildings ?? []).map((row) => [row.building_name, row.intervention_count, money(row.total_cost)])} />
+        </MaintenanceChartCard>
+        <MaintenanceChartCard title="Top techniciens">
+          <SimpleTable headers={['Technicien', 'Réalisées', 'Clôturées', 'Temps moyen']} rows={(dashboard?.top_technicians ?? []).map((row) => [row.technician_name, row.interventions_done, row.closed_interventions, `${Math.round(Number(row.average_resolution_hours ?? 0))} h`])} />
+        </MaintenanceChartCard>
+      </div>
+
+      <div className="chart-grid dashboard-chart-grid">
+        <MaintenanceChartCard title="Interventions récentes">
+          <SimpleTable headers={['Date', 'Numéro', 'Immeuble', 'Titre', 'Priorité', 'Statut', 'Technicien', 'Coût']} rows={(dashboard?.recent_interventions ?? []).map((row) => [shortDate(row.reported_at), row.request_number, row.building_name, row.title, priorityLabel(row.priority), maintenanceStatusLabel(row.status), row.technician_name, money(row.total_cost)])} />
+        </MaintenanceChartCard>
+        <MaintenanceChartCard title="Interventions en retard">
+          <SimpleTable headers={['Retard', 'Titre', 'Immeuble', 'Technicien', 'Priorité']} rows={(dashboard?.overdue_interventions ?? []).map((row) => [`${row.days_overdue} j`, row.title, row.building_name, row.technician_name, priorityLabel(row.priority)])} />
+        </MaintenanceChartCard>
+      </div>
+    </section>
+  );
+}
+
+function MaintenanceKpi({ icon: Icon, title, value }: { icon: LucideIcon; title: string; value: string | number }) {
+  return <div className="mini-stat maintenance-dashboard-kpi"><span><Icon size={15} />{title}</span><strong>{value}</strong></div>;
+}
+
+function MaintenanceChartCard({ title, children }: { title: string; children: ReactNode }) {
+  return <article className="chart-card dashboard-analytics-card maintenance-dashboard-card"><h3>{title}</h3>{children}</article>;
+}
+
+function MaintenanceHorizontalBars({ rows }: { rows: Array<{ label: string; value: number }> }) {
+  const max = Math.max(...rows.map((row) => row.value), 1);
+  return (
+    <div className="dashboard-horizontal-bars">
+      {rows.map((row) => (
+        <div className="bar-row dashboard-horizontal-bar" key={row.label}>
+          <span>{row.label}</span>
+          <div className="bar-track"><div style={{ width: `${Math.max(3, (row.value / max) * 100)}%` }} /></div>
+          <strong>{row.value}</strong>
+        </div>
+      ))}
+      {!rows.some((row) => row.value > 0) ? <EmptyState title="Aucune donnée sur la période." /> : null}
+    </div>
+  );
+}
+
+function MaintenanceVerticalBars({ rows, moneyValues = false }: { rows: Array<{ label: string; value: number; secondary?: number; tertiary?: number }>; moneyValues?: boolean }) {
+  const max = Math.max(...rows.map((row) => row.value), 1);
+  return (
+    <div className="dashboard-vertical-chart">
+      <div className="dashboard-vertical-bars" style={{ gridTemplateColumns: `repeat(${Math.max(rows.length, 1)}, minmax(0, 1fr))` }}>
+        {rows.map((row) => (
+          <div className="dashboard-vertical-bar" key={row.label}>
+            <span className="dashboard-vertical-bar-value">{moneyValues ? money(row.value) : row.value}</span>
+            <div className="dashboard-vertical-bar-track">
+              <div className="dashboard-vertical-bar-fill" style={{ height: `${Math.max(4, (row.value / max) * 100)}%` }} />
+            </div>
+            <small>{row.label}</small>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1188,6 +1397,46 @@ function SimpleTable({ headers, rows }: { headers: string[]; rows: Array<Array<s
 
 function SummaryItem({ label, value }: { label: string; value: string | number }) {
   return <div className="summary-item"><span>{label}</span><strong>{String(value)}</strong></div>;
+}
+
+function dashboardNumber(value: unknown) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeStatusRows(rows: Array<{ status: string; count: number }>) {
+  return ['NEW', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'].map((status) => ({
+    status,
+    count: Number(rows.find((row) => row.status === status)?.count ?? 0),
+  }));
+}
+
+function normalizePriorityRows(rows: Array<{ priority: string; count: number }>) {
+  return ['URGENT', 'HIGH', 'NORMAL', 'LOW'].map((priority) => ({
+    priority,
+    count: Number(rows.find((row) => row.priority === priority)?.count ?? 0),
+  }));
+}
+
+function monthLabel(month: string) {
+  if (!month) return '-';
+  const [year, monthNumber] = month.split('-').map(Number);
+  if (!year || !monthNumber) return month;
+  return new Date(year, monthNumber - 1, 1).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' });
+}
+
+function maintenanceDashboardWorkbook(dashboard: MaintenanceDashboard) {
+  return [
+    { name: 'KPI', rows: [dashboard.kpis] },
+    { name: 'Statuts', rows: dashboard.by_status.map((row) => ({ statut: maintenanceStatusLabel(row.status), total: row.count })) },
+    { name: 'Priorités', rows: dashboard.by_priority.map((row) => ({ priorite: priorityLabel(row.priority), total: row.count })) },
+    { name: 'Mensuel', rows: dashboard.monthly_interventions },
+    { name: 'Coûts mensuels', rows: dashboard.monthly_costs.map((row) => ({ mois: row.month, stock: money(row.stock_cost), depenses: money(row.expenses_cost), total: money(row.total_cost) })) },
+    { name: 'Top immeubles', rows: dashboard.top_buildings.map((row) => ({ immeuble: row.building_name, interventions: row.intervention_count, cout_total: money(row.total_cost) })) },
+    { name: 'Top techniciens', rows: dashboard.top_technicians.map((row) => ({ technicien: row.technician_name, interventions: row.interventions_done, cloturees: row.closed_interventions, temps_moyen_h: Math.round(Number(row.average_resolution_hours ?? 0)) })) },
+    { name: 'Récentes', rows: dashboard.recent_interventions.map((row) => ({ date: shortDate(row.reported_at), numero: row.request_number, immeuble: row.building_name, titre: row.title, priorite: priorityLabel(row.priority), statut: maintenanceStatusLabel(row.status), technicien: row.technician_name, cout: money(row.total_cost) })) },
+    { name: 'Retards', rows: dashboard.overdue_interventions.map((row) => ({ retard_jours: row.days_overdue, numero: row.request_number, titre: row.title, immeuble: row.building_name, technicien: row.technician_name, priorite: priorityLabel(row.priority) })) },
+  ];
 }
 
 function exportRow(item: MaintenanceRequest) {

@@ -3226,6 +3226,211 @@ export class SaasService {
     return this.findAll('maintenance_categories', 'name');
   }
 
+  async maintenanceDashboard(filters: Record<string, unknown> = {}) {
+    const organizationId = this.context.organizationId();
+    const period = String(filters.period ?? '30d');
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    const startOfYear = `${now.getFullYear()}-01-01`;
+    const startDate = filters.start ? String(filters.start).slice(0, 10) : (
+      period === 'today' ? today :
+      period === '7d' ? new Date(now.getTime() - 6 * 86400000).toISOString().slice(0, 10) :
+      period === 'year' ? startOfYear :
+      period === 'custom' ? null :
+      new Date(now.getTime() - 29 * 86400000).toISOString().slice(0, 10)
+    );
+    const endDate = filters.end ? String(filters.end).slice(0, 10) : today;
+    const values: unknown[] = [organizationId];
+    const clauses = ['mr.organization_id = $1', 'mr.deleted_at IS NULL'];
+    if (startDate) {
+      values.push(startDate);
+      clauses.push(`mr.reported_at::DATE >= $${values.length}`);
+    }
+    if (endDate) {
+      values.push(endDate);
+      clauses.push(`mr.reported_at::DATE <= $${values.length}`);
+    }
+    const addNumericFilter = (field: string, value: unknown) => {
+      if (value === undefined || value === null || value === '') return;
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed <= 0) return;
+      values.push(parsed);
+      clauses.push(`${field} = $${values.length}`);
+    };
+    addNumericFilter('mr.building_id', filters.building_id);
+    addNumericFilter('mr.assigned_employee_id', filters.employee_id);
+    if (filters.priority) {
+      values.push(String(filters.priority));
+      clauses.push(`mr.priority = $${values.length}`);
+    }
+    if (filters.status) {
+      values.push(String(filters.status));
+      clauses.push(`mr.status = $${values.length}`);
+    }
+    const whereSql = clauses.join(' AND ');
+    const baseSql = `
+      WITH request_costs AS (
+        SELECT mr.id,
+               COALESCE(exp.total_expenses, 0)::FLOAT AS expenses_total,
+               COALESCE(stock.total_stock_cost, 0)::FLOAT AS stock_cost_total
+        FROM maintenance_requests mr
+        LEFT JOIN (
+          SELECT maintenance_request_id, SUM(amount) AS total_expenses
+          FROM maintenance_expenses
+          WHERE organization_id = $1 AND deleted_at IS NULL AND status <> 'REJECTED'
+          GROUP BY maintenance_request_id
+        ) exp ON exp.maintenance_request_id = mr.id
+        LEFT JOIN (
+          SELECT maintenance_request_id, SUM(quantity * unit_price) AS total_stock_cost
+          FROM stock_movements
+          WHERE organization_id = $1 AND deleted_at IS NULL AND maintenance_request_id IS NOT NULL
+          GROUP BY maintenance_request_id
+        ) stock ON stock.maintenance_request_id = mr.id
+        WHERE mr.organization_id = $1 AND mr.deleted_at IS NULL
+      )
+    `;
+    const [summary, byStatus, byPriority, monthly, monthlyCosts, topBuildings, topTechnicians, recent, overdue] = await Promise.all([
+      this.db.query(
+        `${baseSql}
+         SELECT
+           COUNT(*)::INT AS total_requests,
+           COUNT(*) FILTER (WHERE mr.status NOT IN ('RESOLVED', 'VALIDATED', 'CLOSED', 'CANCELLED'))::INT AS open_requests,
+           COUNT(*) FILTER (WHERE mr.status IN ('ASSIGNED', 'IN_PROGRESS', 'ON_HOLD'))::INT AS in_progress,
+           COUNT(*) FILTER (WHERE mr.status IN ('RESOLVED', 'VALIDATED'))::INT AS resolved,
+           COUNT(*) FILTER (WHERE mr.status = 'CLOSED')::INT AS closed,
+           COUNT(*) FILTER (WHERE mr.priority = 'URGENT')::INT AS critical_priority,
+           COUNT(*) FILTER (WHERE mr.priority = 'HIGH')::INT AS high_priority,
+           COUNT(*) FILTER (WHERE mr.reported_at::DATE = CURRENT_DATE)::INT AS interventions_today,
+           COUNT(*) FILTER (WHERE DATE_TRUNC('month', mr.reported_at) = DATE_TRUNC('month', CURRENT_DATE))::INT AS interventions_this_month,
+           COALESCE(AVG(EXTRACT(EPOCH FROM (mr.resolved_at - mr.reported_at)) / 3600) FILTER (WHERE mr.resolved_at IS NOT NULL), 0)::FLOAT AS average_resolution_hours,
+           COALESCE(SUM(rc.expenses_total + rc.stock_cost_total), 0)::FLOAT AS total_cost,
+           COALESCE(SUM(rc.stock_cost_total), 0)::FLOAT AS stock_cost,
+           COALESCE(SUM(rc.expenses_total), 0)::FLOAT AS expenses_cost
+         FROM maintenance_requests mr
+         JOIN request_costs rc ON rc.id = mr.id
+         WHERE ${whereSql}`,
+        values,
+      ),
+      this.db.query(
+        `${baseSql}
+         SELECT mr.status, COUNT(*)::INT AS count
+         FROM maintenance_requests mr
+         JOIN request_costs rc ON rc.id = mr.id
+         WHERE ${whereSql}
+         GROUP BY mr.status`,
+        values,
+      ),
+      this.db.query(
+        `${baseSql}
+         SELECT mr.priority, COUNT(*)::INT AS count
+         FROM maintenance_requests mr
+         JOIN request_costs rc ON rc.id = mr.id
+         WHERE ${whereSql}
+         GROUP BY mr.priority`,
+        values,
+      ),
+      this.db.query(
+        `${baseSql}
+         SELECT TO_CHAR(months.month, 'YYYY-MM') AS month,
+                COUNT(mr.id)::INT AS intervention_count
+         FROM generate_series(DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '11 months', DATE_TRUNC('month', CURRENT_DATE), INTERVAL '1 month') months(month)
+         LEFT JOIN maintenance_requests mr ON DATE_TRUNC('month', mr.reported_at) = months.month AND ${whereSql}
+         LEFT JOIN request_costs rc ON rc.id = mr.id
+         GROUP BY months.month
+         ORDER BY months.month`,
+        values,
+      ),
+      this.db.query(
+        `${baseSql}
+         SELECT TO_CHAR(months.month, 'YYYY-MM') AS month,
+                COALESCE(SUM(rc.stock_cost_total), 0)::FLOAT AS stock_cost,
+                COALESCE(SUM(rc.expenses_total), 0)::FLOAT AS expenses_cost,
+                COALESCE(SUM(rc.stock_cost_total + rc.expenses_total), 0)::FLOAT AS total_cost
+         FROM generate_series(DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '11 months', DATE_TRUNC('month', CURRENT_DATE), INTERVAL '1 month') months(month)
+         LEFT JOIN maintenance_requests mr ON DATE_TRUNC('month', mr.reported_at) = months.month AND ${whereSql}
+         LEFT JOIN request_costs rc ON rc.id = mr.id
+         GROUP BY months.month
+         ORDER BY months.month`,
+        values,
+      ),
+      this.db.query(
+        `${baseSql}
+         SELECT COALESCE(b.name, 'Non renseigné') AS building_name,
+                COUNT(mr.id)::INT AS intervention_count,
+                COALESCE(SUM(rc.expenses_total + rc.stock_cost_total), 0)::FLOAT AS total_cost
+         FROM maintenance_requests mr
+         JOIN request_costs rc ON rc.id = mr.id
+         LEFT JOIN buildings b ON b.id = mr.building_id AND b.organization_id = mr.organization_id
+         WHERE ${whereSql}
+         GROUP BY b.name
+         ORDER BY intervention_count DESC, total_cost DESC
+         LIMIT 10`,
+        values,
+      ),
+      this.db.query(
+        `${baseSql}
+         SELECT COALESCE(CONCAT(e.first_name, ' ', e.last_name), 'Non assigné') AS technician_name,
+                COUNT(mr.id)::INT AS interventions_done,
+                COUNT(*) FILTER (WHERE mr.status = 'CLOSED')::INT AS closed_interventions,
+                COALESCE(AVG(EXTRACT(EPOCH FROM (mr.resolved_at - mr.reported_at)) / 3600) FILTER (WHERE mr.resolved_at IS NOT NULL), 0)::FLOAT AS average_resolution_hours
+         FROM maintenance_requests mr
+         JOIN request_costs rc ON rc.id = mr.id
+         LEFT JOIN employees e ON e.id = mr.assigned_employee_id AND e.organization_id = mr.organization_id
+         WHERE ${whereSql}
+         GROUP BY e.first_name, e.last_name
+         ORDER BY interventions_done DESC, closed_interventions DESC
+         LIMIT 10`,
+        values,
+      ),
+      this.db.query(
+        `${baseSql}
+         SELECT mr.id, mr.request_number, mr.reported_at, mr.title, mr.priority, mr.status,
+                COALESCE(b.name, '-') AS building_name,
+                COALESCE(CONCAT(e.first_name, ' ', e.last_name), '-') AS technician_name,
+                (rc.expenses_total + rc.stock_cost_total)::FLOAT AS total_cost
+         FROM maintenance_requests mr
+         JOIN request_costs rc ON rc.id = mr.id
+         LEFT JOIN buildings b ON b.id = mr.building_id AND b.organization_id = mr.organization_id
+         LEFT JOIN employees e ON e.id = mr.assigned_employee_id AND e.organization_id = mr.organization_id
+         WHERE ${whereSql}
+         ORDER BY mr.reported_at DESC, mr.id DESC
+         LIMIT 10`,
+        values,
+      ),
+      this.db.query(
+        `${baseSql}
+         SELECT mr.id, mr.request_number, mr.title, mr.priority, mr.due_date,
+                GREATEST(0, (CURRENT_DATE - mr.due_date::DATE))::INT AS days_overdue,
+                COALESCE(b.name, '-') AS building_name,
+                COALESCE(CONCAT(e.first_name, ' ', e.last_name), '-') AS technician_name
+         FROM maintenance_requests mr
+         JOIN request_costs rc ON rc.id = mr.id
+         LEFT JOIN buildings b ON b.id = mr.building_id AND b.organization_id = mr.organization_id
+         LEFT JOIN employees e ON e.id = mr.assigned_employee_id AND e.organization_id = mr.organization_id
+         WHERE ${whereSql}
+           AND mr.status NOT IN ('CLOSED', 'CANCELLED')
+           AND mr.due_date IS NOT NULL
+           AND mr.due_date::DATE < CURRENT_DATE
+         ORDER BY days_overdue DESC, mr.due_date ASC
+         LIMIT 10`,
+        values,
+      ),
+    ]);
+    return {
+      filters: { period, start: startDate, end: endDate },
+      kpis: summary.rows[0] ?? {},
+      by_status: byStatus.rows,
+      by_priority: byPriority.rows,
+      monthly_interventions: monthly.rows,
+      monthly_costs: monthlyCosts.rows,
+      top_buildings: topBuildings.rows,
+      top_technicians: topTechnicians.rows,
+      recent_interventions: recent.rows,
+      overdue_interventions: overdue.rows,
+      generated_at: new Date().toISOString(),
+    };
+  }
+
   async maintenanceRequests() {
     const { rows } = await this.db.query(
       `SELECT mr.*, b.name AS building_name, u.number AS unit_number,
