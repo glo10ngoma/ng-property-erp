@@ -205,13 +205,11 @@ export function PaymentDetail() {
           </div>
         </header>
 
-        {!useCustomReceipt && (
         <div className="receipt-amount-summary">
           <div><span>Montant payé (USD)</span><strong>{money(payment.amount_usd ?? payment.amount)}</strong></div>
           <div><span>Montant payé (CDF)</span><strong>{Number(payment.amount_cdf ?? 0).toLocaleString('fr-FR')} CDF</strong></div>
           <div><span>Équivalent total (USD)</span><strong>{money(summary?.paid ?? 0)}</strong></div>
         </div>
-        )}
 
         <div className="invoice-parties">
           <div>
