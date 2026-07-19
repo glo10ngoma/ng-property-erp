@@ -358,6 +358,8 @@ textarea { min-height: 72px; resize: vertical; }
 .maintenance-notes-grid .wide-field { grid-column: span 2; }
 .maintenance-cost-grid .locked-field { background: #f1f4f6; color: #6b7f8b; }
 .maintenance-modal-form { display: grid; gap: 10px; max-height: 86vh; overflow: auto; padding-right: 4px; }
+.maintenance-discard-confirmation { display: grid; gap: 8px; }
+.maintenance-discard-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .maintenance-modal-form .search-select { position: relative; gap: 0; }
 .maintenance-modal-form .search-select input { min-height: 34px; }
 .maintenance-modal-form .search-select-list { position: absolute; z-index: 6; width: min(360px, 90vw); background: white; border: 1px solid #dce5eb; border-radius: 6px; box-shadow: 0 12px 32px rgba(31,41,51,.14); padding: 5px; margin-top: 36px; }

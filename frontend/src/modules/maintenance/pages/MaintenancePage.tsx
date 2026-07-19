@@ -15,7 +15,7 @@ import {
   RotateCcw,
   UserCog,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, includesText, money, shortDate } from '../../../api';
@@ -176,12 +176,12 @@ export function MaintenancePage() {
     }
     form.delete('attachment_file');
     const payload = Object.fromEntries(form);
-    if (editingId) await api.put(`/maintenance/requests/${editingId}`, payload);
+    if (editingId) await api.patch(`/maintenance/requests/${editingId}`, payload);
     else await api.post('/maintenance/requests', payload);
     setSuccess(editingId ? 'Signalement modifié.' : 'Signalement créé.');
     setCreateOpen(false);
     setEditing(null);
-    requests.reload();
+    await requests.reload();
   }
 
   async function assignRequest(requestId: number, body: Record<string, unknown>) {
@@ -215,7 +215,7 @@ export function MaintenancePage() {
       total: money(item.total_cost ?? item.estimated_cost ?? 0),
     }));
     exportXlsxWorkbook(filename, [
-      { name: 'Resume', rows: [{ total_demandes: rows.length, ouvertes: openRequests.length, urgentes: urgentRequests.length, en_retard: overdueRequests.length, terminees: finishedRequests.length, cout_total: money(rows.reduce((sum, item) => sum + Number(item.total_cost ?? item.estimated_cost ?? 0), 0)), cout_du_mois: money(rows.filter((item) => String(item.reported_at ?? '').slice(0, 7) === new Date().toISOString().slice(0, 7)).reduce((sum, item) => sum + Number(item.total_cost ?? item.estimated_cost ?? 0), 0)) }] },
+      { name: 'Résumé', rows: [{ total_demandes: rows.length, ouvertes: openRequests.length, urgentes: urgentRequests.length, en_retard: overdueRequests.length, terminees: finishedRequests.length, cout_total: money(rows.reduce((sum, item) => sum + Number(item.total_cost ?? item.estimated_cost ?? 0), 0)), cout_du_mois: money(rows.filter((item) => String(item.reported_at ?? '').slice(0, 7) === new Date().toISOString().slice(0, 7)).reduce((sum, item) => sum + Number(item.total_cost ?? item.estimated_cost ?? 0), 0)) }] },
       { name: 'Demandes', rows: rows.map(exportRow) },
       { name: 'Ouvertes', rows: openRequests.map(exportRow) },
       { name: 'En retard', rows: overdueRequests.map(exportRow) },
@@ -323,7 +323,7 @@ export function MaintenancePage() {
                 <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}>
                   <button className="icon-btn" title="Voir" onClick={() => navigate(`/maintenance/${request.id}`)}><Eye size={16} /></button>
                   {can('maintenance.update') && <button className="icon-btn" title="Modifier" onClick={() => setEditing(request)}><Pencil size={16} /></button>}
-                  {can('maintenance.assign') && <button className="icon-btn" title="Affectér" onClick={() => setAssigning(request)}><UserCog size={16} /></button>}
+                  {can('maintenance.assign') && <button className="icon-btn" title="Affecter" onClick={() => setAssigning(request)}><UserCog size={16} /></button>}
                   {can('maintenance.close') && request.status !== 'CLOSED' && request.status !== 'CANCELLED' && <button className="icon-btn" title="Clôturer" onClick={() => postAction(`/maintenance/requests/${request.id}/close`, 'Demande clôturée.') }><CheckCircle2 size={16} /></button>}
                   {can('maintenance.close') && request.status !== 'CLOSED' && request.status !== 'CANCELLED' && <button className="icon-btn danger" title="Annuler" onClick={() => postAction(`/maintenance/requests/${request.id}/cancel`, 'Demande annulée.') }><CircleX size={16} /></button>}
                 </td>
@@ -452,7 +452,7 @@ export function MaintenanceDetailPage() {
             {request.status !== 'CLOSED' && request.status !== 'CANCELLED' && <button className="secondary" title="WhatsApp locataire" onClick={() => sendCommunication('WHATSAPP', 'TENANT')}><MessageSquare size={16} />WhatsApp</button>}
 {can('maintenance.update') && actionState.canResolve && <button onClick={() => action(`/maintenance/requests/${request.id}/resolve`, 'Intervention résolue.', { actual_hours: request.actual_hours ?? 0, resolution_comments: request.proposed_solution ?? 'Résolution' })}><CheckCircle2 size={16} />Marquer résolu</button>}
             {can('maintenance.update') && actionState.canReopen && <button onClick={() => action(`/maintenance/requests/${request.id}/reopen`, 'Intervention rouverte.')}>Rouvrir</button>}
-            {can('maintenance.validate') && actionState.canValidéte && <button onClick={() => {
+            {can('maintenance.validate') && actionState.canValidate && <button onClick={() => {
               const technicianSignature = window.prompt('Nom du technicien signataire', request.assigned_employee_name ?? '') ?? '';
               const clientSignature = window.prompt('Nom du client signataire', request.tenant_name ?? '') ?? '';
               return action(`/maintenance/requests/${request.id}/validate`, 'Demande validée.', { comments: 'Validétion finale', technician_signature_name: technicianSignature || null, client_signature_name: clientSignature || null });
@@ -603,7 +603,7 @@ export function MaintenanceDetailPage() {
           employees={employees.data}
           onClose={() => setEditing(false)}
           onSubmit={async (form) => {
-            await api.put(`/maintenance/requests/${request.id}`, Object.fromEntries(form));
+            await api.patch(`/maintenance/requests/${request.id}`, Object.fromEntries(form));
             setSuccessMessage('Signalement modifié.');
             setEditing(false);
             await refresh();
@@ -674,12 +674,16 @@ function MaintenanceRequestModal({
   employees: EmployeeOption[];
   editing?: Partial<MaintenanceRequest> | null;
   onClose: () => void;
-  onSubmit: (form: FormData) => void;
+  onSubmit: (form: FormData) => Promise<void>;
 }) {
   const [buildingId, setBuildingId] = useState<number | null>(editing?.building_id ?? null);
-  const [unitId, setUnitéd] = useState<number | null>(editing?.unit_id ?? null);
+  const [unitId, setUnitId] = useState<number | null>(editing?.unit_id ?? null);
   const [tenantId, setTenantId] = useState<number | null>(editing?.tenant_id ?? null);
   const [attachmentName, setAttachmentName] = useState(editing?.attachment_file_name ?? '');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const formRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
     if (!unitId) {
@@ -707,26 +711,119 @@ function MaintenanceRequestModal({
     building_name: tenant.building_name ? String(tenant.building_name) : undefined,
     unit_number: tenant.unit_number ? String(tenant.unit_number) : undefined,
   })), [tenants]);
+  const initialSnapshot = useMemo(
+    () =>
+      maintenanceFormSnapshot({
+        title: editing?.title ?? '',
+        description: editing?.description ?? '',
+        category: editing?.category ?? 'Autre',
+        priority: editing?.priority ?? 'NORMAL',
+        reported_at: editing?.reported_at ? toDateTimeLocal(editing.reported_at) : toDateTimeLocal(new Date().toISOString()),
+        due_date: editing?.due_date ? String(editing.due_date).slice(0, 10) : '',
+        building_id: editing?.building_id ?? null,
+        unit_id: editing?.unit_id ?? null,
+        tenant_id: editing?.tenant_id ?? null,
+        internal_notes: editing?.internal_notes ?? '',
+        estimated_cost: editing?.estimated_cost ?? 0,
+        attachment_file_name: editing?.attachment_file_name ?? '',
+      }),
+    [editing],
+  );
+  const buildPayload = useCallback(
+    (form: HTMLFormElement) => {
+      const payload = new FormData(form);
+      const file = payload.get('attachment_file');
+      if (file instanceof File && file.name) {
+        payload.set('attachment_file_name', file.name);
+      } else {
+        payload.set('attachment_file_name', attachmentName);
+      }
+      payload.delete('attachment_file');
+      return payload;
+    },
+    [attachmentName],
+  );
+  const currentSnapshot = useCallback(() => {
+    if (!formRef.current) return initialSnapshot;
+    const form = buildPayload(formRef.current);
+    return maintenanceFormSnapshot({
+      title: form.get('title'),
+      description: form.get('description'),
+      category: form.get('category'),
+      priority: form.get('priority'),
+      reported_at: form.get('reported_at'),
+      due_date: form.get('due_date'),
+      building_id: buildingId,
+      unit_id: unitId,
+      tenant_id: tenantId,
+      internal_notes: form.get('internal_notes'),
+      estimated_cost: form.get('estimated_cost'),
+      attachment_file_name: form.get('attachment_file_name'),
+    });
+  }, [buildPayload, buildingId, initialSnapshot, tenantId, unitId]);
+  const hasUnsavedChanges = useCallback(
+    () => JSON.stringify(currentSnapshot()) !== JSON.stringify(initialSnapshot),
+    [currentSnapshot, initialSnapshot],
+  );
+  const requestClose = useCallback(() => {
+    if (submitting) return;
+    if (hasUnsavedChanges()) {
+      setConfirmDiscard(true);
+      return;
+    }
+    onClose();
+  }, [hasUnsavedChanges, onClose, submitting]);
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        requestClose();
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [requestClose]);
 
   return (
-    <Modal title={title} onClose={onClose}>
+    <Modal title={title} onClose={requestClose}>
       <form
+        ref={formRef}
         className="maintenance-modal-form"
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
-          const form = new FormData(event.currentTarget);
-          const file = form.get('attachment_file');
-          if (file instanceof File && file.name) {
-            form.set('attachment_file_name', file.name);
+          if (submitting) return;
+          setSubmitting(true);
+          setError('');
+          setConfirmDiscard(false);
+          try {
+            await onSubmit(buildPayload(event.currentTarget));
+            event.currentTarget.reset();
+          } catch (caught) {
+            setError(extractApiMessage(caught, 'Impossible d’enregistrer la demande de maintenance.'));
+          } finally {
+            setSubmitting(false);
           }
-          form.delete('attachment_file');
-          onSubmit(form);
-          event.currentTarget.reset();
         }}
       >
+        {error ? <div className="error-message">{error}</div> : null}
+        {confirmDiscard ? (
+          <div className="info-message maintenance-discard-confirmation">
+            <strong>Annuler les modifications ?</strong>
+            <span>Les modifications non enregistrées seront perdues.</span>
+            <div className="maintenance-discard-actions">
+              <button type="button" className="secondary" onClick={() => setConfirmDiscard(false)} disabled={submitting}>
+                Continuer la modification
+              </button>
+              <button type="button" className="danger" onClick={onClose} disabled={submitting}>
+                Abandonner les modifications
+              </button>
+            </div>
+          </div>
+        ) : null}
         <div className="modal-section">
           <h3>Informations générales</h3>
-          <div className="maintenance-grid maintenance-général-grid">
+          <div className="maintenance-grid maintenance-general-grid">
             <label>N° demande<input value={requestNumber} readOnly className="locked-field" /></label>
             <label>Titre *<input name="title" defaultValue={editing?.title ?? ''} required placeholder="Titre du signalement" /></label>
             <label>Catégorie *<select name="category" defaultValue={editing?.category ?? 'Autre'}>{MAINTENANCE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
@@ -746,7 +843,7 @@ function MaintenanceRequestModal({
                 onChange={(value) => {
                   setBuildingId(value ? Number(value) : null);
                   if (value && unitId && !unitOptions(units, Number(value)).some((option) => option.value === unitId)) {
-                    setUnitéd(null);
+                    setUnitId(null);
                   }
                 }}
                 placeholder="Rechercher un immeuble"
@@ -758,7 +855,7 @@ function MaintenanceRequestModal({
               <SearchableSelect
                 options={unitOptionsData}
                 value={unitId}
-                onChange={(value) => setUnitéd(value ? Number(value) : null)}
+                onChange={(value) => setUnitId(value ? Number(value) : null)}
     placeholder="Rechercher une unité"
                 emptyMessage="Aucune unité trouvée"
               />
@@ -792,8 +889,8 @@ function MaintenanceRequestModal({
           </div>
         </div>
         <div className="modal-footer-sticky">
-          <button type="button" className="secondary" onClick={onClose}>Annuler</button>
-          <button type="submit">Enregistrer</button>
+          <button type="button" className="secondary" onClick={requestClose} disabled={submitting}>Annuler</button>
+          <button type="submit" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer'}</button>
         </div>
       </form>
     </Modal>
@@ -821,7 +918,7 @@ function AssignMaintenanceModal({
   const [externalProvider, setExternalProvider] = useState('');
 
   return (
-    <Modal title={`Affectér - ${request.request_number}`} onClose={onClose}>
+    <Modal title={`Affecter - ${request.request_number}`} onClose={onClose}>
       <form
         className="maintenance-modal-form"
         onSubmit={(event) => {
@@ -870,12 +967,12 @@ function AssignMaintenanceModal({
             )}
             <label>Date prévue d’intervention<input type="date" value={plannedDate} onChange={(event) => setPlannedDate(event.target.value)} /></label>
             <label>Heure prévue<input type="time" value={plannedTime} onChange={(event) => setPlannedTime(event.target.value)} /></label>
-            <label className="wide-field">Notes d’affectation<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Notes affectation" /></label>
+            <label className="wide-field">Notes d’affectation<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Notes d’affectation" /></label>
           </div>
         </div>
         <div className="modal-footer-sticky">
           <button type="button" className="secondary" onClick={onClose}>Annuler</button>
-          <button type="submit">Affectér</button>
+          <button type="submit">Affecter</button>
         </div>
       </form>
     </Modal>
@@ -899,7 +996,7 @@ function MaintenanceExpenseModal({
   const totalAmount = lines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
 
   return (
-    <Modal title={`Ajouter une depense a l'intervention ${request.request_number}`} onClose={onClose}>
+    <Modal title={`Ajouter une dépense à l'intervention ${request.request_number}`} onClose={onClose}>
       <form className="maintenance-modal-form" onSubmit={(event) => {
         event.preventDefault();
         onSubmit({
@@ -920,7 +1017,7 @@ function MaintenanceExpenseModal({
       }}>
         <div className="modal-section">
           <h3>Informations générales</h3>
-          <p className="storage-note">Cette depense sera rattachee a l'intervention et pourra alimenter la caisse si le workflow le permet.</p>
+          <p className="storage-note">Cette dépense sera rattachée à l'intervention et pourra alimenter la caisse si le workflow le permet.</p>
           <div className="maintenance-grid maintenance-cost-grid">
             <label>Date<input type="date" value={expenseDate} onChange={(event) => setExpenseDate(event.target.value)} /></label>
             <label>Moyen de paiement<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option value="">Non précisé</option><option value="CASH">Espèces</option><option value="BANK">Banque</option><option value="MOBILE_MONEY">Mobile Money</option></select></label>
@@ -930,7 +1027,7 @@ function MaintenanceExpenseModal({
             {lines.map((line, index) => (
               <div className="maintenance-line-item" key={index}>
                 <div className="maintenance-grid maintenance-cost-grid">
-                  <label>Nature du cout<select value={line.category} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, category: event.target.value } : entry))}>{["Main d'oeuvre", 'Transport', 'Sous-traitance', 'Achat local', 'Location materéel', 'Autre'].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                  <label>Nature du coût<select value={line.category} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, category: event.target.value } : entry))}>{["Main d'oeuvre", 'Transport', 'Sous-traitance', 'Achat local', 'Location matériel', 'Autre'].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
                   <label className="wide-field">Libellé<input value={line.label} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, label: event.target.value } : entry))} placeholder="Libellé" required /></label>
                   <label>Montant<input type="number" min="0.01" step="0.01" value={line.amount} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, amount: event.target.value } : entry))} required /></label>
                   <label>Fournisseur<input value={line.supplier} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, supplier: event.target.value } : entry))} placeholder="Fournisseur" /></label>
@@ -943,7 +1040,7 @@ function MaintenanceExpenseModal({
               </div>
             ))}
           </div>
-          <button type="button" className="secondary" onClick={() => setLines((current) => [...current, { category: 'Autre', label: '', amount: '0', supplier: '', reference: '', attachmentName: '' }])}><Plus size={16} />Ajouter ligne de cout</button>
+          <button type="button" className="secondary" onClick={() => setLines((current) => [...current, { category: 'Autre', label: '', amount: '0', supplier: '', reference: '', attachmentName: '' }])}><Plus size={16} />Ajouter ligne de coût</button>
           <label className="wide-field">Observations<textarea value={globalNotes} onChange={(event) => setGlobalNotes(event.target.value)} placeholder="Observations internes" /></label>
         </div>
         <div className="modal-footer-sticky">
@@ -1100,7 +1197,7 @@ function timelineRows(rows: MaintenanceRequest[]) {
 function maintenanceWorkbook(request: MaintenanceDetail) {
   const rows = [exportRow(request)];
   return [
-    { name: 'Resume', rows: [{ numero: request.request_number, statut: maintenanceStatusLabel(request.status), priorite: priorityLabel(request.priority), immeuble: request.building_name ?? '-', unite: request.unit_number ?? '-', locataire: request.tenant_name ?? '-', technicien: request.assigned_employee_name ?? '-', cout: money(request.total_cost ?? request.estimated_cost ?? 0) }] },
+    { name: 'Résumé', rows: [{ numero: request.request_number, statut: maintenanceStatusLabel(request.status), priorite: priorityLabel(request.priority), immeuble: request.building_name ?? '-', unite: request.unit_number ?? '-', locataire: request.tenant_name ?? '-', technicien: request.assigned_employee_name ?? '-', cout: money(request.total_cost ?? request.estimated_cost ?? 0) }] },
     { name: 'Demandes', rows },
     { name: 'Ouvertes', rows: request.status !== 'CLOSED' && request.status !== 'CANCELLED' ? rows : [] },
     { name: 'En retard', rows: request.is_overdue ? rows : [] },
@@ -1126,7 +1223,7 @@ type MaintenanceActionState = {
   canWork: boolean;
   canResolve: boolean;
   canReopen: boolean;
-  canValidéte: boolean;
+  canValidate: boolean;
   canClose: boolean;
   canCancel: boolean;
 };
@@ -1159,7 +1256,7 @@ function maintenanceDetailActions(status: string): MaintenanceActionState {
     canWork: status === 'IN_PROGRESS',
     canResolve: status === 'IN_PROGRESS',
     canReopen: status === 'RESOLVED',
-    canValidéte: status === 'RESOLVED',
+    canValidate: status === 'RESOLVED',
     canClose: status === 'VALIDATED',
     canCancel: new Set(['NEW', 'DIAGNOSIS', 'ON_HOLD']).has(status),
   };
@@ -1297,7 +1394,7 @@ function unitOptions(units: UnitOption[], buildingId: number | null) {
     .map((unit) => ({
       value: unit.id,
       label: unit.number,
-      meta: [unit.building_name, unit.tenant_name ? `Locataire: ${unit.tenant_name}` : '', unit.monthly_rent ? `${money(unit.monthly_rent)} USD` : ''].filter(Boolean).join(' - ') || '-',
+      meta: [unit.building_name, unit.tenant_name ? `Locataire : ${unit.tenant_name}` : '', unit.monthly_rent ? `${money(unit.monthly_rent)} USD` : ''].filter(Boolean).join(' - ') || '-',
     }));
 }
 
@@ -1361,6 +1458,49 @@ function endOfWeekISO() {
   const day = date.getDay() || 7;
   date.setDate(date.getDate() + (7 - day));
   return date.toISOString().slice(0, 10);
+}
+
+function maintenanceFormSnapshot(input: Record<string, unknown>) {
+  return {
+    title: normalizeMaintenanceText(input.title),
+    description: normalizeMaintenanceText(input.description),
+    category: normalizeMaintenanceText(input.category),
+    priority: normalizeMaintenanceText(input.priority || 'NORMAL'),
+    reported_at: normalizeMaintenanceText(input.reported_at),
+    due_date: normalizeMaintenanceText(input.due_date),
+    building_id: normalizeMaintenanceNumber(input.building_id),
+    unit_id: normalizeMaintenanceNumber(input.unit_id),
+    tenant_id: normalizeMaintenanceNumber(input.tenant_id),
+    internal_notes: normalizeMaintenanceText(input.internal_notes),
+    estimated_cost: normalizeMaintenanceAmount(input.estimated_cost),
+    attachment_file_name: normalizeMaintenanceText(input.attachment_file_name),
+  };
+}
+
+function normalizeMaintenanceText(value: unknown) {
+  return value === undefined || value === null ? '' : String(value).trim();
+}
+
+function normalizeMaintenanceNumber(value: unknown) {
+  if (value === undefined || value === null || value === '') return '';
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? String(parsed) : '';
+}
+
+function normalizeMaintenanceAmount(value: unknown) {
+  if (value === undefined || value === null || value === '') return '0';
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? String(parsed) : '0';
+}
+
+function extractApiMessage(error: unknown, fallback: string) {
+  const maybeError = error as { response?: { data?: { message?: unknown; error?: unknown } }; message?: unknown };
+  const data = maybeError?.response?.data;
+  if (Array.isArray(data?.message)) return data.message.join(' ');
+  if (typeof data?.message === 'string' && data.message.trim()) return data.message;
+  if (typeof data?.error === 'string' && data.error.trim()) return data.error;
+  if (typeof maybeError?.message === 'string' && maybeError.message.trim()) return maybeError.message;
+  return fallback;
 }
 
 function toDateTimeLocal(value: string) {

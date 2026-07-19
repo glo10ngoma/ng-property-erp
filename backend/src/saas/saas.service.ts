@@ -2996,7 +2996,7 @@ export class SaasService {
         }
         if (body.maintenance_request_id) {
           const totalCost = movements.reduce((sum, movement) => sum + Number((movement as Record<string, unknown>).quantity ?? 0) * Number((movement as Record<string, unknown>).unit_price ?? 0), 0);
-          await this.addMaintenanceTimeline(client, Number(body.maintenance_request_id), 'STOCK', 'Consommation de stock', `${movements.length} article(s) consommÃƒÂ©(s) pour ${totalCost.toFixed(2)} USD`);
+          await this.addMaintenanceTimeline(client, Number(body.maintenance_request_id), 'STOCK', 'Consommation de stock', this.maintenanceStockTimelineDetails(movements.length, totalCost));
         }
         return { lines: movements, total_cost: movements.reduce((sum, movement) => sum + Number((movement as Record<string, unknown>).quantity ?? 0) * Number((movement as Record<string, unknown>).unit_price ?? 0), 0) };
       });
@@ -3010,6 +3010,210 @@ export class SaasService {
       maintenance_request_id: body.maintenance_request_id ?? null,
       notes: body.comment ?? body.notes ?? 'Consommation maintenance',
     });
+  }
+
+  private async validateMaintenanceRequestPayload(
+    client: PoolClient,
+    body: Record<string, unknown>,
+    current?: Record<string, unknown> | null,
+  ) {
+    const title = body.title === undefined ? String(current?.title ?? '') : String(body.title ?? '').trim();
+    if (!title) throw new BadRequestException('Le titre est obligatoire');
+
+    const description = body.description === undefined ? String(current?.description ?? '') : String(body.description ?? '').trim();
+    if (!description) throw new BadRequestException('La description est obligatoire');
+
+    const category = body.category === undefined ? String(current?.category ?? '') : String(body.category ?? '').trim();
+    if (!category) throw new BadRequestException('La catégorie est obligatoire');
+    await this.assertMaintenanceCategoryExists(client, category, current?.category ? String(current.category) : null);
+
+    const priority = body.priority === undefined ? String(current?.priority ?? 'NORMAL') : String(body.priority ?? '').trim().toUpperCase();
+    if (!['LOW', 'NORMAL', 'HIGH', 'URGENT'].includes(priority)) {
+      throw new BadRequestException('Priorité de maintenance invalide');
+    }
+
+    const buildingId = this.normalizeMaintenanceEntityId(body.building_id ?? current?.building_id ?? null, 'building_id');
+    const unitId = this.normalizeMaintenanceEntityId(body.unit_id ?? current?.unit_id ?? null, 'unit_id');
+    const leaseId = this.normalizeMaintenanceEntityId(body.lease_id ?? current?.lease_id ?? null, 'lease_id');
+    const tenantId = this.normalizeMaintenanceEntityId(body.tenant_id ?? current?.tenant_id ?? null, 'tenant_id');
+
+    const building = buildingId ? await this.requireMaintenanceScopedEntity(client, 'buildings', buildingId, 'Immeuble') : null;
+    const unit = unitId ? await this.requireMaintenanceScopedEntity(client, 'units', unitId, 'Unité') : null;
+    const lease = leaseId ? await this.requireMaintenanceScopedEntity(client, 'leases', leaseId, 'Bail') : null;
+    const tenant = tenantId ? await this.requireMaintenanceScopedEntity(client, 'tenants', tenantId, 'Locataire') : null;
+
+    if (building && unit && Number(unit.building_id ?? 0) !== buildingId) {
+      throw new BadRequestException("L'unité sélectionnée n'appartient pas à l'immeuble choisi");
+    }
+    if (lease && unit && Number(lease.unit_id ?? 0) !== unitId) {
+      throw new BadRequestException("Le bail sélectionné n'appartient pas à l'unité choisie");
+    }
+    if (lease && tenant && Number(lease.tenant_id ?? 0) !== tenantId) {
+      throw new BadRequestException("Le bail sélectionné n'appartient pas au locataire choisi");
+    }
+    if (unit && tenantId && unit.tenant_id && Number(unit.tenant_id) !== tenantId) {
+      throw new BadRequestException("Le locataire sélectionné ne correspond pas à l'unité choisie");
+    }
+
+    const estimatedCost = this.normalizeMaintenanceNumeric(body.estimated_cost ?? current?.estimated_cost ?? 0, 'estimated_cost', true);
+    const reportedAt = body.reported_at === undefined ? current?.reported_at ?? null : this.normalizeMaintenanceDate(body.reported_at, 'reported_at');
+    const dueDate = body.due_date === undefined ? current?.due_date ?? null : this.normalizeMaintenanceDate(body.due_date, 'due_date');
+    if (reportedAt && dueDate && new Date(String(dueDate)).getTime() < new Date(String(reportedAt)).getTime()) {
+      throw new BadRequestException("La date d'échéance doit être postérieure à la date du signalement");
+    }
+
+    return {
+      title,
+      description,
+      category,
+      priority,
+      buildingId,
+      unitId,
+      leaseId,
+      tenantId,
+      reportedAt,
+      dueDate,
+      estimatedCost,
+    };
+  }
+
+  private async validateMaintenanceDiagnosisPayload(client: PoolClient, body: Record<string, unknown>) {
+    const estimatedCost = this.normalizeMaintenanceNumeric(body.estimated_cost ?? 0, 'estimated_cost', true);
+    const estimatedHours = this.normalizeMaintenanceNumeric(body.estimated_hours ?? 0, 'estimated_hours', true);
+    const recommendedTechnician = this.normalizeMaintenanceEntityId(body.recommended_technician ?? null, 'recommended_technician');
+    if (recommendedTechnician) {
+      await this.requireMaintenanceScopedEntity(client, 'employees', recommendedTechnician, 'Employé');
+    }
+    return { estimatedCost, estimatedHours, recommendedTechnician };
+  }
+
+  private async validateMaintenanceAssignmentPayload(client: PoolClient, body: Record<string, unknown>) {
+    const employeeId = this.normalizeMaintenanceEntityId(body.employee_id ?? null, 'employee_id');
+    const externalProvider = String(body.external_provider ?? '').trim() || null;
+    if (!employeeId && !externalProvider) {
+      throw new BadRequestException("Sélectionnez un technicien interne ou un prestataire externe");
+    }
+    if (employeeId && externalProvider) {
+      throw new BadRequestException("Choisissez soit un technicien interne, soit un prestataire externe");
+    }
+    if (employeeId) {
+      await this.requireMaintenanceScopedEntity(client, 'employees', employeeId, 'Employé');
+    }
+    const plannedDate = this.normalizeMaintenanceDate(body.planned_date ?? null, 'planned_date');
+    const plannedTime = this.normalizeMaintenanceTime(body.planned_time ?? null, 'planned_time');
+    const notes = body.notes === undefined || body.notes === null ? null : String(body.notes).trim();
+    if (notes && notes.length > 2000) {
+      throw new BadRequestException("Les notes d'affectation sont trop longues");
+    }
+    return { employeeId, externalProvider, plannedDate, plannedTime, notes };
+  }
+
+  private validateMaintenanceExpensePayload(body: Record<string, unknown>) {
+    const lines = Array.isArray(body.lines) ? (body.lines as Array<Record<string, unknown>>) : [body];
+    if (!lines.length) throw new BadRequestException('Aucune ligne de dépense fournie');
+    const paymentMethod = body.payment_method ? String(body.payment_method).trim().toUpperCase() : null;
+    if (paymentMethod && !['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethod)) {
+      throw new BadRequestException('Moyen de paiement de maintenance invalide');
+    }
+    return lines.map((line, index) => {
+      const amount = this.normalizeMaintenanceNumeric(line.amount ?? 0, `lines[${index}].amount`, false);
+      const category = String(line.category ?? body.category ?? '').trim();
+      if (!category) throw new BadRequestException(`Ligne ${index + 1}: la catégorie est obligatoire`);
+      const expenseDate = this.normalizeMaintenanceDate(line.expense_date ?? body.expense_date ?? new Date().toISOString().slice(0, 10), `lines[${index}].expense_date`);
+      return { line, amount, category, expenseDate };
+    });
+  }
+
+  private async validateMaintenanceDocumentPayload(client: PoolClient, id: number, body: Record<string, unknown>) {
+    await this.requireMaintenanceRequest(client, id);
+    const fileName = String(body.file_name ?? '').trim();
+    if (!fileName) throw new BadRequestException('Le nom du document est obligatoire');
+    const fileUrl = body.file_url === undefined || body.file_url === null ? null : String(body.file_url).trim();
+    const documentType = String(body.document_type ?? 'OTHER').trim() || 'OTHER';
+    return { fileName, fileUrl, documentType };
+  }
+
+  private normalizeMaintenanceEntityId(value: unknown, fieldName: string) {
+    if (value === undefined || value === null || value === '') return null;
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new BadRequestException(`Identifiant invalide pour ${fieldName}`);
+    }
+    return parsed;
+  }
+
+  private normalizeMaintenanceNumeric(value: unknown, fieldName: string, allowZero: boolean) {
+    const parsed = Number(value ?? 0);
+    if (!Number.isFinite(parsed)) {
+      throw new BadRequestException(`Valeur numérique invalide pour ${fieldName}`);
+    }
+    if (allowZero ? parsed < 0 : parsed <= 0) {
+      throw new BadRequestException(allowZero ? `La valeur de ${fieldName} ne peut pas être négative` : `La valeur de ${fieldName} doit être strictement positive`);
+    }
+    return parsed;
+  }
+
+  private normalizeMaintenanceDate(value: unknown, fieldName: string) {
+    if (value === undefined || value === null || value === '') return null;
+    const text = String(value).trim();
+    const date = new Date(text);
+    if (Number.isNaN(date.getTime())) {
+      throw new BadRequestException(`Date invalide pour ${fieldName}`);
+    }
+    return text;
+  }
+
+  private normalizeMaintenanceTime(value: unknown, fieldName: string) {
+    if (value === undefined || value === null || value === '') return null;
+    const text = String(value).trim();
+    if (!/^\d{2}:\d{2}(:\d{2})?$/.test(text)) {
+      throw new BadRequestException(`Heure invalide pour ${fieldName}`);
+    }
+    return text;
+  }
+
+  private async requireMaintenanceScopedEntity(client: PoolClient, table: string, id: number, label: string) {
+    const { rows } = await client.query(
+      `SELECT * FROM ${table} WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+    return requireRow(rows[0], label);
+  }
+
+  private async requireMaintenanceRequest(client: PoolClient, id: number) {
+    const { rows } = await client.query(
+      `SELECT * FROM maintenance_requests WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+    return requireRow(rows[0], 'Maintenance request');
+  }
+
+  private async assertMaintenanceCategoryExists(client: PoolClient, category: string, allowedHistorical?: string | null) {
+    const normalized = category.trim().toLowerCase();
+    if (allowedHistorical && allowedHistorical.trim().toLowerCase() === normalized) {
+      return;
+    }
+    const { rows } = await client.query(
+      `SELECT id FROM maintenance_categories WHERE organization_id = $1 AND deleted_at IS NULL AND LOWER(name) = $2 LIMIT 1`,
+      [this.context.organizationId(), normalized],
+    );
+    if (!rows[0]) {
+      throw new BadRequestException('Catégorie de maintenance invalide');
+    }
+  }
+
+  private maintenanceStockTimelineDetails(count: number, totalCost: number) {
+    const label = count > 1 ? 'articles consommés' : 'article consommé';
+    return `${count} ${label} pour ${this.formatMaintenanceUsd(totalCost)}`;
+  }
+
+  private maintenanceExpenseTimelineDetails(count: number) {
+    const label = count > 1 ? 'lignes de coût enregistrées' : 'ligne de coût enregistrée';
+    return `${count} ${label}`;
+  }
+
+  private formatMaintenanceUsd(value: number) {
+    return `${Number(value ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
   }
 
   maintenanceCategories() {
@@ -3138,6 +3342,7 @@ export class SaasService {
 
   async createMaintenanceRequest(body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
+      const validated = await this.validateMaintenanceRequestPayload(client, body);
       const sequence = await client.query(`SELECT COALESCE(MAX(NULLIF(SUBSTRING(request_number FROM '([0-9]+)$'), '')::INT), 0) + 1 AS value FROM maintenance_requests WHERE organization_id = $1 AND request_number LIKE 'M-%'`, [
         this.context.organizationId(),
       ]);
@@ -3150,17 +3355,17 @@ export class SaasService {
          RETURNING *`,
         [
           requestNumber,
-          body.title,
-          body.description ?? null,
-          body.category ?? 'Autre',
-          body.priority ?? 'NORMAL',
-          body.building_id ?? null,
-          body.unit_id ?? null,
-          body.lease_id ?? null,
-          body.tenant_id ?? null,
+          validated.title,
+          validated.description,
+          validated.category,
+          validated.priority,
+          validated.buildingId,
+          validated.unitId,
+          validated.leaseId,
+          validated.tenantId,
           body.reported_by_name ?? null,
-          body.reported_at ?? null,
-          body.due_date ?? null,
+          validated.reportedAt,
+          validated.dueDate,
           body.attachment_file_name ?? null,
           body.attachment_file_url ?? null,
           body.internal_notes ?? null,
@@ -3168,35 +3373,75 @@ export class SaasService {
           this.context.organizationId(),
         ],
       );
-      await this.addMaintenanceTimeline(client, rows[0].id, 'REPORT', 'Signalement', body.description ? String(body.description) : 'Signalement crÃƒÂ©ÃƒÂ©');
+      if (validated.estimatedCost > 0) {
+        await client.query(
+          `UPDATE maintenance_requests SET estimated_cost = $3 WHERE id = $1 AND organization_id = $2`,
+          [rows[0].id, this.context.organizationId(), validated.estimatedCost],
+        );
+        rows[0].estimated_cost = validated.estimatedCost;
+      }
+      await this.addMaintenanceTimeline(client, rows[0].id, 'REPORT', 'Signalement', body.description ? String(body.description) : 'Signalement créé');
       return rows[0];
     });
   }
 
   async updateMaintenanceRequest(id: number, body: Record<string, unknown>) {
-    const updated = await this.updateById('maintenance_requests', id, body, [
-      'title',
-      'description',
-      'category',
-      'priority',
-      'status',
-      'building_id',
-      'unit_id',
-      'lease_id',
-      'tenant_id',
-      'reported_by_name',
-      'due_date',
-      'attachment_file_name',
-      'attachment_file_url',
-      'internal_notes',
-    ]);
-    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'UPDATE', 'Modification', 'Demande mise ÃƒÂ  jour'));
-    return updated;
+    return this.db.transaction(async (client) => {
+      const current = await client.query(
+        `SELECT * FROM maintenance_requests WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+        [id, this.context.organizationId()],
+      );
+      const existing = requireRow(current.rows[0], 'Maintenance request');
+      const validated = await this.validateMaintenanceRequestPayload(client, body, existing);
+      const { rows } = await client.query(
+        `UPDATE maintenance_requests
+         SET title = $3,
+             description = $4,
+             category = $5,
+             priority = $6,
+             building_id = $7,
+             unit_id = $8,
+             lease_id = $9,
+             tenant_id = $10,
+             reported_by_name = $11,
+             reported_at = $12,
+             due_date = $13,
+             attachment_file_name = $14,
+             attachment_file_url = $15,
+             internal_notes = $16,
+             estimated_cost = $17,
+             updated_at = NOW()
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+         RETURNING *`,
+        [
+          id,
+          this.context.organizationId(),
+          validated.title,
+          validated.description,
+          validated.category,
+          validated.priority,
+          validated.buildingId,
+          validated.unitId,
+          validated.leaseId,
+          validated.tenantId,
+          body.reported_by_name ?? existing.reported_by_name ?? null,
+          validated.reportedAt,
+          validated.dueDate,
+          body.attachment_file_name ?? existing.attachment_file_name ?? null,
+          body.attachment_file_url ?? existing.attachment_file_url ?? null,
+          body.internal_notes ?? existing.internal_notes ?? null,
+          validated.estimatedCost,
+        ],
+      );
+      await this.addMaintenanceTimeline(client, id, 'UPDATE', 'Modification', 'Demande mise à jour');
+      return requireRow(rows[0], 'Maintenance request');
+    });
   }
 
   async diagnoseMaintenanceRequest(id: number, body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
       await this.assertMaintenanceStatus(client, id, ['NEW', 'DIAGNOSIS']);
+      const validated = await this.validateMaintenanceDiagnosisPayload(client, body);
       const nextStatus = body.workflow_required ? 'WAITING_APPROVAL' : 'DIAGNOSIS';
       const { rows } = await client.query(
         `UPDATE maintenance_requests
@@ -3216,9 +3461,9 @@ export class SaasService {
           body.diagnostic ?? null,
           body.cause ?? null,
           body.proposed_solution ?? null,
-          Number(body.estimated_cost ?? 0),
-          Number(body.estimated_hours ?? 0),
-          body.recommended_technician ?? null,
+          validated.estimatedCost,
+          validated.estimatedHours,
+          validated.recommendedTechnician,
           nextStatus,
         ],
       );
@@ -3233,7 +3478,7 @@ export class SaasService {
         await client.query('UPDATE maintenance_requests SET workflow_instance_id = $2 WHERE id = $1', [id, workflow.id]);
         rows[0].workflow_instance_id = workflow.id;
       }
-      await this.addMaintenanceTimeline(client, id, 'DIAGNOSIS', 'Diagnostic', body.diagnostic ? String(body.diagnostic) : 'Diagnostic enregistrÃƒÂ©');
+      await this.addMaintenanceTimeline(client, id, 'DIAGNOSIS', 'Diagnostic', body.diagnostic ? String(body.diagnostic) : 'Diagnostic enregistré');
       return requireRow(rows[0], 'Maintenance request');
     });
   }
@@ -3297,21 +3542,22 @@ export class SaasService {
   async assignMaintenanceRequest(id: number, body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
       await this.assertMaintenanceStatus(client, id, ['NEW', 'DIAGNOSIS', 'APPROVED', 'ASSIGNED']);
+      const validated = await this.validateMaintenanceAssignmentPayload(client, body);
       const { rows } = await client.query(
         `UPDATE maintenance_requests
          SET status = 'ASSIGNED', assigned_employee_id = $3, external_provider = $4, updated_at = NOW()
          WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL RETURNING *`,
-        [id, this.context.organizationId(), body.employee_id ?? null, body.external_provider ?? null],
+        [id, this.context.organizationId(), validated.employeeId, validated.externalProvider],
       );
       const request = requireRow(rows[0], 'Maintenance request');
       await client.query(
         `INSERT INTO maintenance_assignments
          (maintenance_request_id, employee_id, external_provider, assigned_by, notes, planned_date, planned_time, organization_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [id, body.employee_id ?? null, body.external_provider ?? null, this.context.userId() ?? 1, body.notes ?? null, body.planned_date ?? null, body.planned_time ?? null, this.context.organizationId()],
+        [id, validated.employeeId, validated.externalProvider, this.context.userId() ?? 1, validated.notes, validated.plannedDate, validated.plannedTime, this.context.organizationId()],
       );
-      await this.createMaintenanceAssignmentCommunications(client, request, body);
-      await this.addMaintenanceTimeline(client, id, 'ASSIGNMENT', 'Assignation', body.notes ? String(body.notes) : 'Intervention affectÃƒÂ©e');
+      await this.createMaintenanceAssignmentCommunications(client, request, { ...body, employee_id: validated.employeeId, planned_date: validated.plannedDate, planned_time: validated.plannedTime, notes: validated.notes });
+      await this.addMaintenanceTimeline(client, id, 'ASSIGNMENT', 'Assignation', validated.notes ? String(validated.notes) : 'Intervention affectée');
       return request;
     });
   }
@@ -3324,13 +3570,14 @@ export class SaasService {
        WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL RETURNING *`,
       [id, this.context.organizationId(), body.started_at ?? null],
     );
-    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'INTERVENTION', 'Intervention', body.comments ? String(body.comments) : 'Intervention dÃ©marrÃ©e'));
+    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'INTERVENTION', 'Intervention', body.comments ? String(body.comments) : 'Intervention démarrée'));
     return requireRow(rows[0], 'Maintenance request');
   }
 
   async resolveMaintenanceRequest(id: number, body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
       await this.assertMaintenanceStatus(client, id, ['IN_PROGRESS']);
+      const actualHours = this.normalizeMaintenanceNumeric(body.actual_hours ?? 0, 'actual_hours', true);
       const { rows } = await client.query(
         `UPDATE maintenance_requests
          SET status = 'RESOLVED',
@@ -3339,10 +3586,10 @@ export class SaasService {
              resolution_comments = $5,
              updated_at = NOW()
          WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL RETURNING *`,
-        [id, this.context.organizationId(), body.resolved_at ?? null, Number(body.actual_hours ?? 0), body.resolution_comments ?? body.comments ?? null],
+        [id, this.context.organizationId(), body.resolved_at ?? null, actualHours, body.resolution_comments ?? body.comments ?? null],
       );
-      await this.addMaintenanceTimeline(client, id, 'RESOLUTION', 'RÃ©solution', body.resolution_comments ? String(body.resolution_comments) : 'Intervention rÃ©solue');
-      await this.notifyMaintenanceResolution(client, id, 'RESOLVED', String(body.resolution_comments ?? body.comments ?? 'Intervention rÃ©solue'));
+      await this.addMaintenanceTimeline(client, id, 'RESOLUTION', 'Résolution', body.resolution_comments ? String(body.resolution_comments) : 'Intervention résolue');
+      await this.notifyMaintenanceResolution(client, id, 'RESOLVED', String(body.resolution_comments ?? body.comments ?? 'Intervention résolue'));
       return requireRow(rows[0], 'Maintenance request');
     });
   }
@@ -3360,7 +3607,7 @@ export class SaasService {
        WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL RETURNING *`,
       [id, this.context.organizationId(), this.context.userId() ?? 1, body.comments ?? null, body.technician_signature_name ?? null, body.client_signature_name ?? null],
     );
-    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'VALIDATION', 'Validation finale', body.comments ? String(body.comments) : 'RÃ©solution validÃ©e'));
+    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'VALIDATION', 'Validation finale', body.comments ? String(body.comments) : 'Résolution validée'));
     return requireRow(rows[0], 'Maintenance request');
   }
 
@@ -3373,8 +3620,8 @@ export class SaasService {
          WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL RETURNING *`,
         [id, this.context.organizationId(), this.context.userId() ?? 1],
       );
-      await this.addMaintenanceTimeline(client, id, 'CLOSURE', 'ClÃ´ture', 'Demande clÃ´turÃ©e');
-      await this.notifyMaintenanceResolution(client, id, 'CLOSED', 'Intervention clÃ´turÃ©e');
+      await this.addMaintenanceTimeline(client, id, 'CLOSURE', 'Clôture', 'Demande clôturée');
+      await this.notifyMaintenanceResolution(client, id, 'CLOSED', 'Intervention clôturée');
       return requireRow(rows[0], 'Maintenance request');
     });
   }
@@ -3382,12 +3629,9 @@ export class SaasService {
   async createMaintenanceExpense(id: number, body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
       await this.assertMaintenanceStatus(client, id, ['IN_PROGRESS']);
-      const lines = Array.isArray(body.lines) ? body.lines as Array<Record<string, unknown>> : [body];
-      if (!lines.length) throw new BadRequestException('Aucune ligne de dÃ©pense fournie');
+      const validatedLines = this.validateMaintenanceExpensePayload(body);
       const created: Record<string, unknown>[] = [];
-      for (const line of lines) {
-        const amount = Number(line.amount ?? 0);
-        if (amount <= 0) throw new BadRequestException('Le montant doit etre superieur a zero');
+      for (const { line, amount, category, expenseDate } of validatedLines) {
         let cashMovementId = null;
         const status = String(line.status ?? body.status ?? 'APPROVED');
         if (status !== 'REJECTED') {
@@ -3395,13 +3639,13 @@ export class SaasService {
             type: 'OUT',
             category: 'MAINTENANCE_EXPENSE',
             amount,
-            movement_date: line.expense_date ?? body.expense_date ?? new Date().toISOString().slice(0, 10),
-            description: line.description ?? line.label ?? body.description ?? 'DÃ©pense maintenance',
+            movement_date: expenseDate,
+            description: line.description ?? line.label ?? body.description ?? 'Dépense maintenance',
             reference: line.reference ?? body.reference ?? `MNT-EXP-${id}`,
             supplier: line.supplier ?? body.supplier ?? null,
             attachment_file_name: line.attachment_file_name ?? body.attachment_file_name ?? null,
             attachment_file_url: line.attachment_file_url ?? body.attachment_file_url ?? null,
-            label: line.label ?? line.description ?? body.description ?? 'DÃ©pense maintenance',
+            label: line.label ?? line.description ?? body.description ?? 'Dépense maintenance',
           });
           cashMovementId = movement.id;
         }
@@ -3414,8 +3658,8 @@ export class SaasService {
           [
             id,
             amount,
-            line.expense_date ?? body.expense_date ?? new Date().toISOString().slice(0, 10),
-            line.category ?? body.category ?? 'Autre',
+            expenseDate,
+            category,
             line.description ?? line.label ?? body.description ?? null,
             status,
             cashMovementId,
@@ -3431,18 +3675,19 @@ export class SaasService {
         );
         created.push(rows[0]);
       }
-      await this.addMaintenanceTimeline(client, id, 'EXPENSE', 'DÃ©pense', `${created.length} ligne(s) de coÃ»t enregistrÃ©e(s)`);
+      await this.addMaintenanceTimeline(client, id, 'EXPENSE', 'Dépense', this.maintenanceExpenseTimelineDetails(created.length));
       return created.length === 1 ? created[0] : { lines: created, total_amount: created.reduce((sum, row) => sum + Number((row as Record<string, unknown>).amount ?? 0), 0) };
     });
   }
 
   async createMaintenanceDocument(id: number, body: Record<string, unknown>) {
+    const validated = await this.db.transaction((client) => this.validateMaintenanceDocumentPayload(client, id, body));
     const { rows } = await this.db.query(
       `INSERT INTO maintenance_documents (maintenance_request_id, document_type, file_name, file_url, uploaded_by, organization_id)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [id, body.document_type ?? 'OTHER', body.file_name, body.file_url ?? null, this.context.userId() ?? 1, this.context.organizationId()],
+      [id, validated.documentType, validated.fileName, validated.fileUrl, this.context.userId() ?? 1, this.context.organizationId()],
     );
-    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'DOCUMENT', 'Document', String(body.file_name ?? 'Document ajoutÃƒÂ©')));
+    await this.db.transaction((client) => this.addMaintenanceTimeline(client, id, 'DOCUMENT', 'Document', validated.fileName || 'Document ajouté'));
     return rows[0];
   }
 
@@ -4301,6 +4546,7 @@ export class SaasService {
     );
     return Number(rows[0]?.column_count ?? 0) === this.guaranteePaymentColumns.length;
   }
+
   async leaseDocuments(id: number) {
     const { rows } = await this.db.query(
       `SELECT * FROM lease_documents WHERE lease_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY uploaded_at DESC`,
@@ -6803,21 +7049,21 @@ export class SaasService {
     return {
       requests: rows,
       by_building: Object.values(rows.reduce<Record<string, { building_name: string; count: number; cost: number }>>((acc, row) => {
-        const key = row.building_name ?? 'Non liÃƒÂ©';
+        const key = row.building_name ?? 'Non lié';
         acc[key] ??= { building_name: key, count: 0, cost: 0 };
         acc[key].count += 1;
         acc[key].cost += Number(row.expenses_total) + Number(row.stock_cost_total);
         return acc;
       }, {})),
       by_unit: Object.values(rows.reduce<Record<string, { building_name: string; unit_number: string; count: number; cost: number }>>((acc, row) => {
-        const key = `${row.building_name ?? 'Non lie'} / ${row.unit_number ?? 'Sans unite'}`;
-        acc[key] ??= { building_name: row.building_name ?? 'Non lie', unit_number: row.unit_number ?? 'Sans unite', count: 0, cost: 0 };
+        const key = `${row.building_name ?? 'Non lié'} / ${row.unit_number ?? 'Sans unité'}`;
+        acc[key] ??= { building_name: row.building_name ?? 'Non lié', unit_number: row.unit_number ?? 'Sans unité', count: 0, cost: 0 };
         acc[key].count += 1;
         acc[key].cost += Number(row.expenses_total) + Number(row.stock_cost_total);
         return acc;
       }, {})),
       by_technician: Object.values(rows.reduce<Record<string, { technician_name: string; count: number; avg_hours: number }>>((acc, row) => {
-        const key = row.technician_name ?? row.external_provider ?? 'Non affectÃƒÂ©';
+        const key = row.technician_name ?? row.external_provider ?? 'Non affecté';
         acc[key] ??= { technician_name: key, count: 0, avg_hours: 0 };
         acc[key].count += 1;
         acc[key].avg_hours += Number(row.resolution_hours ?? 0);
@@ -6825,7 +7071,7 @@ export class SaasService {
       }, {})).map((row) => ({
         ...row,
         avg_hours: row.count ? row.avg_hours / row.count : 0,
-        total_cost: rows.filter((current) => (current.technician_name ?? current.external_provider ?? 'Non affectÃƒÂ©') === row.technician_name).reduce((sum, current) => sum + Number(current.expenses_total) + Number(current.stock_cost_total), 0),
+        total_cost: rows.filter((current) => (current.technician_name ?? current.external_provider ?? 'Non affecté') === row.technician_name).reduce((sum, current) => sum + Number(current.expenses_total) + Number(current.stock_cost_total), 0),
       })),
       by_category: Object.values(rows.reduce<Record<string, { category: string; count: number; cost: number }>>((acc, row) => {
         acc[row.category] ??= { category: row.category, count: 0, cost: 0 };
@@ -6837,7 +7083,7 @@ export class SaasService {
       overdue_requests: rows.filter((row) => row.is_overdue),
       stock_consumed: stockConsumed.rows,
       monthly_expenses: monthlyExpenses.rows,
-      resolution_times: rows.filter((row) => row.resolution_hours !== null).map((row) => ({ request_number: row.request_number, title: row.title, technician: row.technician_name ?? row.external_provider ?? 'Non affectÃƒÂ©', resolution_hours: Number(row.resolution_hours ?? 0) })),
+      resolution_times: rows.filter((row) => row.resolution_hours !== null).map((row) => ({ request_number: row.request_number, title: row.title, technician: row.technician_name ?? row.external_provider ?? 'Non affecté', resolution_hours: Number(row.resolution_hours ?? 0) })),
       summary,
     };
   }
@@ -7011,10 +7257,10 @@ export class SaasService {
     const message = [
       `${request.request_number} - ${request.title}`,
       technician.building_name ? `Immeuble: ${technician.building_name}` : null,
-      technician.unit_number ? `Unite: ${technician.unit_number}` : null,
+      technician.unit_number ? `Unité: ${technician.unit_number}` : null,
       technician.tenant_name ? `Locataire: ${technician.tenant_name}` : null,
-      `Priorite: ${request.priority}`,
-      body.planned_date ? `Prevue: ${body.planned_date} ${body.planned_time ?? ''}` : null,
+      `Priorité: ${request.priority}`,
+      body.planned_date ? `Prévue: ${body.planned_date} ${body.planned_time ?? ''}` : null,
       body.notes ? `Commentaire: ${body.notes}` : null,
     ].filter(Boolean).join('\n');
     const organizationId = this.context.organizationId();
@@ -7062,7 +7308,7 @@ export class SaasService {
           : communicationChannel === 'EMAIL'
             ? request.tenant_email
             : request.tenant_phone;
-      if (!recipient) throw new BadRequestException(target === 'TECHNICIAN' ? 'Coordonnee technicien absente' : 'Coordonnee locataire absente');
+      if (!recipient) throw new BadRequestException(target === 'TECHNICIAN' ? 'Coordonnée technicien absente' : 'Coordonnée locataire absente');
       const message = body.message ? String(body.message) : this.defaultMaintenanceMessage(communicationChannel, request, String(body.event ?? 'UPDATE'));
       const result = await this.sendCommunication(communicationChannel, {
         recipient,
@@ -7071,7 +7317,7 @@ export class SaasService {
         related_entity_type: 'maintenance_request',
         related_entity_id: id,
       });
-      await this.addMaintenanceTimeline(client, id, 'COMMUNICATION', `Communication ${communicationChannel}`, `${target === 'TECHNICIAN' ? 'Technicien' : 'Locataire'} contacte`);
+      await this.addMaintenanceTimeline(client, id, 'COMMUNICATION', `Communication ${communicationChannel}`, `${target === 'TECHNICIAN' ? 'Technicien' : 'Locataire'} contacté`);
       return result;
     });
   }
@@ -7135,14 +7381,14 @@ export class SaasService {
     const fragments = [
       `${request.request_number} - ${request.title}`,
       request.building_name ? `Immeuble: ${request.building_name}` : null,
-      request.unit_number ? `Unite: ${request.unit_number}` : null,
-      `Priorite: ${request.priority}`,
+      request.unit_number ? `Unité: ${request.unit_number}` : null,
+      `Priorité: ${request.priority}`,
       `Statut: ${request.status}`,
       request.technician_name ? `Technicien: ${request.technician_name}` : null,
       event === 'RESOLVED'
-        ? `Date resolution: ${request.resolved_at ? String(request.resolved_at).slice(0, 10) : new Date().toISOString().slice(0, 10)}`
+        ? `Date résolution: ${request.resolved_at ? String(request.resolved_at).slice(0, 10) : new Date().toISOString().slice(0, 10)}`
         : request.due_date
-          ? `Date prevue: ${String(request.due_date).slice(0, 10)}`
+          ? `Date prévue: ${String(request.due_date).slice(0, 10)}`
           : null,
       comment ? `Commentaire: ${comment}` : null,
     ].filter(Boolean);

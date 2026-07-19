@@ -825,12 +825,12 @@ export class MaintenanceController {
 
   @Post('requests/:id/approve')
   approve(@Param('id', ParseIntPipe) id: number) {
-    return this.service.transitionMaintenanceRequest(id, 'APPROVED', 'Validation', 'Demande approuvee');
+    return this.service.transitionMaintenanceRequest(id, 'APPROVED', 'Validation', 'Demande approuvée');
   }
 
   @Post('requests/:id/reject')
   reject(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
-    return this.service.transitionMaintenanceRequest(id, 'DIAGNOSIS', 'Rejet', String(body.reason ?? 'Approbation rejetee'));
+    return this.service.transitionMaintenanceRequest(id, 'DIAGNOSIS', 'Rejet', String(body.reason ?? 'Approbation rejetée'));
   }
 
   @Post('requests/:id/assign')
@@ -860,7 +860,7 @@ export class MaintenanceController {
 
   @Post('requests/:id/reopen')
   reopen(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
-    return this.service.transitionMaintenanceRequest(id, 'IN_PROGRESS', 'Reouverture', String(body.reason ?? 'Intervention rouverte'));
+    return this.service.transitionMaintenanceRequest(id, 'IN_PROGRESS', 'Réouverture', String(body.reason ?? 'Intervention réouverte et remise en cours'));
   }
 
   @Post('requests/:id/validate')
@@ -875,7 +875,7 @@ export class MaintenanceController {
 
   @Post('requests/:id/cancel')
   cancel(@Param('id', ParseIntPipe) id: number) {
-    return this.service.transitionMaintenanceRequest(id, 'CANCELLED', 'Annulation', 'Demande annulee');
+    return this.service.transitionMaintenanceRequest(id, 'CANCELLED', 'Annulation', 'Demande annulée');
   }
 
   @Post('requests/:id/stock')
