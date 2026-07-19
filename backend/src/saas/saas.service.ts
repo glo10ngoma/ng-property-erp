@@ -27,6 +27,7 @@ export class SaasService {
   private readonly companyStorageBucket = 'company';
   private readonly leaseContractStorageBucket = 'contracts';
   private readonly purchaseAttachmentStorageBucket = 'contracts';
+  private readonly guaranteePaymentColumns = ['payment_type', 'lease_guarantee_id', 'cash_movement_id', 'idempotency_key'];
   private readonly allowedCompanyFileKinds = new Set(['logo', 'signature', 'stamp']);
   private readonly allowedCompanyFileMimeTypes = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml']);
   private readonly allowedPurchaseAttachmentMimeTypes = new Set([
@@ -4257,6 +4258,9 @@ export class SaasService {
   }
 
   async leaseGuaranteePayments(id: number) {
+    if (!(await this.supportsGuaranteePaymentSchema())) {
+      return [];
+    }
     const { rows } = await this.db.query(
       `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference, p.receipt_number, p.cash_movement_id
        FROM payments p
@@ -4273,6 +4277,17 @@ export class SaasService {
     return rows;
   }
 
+  private async supportsGuaranteePaymentSchema() {
+    const { rows } = await this.db.query(
+      `SELECT COUNT(*)::INT AS column_count
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'payments'
+         AND column_name = ANY($1::TEXT[])`,
+      [this.guaranteePaymentColumns],
+    );
+    return Number(rows[0]?.column_count ?? 0) === this.guaranteePaymentColumns.length;
+  }
   async leaseDocuments(id: number) {
     const { rows } = await this.db.query(
       `SELECT * FROM lease_documents WHERE lease_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY uploaded_at DESC`,
