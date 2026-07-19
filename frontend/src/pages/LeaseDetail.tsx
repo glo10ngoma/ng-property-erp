@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, FileSpreadsheet, Printer, Receipt, RefreshCcw, ScrollText, ShieldCheck, Upload } from 'lucide-react';
+import { ArrowLeft, Download, FileSpreadsheet, Info, Printer, Receipt, RefreshCcw, ScrollText, ShieldCheck, Upload } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -92,6 +92,7 @@ export function LeaseDetail() {
   const guaranteePayments = lease?.guarantee_payments ?? [];
   const hasGuaranteeReceipts = guaranteePayments.length > 0;
   const guaranteeDisplayStatus = guaranteeStatusFromAmounts(guaranteeRequired, guaranteePaid);
+  const hasHistoricalPaidGuaranteeWithoutReceipt = !hasGuaranteeReceipts && guaranteeRequired > 0 && (guaranteePaid + 0.01 >= guaranteeRequired || guaranteeDisplayStatus === 'PAID');
   const canPayGuarantee = Boolean(lease && can('payments.create') && !isReadOnlyLifecycleView && guaranteeRequired > 0 && guaranteeRemaining > 0 && ['DRAFT', 'ACTIVE'].includes(String(lease.status ?? '').toUpperCase()));
   const guaranteeRate = Number(guaranteePaymentRate || exchangeRate?.rate || 0);
   const guaranteeCdfEquivalentUsd = guaranteePaymentCurrency === 'USD' || guaranteeRate <= 0 ? 0 : Number((Number(guaranteePaymentCdfAmount || 0) / guaranteeRate).toFixed(2));
@@ -542,6 +543,16 @@ export function LeaseDetail() {
                 <button type="button" className="secondary" onClick={() => navigate(`/payments/${payment.id}`)}><Receipt size={16} />Recu</button>
               </div>
             ))}
+          </div>
+        ) : null}
+        {hasHistoricalPaidGuaranteeWithoutReceipt ? (
+          <div className="info-message" style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 10 }}>
+            <Info size={16} aria-hidden="true" style={{ flex: '0 0 auto', marginTop: 1 }} />
+            <div>
+              <strong>Historique des reçus</strong>
+              <div>Cette garantie a été enregistrée avant la mise en place du système de reçus numériques.</div>
+              <div>Aucun reçu numérique n'est disponible pour ce paiement historique.</div>
+            </div>
           </div>
         ) : null}
       </div>
