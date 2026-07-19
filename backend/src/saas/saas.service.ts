@@ -2932,7 +2932,7 @@ export class SaasService {
       for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
         const quantity = Number(line.quantity ?? 0);
-        if (quantity <= 0) throw new BadRequestException(`Ligne ${index + 1}: la quantitÃ© doit Ãªtre positive`);
+        if (quantity <= 0) throw new BadRequestException(`Ligne ${index + 1}: la quantité doit être positive`);
         const item = await client.query(
           `SELECT id, name, current_quantity, status
            FROM stock_items
@@ -2980,18 +2980,24 @@ export class SaasService {
 
   createMaintenanceStockConsumption(body: Record<string, unknown>) {
     const lines = Array.isArray(body.lines) ? body.lines as Array<Record<string, unknown>> : null;
-    if (lines?.length) {
+    if (Array.isArray(lines)) {
+      if (!lines.length) {
+        throw new BadRequestException('Ajoutez au moins un article à consommer.');
+      }
       return this.db.transaction(async (client) => {
         const movements: Record<string, unknown>[] = [];
-        for (const line of lines) {
+        const movementPrefix = `MNT-${body.maintenance_request_id ?? Date.now()}-${Date.now().toString().slice(-6)}`;
+        for (let index = 0; index < lines.length; index += 1) {
+          const line = lines[index];
           movements.push(await this.createStockMovementInTransaction(client, {
             ...line,
+            movement_number: `${movementPrefix}-${String(index + 1).padStart(2, '0')}`,
             type: 'OUT',
             source: 'MAINTENANCE',
             destination: 'Maintenance',
-            maintenance_reference: body.maintenance_reference ?? body.reference ?? null,
+            maintenance_reference: body.maintenance_reference ?? body.reference ?? movementPrefix,
             maintenance_request_id: body.maintenance_request_id ?? null,
-            notes: line.comment ?? line.notes ?? line.reason ?? body.comment ?? body.notes ?? 'Consommation maintenance',
+            notes: line.observation ?? line.comment ?? line.notes ?? line.reason ?? body.comment ?? body.notes ?? 'Consommation maintenance',
           }));
         }
         if (body.maintenance_request_id) {
@@ -3208,7 +3214,7 @@ export class SaasService {
   }
 
   private maintenanceExpenseTimelineDetails(count: number) {
-    const label = count > 1 ? 'lignes de coût enregistrées' : 'ligne de coût enregistrée';
+    const label = count > 1 ? 'dépenses enregistrées' : 'dépense enregistrée';
     return `${count} ${label}`;
   }
 
@@ -7100,7 +7106,7 @@ export class SaasService {
     if (itemRow.status !== 'ACTIVE') throw new BadRequestException('Article stock inactif');
     const type = String(body.type ?? 'OUT');
     const quantity = Number(body.quantity ?? 0);
-    if (quantity <= 0) throw new BadRequestException('La quantitÃƒÂ© doit ÃƒÂªtre positive');
+    if (quantity <= 0) throw new BadRequestException('La quantité doit être positive');
     const before = Number(itemRow.current_quantity);
     const sign = ['IN', 'INVENTORY_GAIN', 'INVENTORY'].includes(type) ? 1 : -1;
     const after = before + sign * quantity;
@@ -7145,7 +7151,7 @@ export class SaasService {
       `INSERT INTO stock_movement_history
        (stock_movement_id, action, description, performed_by, organization_id)
        VALUES ($1, 'CREATED', $2, $3, $4)`,
-      [rows[0].id, `Mouvement crÃ©Ã© depuis ${body.reference ?? movementNumber}`, this.context.userId() ?? 1, this.context.organizationId()],
+      [rows[0].id, `Mouvement créé depuis ${body.reference ?? movementNumber}`, this.context.userId() ?? 1, this.context.organizationId()],
     );
     const averagePrice =
       sign > 0 && unitPrice > 0 && after > 0

@@ -65,7 +65,7 @@ type MaintenanceDetail = MaintenanceRequest & {
   timeline: Array<{ id: number; title: string; details?: string; created_at: string; event_type?: string }>;
   assignments: Array<{ id: number; employee_name?: string; external_provider?: string; assigned_at: string; notes?: string }>;
   documents: Array<{ id: number; document_type: string; file_name: string; file_url?: string }>;
-  expenses: Array<{ id: number; amount: number; expense_date: string; category: string; status: string; description?: string; supplier?: string; reference?: string; attachment_file_name?: string }>;
+  expenses: Array<{ id: number; amount: number; expense_date: string; category: string; status: string; description?: string; supplier?: string; reference?: string; attachment_file_name?: string; observation?: string }>;
   stock_movements: Array<{ id: number; item_name: string; quantity: number; unit_price?: number; movement_date: string; reference?: string; notes?: string }>;
   communications?: Array<{ channel: string; recipient: string; message: string; status: string; sent_at?: string; created_by?: number }>;
   maintenance_documents?: Array<{ id: number; document_type: string; file_name: string; file_url?: string }>;
@@ -549,23 +549,28 @@ export function MaintenanceDetailPage() {
 
           <SectionBlock title="Dépenses">
             <SimpleTable
-              headers={['Date', 'Catégorie', 'Description', 'Montant', 'Statut']}
-              rows={request.expenses.map((expense) => [shortDate(expense.expense_date), expense.category, expense.description ?? '-', money(expense.amount), maintenanceStatusLabel(expense.status)])}
+              headers={['Date', 'Catégorie', 'Description', 'Montant', 'Observation', 'Statut']}
+              rows={request.expenses.map((expense) => [shortDate(expense.expense_date), expense.category, expense.description ?? '-', money(expense.amount), expense.observation ?? '-', maintenanceStatusLabel(expense.status)])}
             />
             <div className="summary-band maintenance-cost-footer">
               <SummaryItem label="Main-d'oeuvre" value={money(costBreakdown.labor)} />
-    <SummaryItem label="Pièces" value={money(costBreakdown.parts)} />
-              <SummaryItem label="Dépenses" value={money(costBreakdown.expenses)} />
+              <SummaryItem label="Pièces" value={money(costBreakdown.parts)} />
+              <SummaryItem label="Sous-total dépenses" value={money(costBreakdown.expenses)} />
               <SummaryItem label="Total" value={money(costBreakdown.total)} />
             </div>
           </SectionBlock>
 
           <SectionBlock title="Consommation de stock">
             {request.stock_movements.length ? (
-              <SimpleTable
-                headers={['Article', 'Quantité', 'Prix moyen', 'Total', 'Motif', 'Date']}
-                rows={request.stock_movements.map((movement) => [movement.item_name, movement.quantity, money(movement.unit_price ?? 0), money(Number(movement.quantity) * Number(movement.unit_price ?? 0)), movement.notes ?? '-', shortDate(movement.movement_date)])}
-              />
+              <>
+                <SimpleTable
+                  headers={['Article', 'Quantité', 'Prix unitaire', 'Total ligne', 'Observation', 'Date']}
+                  rows={request.stock_movements.map((movement) => [movement.item_name, movement.quantity, money(movement.unit_price ?? 0), money(Number(movement.quantity) * Number(movement.unit_price ?? 0)), movement.notes ?? '-', shortDate(movement.movement_date)])}
+                />
+                <div className="summary-band maintenance-cost-footer">
+                  <SummaryItem label="Sous-total stock" value={money(costBreakdown.parts)} />
+                </div>
+              </>
             ) : (
               <div className="compact-empty">Aucune consommation de stock.</div>
             )}
@@ -986,34 +991,48 @@ function MaintenanceExpenseModal({
 }: {
   request: MaintenanceDetail;
   onClose: () => void;
-  onSubmit: (body: Record<string, unknown>) => void;
+  onSubmit: (body: Record<string, unknown>) => Promise<void>;
 }) {
   const [expenseDate, setExpenseDate] = useState(new Date().toISOString().slice(0, 10));
   const [paymentMethod, setPaymentMethod] = useState('');
   const [globalNotes, setGlobalNotes] = useState('');
-  const [lines, setLines] = useState([{ category: "Main d'oeuvre", label: '', amount: '0', supplier: '', reference: '', attachmentName: '' }]);
+  const [lines, setLines] = useState([{ category: "Main d'oeuvre", label: '', amount: '0', observation: '', supplier: '', reference: '', attachmentName: '' }]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const totalAmount = lines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
 
   return (
     <Modal title={`Ajouter une dépense à l'intervention ${request.request_number}`} onClose={onClose}>
-      <form className="maintenance-modal-form" onSubmit={(event) => {
+      <form className="maintenance-modal-form" onSubmit={async (event) => {
         event.preventDefault();
-        onSubmit({
-          expense_date: expenseDate,
-          payment_method: paymentMethod || null,
-          notes: globalNotes || null,
-          lines: lines
-            .filter((line) => Number(line.amount || 0) > 0 && line.label.trim())
-            .map((line) => ({
+        setError('');
+        const invalidLine = lines.find((line) => !line.category || Number(line.amount || 0) <= 0);
+        if (invalidLine) {
+          setError('Chaque ligne de dépense doit avoir une catégorie et un montant positif.');
+          return;
+        }
+        try {
+          setSubmitting(true);
+          await onSubmit({
+            expense_date: expenseDate,
+            payment_method: paymentMethod || null,
+            notes: globalNotes || null,
+            lines: lines.map((line) => ({
               category: line.category,
-              description: line.label,
+              description: line.label || null,
               amount: Number(line.amount),
+              observation: line.observation || null,
               supplier: line.supplier || null,
               reference: line.reference || null,
               attachment_file_name: line.attachmentName || null,
             })),
-        });
+          });
+        } catch (caught) {
+          setError(extractApiMessage(caught, 'Impossible d’enregistrer les dépenses.'));
+        } finally {
+          setSubmitting(false);
+        }
       }}>
         <div className="modal-section">
           <h3>Informations générales</h3>
@@ -1028,8 +1047,9 @@ function MaintenanceExpenseModal({
               <div className="maintenance-line-item" key={index}>
                 <div className="maintenance-grid maintenance-cost-grid">
                   <label>Nature du coût<select value={line.category} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, category: event.target.value } : entry))}>{["Main d'oeuvre", 'Transport', 'Sous-traitance', 'Achat local', 'Location matériel', 'Autre'].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-                  <label className="wide-field">Libellé<input value={line.label} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, label: event.target.value } : entry))} placeholder="Libellé" required /></label>
+                  <label className="wide-field">Description<input value={line.label} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, label: event.target.value } : entry))} placeholder="Description facultative" /></label>
                   <label>Montant<input type="number" min="0.01" step="0.01" value={line.amount} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, amount: event.target.value } : entry))} required /></label>
+                  <label className="wide-field">Observation<input value={line.observation} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, observation: event.target.value } : entry))} placeholder="Observation facultative" /></label>
                   <label>Fournisseur<input value={line.supplier} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, supplier: event.target.value } : entry))} placeholder="Fournisseur" /></label>
                   <label>Référence<input value={line.reference} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, reference: event.target.value } : entry))} placeholder="Référence" /></label>
                   <label>Pièce jointe<input type="file" accept=".pdf,image/jpeg,image/png" onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, attachmentName: event.target.files?.[0]?.name ?? '' } : entry))} /></label>
@@ -1040,12 +1060,13 @@ function MaintenanceExpenseModal({
               </div>
             ))}
           </div>
-          <button type="button" className="secondary" onClick={() => setLines((current) => [...current, { category: 'Autre', label: '', amount: '0', supplier: '', reference: '', attachmentName: '' }])}><Plus size={16} />Ajouter ligne de coût</button>
+          <button type="button" className="secondary" onClick={() => setLines((current) => [...current, { category: 'Autre', label: '', amount: '0', observation: '', supplier: '', reference: '', attachmentName: '' }])}><Plus size={16} />Ajouter ligne de coût</button>
           <label className="wide-field">Observations<textarea value={globalNotes} onChange={(event) => setGlobalNotes(event.target.value)} placeholder="Observations internes" /></label>
         </div>
+        {error ? <div className="form-error">{error}</div> : null}
         <div className="modal-footer-sticky">
-          <button type="button" className="secondary" onClick={onClose}>Annuler</button>
-          <button type="submit">Enregistrer</button>
+          <button type="button" className="secondary" onClick={onClose} disabled={submitting}>Annuler</button>
+          <button type="submit" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer'}</button>
         </div>
       </form>
     </Modal>
@@ -1061,25 +1082,43 @@ function MaintenanceStockModal({
   request: MaintenanceDetail;
   stockItems: Array<{ id: number; name: string; current_quantity: number; unit: string; average_purchase_price?: number; purchase_price?: number }>;
   onClose: () => void;
-  onSubmit: (body: Record<string, unknown>) => void;
+  onSubmit: (body: Record<string, unknown>) => Promise<void>;
 }) {
   const [lines, setLines] = useState<Array<{ stockItemId: number | null; quantity: string; unitPrice: string; reason: string }>>([{ stockItemId: stockItems[0]?.id ?? null, quantity: '1', unitPrice: String(stockItems[0]?.average_purchase_price ?? stockItems[0]?.purchase_price ?? 0), reason: '' }]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
   const total = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
 
   return (
     <Modal title={`Consommer stock pour intervention ${request.request_number}`} onClose={onClose}>
-      <form className="maintenance-modal-form" onSubmit={(event) => {
+      <form className="maintenance-modal-form" onSubmit={async (event) => {
         event.preventDefault();
-        onSubmit({
-          lines: lines
-            .filter((line) => line.stockItemId)
-            .map((line) => ({
+        setError('');
+        const invalidLine = lines.find((line) => {
+          const selected = stockItems.find((item) => item.id === line.stockItemId);
+          const quantity = Number(line.quantity || 0);
+          return !selected || quantity <= 0 || quantity > Number(selected.current_quantity ?? 0);
+        });
+        if (invalidLine) {
+          setError('Chaque ligne doit avoir un article actif, une quantité positive et un stock suffisant.');
+          return;
+        }
+        try {
+          setSubmitting(true);
+          await onSubmit({
+            lines: lines.map((line) => ({
               stock_item_id: line.stockItemId,
               quantity: Number(line.quantity),
-              unit_price: Number(line.unitPrice),
-              comment: line.reason,
+              unit_price: Number(line.unitPrice || 0),
+              observation: line.reason || null,
+              comment: line.reason || null,
             })),
-        });
+          });
+        } catch (caught) {
+          setError(extractApiMessage(caught, 'Impossible d’enregistrer la consommation de stock.'));
+        } finally {
+          setSubmitting(false);
+        }
       }}>
         <div className="modal-section">
           <h3>Consommation stock</h3>
@@ -1098,7 +1137,7 @@ function MaintenanceStockModal({
                         <label>Quantité<input type="number" min="0.01" max={selected?.current_quantity} step="0.01" value={line.quantity} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, quantity: event.target.value } : entry))} required /></label>
                         <label>Coût unitaire<input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, unitPrice: event.target.value } : entry))} /></label>
                         <label>Total<input value={money(lineTotal)} readOnly className="locked-field" /></label>
-                        <label className="wide-field">Motif<input value={line.reason} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, reason: event.target.value } : entry))} placeholder="Motif de la consommation" required /></label>
+                        <label className="wide-field">Observation<input value={line.reason} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, reason: event.target.value } : entry))} placeholder="Observation facultative" /></label>
                         <button type="button" className="secondary" onClick={() => setLines((current) => current.length > 1 ? current.filter((_, entryIndex) => entryIndex !== index) : current)}>Supprimer</button>
                       </div>
                     </div>
@@ -1114,9 +1153,10 @@ function MaintenanceStockModal({
             <div className="compact-empty">Aucun article disponible dans le stock.</div>
           )}
         </div>
+        {error ? <div className="form-error">{error}</div> : null}
         <div className="modal-footer-sticky">
-          <button type="button" className="secondary" onClick={onClose}>Annuler</button>
-          <button type="submit" disabled={!stockItems.length}>Consommer</button>
+          <button type="button" className="secondary" onClick={onClose} disabled={submitting}>Annuler</button>
+          <button type="submit" disabled={!stockItems.length || submitting}>{submitting ? 'Enregistrement...' : 'Consommer'}</button>
         </div>
       </form>
     </Modal>
