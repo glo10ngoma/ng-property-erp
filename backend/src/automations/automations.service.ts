@@ -27,6 +27,7 @@ type BillingPeriod = {
   dueDate: string;
   periodStart: string;
   periodEnd: string;
+  frequencyMonths: number;
 };
 
 type EligibleLease = {
@@ -38,6 +39,7 @@ type EligibleLease = {
   monthly_rent: number;
   maintenance_fee_amount: number;
   monthly_syndic_amount: number;
+  billing_frequency_months?: number | null;
   status: string;
   start_date: string;
   end_date?: string | null;
@@ -236,7 +238,8 @@ export class AutomationsService {
         continue;
       }
       eligibleCount += 1;
-      const existing = await this.findExistingRentInvoice(organizationId, lease.id, period.month, period.year);
+      const leasePeriod = this.billingPeriodForLease(period, lease);
+      const existing = await this.findExistingRentInvoice(organizationId, lease.id, leasePeriod);
       if (existing) {
         existingInvoices.push({
           lease_id: lease.id,
@@ -263,9 +266,12 @@ export class AutomationsService {
         tenant_name: lease.tenant_name,
         unit_number: lease.unit_number,
         building_name: lease.building_name,
-        monthly_rent: this.leaseRentAmount(lease),
+        monthly_rent: this.leaseRentAmount(lease) * leasePeriod.frequencyMonths,
         monthly_syndic_amount: Number(lease.monthly_syndic_amount ?? 0),
-        total_amount: this.leaseRentAmount(lease) + Number(lease.monthly_syndic_amount ?? 0),
+        total_amount: (this.leaseRentAmount(lease) + Number(lease.monthly_syndic_amount ?? 0)) * leasePeriod.frequencyMonths,
+        billing_frequency_months: leasePeriod.frequencyMonths,
+        period_start: leasePeriod.periodStart,
+        period_end: leasePeriod.periodEnd,
         email_status: lease.tenant_email ? (setting.email_enabled ? 'READY' : 'DISABLED') : 'EMAIL_MISSING',
         whatsapp_status: lease.tenant_phone ? (setting.whatsapp_enabled ? 'READY' : 'DISABLED') : 'PHONE_MISSING',
       });
@@ -344,7 +350,8 @@ export class AutomationsService {
 
     for (const lease of leases) {
       try {
-        const existing = await this.findExistingRentInvoice(organizationId, lease.id, period.month, period.year);
+        const leasePeriod = this.billingPeriodForLease(period, lease);
+        const existing = await this.findExistingRentInvoice(organizationId, lease.id, leasePeriod);
         if (existing) {
           skippedCount += 1;
           runItems.push({
@@ -376,14 +383,14 @@ export class AutomationsService {
           unitNumber: lease.unit_number ?? null,
           buildingName: lease.building_name ?? null,
           dueDate: String(invoice.due_date),
-          rentAmount: this.leaseRentAmount(lease),
-          syndicAmount: Number(lease.monthly_syndic_amount ?? 0),
+          rentAmount: this.leaseRentAmount(lease) * leasePeriod.frequencyMonths,
+          syndicAmount: Number(lease.monthly_syndic_amount ?? 0) * leasePeriod.frequencyMonths,
           totalAmount: Number(invoice.total ?? 0),
           emailEnabled: setting.email_enabled,
           whatsappEnabled: setting.whatsapp_enabled,
           createdBy: actorId,
           companyName: this.companyDisplayName(companySettings),
-          periodLabel: this.periodLabel(period.month, period.year),
+          periodLabel: this.periodLabelForRange(leasePeriod),
         });
 
         await this.updateInvoiceCommunicationStatuses(Number(invoice.id), organizationId, communicationStatuses);
@@ -455,6 +462,7 @@ export class AutomationsService {
     return this.db.transaction(async (client) => {
       const lockedLease = await client.query<EligibleLease>(
         `SELECT l.id, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
+                COALESCE(l.billing_frequency_months, 1) AS billing_frequency_months,
                 l.status, l.start_date, l.end_date
          FROM leases l
          JOIN units u ON u.id = l.unit_id
@@ -471,12 +479,13 @@ export class AutomationsService {
       if (!this.isLeaseEligible(lease, args.period)) {
         throw new BadRequestException('Bail non eligible pour cette periode');
       }
-      await this.assertNoDuplicateRentInvoice(client, args.organizationId, args.lease.id, args.period.month, args.period.year);
+      const leasePeriod = this.billingPeriodForLease(args.period, lease);
+      await this.assertNoDuplicateRentInvoice(client, args.organizationId, args.lease.id, leasePeriod);
 
       const nextId = await this.nextInvoiceId(client);
       const invoiceNumber = await this.nextInvoiceNumber(client, args.period.year);
-      const rentAmount = this.leaseRentAmount(lease);
-      const syndicAmount = Number(lease.monthly_syndic_amount ?? 0);
+      const rentAmount = this.leaseRentAmount(lease) * leasePeriod.frequencyMonths;
+      const syndicAmount = Number(lease.monthly_syndic_amount ?? 0) * leasePeriod.frequencyMonths;
       const totalAmount = rentAmount + syndicAmount;
       const { rows } = await client.query(
         `INSERT INTO invoices (
@@ -501,18 +510,18 @@ export class AutomationsService {
           args.lease.unit_id,
           args.lease.building_id,
           invoiceNumber,
-          args.period.month,
-          args.period.year,
-          args.period.issueDate,
-          args.period.dueDate,
+          leasePeriod.month,
+          leasePeriod.year,
+          leasePeriod.issueDate,
+          leasePeriod.dueDate,
           totalAmount,
           args.invoiceBottomText,
           args.organizationId,
-          args.period.month,
-          args.period.year,
-          args.period.periodStart,
-          args.period.periodEnd,
-          args.period.issueDate,
+          leasePeriod.month,
+          leasePeriod.year,
+          leasePeriod.periodStart,
+          leasePeriod.periodEnd,
+          leasePeriod.issueDate,
           args.runId,
         ],
       );
@@ -521,14 +530,14 @@ export class AutomationsService {
         await client.query(
           `INSERT INTO invoice_items (invoice_id, item_type, description, amount, organization_id)
            VALUES ($1, 'Monthly rent', $2, $3, $4)`,
-          [nextId, this.periodDescription('Loyer', args.period.month, args.period.year), rentAmount, args.organizationId],
+          [nextId, this.periodDescriptionForRange('Loyer', leasePeriod), rentAmount, args.organizationId],
         );
       }
       if (syndicAmount > 0) {
         await client.query(
           `INSERT INTO invoice_items (invoice_id, item_type, description, amount, organization_id)
            VALUES ($1, 'Syndic', $2, $3, $4)`,
-          [nextId, this.periodDescription('Syndic', args.period.month, args.period.year), syndicAmount, args.organizationId],
+          [nextId, this.periodDescriptionForRange('Syndic', leasePeriod), syndicAmount, args.organizationId],
         );
       }
 
@@ -850,6 +859,7 @@ export class AutomationsService {
   private async fetchEligibleLeases(organizationId: number, period: BillingPeriod) {
     const { rows } = await this.db.query<EligibleLease>(
       `SELECT l.id, l.lease_number, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
+              COALESCE(l.billing_frequency_months, 1) AS billing_frequency_months,
               l.status, l.start_date, l.end_date,
               CASE
                 WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, 'Locataire')
@@ -880,6 +890,7 @@ export class AutomationsService {
   private async fetchLeaseCandidates(organizationId: number) {
     const { rows } = await this.db.query<EligibleLease>(
       `SELECT l.id, l.lease_number, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
+              COALESCE(l.billing_frequency_months, 1) AS billing_frequency_months,
               l.status, l.start_date, l.end_date,
               CASE
                 WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, 'Locataire')
@@ -901,38 +912,42 @@ export class AutomationsService {
     return rows;
   }
 
-  private async findExistingRentInvoice(organizationId: number, leaseId: number, month: number, year: number) {
+  private async findExistingRentInvoice(organizationId: number, leaseId: number, period: BillingPeriod) {
     const { rows } = await this.db.query(
       `SELECT id, invoice_number
        FROM invoices
        WHERE organization_id = $1
          AND lease_id = $2
-         AND billing_month = $3
-         AND billing_year = $4
+         AND (
+           (period_start = $3::DATE AND period_end = $4::DATE)
+           OR (billing_month = $5 AND billing_year = $6)
+         )
          AND invoice_type = 'RENT'
          AND deleted_at IS NULL
        ORDER BY id DESC
        LIMIT 1`,
-      [organizationId, leaseId, month, year],
+      [organizationId, leaseId, period.periodStart, period.periodEnd, period.month, period.year],
     );
     return rows[0] ?? null;
   }
 
-  private async assertNoDuplicateRentInvoice(client: PoolClient, organizationId: number, leaseId: number, month: number, year: number) {
+  private async assertNoDuplicateRentInvoice(client: PoolClient, organizationId: number, leaseId: number, period: BillingPeriod) {
     const existing = await client.query(
       `SELECT id, invoice_number
        FROM invoices
        WHERE organization_id = $1
          AND lease_id = $2
-         AND billing_month = $3
-         AND billing_year = $4
+         AND (
+           (period_start = $3::DATE AND period_end = $4::DATE)
+           OR (billing_month = $5 AND billing_year = $6)
+         )
          AND invoice_type = 'RENT'
          AND deleted_at IS NULL
        LIMIT 1`,
-      [organizationId, leaseId, month, year],
+      [organizationId, leaseId, period.periodStart, period.periodEnd, period.month, period.year],
     );
     if (existing.rows[0]) {
-      throw new BadRequestException(`Facture RENT deja existante pour ${month}/${year}: ${existing.rows[0].invoice_number}`);
+      throw new BadRequestException(`Facture RENT deja existante pour ${period.month}/${period.year}: ${existing.rows[0].invoice_number}`);
     }
   }
 
@@ -1033,6 +1048,7 @@ export class AutomationsService {
       dueDate: this.getAutomaticRentDueDate(year, month),
       periodStart: `${year}-${this.two(month)}-01`,
       periodEnd: `${year}-${this.two(month)}-${this.two(lastDay)}`,
+      frequencyMonths: 1,
     };
   }
 
@@ -1149,9 +1165,58 @@ export class AutomationsService {
     return `${prefix} - ${this.periodLabel(month, year)}`;
   }
 
+  private periodDescriptionForRange(prefix: string, period: BillingPeriod) {
+    return `${prefix} - ${this.periodLabelForRange(period)}`;
+  }
+
   private periodLabel(month: number, year: number) {
     const names = ['Janvier', 'Fevrier', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre'];
     return `${names[month - 1] ?? month} ${year}`;
+  }
+
+  private periodLabelForRange(period: BillingPeriod) {
+    if (period.frequencyMonths <= 1) {
+      return this.periodLabel(period.month, period.year);
+    }
+    const start = this.periodLabel(period.month, period.year);
+    const end = this.periodLabel(this.monthFromDate(period.periodEnd), this.yearFromDate(period.periodEnd));
+    return `${start} - ${end}`;
+  }
+
+  private billingPeriodForLease(basePeriod: BillingPeriod, lease: Partial<Pick<EligibleLease, 'billing_frequency_months'>>) {
+    const frequencyMonths = this.normalizeBillingFrequency(lease.billing_frequency_months);
+    const end = this.addMonths(basePeriod.year, basePeriod.month, frequencyMonths - 1);
+    return {
+      ...basePeriod,
+      frequencyMonths,
+      periodEnd: `${end.year}-${this.two(end.month)}-${this.two(this.daysInMonth(end.year, end.month))}`,
+    };
+  }
+
+  private normalizeBillingFrequency(value: unknown) {
+    const frequency = Number(value ?? 1);
+    return Number.isInteger(frequency) && frequency >= 1 && frequency <= 12 ? frequency : 1;
+  }
+
+  private shouldBillLeaseInPeriod(lease: Partial<Pick<EligibleLease, 'billing_frequency_months'>>, period: BillingPeriod) {
+    const frequency = this.normalizeBillingFrequency(lease.billing_frequency_months);
+    return ((period.month - 1) % frequency) === 0;
+  }
+
+  private addMonths(year: number, month: number, offset: number) {
+    const zeroBased = (year * 12) + (month - 1) + offset;
+    return {
+      year: Math.floor(zeroBased / 12),
+      month: (zeroBased % 12) + 1,
+    };
+  }
+
+  private monthFromDate(value: string) {
+    return Number(value.slice(5, 7));
+  }
+
+  private yearFromDate(value: string) {
+    return Number(value.slice(0, 4));
   }
 
   private money(value: number) {
@@ -1172,12 +1237,12 @@ export class AutomationsService {
     return 'SUCCESS';
   }
 
-  private isLeaseEligible(lease: Pick<EligibleLease, 'status' | 'monthly_rent' | 'maintenance_fee_amount' | 'start_date' | 'end_date'>, period: BillingPeriod) {
+  private isLeaseEligible(lease: Pick<EligibleLease, 'status' | 'monthly_rent' | 'maintenance_fee_amount' | 'start_date' | 'end_date' | 'billing_frequency_months'>, period: BillingPeriod) {
     return !this.leaseExclusionReason(lease, period);
   }
 
   private leaseExclusionReason(
-    lease: Partial<Pick<EligibleLease, 'tenant_id' | 'unit_id' | 'status' | 'monthly_rent' | 'maintenance_fee_amount' | 'start_date' | 'end_date'>>,
+    lease: Partial<Pick<EligibleLease, 'tenant_id' | 'unit_id' | 'status' | 'monthly_rent' | 'maintenance_fee_amount' | 'start_date' | 'end_date' | 'billing_frequency_months'>>,
     period: BillingPeriod,
   ) {
     const startDate = this.dateOnly(lease.start_date);
@@ -1186,6 +1251,7 @@ export class AutomationsService {
     if (!lease.unit_id) return 'UNIT_MISSING';
     if (String(lease.status ?? '') !== 'ACTIVE') return `STATUS_${String(lease.status ?? 'UNKNOWN').toUpperCase()}`;
     if (!(this.leaseRentAmount(lease) > 0)) return 'RENT_MISSING';
+    if (!this.shouldBillLeaseInPeriod(lease, period)) return 'OUTSIDE_BILLING_FREQUENCY';
     if (!startDate || startDate > period.periodEnd) return 'STARTS_AFTER_PERIOD';
     if (endDate && endDate < period.periodStart) return 'ENDED_BEFORE_PERIOD';
     return null;
