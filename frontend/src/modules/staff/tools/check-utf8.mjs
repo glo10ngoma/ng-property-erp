@@ -3,7 +3,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(fileURLToPath(new URL('..', import.meta.url)));
-const markers = ['Ã', 'Â', 'â€™', 'â€œ', 'â€\u009d', 'â€“', 'â€”', 'ï¿½', '�'];
+const markers = [
+  String.fromCodePoint(0xc3),
+  String.fromCodePoint(0xc2),
+  String.fromCodePoint(0xe2) + String.fromCodePoint(0x20ac),
+  String.fromCodePoint(0xef, 0xbf, 0xbd),
+  String.fromCodePoint(0xfffd),
+];
 
 function walk(dir, files = []) {
   for (const entry of readdirSync(dir)) {

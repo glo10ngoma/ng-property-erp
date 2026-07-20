@@ -90,7 +90,7 @@ export class SaasService {
   private normalizeYear(value: unknown, fallback = new Date().getFullYear()) {
     const year = Number(value ?? fallback);
     if (!Number.isFinite(year) || year < 2000) {
-      throw new BadRequestException('AnnÃ©e invalide');
+      throw new BadRequestException('Année invalide');
     }
     return year;
   }
@@ -137,10 +137,10 @@ export class SaasService {
       : Math.max(workingDays - paidLeaveDays - sickDays - unjustifiedAbsenceDays, 0);
     const totalDays = presentDays + paidLeaveDays + sickDays + unjustifiedAbsenceDays;
 
-    if (!employeeId) throw new BadRequestException('EmployÃ© requis');
-    if (workingDays <= 0) throw new BadRequestException('Le nombre de jours ouvrables doit Ãªtre supÃ©rieur Ã  0.');
+    if (!employeeId) throw new BadRequestException('Employé requis');
+    if (workingDays <= 0) throw new BadRequestException('Le nombre de jours ouvrables doit être supérieur à 0.');
     if (totalDays > workingDays) {
-      throw new BadRequestException('La somme prÃ©sence + congÃ©s payÃ©s + maladie + absences non justifiÃ©es ne peut pas dÃ©passer les jours ouvrables.');
+      throw new BadRequestException('La somme présence + congés payés + maladie + absences non justifiées ne peut pas dépasser les jours ouvrables.');
     }
 
     return {
@@ -211,7 +211,7 @@ export class SaasService {
       [this.context.organizationId(), payload.employeeId, payload.month, payload.year],
     );
     if (existing.rows[0] && existing.rows[0].status === 'VALIDATED') {
-      throw new BadRequestException('Ce pointage mensuel est dÃ©jÃ  validÃ© et ne peut plus Ãªtre modifiÃ©.');
+      throw new BadRequestException('Ce pointage mensuel est déjà validé et ne peut plus être modifié.');
     }
 
     const advancesTotal = await this.monthlyAdvanceTotal(client, payload.employeeId, payload.month, payload.year);
@@ -1506,9 +1506,9 @@ export class SaasService {
         [id, this.context.organizationId()],
       );
       const row = requireRow(advance.rows[0], 'Salary advance');
-      if (row.status === 'PAID') throw new BadRequestException('Cette avance est dÃƒÂ©jÃƒÂ  payÃƒÂ©e');
+      if (row.status === 'PAID') throw new BadRequestException('Cette avance est déjà payée');
       await this.ensureWorkflowApproved(client, row.workflow_instance_id);
-      if (!['APPROVED', 'PENDING', 'DRAFT'].includes(row.status)) throw new BadRequestException('Cette avance ne peut pas ÃƒÂªtre payÃƒÂ©e');
+      if (!['APPROVED', 'PENDING', 'DRAFT'].includes(row.status)) throw new BadRequestException('Cette avance ne peut pas être payée');
       const paid = await client.query(
         `UPDATE salary_advances SET status = 'PAID'
          WHERE id = $1 AND organization_id = $2 RETURNING *`,
@@ -1563,7 +1563,7 @@ export class SaasService {
           type: 'LEAVE_APPROVAL',
           entity_type: 'leaves',
           entity_id: rows[0].id,
-          title: `Demande congÃƒÂ© #${rows[0].id}`,
+          title: `Demande congé #${rows[0].id}`,
           comment: body.reason ?? null,
         });
         await client.query('UPDATE leaves SET workflow_instance_id = $2 WHERE id = $1', [rows[0].id, workflow.id]);
@@ -1676,7 +1676,7 @@ export class SaasService {
         [organizationId, month, year, employeeId],
       );
       if (!attendance.rows.length) {
-        throw new BadRequestException('Aucun pointage mensuel validÃ© pour cette pÃ©riode.');
+        throw new BadRequestException('Aucun pointage mensuel validé pour cette période.');
       }
 
       const generated: Record<string, unknown>[] = [];
@@ -1789,8 +1789,8 @@ export class SaasService {
         [id, this.context.organizationId()],
       );
       const row = requireRow(payroll.rows[0], 'Payroll');
-      if (row.status === 'PAID') throw new BadRequestException('Cette paie est dÃƒÂ©jÃƒÂ  payÃƒÂ©e');
-      if (!['VALIDATED', 'DRAFT'].includes(row.status)) throw new BadRequestException('Cette paie ne peut pas ÃƒÂªtre payÃƒÂ©e');
+      if (row.status === 'PAID') throw new BadRequestException('Cette paie est déjà payée');
+      if (!['VALIDATED', 'DRAFT'].includes(row.status)) throw new BadRequestException('Cette paie ne peut pas être payée');
       const paid = await client.query(
         `UPDATE payrolls SET status = 'PAID', payment_date = CURRENT_DATE
          WHERE id = $1 AND organization_id = $2 RETURNING *`,
@@ -2295,7 +2295,7 @@ export class SaasService {
 
   async createEmployeeAttendanceBulk(body: Record<string, unknown>) {
     const rows = Array.isArray(body.rows) ? body.rows : [];
-    if (!rows.length) throw new BadRequestException('Aucune ligne de pointage Ã  enregistrer.');
+    if (!rows.length) throw new BadRequestException('Aucune ligne de pointage à enregistrer.');
     return this.db.transaction(async (client) => {
       const saved = [];
       for (const row of rows) {
@@ -2364,7 +2364,7 @@ export class SaasService {
     const monthlyAttendance = attendance.filter((row) => Number(row.month) === monthFilter && Number(row.year) === yearFilter);
     const byDepartmentMap = new Map<string, number>();
     for (const employee of employees) {
-      const key = String(employee.department ?? 'Non renseignÃ©');
+      const key = String(employee.department ?? 'Non renseigné');
       byDepartmentMap.set(key, (byDepartmentMap.get(key) ?? 0) + 1);
     }
     return {
@@ -9543,13 +9543,13 @@ export class SaasService {
     if (!contractType) {
       throw new BadRequestException('Type de contrat requis.');
     }
-    const startDate = this.normalizeHrDate(values.startDate, 'date de debut du contrat', true);
+    const startDate = this.normalizeHrDate(values.startDate, 'date de début du contrat', true);
     const endDate = this.normalizeHrDate(values.endDate, 'date de fin du contrat');
     if (contractType.toUpperCase() === 'CDD' && !endDate) {
       throw new BadRequestException('Date de fin obligatoire pour un CDD.');
     }
     if (endDate && startDate && endDate <= startDate) {
-      throw new BadRequestException('La date de fin du contrat doit etre posterieure a la date de debut.');
+      throw new BadRequestException('La date de fin du contrat doit être postérieure à la date de début.');
     }
     const salaryAmount = Number(values.salaryAmount ?? 0);
     if (!Number.isFinite(salaryAmount) || salaryAmount < 0) {
