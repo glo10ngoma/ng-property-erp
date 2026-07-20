@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { RequestContext } from '../auth/request-context';
 import { requireRow } from '../common/not-found';
@@ -159,6 +159,46 @@ export class TenantsService {
     const situation =
       financial.overdue_invoices > 0 ? 'En retard' : financial.remaining > 0 ? 'Dette' : 'A jour';
     return { ...tenant, financial, invoices: invoices.rows, payments: payments.rows, situation };
+  }
+
+  async findTrashed() {
+    const organizationId = this.context.organizationId();
+    const { rows } = await this.db.query(`
+      SELECT t.*,
+             ('CLI-' || LPAD(COALESCE(t.tenant_number, t.id)::TEXT, 6, '0')) AS client_reference,
+             deleted_user.email AS deleted_by_name,
+             COALESCE(lease_stats.lease_count, 0)::INT AS lease_count,
+             COALESCE(invoice_stats.invoice_count, 0)::INT AS invoice_count,
+             COALESCE(payment_stats.payment_count, 0)::INT AS payment_count
+      FROM tenants t
+      LEFT JOIN app_users deleted_user ON deleted_user.id = t.deleted_by
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::INT AS lease_count
+        FROM leases l
+        WHERE l.tenant_id = t.id
+          AND l.organization_id = t.organization_id
+          AND l.deleted_at IS NULL
+      ) lease_stats ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::INT AS invoice_count
+        FROM invoices i
+        WHERE i.tenant_id = t.id
+          AND i.organization_id = t.organization_id
+          AND i.deleted_at IS NULL
+      ) invoice_stats ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::INT AS payment_count
+        FROM payments p
+        JOIN invoices i ON i.id = p.invoice_id
+        WHERE i.tenant_id = t.id
+          AND p.organization_id = t.organization_id
+          AND p.deleted_at IS NULL
+      ) payment_stats ON TRUE
+      WHERE t.organization_id = $1
+        AND t.deleted_at IS NOT NULL
+      ORDER BY t.deleted_at DESC, t.id DESC
+    `, [organizationId]);
+    return rows;
   }
 
   async create(dto: CreateTenantDto) {
@@ -385,23 +425,127 @@ export class TenantsService {
   }
 
   async remove(id: number) {
-    const tenant = (await this.findOne(id)) as unknown as { unit_id?: number };
-    await this.db.query('UPDATE tenants SET deleted_at = NOW(), deleted_by = $2, status = $3 WHERE id = $1 AND organization_id = $4', [
-      id,
-      this.context.userId(),
-      'INACTIVE',
-      this.context.organizationId(),
-    ]);
-    if (tenant.unit_id) {
-      await this.db.query(
-        `UPDATE units SET status = 'VACANT'
-         WHERE id = $1 AND NOT EXISTS (
-           SELECT 1 FROM tenants WHERE unit_id = $1 AND status = 'ACTIVE' AND deleted_at IS NULL
-         )`,
-        [tenant.unit_id],
-      );
+    return this.trash(id, 'Suppression depuis la liste des locataires');
+  }
+
+  async trash(id: number, reason: string) {
+    const deletionReason = String(reason ?? '').trim();
+    if (!deletionReason) {
+      throw new BadRequestException('Le motif de suppression est obligatoire.');
     }
-    return { deleted: true };
+    return this.db.transaction(async (client) => {
+      const organizationId = this.context.organizationId();
+      const tenant = await client.query(
+        `SELECT id, unit_id
+         FROM tenants
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+         FOR UPDATE`,
+        [id, organizationId],
+      );
+      const row = requireRow(tenant.rows[0], 'Tenant');
+      await client.query(
+        `UPDATE tenants
+         SET deleted_at = NOW(),
+             deleted_by = $2,
+             deletion_reason = $3,
+             status = 'INACTIVE'
+         WHERE id = $1 AND organization_id = $4 AND deleted_at IS NULL`,
+        [id, this.context.userId(), deletionReason, organizationId],
+      );
+      if (row.unit_id) {
+        await client.query(
+          `UPDATE units SET status = 'VACANT'
+           WHERE id = $1 AND organization_id = $2 AND NOT EXISTS (
+             SELECT 1 FROM tenants WHERE unit_id = $1 AND status = 'ACTIVE' AND deleted_at IS NULL
+           )`,
+          [row.unit_id, organizationId],
+        );
+      }
+      await this.writeTenantAudit(client, 'TENANT_MOVED_TO_TRASH', id, { deletion_reason: deletionReason });
+      return { trashed: true, id };
+    });
+  }
+
+  async restore(id: number) {
+    return this.db.transaction(async (client) => {
+      const organizationId = this.context.organizationId();
+      const tenant = await client.query(
+        `SELECT id, unit_id, status
+         FROM tenants
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NOT NULL
+         FOR UPDATE`,
+        [id, organizationId],
+      );
+      requireRow(tenant.rows[0], 'Tenant');
+      await client.query(
+        `UPDATE tenants
+         SET deleted_at = NULL,
+             deleted_by = NULL,
+             deletion_reason = NULL,
+             status = CASE WHEN status = 'INACTIVE' THEN 'ACTIVE' ELSE status END
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NOT NULL`,
+        [id, organizationId],
+      );
+      await client.query(
+        `UPDATE units u
+         SET status = 'OCCUPIED'
+         FROM leases l
+         WHERE l.unit_id = u.id
+           AND l.tenant_id = $1
+           AND l.organization_id = $2
+           AND u.organization_id = $2
+           AND l.deleted_at IS NULL
+           AND l.start_date <= CURRENT_DATE
+           AND (l.end_date IS NULL OR l.end_date >= CURRENT_DATE)
+           AND COALESCE(l.status, '') NOT IN ('DRAFT', 'CANCELLED')`,
+        [id, organizationId],
+      );
+      await this.writeTenantAudit(client, 'TENANT_RESTORED', id, {});
+      return { restored: true, id };
+    });
+  }
+
+  async deletionImpact(id: number) {
+    const organizationId = this.context.organizationId();
+    const tenant = await this.db.query(
+      `SELECT id FROM tenants WHERE id = $1 AND organization_id = $2 LIMIT 1`,
+      [id, organizationId],
+    );
+    requireRow(tenant.rows[0], 'Tenant');
+    const { rows } = await this.db.query(
+      `SELECT
+         (SELECT COUNT(*)::INT FROM leases WHERE tenant_id = $1 AND organization_id = $2 AND deleted_at IS NULL) AS leases,
+         (SELECT COUNT(*)::INT FROM invoices WHERE tenant_id = $1 AND organization_id = $2 AND deleted_at IS NULL) AS invoices,
+         (SELECT COUNT(*)::INT
+          FROM payments p
+          JOIN invoices i ON i.id = p.invoice_id
+          WHERE i.tenant_id = $1 AND p.organization_id = $2 AND p.deleted_at IS NULL) AS payments`,
+      [id, organizationId],
+    );
+    const counts = rows[0] ?? {};
+    const dependencies = [
+      { type: 'Baux', count: Number(counts.leases ?? 0) },
+      { type: 'Factures', count: Number(counts.invoices ?? 0) },
+      { type: 'Paiements', count: Number(counts.payments ?? 0) },
+    ].filter((entry) => entry.count > 0);
+    return {
+      canHardDelete: false,
+      hasFinancialHistory: dependencies.some((entry) => entry.type === 'Factures' || entry.type === 'Paiements'),
+      dependencies,
+    };
+  }
+
+  async permanentDelete(id: number) {
+    await this.deletionImpact(id);
+    throw new BadRequestException("La suppression definitive d'un locataire n'est pas disponible depuis l'interface.");
+  }
+
+  private async writeTenantAudit(client: PoolClient, action: string, tenantId: number, metadata: Record<string, unknown>) {
+    await client.query(
+      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+       VALUES ($1, $2, $3, 'tenants', $4, 'PATCH', $5, 200, $6::JSONB)`,
+      [this.context.organizationId(), this.context.userId() ?? null, action, tenantId, `/api/tenants/${tenantId}`, JSON.stringify(metadata)],
+    );
   }
 
   private normalizeCivility(value: string | null | undefined) {

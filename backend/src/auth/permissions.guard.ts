@@ -109,6 +109,21 @@ export class PermissionsGuard implements CanActivate {
   }
 
   private permissionFor(path: string, method: string) {
+    if (/^\/api\/tenants\/trash$/.test(path)) {
+      return 'tenants.read';
+    }
+    if (/^\/api\/tenants\/\d+\/deletion-impact$/.test(path)) {
+      return 'tenants.delete';
+    }
+    if (/^\/api\/tenants\/\d+\/trash$/.test(path)) {
+      return 'tenants.delete';
+    }
+    if (/^\/api\/tenants\/\d+\/restore$/.test(path)) {
+      return 'tenants.update';
+    }
+    if (/^\/api\/tenants\/\d+\/permanent$/.test(path)) {
+      return 'tenants.delete';
+    }
     if (/^\/api\/leases\/trash$/.test(path)) {
       return 'leases.trash.read';
     }

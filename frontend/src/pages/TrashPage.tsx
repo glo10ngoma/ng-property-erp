@@ -36,14 +36,15 @@ export function TrashPage() {
   const [deleteReason, setDeleteReason] = useState('');
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [archiveReason, setArchiveReason] = useState('');
-  const canReadTrash = can('leases.trash.read');
-  const canRestore = can('leases.restore');
-  const canArchive = can('leases.archive');
-  const canHardDelete = can('leases.hard_delete');
+  const canReadLeaseTrash = can('leases.trash.read');
+  const canReadTenantTrash = can('tenants.read');
 
   const enabledProviders = useMemo(
-    () => (canReadTrash ? [trashEntityProviders.lease] : []),
-    [canReadTrash],
+    () => [
+      ...(canReadLeaseTrash ? [trashEntityProviders.lease] : []),
+      ...(canReadTenantTrash ? [trashEntityProviders.tenant] : []),
+    ],
+    [canReadLeaseTrash, canReadTenantTrash],
   );
 
   async function loadRows() {
@@ -147,6 +148,10 @@ export function TrashPage() {
     }
   }
 
+  const deleteTargetProvider = deleteTarget ? trashEntityProviders[deleteTarget.item.entityType] : null;
+  const canArchiveDeleteTarget = deleteTargetProvider?.canArchivePermission ? can(deleteTargetProvider.canArchivePermission) : false;
+  const canHardDeleteTarget = deleteTargetProvider?.canPermanentDeletePermission ? can(deleteTargetProvider.canPermanentDeletePermission) : false;
+
   return (
     <section>
       <PageHeader title="Corbeille" />
@@ -189,6 +194,9 @@ export function TrashPage() {
               const restoreAction = `${item.entityType}-${item.recordId}-restore`;
               const deleteAction = `${item.entityType}-${item.recordId}-permanent`;
               const archiveAction = `${item.entityType}-${item.recordId}-archive`;
+              const canRestore = can(provider.canRestorePermission);
+              const canArchive = provider.canArchivePermission ? can(provider.canArchivePermission) : false;
+              const canHardDelete = provider.canPermanentDeletePermission ? can(provider.canPermanentDeletePermission) : false;
 
               return (
                 <tr key={`${item.entityType}-${item.recordId}`}>
@@ -239,12 +247,12 @@ export function TrashPage() {
           footer={(
             <>
               <button type="button" className="secondary" onClick={() => setDeleteTarget(null)}>Annuler</button>
-              {canArchive ? (
+              {canArchiveDeleteTarget ? (
                 <button type="button" className="secondary" onClick={() => void archiveItem()} disabled={actionKey === `${deleteTarget.item.entityType}-${deleteTarget.item.recordId}-archive`}>
                   Archiver définitivement
                 </button>
               ) : null}
-              {canHardDelete ? (
+              {canHardDeleteTarget ? (
                 <button
                   type="button"
                   onClick={() => void confirmPermanentDelete()}

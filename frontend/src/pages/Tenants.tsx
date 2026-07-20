@@ -95,6 +95,10 @@ export function Tenants() {
   const [filters, setFilters] = useState({ status: '', building: '', unit: '', leaseType: '', paymentStatus: '', leaseExpiry: '', profession: '', nationality: '', reminder: '' });
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  const [trashTarget, setTrashTarget] = useState<Tenant | null>(null);
+  const [trashReason, setTrashReason] = useState('');
+  const [trashError, setTrashError] = useState('');
+  const [trashSubmitting, setTrashSubmitting] = useState(false);
 
   const buildings = uniqueValues(data.flatMap((tenant) => splitLabels(tenant.occupied_building_names ?? tenant.building_name)));
   const units = uniqueValues(data.flatMap((tenant) => splitLabels(tenant.occupied_unit_labels ?? tenant.unit_number)));
@@ -211,6 +215,34 @@ export function Tenants() {
     setTenantFormDirty(false);
   }
 
+  function openTrashDialog(tenant: Tenant) {
+    setTrashTarget(tenant);
+    setTrashReason('');
+    setTrashError('');
+  }
+
+  async function confirmTrashTenant() {
+    if (!trashTarget) return;
+    const reason = trashReason.trim();
+    if (!reason) {
+      setTrashError('Le motif de suppression est obligatoire.');
+      return;
+    }
+    setTrashSubmitting(true);
+    setTrashError('');
+    try {
+      await api.patch(`/tenants/${trashTarget.id}/trash`, { reason });
+      setSuccess('Locataire mis a la corbeille avec succes.');
+      setTrashTarget(null);
+      setTrashReason('');
+      await reload();
+    } catch (err) {
+      setTrashError(extractApiErrorMessage(err));
+    } finally {
+      setTrashSubmitting(false);
+    }
+  }
+
   return (
     <section>
       <PageHeader title="Locataires" action={can('tenants.create') ? <button onClick={() => openForm()}><Plus size={16} />Nouveau locataire</button> : undefined} />
@@ -273,6 +305,7 @@ export function Tenants() {
                   {can('tenants.update') && <button className="icon-btn" title="Modifier" onClick={() => openForm(tenant)}><Pencil size={16} /></button>}
                   {can('documents.upload') && <button className="icon-btn" title="Nouveau bail" onClick={() => navigate(`/leases/new?tenantId=${tenant.id}`)}><ScrollText size={16} /></button>}
                   {can('invoices.create') && <button className="icon-btn" title="Nouvelle facture" onClick={() => createInvoice(tenant)}><FilePlus size={16} /></button>}
+                  {can('tenants.delete') && <button className="icon-btn danger" title="Mettre a la corbeille" onClick={() => openTrashDialog(tenant)}><Trash2 size={16} /></button>}
                 </td>
               </tr>
             ))}
@@ -294,6 +327,33 @@ export function Tenants() {
           />
         </Modal>
       )}
+      {trashTarget ? (
+        <Modal
+          title="Mettre le locataire a la corbeille"
+          onClose={() => {
+            if (!trashSubmitting) {
+              setTrashTarget(null);
+              setTrashReason('');
+              setTrashError('');
+            }
+          }}
+          footer={(
+            <>
+              <button type="button" className="secondary" onClick={() => setTrashTarget(null)} disabled={trashSubmitting}>Annuler</button>
+              <button type="button" className="danger" onClick={() => void confirmTrashTenant()} disabled={trashSubmitting}>
+                {trashSubmitting ? 'Suppression...' : 'Mettre a la corbeille'}
+              </button>
+            </>
+          )}
+        >
+          <p>Le locataire <strong>{tenantName(trashTarget)}</strong> sera masque des listes actives et restera recuperable depuis la Corbeille.</p>
+          <label style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+            Motif de suppression <em>*</em>
+            <textarea rows={3} value={trashReason} onChange={(event) => setTrashReason(event.target.value)} placeholder="Exemple : doublon, dossier annule..." />
+          </label>
+          {trashError ? <div className="error-message" style={{ marginTop: 10 }}>{trashError}</div> : null}
+        </Modal>
+      ) : null}
     </section>
   );
 }
