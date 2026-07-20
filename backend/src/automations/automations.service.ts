@@ -5,6 +5,13 @@ import { RequestContext } from '../auth/request-context';
 import { DatabaseService } from '../database/database.service';
 import { EmailService } from '../email/email.service';
 import { SaasService } from '../saas/saas.service';
+import {
+  calculateInitialBillingCycle,
+  calculateNextFullBillingPeriod,
+  daysInMonth as billingDaysInMonth,
+  normalizeBillingFrequency,
+  parseDate,
+} from '../utils/billing-period';
 
 type MonthlyRentBillingSettingRecord = {
   id: number;
@@ -30,13 +37,8 @@ type BillingPeriod = {
   frequencyMonths: number;
 };
 
-type RecurringAmount = {
+type RecurringAmountSummary = {
   amount: number;
-  monthlyAmount: number;
-  proratedFirstMonth: boolean;
-  billedDays: number;
-  daysInMonth: number;
-  fullMonths: number;
 };
 
 type EligibleLease = {
@@ -1373,7 +1375,7 @@ export class AutomationsService {
   }
 
   private daysInMonth(year: number, month: number) {
-    return new Date(year, month, 0).getDate();
+    return billingDaysInMonth(parseDate(`${year}-${this.two(month)}-01`));
   }
 
   private two(value: number) {
@@ -1402,99 +1404,54 @@ export class AutomationsService {
     return `${start} - ${end}`;
   }
 
-  private billingPeriodForLease(basePeriod: BillingPeriod, lease: Partial<Pick<EligibleLease, 'billing_frequency_months'>>) {
-    const frequencyMonths = this.normalizeBillingFrequency(lease.billing_frequency_months);
-    const end = this.addMonths(basePeriod.year, basePeriod.month, frequencyMonths - 1);
-    return {
-      ...basePeriod,
-      frequencyMonths,
-      periodEnd: `${end.year}-${this.two(end.month)}-${this.two(this.daysInMonth(end.year, end.month))}`,
-    };
-  }
-
   private nextBillingPeriodForLease(basePeriod: BillingPeriod, lease: Partial<EligibleLease>) {
-    const frequencyMonths = this.normalizeBillingFrequency(lease.billing_frequency_months);
+    const frequencyMonths = normalizeBillingFrequency(lease.billing_frequency_months);
     const lastEnd = this.dateOnly(lease.last_rent_period_end) ?? this.lastRentPeriodEndFromBillingFields(lease);
-    const nextStart = this.nextBillingCycleStart(lease);
-    if (!nextStart) {
-      return null;
-    }
+    let calculatedPeriod: { period_start: string; period_end: string; frequency_months: number } | null = null;
+
     if (lastEnd) {
-      if (nextStart !== basePeriod.periodStart) {
+      calculatedPeriod = calculateNextFullBillingPeriod(parseDate(lastEnd), frequencyMonths);
+      if (calculatedPeriod.period_start !== basePeriod.periodStart) {
         return null;
       }
-    } else if (nextStart > basePeriod.periodEnd) {
-      return null;
+    } else {
+      const startDate = this.dateOnly(lease.start_date);
+      if (!startDate) {
+        return null;
+      }
+      calculatedPeriod = calculateInitialBillingCycle(parseDate(startDate), frequencyMonths, []);
+      if (calculatedPeriod.period_start > basePeriod.periodEnd) {
+        return null;
+      }
     }
-    const year = this.yearFromDate(nextStart);
-    const month = this.monthFromDate(nextStart);
-    const period = this.billingPeriodForLease(this.buildBillingPeriod(year, month), { billing_frequency_months: frequencyMonths });
+
+    const year = this.yearFromDate(calculatedPeriod.period_start);
+    const month = this.monthFromDate(calculatedPeriod.period_start);
+    const period = this.buildBillingPeriod(year, month);
     return {
       ...period,
-      periodStart: nextStart,
+      frequencyMonths: calculatedPeriod.frequency_months,
+      periodStart: calculatedPeriod.period_start,
+      periodEnd: calculatedPeriod.period_end,
     };
   }
 
-  private nextBillingCycleStart(lease: Partial<EligibleLease>) {
-    const lastEnd = this.dateOnly(lease.last_rent_period_end) ?? this.lastRentPeriodEndFromBillingFields(lease);
-    if (lastEnd) {
-      return this.addDays(lastEnd, 1);
-    }
-    const startDate = this.dateOnly(lease.start_date);
-    if (!startDate) {
-      return null;
-    }
-    return startDate;
-  }
-
-  private recurringAmountsForPeriod(lease: Partial<EligibleLease>, period: BillingPeriod) {
-    const rent = this.recurringAmountForPeriod(this.leaseRentAmount(lease), period);
-    const syndic = this.recurringAmountForPeriod(Number(lease.monthly_syndic_amount ?? 0), period);
+  private recurringAmountsForPeriod(lease: Partial<EligibleLease>, period: BillingPeriod): { rent: RecurringAmountSummary; syndic: RecurringAmountSummary; total: number } {
+    const cycle = calculateInitialBillingCycle(parseDate(period.periodStart), period.frequencyMonths, [
+      { code: 'RENT', label: 'Loyer', monthlyAmount: this.leaseRentAmount(lease) },
+      { code: 'SYNDIC', label: 'Syndic', monthlyAmount: Number(lease.monthly_syndic_amount ?? 0) },
+    ]);
+    const rentAmount = cycle.lines
+      .filter((line) => line.component_code === 'RENT')
+      .reduce((sum, line) => sum + line.amount, 0);
+    const syndicAmount = cycle.lines
+      .filter((line) => line.component_code === 'SYNDIC')
+      .reduce((sum, line) => sum + line.amount, 0);
     return {
-      rent,
-      syndic,
-      total: this.roundMoney(rent.amount + syndic.amount),
+      rent: { amount: rentAmount },
+      syndic: { amount: syndicAmount },
+      total: cycle.total_amount,
     };
-  }
-
-  private recurringAmountForPeriod(monthlyAmount: number, period: BillingPeriod): RecurringAmount {
-    const amount = Number(monthlyAmount ?? 0);
-    if (!(amount > 0)) {
-      return {
-        amount: 0,
-        monthlyAmount: 0,
-        proratedFirstMonth: false,
-        billedDays: 0,
-        daysInMonth: this.daysInMonth(period.year, period.month),
-        fullMonths: period.frequencyMonths,
-      };
-    }
-    const startDay = this.dayFromDate(period.periodStart);
-    const daysInStartMonth = this.daysInMonth(this.yearFromDate(period.periodStart), this.monthFromDate(period.periodStart));
-    if (startDay <= 1) {
-      return {
-        amount: this.roundMoney(amount * period.frequencyMonths),
-        monthlyAmount: amount,
-        proratedFirstMonth: false,
-        billedDays: daysInStartMonth,
-        daysInMonth: daysInStartMonth,
-        fullMonths: period.frequencyMonths,
-      };
-    }
-    const billedDays = daysInStartMonth - startDay + 1;
-    const fullMonths = Math.max(period.frequencyMonths - 1, 0);
-    return {
-      amount: this.roundMoney((amount * billedDays) / daysInStartMonth + amount * fullMonths),
-      monthlyAmount: amount,
-      proratedFirstMonth: true,
-      billedDays,
-      daysInMonth: daysInStartMonth,
-      fullMonths,
-    };
-  }
-
-  private roundMoney(value: number) {
-    return Math.round((Number(value ?? 0) + Number.EPSILON) * 100) / 100;
   }
 
   private lastRentPeriodEndFromBillingFields(lease: Partial<EligibleLease>) {
@@ -1504,25 +1461,6 @@ export class AutomationsService {
       return null;
     }
     return `${year}-${this.two(month)}-${this.two(this.daysInMonth(year, month))}`;
-  }
-
-  private normalizeBillingFrequency(value: unknown) {
-    const frequency = Number(value ?? 1);
-    return Number.isInteger(frequency) && frequency >= 1 && frequency <= 12 ? frequency : 1;
-  }
-
-  private addMonths(year: number, month: number, offset: number) {
-    const zeroBased = (year * 12) + (month - 1) + offset;
-    return {
-      year: Math.floor(zeroBased / 12),
-      month: (zeroBased % 12) + 1,
-    };
-  }
-
-  private addDays(value: string, days: number) {
-    const date = new Date(`${value.slice(0, 10)}T00:00:00`);
-    date.setDate(date.getDate() + days);
-    return `${date.getFullYear()}-${this.two(date.getMonth() + 1)}-${this.two(date.getDate())}`;
   }
 
   private monthFromDate(value: string) {
