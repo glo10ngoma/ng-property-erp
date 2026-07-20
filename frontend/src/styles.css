@@ -339,6 +339,13 @@ textarea { min-height: 72px; resize: vertical; }
 .table-sort-button-right { justify-content: flex-end; }
 .maintenance-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 .maintenance-kpis .mini-stat { padding: 8px 9px; }
+.maintenance-subnav { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.maintenance-subnav a { display: inline-flex; align-items: center; min-height: 34px; padding: 0 12px; border-radius: 6px; border: 1px solid #d6e1e8; background: white; color: #48606d; font-size: 13px; font-weight: 700; text-decoration: none; }
+.maintenance-subnav a.active { background: #255e7e; border-color: #255e7e; color: white; }
+.maintenance-requests-panel { display: grid; gap: 10px; }
+.maintenance-kpi-button { border: 1px solid #dde5ea; text-align: left; cursor: pointer; color: inherit; }
+.maintenance-kpi-button.active { border-color: #255e7e; box-shadow: 0 0 0 2px rgba(37, 94, 126, .12); }
+.maintenance-kpi-button.active span, .maintenance-kpi-button.active strong { color: #255e7e; }
 .maintenance-filter-bar { display: grid; grid-template-columns: minmax(180px, 1.2fr) repeat(5, minmax(120px, .8fr)) repeat(2, auto) auto auto auto; gap: 8px; align-items: end; margin-bottom: 10px; }
 .maintenance-filter-bar input, .maintenance-filter-bar select { min-height: 34px; }
 .maintenance-filter-bar .search-select { position: relative; gap: 0; }

@@ -23,7 +23,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, includesText, money, shortDate } from '../../../api';
 import { useAuth } from '../../../auth';
 import { EmptyState, Modal, PageHeader, SearchableSelect, SuccessMessage, TenantSearchSelect } from '../../../components';
@@ -94,6 +94,8 @@ type MaintenanceDashboard = {
   generated_at?: string;
 };
 
+type MaintenanceRequestFilters = { status: string; priority: string; category: string; building_id: string; employee_id: string; overdue: boolean; week: boolean };
+
 const PRIORITY_OPTIONS = [
   { value: 'LOW', label: 'Faible' },
   { value: 'NORMAL', label: 'Normale' },
@@ -130,7 +132,18 @@ const MAINTENANCE_CATEGORIES = [
 const allowedReportStatuses = new Set(['NEW', 'DIAGNOSIS', 'WAITING_APPROVAL', 'APPROVED', 'ASSIGNED', 'IN_PROGRESS', 'ON_HOLD']);
 const resolvedStatuses = new Set(['RESOLVED', 'VALIDATED', 'CLOSED']);
 
-export function MaintenancePage() {
+type MaintenancePageView = 'dashboard' | 'requests';
+
+function defaultMaintenanceFilters(): MaintenanceRequestFilters {
+  return { status: '', priority: '', category: '', building_id: '', employee_id: '', overdue: false, week: false };
+}
+
+function pickDefaultMaintenanceFilters(keys: Partial<MaintenanceRequestFilters>) {
+  const defaults = defaultMaintenanceFilters();
+  return Object.fromEntries(Object.keys(keys).map((key) => [key, defaults[key as keyof MaintenanceRequestFilters]])) as Partial<MaintenanceRequestFilters>;
+}
+
+export function MaintenancePage({ view = 'dashboard' }: { view?: MaintenancePageView }) {
   const { can } = useAuth();
   const navigate = useNavigate();
   const requests = useApiList<MaintenanceRequest>('/maintenance/requests');
@@ -139,7 +152,7 @@ export function MaintenancePage() {
   const units = useApiList<UnitOption>('/units');
   const tenants = useApiList<TenantSearchOption>('/tenants');
   const [query, setQuery] = useState('');
-  const [filters, setFilters] = useState({ status: '', priority: '', category: '', building_id: '', employee_id: '', overdue: false, week: false });
+  const [filters, setFilters] = useState<MaintenanceRequestFilters>(() => defaultMaintenanceFilters());
   const [dashboardFilters, setDashboardFilters] = useState({ period: '30d', start: '', end: '', building_id: '', employee_id: '', priority: '', status: '' });
   const [dashboard, setDashboard] = useState<MaintenanceDashboard | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
@@ -182,7 +195,8 @@ export function MaintenancePage() {
       (!filters.week || (reported >= weekStart && reported <= weekEnd))
     );
   }), [requests.data, query, filters]);
-  const filteredCoûtTotal = useMemo(() => filtered.reduce((sum, item) => sum + Number(item.total_cost ?? item.estimated_cost ?? 0), 0), [filtered]);
+  const requestKpis = useMemo(() => maintenanceRequestKpis(requests.data), [requests.data]);
+  const filteredCostTotal = useMemo(() => filtered.reduce((sum, item) => sum + Number(item.total_cost ?? item.estimated_cost ?? 0), 0), [filtered]);
 
   const nextRequestNumber = useMemo(() => {
     const numbers = requests.data
@@ -275,102 +289,42 @@ export function MaintenancePage() {
           ) : undefined
         }
       />
-      <MaintenanceDashboardPanel
-        dashboard={dashboard}
-        filters={dashboardFilters}
-        buildings={buildings.data}
-        employees={employees.data}
-        loading={dashboardLoading}
-        error={dashboardError}
-        onFiltersChange={setDashboardFilters}
-        onExportExcel={exportDashboardWorkbook}
-        onExportPdf={() => window.print()}
-      />
-
-      <div className="maintenance-filter-bar">
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" />
-        <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}>
-          <option value="">Statut</option>
-          {MAINTENANCE_STATUSES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-        <select value={filters.priority} onChange={(event) => setFilters({ ...filters, priority: event.target.value })}>
-          <option value="">Priorité</option>
-          {PRIORITY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-        <select value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}>
-          <option value="">Catégorie</option>
-          {MAINTENANCE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
-        </select>
-        <SearchableSelect
-          options={buildingOptions(buildings.data)}
-          value={filters.building_id ? Number(filters.building_id) : null}
-          onChange={(value) => setFilters({ ...filters, building_id: value ? String(value) : '' })}
-          placeholder="Immeuble"
-          emptyMessage="Aucun immeuble trouve"
+      <MaintenanceModuleNav />
+      {view === 'dashboard' ? (
+        <MaintenanceDashboardPanel
+          dashboard={dashboard}
+          filters={dashboardFilters}
+          buildings={buildings.data}
+          employees={employees.data}
+          loading={dashboardLoading}
+          error={dashboardError}
+          onFiltersChange={setDashboardFilters}
+          onExportExcel={exportDashboardWorkbook}
+          onExportPdf={() => window.print()}
         />
-        <SearchableSelect
-          options={employeeOptions(employees.data)}
-          value={filters.employee_id ? Number(filters.employee_id) : null}
-          onChange={(value) => setFilters({ ...filters, employee_id: value ? String(value) : '' })}
-          placeholder="Technicien"
-          emptyMessage="Aucun technicien trouve"
+      ) : (
+        <MaintenanceRequestsSection
+          canUpdate={can('maintenance.update')}
+          canAssign={can('maintenance.assign')}
+          canClose={can('maintenance.close')}
+          query={query}
+          filters={filters}
+          requests={filtered}
+          kpis={requestKpis}
+          buildings={buildings.data}
+          employees={employees.data}
+          totalCost={filteredCostTotal}
+          onQueryChange={setQuery}
+          onFiltersChange={setFilters}
+          onExportCsv={() => exportCsv('maintenance.csv', exportRows())}
+          onExportExcel={() => exportWorkbook('maintenance.xlsx')}
+          onView={(request) => navigate(`/maintenance/${request.id}`)}
+          onEdit={setEditing}
+          onAssign={setAssigning}
+          onCloseRequest={(request) => postAction(`/maintenance/requests/${request.id}/close`, 'Demande clôturée.')}
+          onCancelRequest={(request) => postAction(`/maintenance/requests/${request.id}/cancel`, 'Demande annulée.')}
         />
-        <label className="checkbox-filter"><input type="checkbox" checked={filters.overdue} onChange={(event) => setFilters({ ...filters, overdue: event.target.checked })} />En retard</label>
-        <label className="checkbox-filter"><input type="checkbox" checked={filters.week} onChange={(event) => setFilters({ ...filters, week: event.target.checked })} />Cette semaine</label>
-        <button type="button" className="secondary" onClick={() => setFilters({ status: '', priority: '', category: '', building_id: '', employee_id: '', overdue: false, week: false })}><RotateCcw size={15} />Réinitialiser</button>
-        <button type="button" className="secondary" onClick={() => exportCsv('maintenance.csv', exportRows())}>CSV</button>
-        <button type="button" className="secondary" onClick={() => exportWorkbook('maintenance.xlsx')}>Excel</button>
-      </div>
-
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>N° demande</th>
-              <th>Titre</th>
-              <th>Catégorie</th>
-              <th>Priorité</th>
-              <th>Statut</th>
-              <th>Immeuble</th>
-              <th>Unité</th>
-              <th>Locataire</th>
-              <th>Échéance</th>
-              <th>Technicien</th>
-              <th className="right">Coût</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((request) => (
-              <tr key={request.id} className="clickable-row" onClick={() => navigate(`/maintenance/${request.id}`)}>
-                <td>{request.request_number}</td>
-                <td>{request.title}</td>
-                <td>{request.category}</td>
-                <td><span className={`badge ${priorityClass(request.priority)}`}>{priorityLabel(request.priority)}</span></td>
-                <td><span className={`badge ${statusClass(request.status)}`}>{maintenanceStatusLabel(request.status)}</span></td>
-                <td>{request.building_name ?? '-'}</td>
-                <td>{request.unit_number ?? '-'}</td>
-                <td>{request.tenant_name ?? '-'}</td>
-                <td>{request.due_date ? shortDate(request.due_date) : '-'}</td>
-                <td>{request.assigned_employee_name ?? '-'}</td>
-                <td className="right">{money(request.total_cost ?? request.estimated_cost ?? 0)}</td>
-                <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}>
-                  <button className="icon-btn" title="Voir" onClick={() => navigate(`/maintenance/${request.id}`)}><Eye size={16} /></button>
-                  {can('maintenance.update') && <button className="icon-btn" title="Modifier" onClick={() => setEditing(request)}><Pencil size={16} /></button>}
-                  {can('maintenance.assign') && <button className="icon-btn" title="Affecter" onClick={() => setAssigning(request)}><UserCog size={16} /></button>}
-                  {can('maintenance.close') && request.status !== 'CLOSED' && request.status !== 'CANCELLED' && <button className="icon-btn" title="Clôturer" onClick={() => postAction(`/maintenance/requests/${request.id}/close`, 'Demande clôturée.') }><CheckCircle2 size={16} /></button>}
-                  {can('maintenance.close') && request.status !== 'CLOSED' && request.status !== 'CANCELLED' && <button className="icon-btn danger" title="Annuler" onClick={() => postAction(`/maintenance/requests/${request.id}/cancel`, 'Demande annulée.') }><CircleX size={16} /></button>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!filtered.length && <EmptyState />}
-      </div>
-      <div className="summary-band maintenance-cost-footer">
-        <SummaryItem label="Demandes filtrées" value={filtered.length} />
-        <SummaryItem label="Total coût" value={money(filteredCoûtTotal)} />
-      </div>
+      )}
 
       {createOpen && (
         <MaintenanceRequestModal
@@ -407,6 +361,195 @@ export function MaintenancePage() {
           onSubmit={(body) => assignRequest(assigning.id, body)}
         />
       )}
+    </section>
+  );
+}
+
+function MaintenanceModuleNav() {
+  return (
+    <nav className="module-subnav maintenance-subnav" aria-label="Navigation maintenance">
+      <NavLink to="/maintenance/dashboard" className={({ isActive }) => isActive ? 'active' : undefined}>Dashboard</NavLink>
+      <NavLink to="/maintenance/requests" className={({ isActive }) => isActive ? 'active' : undefined}>Demandes</NavLink>
+    </nav>
+  );
+}
+
+function maintenanceRequestKpis(requests: MaintenanceRequest[]) {
+  return {
+    total: requests.length,
+    open: requests.filter((request) => request.status === 'NEW').length,
+    inProgress: requests.filter((request) => request.status === 'IN_PROGRESS').length,
+    pending: requests.filter((request) => request.status === 'WAITING_APPROVAL').length,
+    resolved: requests.filter((request) => request.status === 'RESOLVED').length,
+    closed: requests.filter((request) => request.status === 'CLOSED').length,
+    critical: requests.filter((request) => request.priority === 'URGENT').length,
+    overdue: requests.filter((request) => request.is_overdue).length,
+  };
+}
+
+type MaintenanceRequestsKpis = ReturnType<typeof maintenanceRequestKpis>;
+
+function MaintenanceRequestsSection({
+  canUpdate,
+  canAssign,
+  canClose,
+  query,
+  filters,
+  requests,
+  kpis,
+  buildings,
+  employees,
+  totalCost,
+  onQueryChange,
+  onFiltersChange,
+  onExportCsv,
+  onExportExcel,
+  onView,
+  onEdit,
+  onAssign,
+  onCloseRequest,
+  onCancelRequest,
+}: {
+  canUpdate: boolean;
+  canAssign: boolean;
+  canClose: boolean;
+  query: string;
+  filters: MaintenanceRequestFilters;
+  requests: MaintenanceRequest[];
+  kpis: MaintenanceRequestsKpis;
+  buildings: BuildingOption[];
+  employees: EmployeeOption[];
+  totalCost: number;
+  onQueryChange: (value: string) => void;
+  onFiltersChange: (filters: MaintenanceRequestFilters) => void;
+  onExportCsv: () => void;
+  onExportExcel: () => void;
+  onView: (request: MaintenanceRequest) => void;
+  onEdit: (request: MaintenanceRequest) => void;
+  onAssign: (request: MaintenanceRequest) => void;
+  onCloseRequest: (request: MaintenanceRequest) => void;
+  onCancelRequest: (request: MaintenanceRequest) => void;
+}) {
+  const setQuickFilter = (next: Partial<MaintenanceRequestFilters>) => {
+    const isSame = Object.entries(next).every(([key, value]) => filters[key as keyof MaintenanceRequestFilters] === value);
+    if (isSame) {
+      onFiltersChange({ ...filters, ...pickDefaultMaintenanceFilters(next) });
+      return;
+    }
+    onFiltersChange({ ...filters, ...next });
+  };
+  const resetFilters = () => onFiltersChange(defaultMaintenanceFilters());
+  const quickCards = [
+    { key: 'total', label: 'Total demandes', value: kpis.total, icon: FileSpreadsheet, active: false, onClick: resetFilters },
+    { key: 'open', label: 'Ouvertes', value: kpis.open, icon: Wrench, active: filters.status === 'NEW', onClick: () => setQuickFilter({ status: 'NEW' }) },
+    { key: 'progress', label: 'En cours', value: kpis.inProgress, icon: CirclePause, active: filters.status === 'IN_PROGRESS', onClick: () => setQuickFilter({ status: 'IN_PROGRESS' }) },
+    { key: 'pending', label: 'En attente', value: kpis.pending, icon: Clock3, active: filters.status === 'WAITING_APPROVAL', onClick: () => setQuickFilter({ status: 'WAITING_APPROVAL' }) },
+    { key: 'resolved', label: 'Résolues', value: kpis.resolved, icon: CheckCircle2, active: filters.status === 'RESOLVED', onClick: () => setQuickFilter({ status: 'RESOLVED' }) },
+    { key: 'closed', label: 'Clôturées', value: kpis.closed, icon: CheckCircle2, active: filters.status === 'CLOSED', onClick: () => setQuickFilter({ status: 'CLOSED' }) },
+    { key: 'critical', label: 'Critiques', value: kpis.critical, icon: CircleAlert, active: filters.priority === 'URGENT', onClick: () => setQuickFilter({ priority: 'URGENT' }) },
+    { key: 'overdue', label: 'En retard', value: kpis.overdue, icon: AlertTriangle, active: filters.overdue, onClick: () => setQuickFilter({ overdue: true }) },
+  ];
+
+  return (
+    <section className="maintenance-requests-panel">
+      <div className="page-header">
+        <div>
+          <h3>Demandes de maintenance</h3>
+          <p className="dashboard-card-subtitle">Gestion opérationnelle des signalements, affectations et clôtures.</p>
+        </div>
+      </div>
+      <div className="mini-stats maintenance-kpis maintenance-request-kpis">
+        {quickCards.map(({ key, label, value, icon: Icon, active, onClick }) => (
+          <button type="button" key={key} className={`mini-stat maintenance-kpi-button${active ? ' active' : ''}`} onClick={onClick}>
+            <span><Icon size={15} />{label}</span>
+            <strong>{value}</strong>
+          </button>
+        ))}
+      </div>
+      <div className="maintenance-filter-bar">
+        <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Rechercher" />
+        <select value={filters.status} onChange={(event) => onFiltersChange({ ...filters, status: event.target.value })}>
+          <option value="">Statut</option>
+          {MAINTENANCE_STATUSES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        <select value={filters.priority} onChange={(event) => onFiltersChange({ ...filters, priority: event.target.value })}>
+          <option value="">Priorité</option>
+          {PRIORITY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        <select value={filters.category} onChange={(event) => onFiltersChange({ ...filters, category: event.target.value })}>
+          <option value="">Catégorie</option>
+          {MAINTENANCE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+        </select>
+        <SearchableSelect
+          options={buildingOptions(buildings)}
+          value={filters.building_id ? Number(filters.building_id) : null}
+          onChange={(value) => onFiltersChange({ ...filters, building_id: value ? String(value) : '' })}
+          placeholder="Immeuble"
+          emptyMessage="Aucun immeuble trouvé"
+        />
+        <SearchableSelect
+          options={employeeOptions(employees)}
+          value={filters.employee_id ? Number(filters.employee_id) : null}
+          onChange={(value) => onFiltersChange({ ...filters, employee_id: value ? String(value) : '' })}
+          placeholder="Technicien"
+          emptyMessage="Aucun technicien trouvé"
+        />
+        <label className="checkbox-filter"><input type="checkbox" checked={filters.overdue} onChange={(event) => onFiltersChange({ ...filters, overdue: event.target.checked })} />En retard</label>
+        <label className="checkbox-filter"><input type="checkbox" checked={filters.week} onChange={(event) => onFiltersChange({ ...filters, week: event.target.checked })} />Cette semaine</label>
+        <button type="button" className="secondary" onClick={resetFilters}><RotateCcw size={15} />Réinitialiser</button>
+        <button type="button" className="secondary" onClick={onExportCsv}>CSV</button>
+        <button type="button" className="secondary" onClick={onExportExcel}>Excel</button>
+      </div>
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>N° demande</th>
+              <th>Titre</th>
+              <th>Catégorie</th>
+              <th>Priorité</th>
+              <th>Statut</th>
+              <th>Immeuble</th>
+              <th>Unité</th>
+              <th>Locataire</th>
+              <th>Échéance</th>
+              <th>Technicien</th>
+              <th className="right">Coût</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {requests.map((request) => (
+              <tr key={request.id} className="clickable-row" onClick={() => onView(request)}>
+                <td>{request.request_number}</td>
+                <td>{request.title}</td>
+                <td>{request.category}</td>
+                <td><span className={`badge ${priorityClass(request.priority)}`}>{priorityLabel(request.priority)}</span></td>
+                <td><span className={`badge ${statusClass(request.status)}`}>{maintenanceStatusLabel(request.status)}</span></td>
+                <td>{request.building_name ?? '-'}</td>
+                <td>{request.unit_number ?? '-'}</td>
+                <td>{request.tenant_name ?? '-'}</td>
+                <td>{request.due_date ? shortDate(request.due_date) : '-'}</td>
+                <td>{request.assigned_employee_name ?? '-'}</td>
+                <td className="right">{money(request.total_cost ?? request.estimated_cost ?? 0)}</td>
+                <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}>
+                  <button className="icon-btn" title="Voir" onClick={() => onView(request)}><Eye size={16} /></button>
+                  {canUpdate && <button className="icon-btn" title="Modifier" onClick={() => onEdit(request)}><Pencil size={16} /></button>}
+                  {canAssign && <button className="icon-btn" title="Affecter" onClick={() => onAssign(request)}><UserCog size={16} /></button>}
+                  {canClose && request.status !== 'CLOSED' && request.status !== 'CANCELLED' && <button className="icon-btn" title="Clôturer" onClick={() => onCloseRequest(request)}><CheckCircle2 size={16} /></button>}
+                  {canClose && request.status !== 'CLOSED' && request.status !== 'CANCELLED' && <button className="icon-btn danger" title="Annuler" onClick={() => onCancelRequest(request)}><CircleX size={16} /></button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!requests.length && <EmptyState message="Aucune demande ne correspond aux filtres sélectionnés." />}
+      </div>
+      <div className="summary-band maintenance-cost-footer">
+        <SummaryItem label="Demandes filtrées" value={requests.length} />
+        <SummaryItem label="Total coût" value={money(totalCost)} />
+      </div>
     </section>
   );
 }
@@ -644,7 +787,7 @@ export function MaintenanceDetailPage() {
         title="Maintenance"
         action={
           <div className="page-actions">
-            <button className="secondary" onClick={() => navigate('/maintenance')}><ArrowLeft size={16} />Retour</button>
+            <button className="secondary" onClick={() => navigate('/maintenance/requests')}><ArrowLeft size={16} />Retour</button>
             {can('maintenance.update') && actionState.canEdit && <button onClick={() => setEditing(true)}><Pencil size={16} />Modifier</button>}
             {can('maintenance.update') && actionState.canDiagnose && <button onClick={() => action(`/maintenance/requests/${request.id}/diagnosis`, 'Diagnostic enregistré.', { diagnostic: request.diagnostic ?? request.description ?? 'Diagnostic à compléter' })}><CircleAlert size={16} />Diagnostic</button>}
             {can('maintenance.update') && actionState.canRequestApproval && <button onClick={() => action(`/maintenance/requests/${request.id}/request-approval`, 'Approbation demandée.')}>Demander approbation</button>}

@@ -137,7 +137,9 @@ export function AppRouter() {
           <Route path="/stock/purchases/:id" element={guarded('stock.read', <StockPurchaseDetailPage />)} />
           <Route path="/stock/report" element={guarded('reports.read', <StockReportPage />)} />
           <Route path="/stock/:id" element={guarded('stock.read', <StockDetailPage />)} />
-          <Route path="/maintenance" element={guarded('maintenance.read', <MaintenancePage />)} />
+          <Route path="/maintenance" element={<Navigate to="/maintenance/dashboard" replace />} />
+          <Route path="/maintenance/dashboard" element={guarded('maintenance.read', <MaintenancePage view="dashboard" />)} />
+          <Route path="/maintenance/requests" element={guarded('maintenance.read', <MaintenancePage view="requests" />)} />
           <Route path="/maintenance/:id" element={guarded('maintenance.read', <MaintenanceDetailPage />)} />
           <Route path="/reports" element={guarded('reports.read', <ReportsPage />)} />
           <Route path="/reports/buildings" element={guarded('reports.read', <ReportsPage />)} />
