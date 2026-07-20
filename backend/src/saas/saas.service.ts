@@ -3221,7 +3221,12 @@ export class SaasService {
       return;
     }
     const { rows } = await client.query(
-      `SELECT id FROM maintenance_categories WHERE organization_id = $1 AND deleted_at IS NULL AND LOWER(name) = $2 LIMIT 1`,
+      `SELECT id FROM maintenance_categories
+       WHERE organization_id = $1
+         AND deleted_at IS NULL
+         AND status = 'ACTIVE'
+         AND LOWER(name) = $2
+       LIMIT 1`,
       [this.context.organizationId(), normalized],
     );
     if (!rows[0]) {

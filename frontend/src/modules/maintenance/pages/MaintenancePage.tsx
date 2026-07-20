@@ -80,6 +80,7 @@ type MaintenanceDetail = MaintenanceRequest & {
 type BuildingOption = { id: number; name: string; city?: string; commune?: string };
 type UnitOption = { id: number; number: string; building_id?: number; building_name?: string; tenant_id?: number | null; tenant_name?: string; monthly_rent?: number };
 type EmployeeOption = { id: number; first_name: string; last_name: string; job_title?: string };
+type MaintenanceCategoryOption = { id: number; name: string; status?: string };
 type MaintenanceDashboard = {
   filters?: { period?: string; start?: string | null; end?: string | null };
   kpis: Record<string, number | string | null>;
@@ -117,18 +118,6 @@ const MAINTENANCE_STATUSES = [
   { value: 'CANCELLED', label: 'Annulé' },
 ];
 
-const MAINTENANCE_CATEGORIES = [
-  'Electricite',
-  'Plomberie',
-  'Peinture',
-  'Maconnerie',
-  'Menuiserie',
-  'Climatisation',
-  'Serrurerie',
-  'Nettoyage',
-  'Autre',
-];
-
 const allowedReportStatuses = new Set(['NEW', 'DIAGNOSIS', 'WAITING_APPROVAL', 'APPROVED', 'ASSIGNED', 'IN_PROGRESS', 'ON_HOLD']);
 const resolvedStatuses = new Set(['RESOLVED', 'VALIDATED', 'CLOSED']);
 
@@ -151,6 +140,7 @@ export function MaintenancePage({ view = 'dashboard' }: { view?: MaintenancePage
   const buildings = useApiList<BuildingOption>('/buildings');
   const units = useApiList<UnitOption>('/units');
   const tenants = useApiList<TenantSearchOption>('/tenants');
+  const categories = useApiList<MaintenanceCategoryOption>('/maintenance/categories');
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState<MaintenanceRequestFilters>(() => defaultMaintenanceFilters());
   const [dashboardFilters, setDashboardFilters] = useState({ period: '30d', start: '', end: '', building_id: '', employee_id: '', priority: '', status: '' });
@@ -313,6 +303,7 @@ export function MaintenancePage({ view = 'dashboard' }: { view?: MaintenancePage
           kpis={requestKpis}
           buildings={buildings.data}
           employees={employees.data}
+          categories={categories.data}
           totalCost={filteredCostTotal}
           onQueryChange={setQuery}
           onFiltersChange={setFilters}
@@ -334,6 +325,7 @@ export function MaintenancePage({ view = 'dashboard' }: { view?: MaintenancePage
           units={units.data}
           tenants={tenants.data}
           employees={employees.data}
+          categories={categories.data}
           onClose={() => setCreateOpen(false)}
           onSubmit={(form) => save(form)}
         />
@@ -348,6 +340,7 @@ export function MaintenancePage({ view = 'dashboard' }: { view?: MaintenancePage
           units={units.data}
           tenants={tenants.data}
           employees={employees.data}
+          categories={categories.data}
           onClose={() => setEditing(null)}
           onSubmit={(form) => save(form, editing.id)}
         />
@@ -387,6 +380,17 @@ function maintenanceRequestKpis(requests: MaintenanceRequest[]) {
   };
 }
 
+function maintenanceCategoryNames(categories: MaintenanceCategoryOption[], historicalCategory?: string | null) {
+  const activeNames = categories
+    .filter((category) => String(category.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE')
+    .map((category) => category.name)
+    .filter(Boolean);
+  if (historicalCategory && !activeNames.some((name) => name.toLowerCase() === historicalCategory.toLowerCase())) {
+    activeNames.push(historicalCategory);
+  }
+  return [...new Set(activeNames)].sort((left, right) => left.localeCompare(right));
+}
+
 type MaintenanceRequestsKpis = ReturnType<typeof maintenanceRequestKpis>;
 
 function MaintenanceRequestsSection({
@@ -399,6 +403,7 @@ function MaintenanceRequestsSection({
   kpis,
   buildings,
   employees,
+  categories,
   totalCost,
   onQueryChange,
   onFiltersChange,
@@ -419,6 +424,7 @@ function MaintenanceRequestsSection({
   kpis: MaintenanceRequestsKpis;
   buildings: BuildingOption[];
   employees: EmployeeOption[];
+  categories: MaintenanceCategoryOption[];
   totalCost: number;
   onQueryChange: (value: string) => void;
   onFiltersChange: (filters: MaintenanceRequestFilters) => void;
@@ -478,7 +484,7 @@ function MaintenanceRequestsSection({
         </select>
         <select value={filters.category} onChange={(event) => onFiltersChange({ ...filters, category: event.target.value })}>
           <option value="">Catégorie</option>
-          {MAINTENANCE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+          {maintenanceCategoryNames(categories).map((category) => <option key={category} value={category}>{category}</option>)}
         </select>
         <SearchableSelect
           options={buildingOptions(buildings)}
@@ -744,6 +750,7 @@ export function MaintenanceDetailPage() {
   const units = useApiList<UnitOption>('/units');
   const tenants = useApiList<TenantSearchOption>('/tenants');
   const employees = useApiList<EmployeeOption>('/employees');
+  const categories = useApiList<MaintenanceCategoryOption>('/maintenance/categories');
   const stockItems = useApiList<{ id: number; name: string; current_quantity: number; unit: string; average_purchase_price?: number; purchase_price?: number }>('/stock/items');
 
   async function refresh() {
@@ -958,6 +965,7 @@ export function MaintenanceDetailPage() {
           units={units.data}
           tenants={tenants.data}
           employees={employees.data}
+          categories={categories.data}
           onClose={() => setEditing(false)}
           onSubmit={async (form) => {
             await api.patch(`/maintenance/requests/${request.id}`, Object.fromEntries(form));
@@ -1019,6 +1027,7 @@ function MaintenanceRequestModal({
   units,
   tenants,
   employees,
+  categories,
   editing,
   onClose,
   onSubmit,
@@ -1029,6 +1038,7 @@ function MaintenanceRequestModal({
   units: UnitOption[];
   tenants: TenantSearchOption[];
   employees: EmployeeOption[];
+  categories: MaintenanceCategoryOption[];
   editing?: Partial<MaintenanceRequest> | null;
   onClose: () => void;
   onSubmit: (form: FormData) => Promise<void>;
@@ -1057,6 +1067,8 @@ function MaintenanceRequestModal({
 
   const buildingOptionsData = useMemo(() => buildingOptions(buildings), [buildings]);
   const unitOptionsData = useMemo(() => unitOptions(units, buildingId), [units, buildingId]);
+  const categoryOptions = useMemo(() => maintenanceCategoryNames(categories, editing?.category), [categories, editing?.category]);
+  const hasSelectableCategory = categoryOptions.length > 0;
   const tenantOptionsData = useMemo(() => tenants.map((tenant) => ({
     id: Number(tenant.id),
     tenant_type: String(tenant.tenant_type ?? 'PHYSICAL'),
@@ -1149,7 +1161,7 @@ function MaintenanceRequestModal({
         className="maintenance-modal-form"
         onSubmit={async (event) => {
           event.preventDefault();
-          if (submitting) return;
+          if (submitting || !hasSelectableCategory) return;
           setSubmitting(true);
           setError('');
           setConfirmDiscard(false);
@@ -1178,12 +1190,17 @@ function MaintenanceRequestModal({
             </div>
           </div>
         ) : null}
+        {!hasSelectableCategory ? (
+          <div className="info-message">
+            Aucune catégorie de maintenance n'est disponible. Veuillez d'abord créer une catégorie.
+          </div>
+        ) : null}
         <div className="modal-section">
           <h3>Informations générales</h3>
           <div className="maintenance-grid maintenance-general-grid">
             <label>N° demande<input value={requestNumber} readOnly className="locked-field" /></label>
             <label>Titre *<input name="title" defaultValue={editing?.title ?? ''} required placeholder="Titre du signalement" /></label>
-            <label>Catégorie *<select name="category" defaultValue={editing?.category ?? 'Autre'}>{MAINTENANCE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+            <label>Catégorie *<select name="category" defaultValue={editing?.category ?? categoryOptions[0] ?? ''} disabled={!hasSelectableCategory}>{categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
             <label>Priorité *<select name="priority" defaultValue={editing?.priority ?? 'NORMAL'}>{PRIORITY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <label>Date signalement<input name="reported_at" type="datetime-local" defaultValue={editing?.reported_at ? toDateTimeLocal(editing.reported_at) : toDateTimeLocal(new Date().toISOString())} /></label>
             <label>Échéance / SLA<input name="due_date" type="date" defaultValue={editing?.due_date ? String(editing.due_date).slice(0, 10) : ''} /></label>
@@ -1247,7 +1264,7 @@ function MaintenanceRequestModal({
         </div>
         <div className="modal-footer-sticky">
           <button type="button" className="secondary" onClick={requestClose} disabled={submitting}>Annuler</button>
-          <button type="submit" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer'}</button>
+          <button type="submit" disabled={submitting || !hasSelectableCategory}>{submitting ? 'Enregistrement...' : 'Enregistrer'}</button>
         </div>
       </form>
     </Modal>
