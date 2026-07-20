@@ -21,7 +21,7 @@ import {
   WalletCards,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, money, shortDate, statusLabel } from '../../../api';
 import { useAuth } from '../../../auth';
@@ -139,7 +139,7 @@ export function ActivityPage() {
   const [taskFilter, setTaskFilter] = useState<'ALL' | 'OVERDUE' | 'TODAY' | 'UPCOMING' | 'DONE'>('ALL');
   const [recentModuleFilter, setRecentModuleFilter] = useState<string>('ALL');
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -150,11 +150,26 @@ export function ActivityPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load, user?.organization_id]);
+
+  useEffect(() => {
+    function refreshWhenVisible() {
+      if (document.visibilityState === 'visible') {
+        void load();
+      }
+    }
+
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [load]);
 
   useEffect(() => {
     if (!query.trim()) {

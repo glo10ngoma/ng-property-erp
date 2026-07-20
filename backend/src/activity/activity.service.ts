@@ -43,9 +43,14 @@ export class ActivityService {
     const tasks = [];
     if (role === 'ADMIN' || role === 'EDITOR') {
       const invoices = await this.db.query(
-        `SELECT id, invoice_number, due_date, status FROM invoices
-         WHERE organization_id = $1 AND deleted_at IS NULL AND status IN ('DRAFT', 'UNPAID', 'PARTIAL')
-         ORDER BY due_date LIMIT 8`,
+        `SELECT i.id, i.invoice_number, i.due_date, i.status
+         FROM invoices i
+         LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
+         WHERE i.organization_id = $1
+           AND i.deleted_at IS NULL
+           AND i.status NOT IN ('PAID', 'CANCELLED')
+           AND COALESCE(s.remaining_amount, i.total) > 0
+         ORDER BY i.due_date LIMIT 8`,
         [organizationId],
       );
       tasks.push(...invoices.rows.map((row) => this.task(`invoice-${row.id}`, 'Facture à traiter', row.invoice_number, 'Facturation', row.due_date, row.status, '/invoices')));
@@ -58,7 +63,9 @@ export class ActivityService {
     if (role === 'ADMIN' || role === 'EDITOR') {
       const maintenance = await this.db.query(
         `SELECT id, request_number, title, due_date, priority, status FROM maintenance_requests
-         WHERE organization_id = $1 AND deleted_at IS NULL AND status IN ('ASSIGNED', 'IN_PROGRESS', 'ON_HOLD')
+         WHERE organization_id = $1
+           AND deleted_at IS NULL
+           AND status IN ('ASSIGNED', 'IN_PROGRESS', 'ON_HOLD', 'DIAGNOSIS', 'APPROVED')
          ORDER BY due_date NULLS LAST, reported_at DESC LIMIT 8`,
         [organizationId],
       );
@@ -87,9 +94,15 @@ export class ActivityService {
     const organizationId = this.context.organizationId();
     const alerts = [];
     const overdue = await this.db.query(
-      `SELECT id, invoice_number, due_date FROM invoices
-       WHERE organization_id = $1 AND deleted_at IS NULL AND status <> 'PAID' AND due_date < CURRENT_DATE
-       ORDER BY due_date LIMIT 10`,
+      `SELECT i.id, i.invoice_number, i.due_date
+       FROM invoices i
+       LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
+       WHERE i.organization_id = $1
+         AND i.deleted_at IS NULL
+         AND i.status NOT IN ('PAID', 'CANCELLED')
+         AND i.due_date < CURRENT_DATE
+         AND COALESCE(s.remaining_amount, i.total) > 0
+       ORDER BY i.due_date LIMIT 10`,
       [organizationId],
     );
     alerts.push(...overdue.rows.map((row) => ({ id: `invoice-${row.id}`, level: 'CRITICAL', title: 'Facture en retard', detail: row.invoice_number, due_date: row.due_date, path: '/invoices' })));
@@ -104,14 +117,20 @@ export class ActivityService {
       `SELECT g.id, g.lease_id, l.lease_number, g.status
        FROM lease_guarantees g
        LEFT JOIN leases l ON l.id = g.lease_id
-       WHERE g.organization_id = $1 AND g.deleted_at IS NULL AND g.status <> 'PAID'
+       WHERE g.organization_id = $1
+         AND g.deleted_at IS NULL
+         AND l.deleted_at IS NULL
+         AND COALESCE(g.amount, 0) > 0
+         AND COALESCE(g.paid_amount, 0) < COALESCE(g.amount, 0)
        ORDER BY g.id DESC LIMIT 10`,
       [organizationId],
     );
     alerts.push(...guarantees.rows.map((row) => ({ id: `guarantee-${row.id}`, level: 'NORMAL', title: 'Garantie non payée', detail: this.leaseReference(row.lease_id, row.lease_number), path: '/leases' })));
     const maintenance = await this.db.query(
       `SELECT id, request_number, title, due_date, priority, status FROM maintenance_requests
-       WHERE organization_id = $1 AND deleted_at IS NULL AND status NOT IN ('CLOSED', 'CANCELLED')
+       WHERE organization_id = $1
+         AND deleted_at IS NULL
+         AND status NOT IN ('RESOLVED', 'VALIDATED', 'CLOSED', 'CANCELLED')
          AND (priority = 'URGENT' OR due_date < NOW() OR status = 'WAITING_APPROVAL')
        ORDER BY due_date NULLS LAST LIMIT 10`,
       [organizationId],
@@ -141,12 +160,17 @@ export class ActivityService {
 
   async recent() {
     const { rows } = await this.db.query(
-      `SELECT al.id, al.created_at AS date, al.resource AS module, al.action, al.path,
-              CONCAT(u.first_name, ' ', u.last_name) AS user_name
-       FROM audit_logs al
-       LEFT JOIN app_users u ON u.id = al.user_id
-       WHERE al.organization_id = $1
-       ORDER BY al.created_at DESC
+      `SELECT *
+       FROM (
+         SELECT DISTINCT ON (al.resource, al.resource_id, al.action, DATE_TRUNC('second', al.created_at))
+                al.id, al.created_at AS date, al.resource AS module, al.action, al.path,
+                CONCAT(u.first_name, ' ', u.last_name) AS user_name
+         FROM audit_logs al
+         LEFT JOIN app_users u ON u.id = al.user_id
+         WHERE al.organization_id = $1
+         ORDER BY al.resource, al.resource_id, al.action, DATE_TRUNC('second', al.created_at), al.id DESC
+       ) recent_events
+       ORDER BY date DESC, id DESC
        LIMIT 20`,
       [this.context.organizationId()],
     );
@@ -158,16 +182,16 @@ export class ActivityService {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(
       `SELECT
-        (SELECT COALESCE(SUM(COALESCE(s.remaining_amount, i.total)), 0)::FLOAT FROM invoices i LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id WHERE i.organization_id = $1 AND i.deleted_at IS NULL AND i.status <> 'PAID') AS unpaid_amount,
+        (SELECT COALESCE(SUM(COALESCE(s.remaining_amount, i.total)), 0)::FLOAT FROM invoices i LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id WHERE i.organization_id = $1 AND i.deleted_at IS NULL AND i.status NOT IN ('PAID', 'CANCELLED') AND COALESCE(s.remaining_amount, i.total) > 0) AS unpaid_amount,
         (SELECT COALESCE(SUM(CASE WHEN type='IN' THEN amount ELSE -amount END),0)::FLOAT FROM cash_movements WHERE organization_id = $1 AND deleted_at IS NULL) AS cash_balance,
         (SELECT CASE WHEN COUNT(*) > 0 THEN ROUND((COUNT(*) FILTER (WHERE status='OCCUPIED')::NUMERIC / COUNT(*)::NUMERIC) * 100, 2)::FLOAT ELSE 0 END FROM units WHERE organization_id = $1 AND deleted_at IS NULL) AS occupancy_rate,
         (SELECT COUNT(*)::INT FROM stock_items WHERE organization_id = $1 AND deleted_at IS NULL AND status='ACTIVE' AND current_quantity <= minimum_quantity) AS stock_critical,
-        (SELECT COUNT(*)::INT FROM maintenance_requests WHERE organization_id = $1 AND deleted_at IS NULL AND status NOT IN ('CLOSED','CANCELLED')) AS maintenance_open,
+        (SELECT COUNT(*)::INT FROM maintenance_requests WHERE organization_id = $1 AND deleted_at IS NULL AND status NOT IN ('RESOLVED','VALIDATED','CLOSED','CANCELLED')) AS maintenance_open,
         (SELECT COALESCE(SUM(amount),0)::FLOAT FROM payments WHERE organization_id = $1 AND deleted_at IS NULL AND payment_date = CURRENT_DATE) AS payments_today,
         (SELECT COALESCE(SUM(amount),0)::FLOAT FROM cash_movements WHERE organization_id = $1 AND deleted_at IS NULL AND type='OUT' AND movement_date = CURRENT_DATE) AS expenses_today,
-        (SELECT COUNT(*)::INT FROM invoices WHERE organization_id = $1 AND deleted_at IS NULL AND status IN ('DRAFT','UNPAID')) AS pending_invoices,
+        (SELECT COUNT(*)::INT FROM invoices i LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id WHERE i.organization_id = $1 AND i.deleted_at IS NULL AND i.status IN ('DRAFT','UNPAID','PARTIAL') AND COALESCE(s.remaining_amount, i.total) > 0) AS pending_invoices,
         (SELECT COUNT(*)::INT FROM leases WHERE organization_id = $1 AND deleted_at IS NULL AND created_at::DATE = CURRENT_DATE) AS new_leases_today,
-        (SELECT COUNT(*)::INT FROM leases WHERE organization_id = $1 AND deleted_at IS NULL AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days') AS contracts_due,
+        (SELECT COUNT(*)::INT FROM leases WHERE organization_id = $1 AND deleted_at IS NULL AND status = 'ACTIVE' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days') AS contracts_due,
         (SELECT COUNT(*)::INT FROM tenants WHERE organization_id = $1 AND deleted_at IS NULL AND status='ACTIVE') AS active_tenants,
         (SELECT COUNT(*)::INT FROM units WHERE organization_id = $1 AND deleted_at IS NULL AND status='VACANT') AS vacant_units`,
       [organizationId],
@@ -208,11 +232,11 @@ export class ActivityService {
   async week() {
     const organizationId = this.context.organizationId();
     const [leases, guarantees, leaves, inventories, maintenance] = await Promise.all([
-      this.db.query(`SELECT id, end_date AS due_date, 'Contrat à échéance' AS title, 'Baux' AS module FROM leases WHERE organization_id=$1 AND deleted_at IS NULL AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'`, [organizationId]),
-      this.db.query(`SELECT id, payment_date AS due_date, 'Garantie à suivre' AS title, 'Baux' AS module FROM lease_guarantees WHERE organization_id=$1 AND deleted_at IS NULL AND status <> 'PAID' LIMIT 10`, [organizationId]),
+      this.db.query(`SELECT id, end_date AS due_date, 'Contrat à échéance' AS title, 'Baux' AS module FROM leases WHERE organization_id=$1 AND deleted_at IS NULL AND status = 'ACTIVE' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'`, [organizationId]),
+      this.db.query(`SELECT id, payment_date AS due_date, 'Garantie à suivre' AS title, 'Baux' AS module FROM lease_guarantees WHERE organization_id=$1 AND deleted_at IS NULL AND COALESCE(amount, 0) > 0 AND COALESCE(paid_amount, 0) < COALESCE(amount, 0) LIMIT 10`, [organizationId]),
       this.db.query(`SELECT id, start_date AS due_date, 'Congé prévu' AS title, 'Personnel' AS module FROM leaves WHERE organization_id=$1 AND deleted_at IS NULL AND start_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'`, [organizationId]),
       this.db.query(`SELECT id, count_date AS due_date, 'Inventaire en attente' AS title, 'Stock' AS module FROM inventory_counts WHERE organization_id=$1 AND deleted_at IS NULL AND status='DRAFT'`, [organizationId]),
-      this.db.query(`SELECT id, due_date, 'Intervention programmée' AS title, 'Maintenance' AS module FROM maintenance_requests WHERE organization_id=$1 AND deleted_at IS NULL AND due_date BETWEEN NOW() AND NOW() + INTERVAL '7 days'`, [organizationId]),
+      this.db.query(`SELECT id, due_date, 'Intervention programmée' AS title, 'Maintenance' AS module FROM maintenance_requests WHERE organization_id=$1 AND deleted_at IS NULL AND status NOT IN ('RESOLVED', 'VALIDATED', 'CLOSED', 'CANCELLED') AND due_date BETWEEN NOW() AND NOW() + INTERVAL '7 days'`, [organizationId]),
     ]);
     return [...leases.rows, ...guarantees.rows, ...leaves.rows, ...inventories.rows, ...maintenance.rows];
   }
