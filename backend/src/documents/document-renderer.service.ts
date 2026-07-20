@@ -79,6 +79,7 @@ export class DocumentRendererService {
         guaranteeAmount,
         guaranteeBaseAmount,
         currency: text(snapshot?.bail?.devise ?? snapshot.CURRENCY, 'USD'),
+        contractNote: text(snapshot?.bail?.note_contrat ?? snapshot.CONTRACT_NOTE),
       },
       rawSnapshot: snapshot,
     };

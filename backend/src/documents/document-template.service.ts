@@ -173,9 +173,21 @@ export class DocumentTemplateService {
       guaranteeAmount: money(context.lease.guaranteeAmount, context.lease.currency),
       guaranteeFormula: `(${money(context.lease.baseRent, context.lease.currency)} + ${money(context.lease.maintenanceFee, context.lease.currency)}) x ${context.lease.guaranteeMonths} = ${money(context.lease.guaranteeAmount, context.lease.currency)}`,
       rentBreakdown: rentLines ? `<ul>${rentLines}</ul>` : '',
+      observationsSection: observationsSection(context.lease.contractNote),
       signature: '',
     };
   }
+}
+
+function observationsSection(value: string) {
+  const note = String(value ?? '').trim();
+  if (!note) return '';
+  return [
+    '<section class="contract-observations">',
+    '<h3 class="article-title">Observations</h3>',
+    `<p class="lease-contract-note">${escapeHtml(note)}</p>`,
+    '</section>',
+  ].join('');
 }
 
 function landlordParagraph(context: LeaseDocumentRenderContext) {

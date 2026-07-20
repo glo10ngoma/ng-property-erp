@@ -67,6 +67,7 @@ export function LeaseNew() {
   const [signatureDate, setSignatureDate] = useState(new Date().toISOString().slice(0, 10));
   const [leaseUsage, setLeaseUsage] = useState('RESIDENTIAL');
   const [leaseActivityDescription, setLeaseActivityDescription] = useState('');
+  const [contractNote, setContractNote] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -214,6 +215,7 @@ export function LeaseNew() {
       contract_template_code: contractTemplateCode || null,
       status: form.get('status') || 'DRAFT',
       notes: form.get('notes') || null,
+      contract_note: contractNote.trim() ? contractNote.trim() : null,
     };
 
     setSubmitting(true);
@@ -295,6 +297,16 @@ export function LeaseNew() {
           <h4>Observations</h4>
           <div className="lease-section-grid">
             <label className="lease-field-full">Notes<textarea name="notes" rows={3} placeholder="Observations internes" /></label>
+            <label className="lease-field-full">
+              Note sur le contrat
+              <textarea
+                name="contract_note"
+                rows={4}
+                value={contractNote}
+                onChange={(event) => setContractNote(event.target.value)}
+                placeholder="Cette note apparaîtra dans le contrat imprimé sous la section « Observations »."
+              />
+            </label>
           </div>
         </div>
 

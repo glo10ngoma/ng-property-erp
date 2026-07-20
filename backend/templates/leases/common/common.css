@@ -117,6 +117,14 @@ li {
   page-break-after: avoid;
 }
 
+.contract-observations {
+  margin-top: 8pt;
+}
+
+.lease-contract-note {
+  white-space: pre-wrap;
+}
+
 .lease-signature-table {
   width: 100%;
   border-collapse: collapse;

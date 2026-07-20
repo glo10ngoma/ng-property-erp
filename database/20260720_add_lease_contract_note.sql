@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE leases
+  ADD COLUMN IF NOT EXISTS contract_note TEXT;
+
+COMMIT;

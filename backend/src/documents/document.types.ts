@@ -64,6 +64,7 @@ export type LeaseDocumentRenderContext = {
     guaranteeAmount: number;
     guaranteeBaseAmount: number;
     currency: string;
+    contractNote: string;
   };
   rawSnapshot: Record<string, unknown>;
 };

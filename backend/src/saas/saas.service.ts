@@ -4338,8 +4338,8 @@ export class SaasService {
          (tenant_id, unit_id, start_date, end_date, monthly_rent, monthly_syndic_amount, rental_guarantee_amount, rental_guarantee_paid,
           rental_guarantee_payment_date, rental_guarantee_status, contract_file_url, contract_file_name, status,
           maintenance_fee_amount, other_charges_amount, lease_total_amount, guarantee_months, notice_months,
-          signature_place, signature_date, lease_usage, lease_activity_description, contract_template_code, organization_id, notes, lease_number)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+          signature_place, signature_date, lease_usage, lease_activity_description, contract_template_code, organization_id, notes, contract_note, lease_number)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
          RETURNING *`,
         [
           normalized.tenantId,
@@ -4367,6 +4367,7 @@ export class SaasService {
           normalized.contractTemplateCode,
           organizationId,
           normalized.notes,
+          normalized.contractNote,
           leaseNumber,
         ],
       );
@@ -4482,6 +4483,9 @@ export class SaasService {
       nextPlaceholder += 1;
       updateColumns.push(`notes = $${nextPlaceholder}`);
       values.push(normalized.notes);
+      nextPlaceholder += 1;
+      updateColumns.push(`contract_note = $${nextPlaceholder}`);
+      values.push(normalized.contractNote);
       nextPlaceholder += 1;
       updateColumns.push('updated_at = NOW()');
       values.push(this.context.organizationId());
@@ -8300,6 +8304,7 @@ export class SaasService {
     const guaranteePaid = forceInitialGuaranteeUnpaid ? 0 : Number(body.rental_guarantee_paid ?? body.guarantee_paid ?? 0);
     const leaseUsage = this.normalizeLeaseUsageCode(body.lease_usage);
     const leaseActivityDescription = body.lease_activity_description ? String(body.lease_activity_description).trim() : null;
+    const contractNote = this.normalizeOptionalMultilineText(body.contract_note);
     const guaranteePaymentDateValue = forceInitialGuaranteeUnpaid
       ? null
       : this.normalizeLeasePayloadDate(body.rental_guarantee_payment_date ?? body.guarantee_payment_date, 'rental_guarantee_payment_date');
@@ -8344,8 +8349,15 @@ export class SaasService {
       contractFileName: body.contract_file_name ? String(body.contract_file_name).trim() : null,
       contractFileUrl: body.contract_file_url ? String(body.contract_file_url).trim() : null,
       notes: body.notes ? String(body.notes) : null,
+      contractNote,
       status: String(body.status ?? 'DRAFT'),
     };
+  }
+
+  private normalizeOptionalMultilineText(value: unknown) {
+    if (value === undefined || value === null) return null;
+    const normalized = String(value).replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    return normalized ? normalized : null;
   }
 
   private normalizeLeasePayloadDate(value: unknown, fieldName: string, required = false) {
@@ -8533,6 +8545,7 @@ export class SaasService {
     const guaranteeAmount = Number(lease.rental_guarantee_amount ?? lease.guarantee?.amount ?? 0);
     const rentAmount = Number(lease.monthly_rent ?? 0);
     const maintenanceFeeAmount = Number(lease.maintenance_fee_amount ?? 0);
+    const contractNote = this.normalizeOptionalMultilineText(lease.contract_note);
     const guaranteeBaseAmount = rentAmount + maintenanceFeeAmount;
     const durationMonths = this.leaseDurationMonths(lease.start_date, lease.end_date) || Number(company.default_lease_duration_months ?? 0);
     const usageCode = this.normalizeLeaseUsageCode(lease.lease_usage ?? company.default_lease_usage ?? lease.usage_type);
@@ -8659,6 +8672,7 @@ export class SaasService {
       SYNDIC_AMOUNT: this.formatMoney(lease.monthly_syndic_amount),
       OTHER_CHARGES_AMOUNT: this.formatMoney(lease.other_charges_amount),
       OTHER_CHARGES_LINE: otherChargesAmount > 0 ? `${this.formatMoney(otherChargesAmount)} USD autres charges` : '',
+      CONTRACT_NOTE: contractNote ?? '',
       MONTHLY_SECTION: monthlySectionLines,
       RENT_BREAKDOWN: rentBreakdown,
       MONTHLY_TOTAL: this.formatMoney(totalMonthly),
@@ -8778,6 +8792,7 @@ export class SaasService {
         usage_label_lower: usageLabel.toLowerCase(),
         activite_destination: activityDescription,
         destination_phrase: destinationPhrase,
+        note_contrat: contractNote,
         type_contrat: lease.contract_template_code ?? company.default_contract_template_code ?? 'LEASE_RESIDENTIAL',
       },
     };

@@ -38,6 +38,7 @@ type Lease = {
   contract_file_name?: string;
   contract_file_url?: string;
   notes?: string;
+  contract_note?: string;
   status: string;
   deleted_at?: string | null;
   deleted_by?: number | null;
@@ -339,6 +340,7 @@ function LeaseEditModal({
   const [guaranteePaymentDate] = useState(lease.rental_guarantee_payment_date?.slice(0, 10) ?? '');
   const [contractName, setContractName] = useState(lease.contract_file_name ?? '');
   const [notes, setNotes] = useState(lease.notes ?? '');
+  const [contractNote, setContractNote] = useState(lease.contract_note ?? '');
   const [leaseStatus, setLeaseStatus] = useState(lease.status ?? 'DRAFT');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -425,6 +427,7 @@ function LeaseEditModal({
         contract_file_url: lease.contract_file_url ?? null,
         status: leaseStatus,
         notes: notes || null,
+        contract_note: contractNote.trim() ? contractNote.trim() : null,
       });
       await onSaved();
     } catch (err: any) {
@@ -494,6 +497,15 @@ function LeaseEditModal({
           <h4>Observations</h4>
           <div className="lease-section-grid">
             <label className="lease-field-full">Notes<textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observations internes" /></label>
+            <label className="lease-field-full">
+              Note sur le contrat
+              <textarea
+                rows={4}
+                value={contractNote}
+                onChange={(event) => setContractNote(event.target.value)}
+                placeholder="Cette note apparaîtra dans le contrat imprimé sous la section « Observations »."
+              />
+            </label>
           </div>
         </div>
 
