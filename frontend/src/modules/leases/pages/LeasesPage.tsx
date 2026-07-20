@@ -73,6 +73,7 @@ export function LeasesPage() {
   const [filters, setFilters] = useState(emptyFilters);
   const [editing, setEditing] = useState<LeaseDetail | null>(null);
   const [success, setSuccess] = useState('');
+  const [pageError, setPageError] = useState('');
   const [actionLeaseId, setActionLeaseId] = useState<number | null>(null);
   const [trashTarget, setTrashTarget] = useState<Lease | null>(null);
   const [trashReason, setTrashReason] = useState('');
@@ -107,14 +108,23 @@ export function LeasesPage() {
   }), [filtered]);
 
   async function openEdit(leaseId: number) {
-    const response = await api.get<LeaseDetail>(`/leases/${leaseId}`);
-    setEditing({
-      ...response.data,
-      rental_guarantee_amount: Number(response.data.guarantee?.amount ?? response.data.rental_guarantee_amount ?? 0),
-      rental_guarantee_paid: Number(response.data.guarantee?.paid_amount ?? response.data.rental_guarantee_paid ?? 0),
-      rental_guarantee_payment_date: response.data.guarantee?.payment_date ?? response.data.rental_guarantee_payment_date,
-      rental_guarantee_status: String(response.data.guarantee?.status ?? response.data.rental_guarantee_status ?? 'NOT_PAID'),
-    });
+    setPageError('');
+    try {
+      const response = await api.get<LeaseDetail>(`/leases/${leaseId}`);
+      setEditing({
+        ...response.data,
+        rental_guarantee_amount: Number(response.data.guarantee?.amount ?? response.data.rental_guarantee_amount ?? 0),
+        rental_guarantee_paid: Number(response.data.guarantee?.paid_amount ?? response.data.rental_guarantee_paid ?? 0),
+        rental_guarantee_payment_date: response.data.guarantee?.payment_date ?? response.data.rental_guarantee_payment_date,
+        rental_guarantee_status: String(response.data.guarantee?.status ?? response.data.rental_guarantee_status ?? 'NOT_PAID'),
+      });
+    } catch (error) {
+      console.error('[LEASES] edit load failed', error);
+      const maybeError = error as { response?: { data?: { message?: unknown; error?: unknown }; status?: number }; message?: unknown };
+      const message = maybeError.response?.data?.message;
+      const readable = Array.isArray(message) ? message.join(' | ') : typeof message === 'string' ? message : typeof maybeError.response?.data?.error === 'string' ? maybeError.response.data.error : 'Impossible de charger ce bail pour modification.';
+      setPageError(readable);
+    }
   }
 
   async function terminate(id: number) {
@@ -177,6 +187,7 @@ export function LeasesPage() {
     <section>
       <PageHeader title="Baux & contrats" action={can('documents.upload') ? <button onClick={() => navigate('/leases/new')}><FilePlus size={16} />Creer bail</button> : undefined} />
       <SuccessMessage message={success} />
+      {pageError ? <div className="error-banner">{pageError}</div> : null}
 
       <div className="mini-stats">
         <div className="mini-stat"><span>Total baux</span><strong>{kpis.total}</strong></div>

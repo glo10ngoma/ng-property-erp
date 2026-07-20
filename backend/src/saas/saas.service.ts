@@ -4135,6 +4135,13 @@ export class SaasService {
         : scope === 'archive'
           ? 'l.archived_at IS NOT NULL'
           : 'l.deleted_at IS NULL AND l.archived_at IS NULL';
+    const hasLeaseGuarantees = await this.tableExists('lease_guarantees');
+    const guaranteeJoin = hasLeaseGuarantees
+      ? 'LEFT JOIN lease_guarantees g ON g.lease_id = l.id AND g.organization_id = l.organization_id AND g.deleted_at IS NULL'
+      : '';
+    const guaranteeAmountExpr = hasLeaseGuarantees ? 'COALESCE(g.amount, l.rental_guarantee_amount, 0)::FLOAT' : 'COALESCE(l.rental_guarantee_amount, 0)::FLOAT';
+    const guaranteePaidExpr = hasLeaseGuarantees ? 'COALESCE(g.paid_amount, l.rental_guarantee_paid, 0)::FLOAT' : 'COALESCE(l.rental_guarantee_paid, 0)::FLOAT';
+    const guaranteeStatusExpr = hasLeaseGuarantees ? 'COALESCE(g.status, l.rental_guarantee_status)' : 'l.rental_guarantee_status';
     const { rows } = await this.db.query(
       `
         SELECT l.*,
@@ -4145,9 +4152,9 @@ export class SaasService {
                b.name AS building_name,
                latest_contract.id AS latest_contract_id,
                latest_contract.status AS latest_contract_status,
-               COALESCE(g.amount, l.rental_guarantee_amount, 0)::FLOAT AS guarantee_amount,
-               COALESCE(g.paid_amount, l.rental_guarantee_paid, 0)::FLOAT AS guarantee_paid,
-               COALESCE(g.status, l.rental_guarantee_status) AS guarantee_status,
+               ${guaranteeAmountExpr} AS guarantee_amount,
+               ${guaranteePaidExpr} AS guarantee_paid,
+               ${guaranteeStatusExpr} AS guarantee_status,
                COALESCE(
                  latest_contract.signed_contract_file_name,
                  latest_contract.docx_file_name,
@@ -4170,7 +4177,7 @@ export class SaasService {
         JOIN tenants t ON t.id = l.tenant_id
         JOIN units u ON u.id = l.unit_id
         JOIN buildings b ON b.id = u.building_id
-        LEFT JOIN lease_guarantees g ON g.lease_id = l.id AND g.deleted_at IS NULL
+        ${guaranteeJoin}
         LEFT JOIN app_users deleted_user ON deleted_user.id = l.deleted_by
         LEFT JOIN app_users archived_user ON archived_user.id = l.archived_by
         LEFT JOIN LATERAL (
@@ -4212,22 +4219,57 @@ export class SaasService {
           : scope === 'any'
             ? '(l.deleted_at IS NULL OR l.deleted_at IS NOT NULL OR l.archived_at IS NOT NULL)'
             : 'l.deleted_at IS NULL AND l.archived_at IS NULL';
+    const tenantOptionalColumns = await this.optionalColumnSelects('tenants', [
+      'post_name',
+      'civility',
+      'legal_form',
+      'rccm',
+      'national_id_number',
+      'tax_number',
+      'address',
+      'commune',
+      'city',
+      'country',
+      'id_document_type',
+      'id_number',
+      'legal_representative_name',
+      'legal_representative_civility',
+      'legal_representative_role',
+      'representative_post_name',
+      'representative_first_name',
+    ], 't');
+    const unitOptionalColumns = await this.optionalColumnSelects('units', [
+      'surface_area',
+      'bedrooms_count',
+      'parking_spaces_count',
+      'has_parking',
+      'is_furnished',
+      'usage_type',
+    ], 'u');
+    const tenantPostNameExpr = await this.optionalColumnExpression('tenants', 'post_name', 't');
+    const tenantAddressExpr = await this.optionalColumnExpression('tenants', 'address', 't');
+    const tenantCommuneExpr = await this.optionalColumnExpression('tenants', 'commune', 't');
+    const tenantCityExpr = await this.optionalColumnExpression('tenants', 'city', 't');
+    const tenantCountryExpr = await this.optionalColumnExpression('tenants', 'country', 't');
+    const buildingCommuneExpr = await this.optionalColumnExpression('buildings', 'commune', 'b');
+    const buildingCityExpr = await this.optionalColumnExpression('buildings', 'city', 'b');
+    const buildingNeighborhoodExpr = await this.optionalColumnExpression('buildings', 'neighborhood', 'b');
     const lease = await this.db.query(
       `SELECT l.*,
-              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
-                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
-              END AS tenant_name,
-              t.tenant_type,
-              t.first_name, t.last_name, t.post_name, t.civility, t.company_name, t.legal_form, t.rccm, t.national_id_number,
-              t.tax_number, t.address AS tenant_address, t.commune AS tenant_commune, t.city AS tenant_city, t.country AS tenant_country,
-              t.id_document_type, t.id_number, t.legal_representative_name, t.legal_representative_civility, t.legal_representative_role,
-              t.representative_post_name, t.representative_first_name,
-              t.phone AS tenant_phone,
-              t.email AS tenant_email,
-              u.number AS unit_number, u.status AS unit_status, u.type AS unit_type, u.surface_area, u.bedrooms_count,
-              u.parking_spaces_count, u.has_parking, u.is_furnished, u.usage_type,
-              b.name AS building_name, b.address AS building_address, b.commune AS building_commune,
-              b.city AS building_city, b.neighborhood AS building_neighborhood,
+               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                    ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(${tenantPostNameExpr}, '')))
+               END AS tenant_name,
+               t.tenant_type,
+               t.first_name, t.last_name, ${tenantOptionalColumns.post_name}, ${tenantOptionalColumns.civility}, t.company_name, ${tenantOptionalColumns.legal_form}, ${tenantOptionalColumns.rccm}, ${tenantOptionalColumns.national_id_number},
+               ${tenantOptionalColumns.tax_number}, ${tenantAddressExpr} AS tenant_address, ${tenantCommuneExpr} AS tenant_commune, ${tenantCityExpr} AS tenant_city, ${tenantCountryExpr} AS tenant_country,
+               ${tenantOptionalColumns.id_document_type}, ${tenantOptionalColumns.id_number}, ${tenantOptionalColumns.legal_representative_name}, ${tenantOptionalColumns.legal_representative_civility}, ${tenantOptionalColumns.legal_representative_role},
+               ${tenantOptionalColumns.representative_post_name}, ${tenantOptionalColumns.representative_first_name},
+               t.phone AS tenant_phone,
+               t.email AS tenant_email,
+               u.number AS unit_number, u.status AS unit_status, u.type AS unit_type, ${unitOptionalColumns.surface_area}, ${unitOptionalColumns.bedrooms_count},
+               ${unitOptionalColumns.parking_spaces_count}, ${unitOptionalColumns.has_parking}, ${unitOptionalColumns.is_furnished}, ${unitOptionalColumns.usage_type},
+               b.name AS building_name, b.address AS building_address, ${buildingCommuneExpr} AS building_commune,
+               ${buildingCityExpr} AS building_city, ${buildingNeighborhoodExpr} AS building_neighborhood,
               deleted_user.email AS deleted_by_name,
               archived_user.email AS archived_by_name
        FROM leases l
@@ -4245,9 +4287,10 @@ export class SaasService {
     const activeContractTemplateVersion = activeContractTemplateCode
       ? await this.activeLeaseContractTemplateVersion(activeContractTemplateCode)
       : null;
+    const guarantee = await this.leaseGuarantee(id, row as Record<string, unknown>);
     return {
       ...row,
-      guarantee: await this.leaseGuarantee(id),
+      guarantee,
       guarantee_payments: await this.leaseGuaranteePayments(id),
       documents: await this.leaseDocuments(id),
       history: await this.unitOccupationHistory(lease.rows[0]?.unit_id ?? 0),
@@ -4717,16 +4760,19 @@ export class SaasService {
     });
   }
 
-  async leaseGuarantee(id: number) {
+  async leaseGuarantee(id: number, leaseFallback?: Record<string, unknown>) {
+    if (!(await this.tableExists('lease_guarantees'))) {
+      return this.legacyLeaseGuaranteeFallback(id, leaseFallback);
+    }
     const { rows } = await this.db.query(
       `SELECT * FROM lease_guarantees WHERE lease_id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
       [id, this.context.organizationId()],
     );
-    return rows[0] ?? null;
+    return rows[0] ?? this.legacyLeaseGuaranteeFallback(id, leaseFallback);
   }
 
   async leaseGuaranteePayments(id: number) {
-    if (!(await this.supportsGuaranteePaymentSchema())) {
+    if (!(await this.tableExists('lease_guarantees')) || !(await this.supportsGuaranteePaymentSchema())) {
       return [];
     }
     const { rows } = await this.db.query(
@@ -4744,6 +4790,23 @@ export class SaasService {
       [id, this.context.organizationId()],
     );
     return rows;
+  }
+
+  private legacyLeaseGuaranteeFallback(id: number, lease?: Record<string, unknown>) {
+    if (!lease) return null;
+    const amount = Number(lease.rental_guarantee_amount ?? lease.guarantee_amount ?? 0);
+    const paidAmount = Number(lease.rental_guarantee_paid ?? lease.guarantee_paid ?? 0);
+    const status = String(lease.rental_guarantee_status ?? lease.guarantee_status ?? (paidAmount >= amount && amount > 0 ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'NOT_PAID'));
+    if (amount <= 0 && paidAmount <= 0 && !status) return null;
+    return {
+      id: null,
+      lease_id: id,
+      amount,
+      paid_amount: paidAmount,
+      payment_date: lease.rental_guarantee_payment_date ?? lease.guarantee_payment_date ?? null,
+      status,
+      historical: true,
+    };
   }
 
   private async supportsGuaranteePaymentSchema() {
@@ -7741,17 +7804,19 @@ export class SaasService {
     const amount = Number(guarantee.amount ?? 0);
     const paidAmount = Number(guarantee.paid_amount ?? 0);
     const status = String(guarantee.status ?? (paidAmount >= amount && amount > 0 ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'NOT_PAID'));
-    await client.query(
-      `INSERT INTO lease_guarantees (lease_id, amount, paid_amount, payment_date, status, organization_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (lease_id) DO UPDATE SET
-         amount = EXCLUDED.amount,
-         paid_amount = EXCLUDED.paid_amount,
-         payment_date = EXCLUDED.payment_date,
-         status = EXCLUDED.status,
-         updated_at = NOW()`,
-      [leaseId, amount, paidAmount, guarantee.payment_date ?? null, status, this.context.organizationId()],
-    );
+    if (await this.tableExists('lease_guarantees')) {
+      await client.query(
+        `INSERT INTO lease_guarantees (lease_id, amount, paid_amount, payment_date, status, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (lease_id) DO UPDATE SET
+           amount = EXCLUDED.amount,
+           paid_amount = EXCLUDED.paid_amount,
+           payment_date = EXCLUDED.payment_date,
+           status = EXCLUDED.status,
+           updated_at = NOW()`,
+        [leaseId, amount, paidAmount, guarantee.payment_date ?? null, status, this.context.organizationId()],
+      );
+    }
     await client.query(
       `UPDATE leases
        SET rental_guarantee_amount = $2,
@@ -8191,8 +8256,8 @@ export class SaasService {
   private normalizeLeasePayload(body: Record<string, unknown>, options?: { requireBusinessActivity?: boolean; forceInitialGuaranteeUnpaid?: boolean }) {
     const tenantId = Number(body.tenant_id ?? body.tenantId ?? 0);
     const unitId = Number(body.unit_id ?? body.unitId ?? 0);
-    const startDate = String(body.start_date ?? '').trim();
-    const endDateValue = String(body.end_date ?? '').trim();
+    const startDate = this.normalizeLeasePayloadDate(body.start_date, 'start_date', true);
+    const endDateValue = this.normalizeLeasePayloadDate(body.end_date, 'end_date');
     if (!tenantId) throw new BadRequestException('Locataire requis');
     if (!unitId) throw new BadRequestException('Unite requise');
     if (!startDate) throw new BadRequestException('Date de debut requise');
@@ -8209,7 +8274,9 @@ export class SaasService {
     const guaranteePaid = forceInitialGuaranteeUnpaid ? 0 : Number(body.rental_guarantee_paid ?? body.guarantee_paid ?? 0);
     const leaseUsage = this.normalizeLeaseUsageCode(body.lease_usage);
     const leaseActivityDescription = body.lease_activity_description ? String(body.lease_activity_description).trim() : null;
-    const guaranteePaymentDateValue = forceInitialGuaranteeUnpaid ? '' : String(body.rental_guarantee_payment_date ?? body.guarantee_payment_date ?? '').trim();
+    const guaranteePaymentDateValue = forceInitialGuaranteeUnpaid
+      ? null
+      : this.normalizeLeasePayloadDate(body.rental_guarantee_payment_date ?? body.guarantee_payment_date, 'rental_guarantee_payment_date');
     const rawGuaranteeStatus = forceInitialGuaranteeUnpaid ? 'NOT_PAID' : String(body.rental_guarantee_status ?? body.guarantee_status ?? '').trim().toUpperCase();
     const guaranteeMarkedPaid = rawGuaranteeStatus === 'PAID' || guaranteePaid > 0;
 
@@ -8231,7 +8298,7 @@ export class SaasService {
       tenantId,
       unitId,
       startDate,
-      endDate: endDateValue || null,
+      endDate: endDateValue,
       monthlyRent,
       maintenanceFeeAmount,
       monthlySyndicAmount,
@@ -8244,7 +8311,7 @@ export class SaasService {
       guaranteeStatus,
       noticeMonths: Number(body.notice_months ?? 0),
       signaturePlace: body.signature_place ? String(body.signature_place).trim() : null,
-      signatureDate: body.signature_date ? String(body.signature_date).trim() : null,
+      signatureDate: this.normalizeLeasePayloadDate(body.signature_date, 'signature_date'),
       leaseUsage,
       leaseActivityDescription,
       contractTemplateCode: this.resolveLeaseTemplateCodeForPersistence(leaseUsage, body.contract_template_code),
@@ -8253,6 +8320,36 @@ export class SaasService {
       notes: body.notes ? String(body.notes) : null,
       status: String(body.status ?? 'DRAFT'),
     };
+  }
+
+  private normalizeLeasePayloadDate(value: unknown, fieldName: string, required = false) {
+    if (value === undefined || value === null || value === '') {
+      if (required) throw new BadRequestException(`Date requise pour ${fieldName}`);
+      return null;
+    }
+
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) {
+        throw new BadRequestException(`Date invalide pour ${fieldName}`);
+      }
+      return value.toISOString().slice(0, 10);
+    }
+
+    const raw = String(value).trim();
+    if (!raw) {
+      if (required) throw new BadRequestException(`Date requise pour ${fieldName}`);
+      return null;
+    }
+
+    const isoDate = /^\d{4}-\d{2}-\d{2}/.exec(raw)?.[0];
+    if (isoDate) return isoDate;
+
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException(`Date invalide pour ${fieldName}`);
+    }
+
+    return parsed.toISOString().slice(0, 10);
   }
 
   private async activeLeaseContractTemplate(client: PoolClient, code: string) {
@@ -8310,6 +8407,43 @@ export class SaasService {
       [tableName, columnName],
     );
     return Boolean(rows[0]);
+  }
+
+  private async tableExists(tableName: string) {
+    const { rows } = await this.db.query(
+      `SELECT 1
+       FROM information_schema.tables
+       WHERE table_schema = 'public'
+         AND table_name = $1
+       LIMIT 1`,
+      [tableName],
+    );
+    return Boolean(rows[0]);
+  }
+
+  private async columnExists(tableName: string, columnName: string) {
+    const { rows } = await this.db.query(
+      `SELECT 1
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = $1
+         AND column_name = $2
+       LIMIT 1`,
+      [tableName, columnName],
+    );
+    return Boolean(rows[0]);
+  }
+
+  private async optionalColumnExpression(tableName: string, columnName: string, alias: string) {
+    return (await this.columnExists(tableName, columnName)) ? `${alias}.${columnName}` : 'NULL';
+  }
+
+  private async optionalColumnSelects(tableName: string, columnNames: string[], alias: string) {
+    const entries = await Promise.all(columnNames.map(async (columnName) => [
+      columnName,
+      (await this.columnExists(tableName, columnName)) ? `${alias}.${columnName} AS ${columnName}` : `NULL AS ${columnName}`,
+    ] as const));
+    return Object.fromEntries(entries) as Record<string, string>;
   }
 
   private resolveLeaseTemplateCodeForUsage(value: unknown) {
