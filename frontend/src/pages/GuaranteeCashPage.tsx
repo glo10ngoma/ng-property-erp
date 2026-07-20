@@ -135,19 +135,21 @@ export function GuaranteeCashPage() {
         <div className="mini-stat"><span>Dernier mouvement</span><strong>{overview?.last_movement_date ? shortDate(overview.last_movement_date) : '-'}</strong></div>
       </div>
 
-      <div className="quick-form">
-        <input type="date" value={filters.date_from} onChange={(event) => setFilters({ ...filters, date_from: event.target.value })} />
-        <input type="date" value={filters.date_to} onChange={(event) => setFilters({ ...filters, date_to: event.target.value })} />
-        <select value={filters.currency} onChange={(event) => setFilters({ ...filters, currency: event.target.value })}>
-          <option value="">Toutes devises</option>
-          <option value="USD">USD</option>
-          <option value="CDF">CDF</option>
-        </select>
-        <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}>
-          {movementTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-        </select>
-        <input placeholder="Recherche" value={query} onChange={(event) => setQuery(event.target.value)} />
-        <div className="filter-actions">
+      <div className="guarantee-cash-toolbar">
+        <div className="guarantee-cash-filters">
+          <input type="date" value={filters.date_from} onChange={(event) => setFilters({ ...filters, date_from: event.target.value })} />
+          <input type="date" value={filters.date_to} onChange={(event) => setFilters({ ...filters, date_to: event.target.value })} />
+          <select value={filters.currency} onChange={(event) => setFilters({ ...filters, currency: event.target.value })}>
+            <option value="">Toutes devises</option>
+            <option value="USD">USD</option>
+            <option value="CDF">CDF</option>
+          </select>
+          <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}>
+            {movementTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+          <input placeholder="Recherche" value={query} onChange={(event) => setQuery(event.target.value)} />
+        </div>
+        <div className="filter-actions guarantee-cash-actions">
           <button type="button" className="secondary" onClick={() => setFilters({ date_from: '', date_to: '', currency: '', type: '', payment_id: '' })}>Reinitialiser</button>
           <button type="button" className="secondary" onClick={() => void load()}><RefreshCcw size={15} />Actualiser</button>
           {can('guarantee_cash.export') ? <button type="button" className="secondary" onClick={() => exportCsv('caisse-garanties.csv', exportRows())}><FileText size={15} />CSV</button> : null}

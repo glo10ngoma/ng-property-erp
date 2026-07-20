@@ -332,6 +332,12 @@ textarea { min-height: 72px; resize: vertical; }
 .cash-filter-actions { justify-content: stretch; flex-wrap: nowrap; min-width: 0; width: 100%; gap: 8px; }
 .cash-filter-actions button { min-width: 0; flex: 1 1 0; }
 .cash-table-wrap { max-height: calc(100vh - 360px); overflow: auto; overscroll-behavior: contain; }
+.guarantee-cash-toolbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.guarantee-cash-filters { display: grid; grid-template-columns: repeat(5, minmax(128px, 1fr)); gap: 8px; flex: 1 1 680px; min-width: 0; }
+.guarantee-cash-filters input,
+.guarantee-cash-filters select { width: 100%; min-width: 0; }
+.guarantee-cash-actions { flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.guarantee-cash-actions button { flex: 0 0 auto; white-space: nowrap; }
 .cash-category-inline { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
 .cash-category-inline button { min-width: 0; white-space: nowrap; }
 .table-sort-button { width: 100%; min-height: auto; padding: 0; background: transparent; color: inherit; justify-content: flex-start; gap: 4px; border-radius: 0; font-size: inherit; font-weight: inherit; text-transform: inherit; }
@@ -824,6 +830,8 @@ textarea { min-height: 72px; resize: vertical; }
   .detail-list { grid-template-columns: 140px minmax(0, 1fr); }
   .cash-filters-row { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .cash-filter-actions { grid-column: span 2; justify-content: flex-start; flex-wrap: wrap; }
+  .guarantee-cash-filters { grid-template-columns: repeat(2, minmax(150px, 1fr)); flex-basis: 100%; }
+  .guarantee-cash-actions { width: 100%; justify-content: flex-start; }
   .cash-action-row { flex-wrap: wrap; }
   .cash-action-row > button,
   .cash-action-row .actions-row,
@@ -847,6 +855,8 @@ textarea { min-height: 72px; resize: vertical; }
   .statement-filters .filter-actions { grid-column: span 2; }
   .cash-filters-row { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
   .cash-filter-actions { grid-column: span 2; justify-content: flex-start; }
+  .guarantee-cash-filters { grid-template-columns: repeat(3, minmax(130px, 1fr)); flex-basis: 100%; }
+  .guarantee-cash-actions { width: 100%; justify-content: flex-start; }
 }
 
 @media (max-width: 640px) {
@@ -895,6 +905,8 @@ textarea { min-height: 72px; resize: vertical; }
   .dashboard-vertical-bar strong { font-size: 10px; }
   .cash-filters-row { grid-template-columns: 1fr; }
   .cash-filter-actions { grid-column: auto; justify-content: flex-start; flex-wrap: wrap; }
+  .guarantee-cash-filters { grid-template-columns: 1fr; }
+  .guarantee-cash-actions button { flex: 1 1 calc(50% - 6px); min-width: 0; }
   .cash-action-row { flex-wrap: wrap; }
   .cash-action-row > button,
   .cash-action-row .actions-row,
