@@ -43,6 +43,10 @@ type EligibleLease = {
   status: string;
   start_date: string;
   end_date?: string | null;
+  last_rent_period_start?: string | null;
+  last_rent_period_end?: string | null;
+  last_rent_billing_month?: number | null;
+  last_rent_billing_year?: number | null;
   tenant_name: string;
   tenant_email?: string | null;
   tenant_phone?: string | null;
@@ -237,8 +241,18 @@ export class AutomationsService {
         });
         continue;
       }
+      const leasePeriod = this.nextBillingPeriodForLease(period, lease);
+      if (!leasePeriod) {
+        skipped.push({
+          lease_id: lease.id,
+          lease_reference: this.leaseReference(lease),
+          tenant_name: lease.tenant_name,
+          unit_number: lease.unit_number,
+          reason: 'OUTSIDE_BILLING_FREQUENCY',
+        });
+        continue;
+      }
       eligibleCount += 1;
-      const leasePeriod = this.billingPeriodForLease(period, lease);
       const existing = await this.findExistingRentInvoice(organizationId, lease.id, leasePeriod);
       if (existing) {
         existingInvoices.push({
@@ -350,7 +364,17 @@ export class AutomationsService {
 
     for (const lease of leases) {
       try {
-        const leasePeriod = this.billingPeriodForLease(period, lease);
+        const leasePeriod = this.nextBillingPeriodForLease(period, lease);
+        if (!leasePeriod) {
+          skippedCount += 1;
+          runItems.push({
+            entityId: lease.id,
+            status: 'SKIPPED',
+            message: 'Bail hors cycle de facturation',
+            reference: this.leaseReference(lease),
+          });
+          continue;
+        }
         const existing = await this.findExistingRentInvoice(organizationId, lease.id, leasePeriod);
         if (existing) {
           skippedCount += 1;
@@ -463,9 +487,23 @@ export class AutomationsService {
       const lockedLease = await client.query<EligibleLease>(
         `SELECT l.id, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
                 COALESCE(l.billing_frequency_months, 1) AS billing_frequency_months,
-                l.status, l.start_date, l.end_date
+                l.status, l.start_date, l.end_date,
+                last_invoice.period_start AS last_rent_period_start,
+                last_invoice.period_end AS last_rent_period_end,
+                last_invoice.billing_month AS last_rent_billing_month,
+                last_invoice.billing_year AS last_rent_billing_year
          FROM leases l
          JOIN units u ON u.id = l.unit_id
+         LEFT JOIN LATERAL (
+           SELECT i.period_start, i.period_end, i.billing_month, i.billing_year
+           FROM invoices i
+           WHERE i.organization_id = l.organization_id
+             AND i.lease_id = l.id
+             AND i.invoice_type = 'RENT'
+             AND i.deleted_at IS NULL
+           ORDER BY COALESCE(i.period_end, (MAKE_DATE(i.billing_year, i.billing_month, 1) + INTERVAL '1 month' - INTERVAL '1 day')::DATE) DESC, i.id DESC
+           LIMIT 1
+         ) last_invoice ON TRUE
          WHERE l.id = $1
            AND l.organization_id = $2
            AND l.deleted_at IS NULL
@@ -479,7 +517,10 @@ export class AutomationsService {
       if (!this.isLeaseEligible(lease, args.period)) {
         throw new BadRequestException('Bail non eligible pour cette periode');
       }
-      const leasePeriod = this.billingPeriodForLease(args.period, lease);
+      const leasePeriod = this.nextBillingPeriodForLease(args.period, lease);
+      if (!leasePeriod) {
+        throw new BadRequestException('Bail hors cycle de facturation');
+      }
       await this.assertNoDuplicateRentInvoice(client, args.organizationId, args.lease.id, leasePeriod);
 
       const nextId = await this.nextInvoiceId(client);
@@ -861,6 +902,10 @@ export class AutomationsService {
       `SELECT l.id, l.lease_number, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
               COALESCE(l.billing_frequency_months, 1) AS billing_frequency_months,
               l.status, l.start_date, l.end_date,
+              last_invoice.period_start AS last_rent_period_start,
+              last_invoice.period_end AS last_rent_period_end,
+              last_invoice.billing_month AS last_rent_billing_month,
+              last_invoice.billing_year AS last_rent_billing_year,
               CASE
                 WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, 'Locataire')
                 ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
@@ -873,6 +918,16 @@ export class AutomationsService {
        JOIN tenants t ON t.id = l.tenant_id
        JOIN units u ON u.id = l.unit_id
        LEFT JOIN buildings b ON b.id = u.building_id
+       LEFT JOIN LATERAL (
+         SELECT i.period_start, i.period_end, i.billing_month, i.billing_year
+         FROM invoices i
+         WHERE i.organization_id = l.organization_id
+           AND i.lease_id = l.id
+           AND i.invoice_type = 'RENT'
+           AND i.deleted_at IS NULL
+         ORDER BY COALESCE(i.period_end, (MAKE_DATE(i.billing_year, i.billing_month, 1) + INTERVAL '1 month' - INTERVAL '1 day')::DATE) DESC, i.id DESC
+         LIMIT 1
+       ) last_invoice ON TRUE
        WHERE l.organization_id = $1
          AND l.deleted_at IS NULL
          AND l.status = 'ACTIVE'
@@ -892,6 +947,10 @@ export class AutomationsService {
       `SELECT l.id, l.lease_number, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
               COALESCE(l.billing_frequency_months, 1) AS billing_frequency_months,
               l.status, l.start_date, l.end_date,
+              last_invoice.period_start AS last_rent_period_start,
+              last_invoice.period_end AS last_rent_period_end,
+              last_invoice.billing_month AS last_rent_billing_month,
+              last_invoice.billing_year AS last_rent_billing_year,
               CASE
                 WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, 'Locataire')
                 ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
@@ -904,6 +963,16 @@ export class AutomationsService {
        LEFT JOIN tenants t ON t.id = l.tenant_id
        LEFT JOIN units u ON u.id = l.unit_id
        LEFT JOIN buildings b ON b.id = u.building_id
+       LEFT JOIN LATERAL (
+         SELECT i.period_start, i.period_end, i.billing_month, i.billing_year
+         FROM invoices i
+         WHERE i.organization_id = l.organization_id
+           AND i.lease_id = l.id
+           AND i.invoice_type = 'RENT'
+           AND i.deleted_at IS NULL
+         ORDER BY COALESCE(i.period_end, (MAKE_DATE(i.billing_year, i.billing_month, 1) + INTERVAL '1 month' - INTERVAL '1 day')::DATE) DESC, i.id DESC
+         LIMIT 1
+       ) last_invoice ON TRUE
        WHERE l.organization_id = $1
          AND l.deleted_at IS NULL
        ORDER BY COALESCE(b.name, ''), COALESCE(u.number, ''), l.id`,
@@ -1193,14 +1262,41 @@ export class AutomationsService {
     };
   }
 
+  private nextBillingPeriodForLease(basePeriod: BillingPeriod, lease: Partial<EligibleLease>) {
+    const frequencyMonths = this.normalizeBillingFrequency(lease.billing_frequency_months);
+    const nextStart = this.nextBillingCycleStart(lease);
+    if (!nextStart || nextStart > basePeriod.periodStart) {
+      return null;
+    }
+    const year = this.yearFromDate(nextStart);
+    const month = this.monthFromDate(nextStart);
+    return this.billingPeriodForLease(this.buildBillingPeriod(year, month), { billing_frequency_months: frequencyMonths });
+  }
+
+  private nextBillingCycleStart(lease: Partial<EligibleLease>) {
+    const lastEnd = this.dateOnly(lease.last_rent_period_end) ?? this.lastRentPeriodEndFromBillingFields(lease);
+    if (lastEnd) {
+      return this.addDays(lastEnd, 1);
+    }
+    const startDate = this.dateOnly(lease.start_date);
+    if (!startDate) {
+      return null;
+    }
+    return `${this.yearFromDate(startDate)}-${this.two(this.monthFromDate(startDate))}-01`;
+  }
+
+  private lastRentPeriodEndFromBillingFields(lease: Partial<EligibleLease>) {
+    const month = Number(lease.last_rent_billing_month ?? 0);
+    const year = Number(lease.last_rent_billing_year ?? 0);
+    if (!Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year) || year < 2000) {
+      return null;
+    }
+    return `${year}-${this.two(month)}-${this.two(this.daysInMonth(year, month))}`;
+  }
+
   private normalizeBillingFrequency(value: unknown) {
     const frequency = Number(value ?? 1);
     return Number.isInteger(frequency) && frequency >= 1 && frequency <= 12 ? frequency : 1;
-  }
-
-  private shouldBillLeaseInPeriod(lease: Partial<Pick<EligibleLease, 'billing_frequency_months'>>, period: BillingPeriod) {
-    const frequency = this.normalizeBillingFrequency(lease.billing_frequency_months);
-    return ((period.month - 1) % frequency) === 0;
   }
 
   private addMonths(year: number, month: number, offset: number) {
@@ -1209,6 +1305,12 @@ export class AutomationsService {
       year: Math.floor(zeroBased / 12),
       month: (zeroBased % 12) + 1,
     };
+  }
+
+  private addDays(value: string, days: number) {
+    const date = new Date(`${value.slice(0, 10)}T00:00:00`);
+    date.setDate(date.getDate() + days);
+    return `${date.getFullYear()}-${this.two(date.getMonth() + 1)}-${this.two(date.getDate())}`;
   }
 
   private monthFromDate(value: string) {
@@ -1251,7 +1353,6 @@ export class AutomationsService {
     if (!lease.unit_id) return 'UNIT_MISSING';
     if (String(lease.status ?? '') !== 'ACTIVE') return `STATUS_${String(lease.status ?? 'UNKNOWN').toUpperCase()}`;
     if (!(this.leaseRentAmount(lease) > 0)) return 'RENT_MISSING';
-    if (!this.shouldBillLeaseInPeriod(lease, period)) return 'OUTSIDE_BILLING_FREQUENCY';
     if (!startDate || startDate > period.periodEnd) return 'STARTS_AFTER_PERIOD';
     if (endDate && endDate < period.periodStart) return 'ENDED_BEFORE_PERIOD';
     return null;
