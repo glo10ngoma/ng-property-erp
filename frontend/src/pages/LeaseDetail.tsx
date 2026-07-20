@@ -33,7 +33,7 @@ type LeaseContractGeneration = {
 
 type LeaseDetailData = Lease & {
   guarantee?: { amount: number; paid_amount: number; status: string; payment_date?: string };
-  guarantee_payments?: Array<{ id: number; payment_date: string; amount: number; payment_method: string; reference?: string; receipt_number?: string; cash_movement_id?: number; amount_usd?: number; amount_cdf?: number; total_equivalent_usd?: number }>;
+  guarantee_payments?: Array<{ id: number; payment_date: string; amount: number; payment_method: string; reference?: string; receipt_number?: string; cash_movement_id?: number; guarantee_cash_movement_id?: number; amount_usd?: number; amount_cdf?: number; total_equivalent_usd?: number }>;
   documents: Array<{ id: number; document_type: string; file_name: string; file_url?: string; uploaded_at?: string }>;
   history: Lease[];
   latest_contract?: LeaseContractGeneration | null;
@@ -540,7 +540,10 @@ export function LeaseDetail() {
             {guaranteePayments.map((payment) => (
               <div className="compact-item" key={payment.id}>
                 <span>{payment.receipt_number ?? `PAY-${payment.id}`} | {shortDate(payment.payment_date)} | USD {money(payment.amount_usd ?? payment.amount)} | CDF {money(payment.amount_cdf ?? 0)} | Eq. {money(payment.total_equivalent_usd ?? payment.amount)}</span>
-                <button type="button" className="secondary" onClick={() => navigate(`/payments/${payment.id}`)}><Receipt size={16} />Recu</button>
+                <div className="actions">
+                  <button type="button" className="secondary" onClick={() => navigate(`/payments/${payment.id}`)}><Receipt size={16} />Recu</button>
+                  <button type="button" className="secondary" onClick={() => navigate(`/guarantee-cash?payment_id=${payment.id}`)}>Mouvement</button>
+                </div>
               </div>
             ))}
           </div>

@@ -582,6 +582,31 @@ export class CashController {
   }
 }
 
+@Controller('guarantee-cash')
+export class GuaranteeCashController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get('overview')
+  overview(@Query() query: Record<string, unknown>) {
+    return this.service.guaranteeCashOverview(query);
+  }
+
+  @Get('movements')
+  movements(@Query() query: Record<string, unknown>) {
+    return this.service.guaranteeCashMovements(query);
+  }
+
+  @Post('expenses')
+  expense(@Body() body: Record<string, unknown>) {
+    return this.service.createGuaranteeCashExpense(body);
+  }
+
+  @Get('report')
+  report(@Query() query: Record<string, unknown>) {
+    return this.service.guaranteeCashReport(query);
+  }
+}
+
 @Controller('suppliers')
 export class SuppliersController {
   constructor(private readonly service: SaasService) {}

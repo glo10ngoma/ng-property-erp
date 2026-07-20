@@ -1835,7 +1835,11 @@ export class SaasService {
         `SELECT
            COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE 0 END), 0)::NUMERIC(12,2) AS total_in,
            COALESCE(SUM(CASE WHEN type = 'OUT' THEN amount ELSE 0 END), 0)::NUMERIC(12,2) AS total_out
-         FROM cash_movements WHERE cash_session_id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+         FROM cash_movements
+         WHERE cash_session_id = $1
+           AND organization_id = $2
+           AND deleted_at IS NULL
+           AND category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')`,
         [session.id, this.context.organizationId()],
       );
       const expected = Number(session.opening_balance) + Number(totals.rows[0].total_in) - Number(totals.rows[0].total_out);
@@ -1963,7 +1967,9 @@ export class SaasService {
       LEFT JOIN invoices i ON i.id = cm.invoice_id
       LEFT JOIN tenants t ON t.id = cm.tenant_id
       LEFT JOIN employees e ON e.id = cm.employee_id
-      WHERE cm.organization_id = $1 AND cm.deleted_at IS NULL
+      WHERE cm.organization_id = $1
+        AND cm.deleted_at IS NULL
+        AND cm.category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')
       ORDER BY cm.movement_date DESC, cm.id DESC
     `, [this.context.organizationId()]);
     return rows;
@@ -2011,7 +2017,10 @@ export class SaasService {
          ORDER BY created_at DESC
          LIMIT 1
        ) al ON TRUE
-       WHERE cm.id = $1 AND cm.organization_id = $2 AND cm.deleted_at IS NULL`,
+       WHERE cm.id = $1
+         AND cm.organization_id = $2
+         AND cm.deleted_at IS NULL
+         AND cm.category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')`,
       [id, this.context.organizationId()],
     );
     const movement = requireRow(rows[0], 'Cash movement');
@@ -4806,7 +4815,7 @@ export class SaasService {
       return [];
     }
     const { rows } = await this.db.query(
-      `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference, p.receipt_number, p.cash_movement_id,
+      `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference, p.receipt_number, p.cash_movement_id, p.guarantee_cash_movement_id,
               p.amount_usd, p.amount_cdf, p.total_equivalent_usd
        FROM payments p
        JOIN lease_guarantees g ON g.id = p.lease_guarantee_id
@@ -5863,7 +5872,107 @@ export class SaasService {
     return this.emailService.sendTestEmail(recipient, this.context.organizationId(), this.context.userId() ?? 1);
   }
 
+  async guaranteeCashOverview(filters: Record<string, unknown> = {}) {
+    await this.ensureGuaranteeCashSchema();
+    const { where, values } = this.guaranteeCashWhere(filters);
+    const { rows } = await this.db.query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN type = 'IN' THEN COALESCE(equivalent_usd, amount) ELSE 0 END), 0)::FLOAT AS total_in,
+         COALESCE(SUM(CASE WHEN type = 'OUT' THEN COALESCE(equivalent_usd, amount) ELSE 0 END), 0)::FLOAT AS total_out,
+         COALESCE(SUM(CASE WHEN type = 'IN' THEN COALESCE(equivalent_usd, amount) ELSE -COALESCE(equivalent_usd, amount) END), 0)::FLOAT AS balance_usd,
+         COUNT(*)::INT AS movement_count,
+         MAX(movement_date) AS last_movement_date
+       FROM guarantee_cash_movements gcm
+       ${where}`,
+      values,
+    );
+    const last = await this.db.query(
+      `SELECT gcm.*, l.lease_number,
+              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS user_name
+       FROM guarantee_cash_movements gcm
+       LEFT JOIN leases l ON l.id = gcm.lease_id
+       LEFT JOIN tenants t ON t.id = gcm.tenant_id
+       LEFT JOIN app_users u ON u.id = gcm.created_by
+       ${where}
+       ORDER BY gcm.movement_date DESC, gcm.id DESC
+       LIMIT 1`,
+      values,
+    );
+    return { ...(rows[0] ?? {}), last_movement: last.rows[0] ?? null };
+  }
+
+  async guaranteeCashMovements(filters: Record<string, unknown> = {}) {
+    await this.ensureGuaranteeCashSchema();
+    const { where, values } = this.guaranteeCashWhere(filters);
+    const { rows } = await this.db.query(
+      `SELECT gcm.*, l.lease_number,
+              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS user_name
+       FROM guarantee_cash_movements gcm
+       LEFT JOIN leases l ON l.id = gcm.lease_id
+       LEFT JOIN tenants t ON t.id = gcm.tenant_id
+       LEFT JOIN app_users u ON u.id = gcm.created_by
+       ${where}
+       ORDER BY gcm.movement_date DESC, gcm.id DESC`,
+      values,
+    );
+    return rows;
+  }
+
+  async createGuaranteeCashExpense(body: Record<string, unknown>) {
+    await this.ensureGuaranteeCashSchema();
+    const amount = Number(body.amount ?? 0);
+    const currency = String(body.currency ?? 'USD').toUpperCase();
+    const reason = String(body.reason ?? '').trim();
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('Montant de sortie invalide.');
+    }
+    if (!['USD', 'CDF'].includes(currency)) {
+      throw new BadRequestException('Devise invalide.');
+    }
+    if (!reason) {
+      throw new BadRequestException('Le motif est obligatoire.');
+    }
+    const exchangeRate = currency === 'CDF' ? await this.exchangeRate() : null;
+    const exchangeRateUsed = Number(body.exchange_rate_used ?? exchangeRate?.rate ?? 0) || null;
+    const exchangeRateDate = body.exchange_rate_date ?? exchangeRate?.effectiveDate ?? null;
+    if (currency === 'CDF' && (!exchangeRateUsed || exchangeRateUsed <= 0)) {
+      throw new BadRequestException('Taux de change requis pour une sortie en CDF.');
+    }
+    return this.db.transaction(async (client) => {
+      const movement = await this.createGuaranteeCashMovementInTransaction(client, {
+        movement_type: 'GARANTY_EXPENSE',
+        type: 'OUT',
+        amount,
+        currency,
+        equivalent_usd: currency === 'CDF' && exchangeRateUsed ? Number((amount / exchangeRateUsed).toFixed(2)) : amount,
+        movement_date: body.movement_date ?? new Date().toISOString().slice(0, 10),
+        reference: body.reference ?? null,
+        reason,
+        notes: body.notes ?? null,
+        exchange_rate_used: exchangeRateUsed,
+        exchange_rate_date: exchangeRateDate,
+      });
+      await this.auditGuaranteeCash(client, 'GARANTY_EXPENSE', movement.id, { amount, currency, reason });
+      return movement;
+    });
+  }
+
+  async guaranteeCashReport(filters: Record<string, unknown> = {}) {
+    const [overview, movements] = await Promise.all([
+      this.guaranteeCashOverview(filters),
+      this.guaranteeCashMovements(filters),
+    ]);
+    return { overview, movements };
+  }
+
   async payLeaseGuarantee(id: number, body: Record<string, unknown>) {
+    await this.ensureGuaranteeCashSchema();
     return this.db.transaction(async (client) => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`lease-guarantee-payment-${this.context.organizationId()}-${id}`]);
       const lease = await client.query(
@@ -5960,38 +6069,48 @@ export class SaasService {
       }
       const movements = [];
       if (amountUsd > 0) {
-        movements.push(await this.createCashMovementInTransaction(client, {
+        const movement = await this.createGuaranteeCashMovementInTransaction(client, {
+          movement_type: 'GARANTY_PAYMENT_IN',
           type: 'IN',
-          category: 'LEASE_GUARANTEE',
           amount: amountUsd,
           movement_date: paymentDate,
+          lease_id: id,
+          lease_guarantee_id: persistedGuarantee.id,
           payment_id: paymentResult.rows[0].id,
           tenant_id: row.tenant_id,
-          description: 'Paiement garantie locative',
           reference: normalizedReference,
+          reason: 'Paiement garantie locative',
+          notes: body.notes ? String(body.notes) : null,
           currency: 'USD',
           equivalent_usd: amountUsd,
-        }));
+        });
+        await this.auditGuaranteeCash(client, 'GARANTY_PAYMENT_IN', movement.id, { payment_id: paymentResult.rows[0].id, amount: amountUsd, currency: 'USD' });
+        movements.push(movement);
       }
       if (amountCdf > 0) {
-        movements.push(await this.createCashMovementInTransaction(client, {
+        const movement = await this.createGuaranteeCashMovementInTransaction(client, {
+          movement_type: 'GARANTY_PAYMENT_IN',
           type: 'IN',
-          category: 'LEASE_GUARANTEE',
           amount: amountCdf,
           movement_date: paymentDate,
+          lease_id: id,
+          lease_guarantee_id: persistedGuarantee.id,
           payment_id: paymentResult.rows[0].id,
           tenant_id: row.tenant_id,
-          description: 'Paiement garantie locative',
           reference: normalizedReference,
+          reason: 'Paiement garantie locative',
+          notes: body.notes ? String(body.notes) : null,
           currency: 'CDF',
           exchange_rate_used: exchangeRateUsed,
           exchange_rate_date: exchangeRateDate,
           equivalent_usd: cdfEquivalentUsd,
-        }));
+        });
+        await this.auditGuaranteeCash(client, 'GARANTY_PAYMENT_IN', movement.id, { payment_id: paymentResult.rows[0].id, amount: amountCdf, currency: 'CDF' });
+        movements.push(movement);
       }
       await client.query(
         `UPDATE payments
-         SET cash_movement_id = $2
+         SET guarantee_cash_movement_id = $2
          WHERE id = $1 AND organization_id = $3`,
         [paymentResult.rows[0].id, movements[0]?.id ?? null, this.context.organizationId()],
       );
@@ -6006,6 +6125,7 @@ export class SaasService {
   }
 
   async refundLeaseGuarantee(id: number, amount: number, reference?: string) {
+    await this.ensureGuaranteeCashSchema();
     return this.db.transaction(async (client) => {
       const lease = await client.query(
         `SELECT * FROM leases WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
@@ -6022,15 +6142,18 @@ export class SaasService {
         payment_date: guarantee?.payment_date ?? null,
         status,
       });
-      const movement = await this.createCashMovementInTransaction(client, {
+      const movement = await this.createGuaranteeCashMovementInTransaction(client, {
+        movement_type: 'GARANTY_REFUND',
         type: 'OUT',
-        category: 'LEASE_GUARANTEE_REFUND',
         amount,
         movement_date: new Date().toISOString().slice(0, 10),
+        lease_id: id,
+        lease_guarantee_id: guarantee?.id ?? null,
         tenant_id: row.tenant_id,
-        description: 'Remboursement garantie locative',
+        reason: 'Remboursement garantie locative',
         reference: reference ?? `GAR-REF-${id}`,
       });
+      await this.auditGuaranteeCash(client, 'GARANTY_REFUND', movement.id, { amount, lease_id: id });
       return { guarantee: await this.leaseGuaranteeInTransaction(client, id), movement };
     });
   }
@@ -6219,7 +6342,9 @@ export class SaasService {
            COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE 0 END), 0)::FLOAT AS total_in,
            COALESCE(SUM(CASE WHEN type = 'OUT' THEN amount ELSE 0 END), 0)::FLOAT AS total_out
          FROM cash_movements
-         WHERE organization_id = $1 AND deleted_at IS NULL`,
+         WHERE organization_id = $1
+           AND deleted_at IS NULL
+           AND category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')`,
         [organizationId],
       ),
     ]);
@@ -9462,6 +9587,80 @@ export class SaasService {
       [rows[0].id, this.context.organizationId()],
     );
     return refreshed.rows[0] ?? rows[0];
+  }
+
+  private async createGuaranteeCashMovementInTransaction(client: PoolClient, body: Record<string, unknown>) {
+    const currency = String(body.currency ?? 'USD').toUpperCase();
+    const exchangeRateUsed = Number(body.exchange_rate_used ?? 0) || null;
+    const amount = Number(body.amount ?? 0);
+    const equivalentUsd = Number(body.equivalent_usd ?? (currency === 'CDF' && exchangeRateUsed ? amount / exchangeRateUsed : amount));
+    const { rows } = await client.query(
+      `INSERT INTO guarantee_cash_movements
+       (organization_id, movement_type, type, amount, currency, exchange_rate_used, exchange_rate_date, equivalent_usd,
+        movement_date, lease_id, lease_guarantee_id, payment_id, tenant_id, reference, reason, notes, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+               $9, $10, $11, $12, $13, $14, $15, $16, $17)
+       RETURNING *`,
+      [
+        this.context.organizationId(),
+        String(body.movement_type ?? 'GARANTY_EXPENSE'),
+        String(body.type ?? 'OUT'),
+        amount,
+        currency,
+        exchangeRateUsed,
+        body.exchange_rate_date ?? null,
+        Number.isFinite(equivalentUsd) ? Number(equivalentUsd.toFixed(2)) : amount,
+        body.movement_date ?? new Date().toISOString().slice(0, 10),
+        body.lease_id ?? null,
+        body.lease_guarantee_id ?? null,
+        body.payment_id ?? null,
+        body.tenant_id ?? null,
+        body.reference ?? null,
+        body.reason ?? null,
+        body.notes ?? null,
+        this.context.userId() ?? 1,
+      ],
+    );
+    return rows[0];
+  }
+
+  private guaranteeCashWhere(filters: Record<string, unknown> = {}) {
+    const values: unknown[] = [this.context.organizationId()];
+    const clauses = ['gcm.organization_id = $1', 'gcm.deleted_at IS NULL'];
+    const add = (sql: string, value: unknown) => {
+      values.push(value);
+      clauses.push(sql.replace('?', `$${values.length}`));
+    };
+    if (filters.date_from) add('gcm.movement_date >= ?::DATE', String(filters.date_from));
+    if (filters.date_to) add('gcm.movement_date <= ?::DATE', String(filters.date_to));
+    if (filters.currency) add('gcm.currency = ?', String(filters.currency).toUpperCase());
+    if (filters.type) add('gcm.movement_type = ?', String(filters.type).toUpperCase());
+    if (filters.lease_id) add('gcm.lease_id = ?::INT', Number(filters.lease_id));
+    if (filters.tenant_id) add('gcm.tenant_id = ?::INT', Number(filters.tenant_id));
+    if (filters.user_id) add('gcm.created_by = ?::INT', Number(filters.user_id));
+    if (filters.payment_id) add('gcm.payment_id = ?::INT', Number(filters.payment_id));
+    return { where: `WHERE ${clauses.join(' AND ')}`, values };
+  }
+
+  private async ensureGuaranteeCashSchema() {
+    if (!(await this.tableExists('guarantee_cash_movements')) || !(await this.columnExists('payments', 'guarantee_cash_movement_id'))) {
+      throw new BadRequestException('La caisse des garanties locatives n est pas encore configuree.');
+    }
+  }
+
+  private async auditGuaranteeCash(client: PoolClient, action: string, movementId: number, metadata: Record<string, unknown>) {
+    await client.query(
+      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+       VALUES ($1, $2, $3, 'guarantee_cash', $4, 'POST', $5, 201, $6::JSONB)`,
+      [
+        this.context.organizationId(),
+        this.context.userId() ?? null,
+        action,
+        String(movementId),
+        `/api/guarantee-cash/movements/${movementId}`,
+        JSON.stringify(metadata),
+      ],
+    );
   }
 
   private async nextCashPieceNumber(client: PoolClient, type: string) {

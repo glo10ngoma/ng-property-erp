@@ -93,7 +93,8 @@ const navGroups: NavGroup[] = [
     items: [
       { to: '/invoices', label: 'Factures', icon: FileText, permission: 'invoices.read' },
       { to: '/payments', label: 'Paiements', icon: CreditCard, permission: 'payments.read' },
-      { to: '/cash', label: 'Caisse', icon: WalletCards, permission: 'cash.read' },
+      { to: '/cash', label: 'Caisse principale', icon: WalletCards, permission: 'cash.read' },
+      { to: '/guarantee-cash', label: 'Caisse garanties locatives', icon: WalletCards, permission: 'guarantee_cash.read' },
     ],
   },
   {

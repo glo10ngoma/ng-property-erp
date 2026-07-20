@@ -80,13 +80,22 @@ export class PaymentsService {
        LEFT JOIN leases l ON l.id = i.lease_id
        LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, gl.unit_id, t.unit_id)
        LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
-       LEFT JOIN LATERAL (
-         SELECT cm.created_by
-         FROM cash_movements cm
-         WHERE cm.payment_id = p.id
-           AND cm.organization_id = p.organization_id
-           AND cm.deleted_at IS NULL
-         ORDER BY cm.id
+      LEFT JOIN LATERAL (
+         SELECT created_by
+         FROM (
+           SELECT cm.created_by, cm.id
+           FROM cash_movements cm
+           WHERE cm.payment_id = p.id
+             AND cm.organization_id = p.organization_id
+             AND cm.deleted_at IS NULL
+           UNION ALL
+           SELECT gcm.created_by, gcm.id
+           FROM guarantee_cash_movements gcm
+           WHERE gcm.payment_id = p.id
+             AND gcm.organization_id = p.organization_id
+             AND gcm.deleted_at IS NULL
+         ) movement_creators
+         ORDER BY id
          LIMIT 1
        ) pcm ON TRUE
        LEFT JOIN app_users creator ON creator.id = pcm.created_by AND creator.deleted_at IS NULL

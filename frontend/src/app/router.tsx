@@ -34,6 +34,7 @@ import { PlatformLayout } from '../core/layout/PlatformLayout';
 import { BuildingReport } from '../pages/BuildingReport';
 import { ArchivesPage } from '../pages/ArchivesPage';
 import { CashDetailPage } from '../pages/CashEnterprise';
+import { GuaranteeCashPage } from '../pages/GuaranteeCashPage';
 import { LeaseDetail } from '../pages/LeaseDetail';
 import { LeaseNew } from '../pages/LeaseNew';
 import { Login } from '../pages/Login';
@@ -110,6 +111,7 @@ export function AppRouter() {
           <Route path="/payments/:id" element={guarded('payments.read', <PaymentDetail />)} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/cash" element={guarded('cash.read', <CashPage />)} />
+          <Route path="/guarantee-cash" element={guarded('guarantee_cash.read', <GuaranteeCashPage />)} />
           <Route path="/cash/categories" element={guarded('cash.read', <CashExpenseCategoriesPage />)} />
           <Route path="/cash/:id" element={guarded('cash.read', <CashDetailPage />)} />
           <Route path="/staff" element={guarded('staff.read', <StaffPage />)} />
