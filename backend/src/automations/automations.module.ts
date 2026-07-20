@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { DatabaseModule } from '../database/database.module';
 import { EmailModule } from '../email/email.module';
 import { SaasModule } from '../saas/saas.module';
@@ -6,7 +6,7 @@ import { AutomationsController } from './automations.controller';
 import { AutomationsService } from './automations.service';
 
 @Module({
-  imports: [DatabaseModule, SaasModule, EmailModule],
+  imports: [DatabaseModule, forwardRef(() => SaasModule), EmailModule],
   controllers: [AutomationsController],
   providers: [AutomationsService],
   exports: [AutomationsService],

@@ -1,12 +1,13 @@
 ﻿import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
-import { HttpException, InternalServerErrorException, Logger } from '@nestjs/common';
+import { forwardRef, HttpException, Inject, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { RequestContext } from '../auth/request-context';
 import { hashPassword } from '../auth/password';
 import { requireRow } from '../common/not-found';
 import { DatabaseService } from '../database/database.service';
 import { EmailService } from '../email/email.service';
+import { AutomationsService } from '../automations/automations.service';
 import {
   buildLeaseContractDocxBuffer,
   buildLeaseContractHtml,
@@ -46,6 +47,8 @@ export class SaasService {
     private readonly db: DatabaseService,
     private readonly context: RequestContext,
     private readonly emailService: EmailService,
+    @Inject(forwardRef(() => AutomationsService))
+    private readonly automationsService: AutomationsService,
   ) {}
 
   async findAll(table: string, orderBy = 'id DESC') {
@@ -1861,7 +1864,7 @@ export class SaasService {
           type: 'EXPENSE_APPROVAL',
           entity_type: 'cash_movements',
           entity_id: null,
-          title: `Demande dÃƒÂ©pense ${body.category ?? 'caisse'} - ${Number(body.amount ?? 0)}`,
+          title: `Demande dépense ${body.category ?? 'caisse'} - ${Number(body.amount ?? 0)}`,
           comment: body.description ?? body.notes ?? null,
         });
       }
@@ -4119,7 +4122,7 @@ export class SaasService {
         [id, this.context.organizationId()],
       );
       const inventoryRow = requireRow(inventory.rows[0], 'Inventory');
-      if (inventoryRow.status === 'VALIDATED') throw new BadRequestException('Inventaire dÃƒÂ©jÃƒÂ  validÃƒÂ©');
+      if (inventoryRow.status === 'VALIDATED') throw new BadRequestException('Inventaire déjà validé');
       const lines = await client.query(
         `SELECT * FROM inventory_count_lines WHERE inventory_count_id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
         [id, this.context.organizationId()],
@@ -4335,7 +4338,7 @@ export class SaasService {
   }
 
   async createLease(body: Record<string, unknown>) {
-    return this.db.transaction(async (client) => {
+    const lease = await this.db.transaction(async (client) => {
       const organizationId = this.context.organizationId();
       const normalized = this.normalizeLeasePayload(body, { forceInitialGuaranteeUnpaid: true });
       if (normalized.status === 'ACTIVE') {
@@ -4398,11 +4401,13 @@ export class SaasService {
       if (rows[0].status === 'ACTIVE') await this.activateLeaseInTransaction(client, rows[0].id);
       return rows[0];
     });
+    await this.generateImmediateInitialRentInvoiceIfNeeded(Number(lease.id));
+    return lease;
   }
 
   async updateLease(id: number, body: Record<string, unknown>) {
     const current = await this.leaseDetail(id) as Record<string, unknown>;
-    return this.db.transaction(async (client) => {
+    const lease = await this.db.transaction(async (client) => {
       const hasLeaseActivityDescriptionColumn = await this.tableHasColumn(client, 'leases', 'lease_activity_description');
       const currentUsage = this.normalizeLeaseUsageCode(current.lease_usage ?? current.usage_type);
       const currentActivityDescription = String(current.lease_activity_description ?? '').trim();
@@ -4540,6 +4545,8 @@ export class SaasService {
       }
       return this.leaseDetail(id);
     });
+    await this.generateImmediateInitialRentInvoiceIfNeeded(id);
+    return lease;
   }
 
   async leaseDeletionImpact(id: number) {
@@ -4775,7 +4782,9 @@ export class SaasService {
   }
 
   async activateLease(id: number) {
-    return this.db.transaction((client) => this.activateLeaseInTransaction(client, id));
+    const lease = await this.db.transaction((client) => this.activateLeaseInTransaction(client, id));
+    await this.generateImmediateInitialRentInvoiceIfNeeded(id);
+    return lease;
   }
 
   async terminateLease(id: number, reason: string) {
@@ -5475,7 +5484,7 @@ export class SaasService {
     );
     const invoice = requireRow(rows[0], 'Invoice');
     const recipient = channel === 'EMAIL' ? invoice.email : invoice.phone;
-    if (!recipient) throw new BadRequestException(channel === 'EMAIL' ? 'Adresse email locataire absente' : 'TÃƒÂ©lÃƒÂ©phone locataire absent');
+    if (!recipient) throw new BadRequestException(channel === 'EMAIL' ? 'Adresse email locataire absente' : 'Téléphone locataire absent');
 
     const message = body.message
       ? String(body.message)
@@ -5537,9 +5546,9 @@ export class SaasService {
 
   private defaultReminderMessage(channel: string, variables: Record<string, unknown>) {
     if (channel === 'EMAIL') {
-      return `Bonjour ${variables.tenant_name},\nSauf erreur de notre part, votre facture ${variables.invoice_number} d'un montant de ${variables.amount} ${variables.currency} reste impayÃƒÂ©e.\nMerci de rÃƒÂ©gulariser votre situation.`;
+      return `Bonjour ${variables.tenant_name},\nSauf erreur de notre part, votre facture ${variables.invoice_number} d'un montant de ${variables.amount} ${variables.currency} reste impayée.\nMerci de régulariser votre situation.`;
     }
-    return `Bonjour ${variables.tenant_name}, votre facture ${variables.invoice_number} de ${variables.amount} ${variables.currency} reste impayÃƒÂ©e. Merci de rÃƒÂ©gulariser.`;
+    return `Bonjour ${variables.tenant_name}, votre facture ${variables.invoice_number} de ${variables.amount} ${variables.currency} reste impayée. Merci de régulariser.`;
   }
 
   async notifications() {
@@ -6218,7 +6227,7 @@ export class SaasService {
   async rentalUnitsAvailability() {
     const { rows } = await this.db.query(
       `SELECT b.name AS building_name, u.id AS unit_id, u.number, u.status,
-              CASE WHEN l.id IS NULL THEN 'Libre' ELSE 'OccupÃƒÂ©e' END AS occupancy
+              CASE WHEN l.id IS NULL THEN 'Libre' ELSE 'Occupée' END AS occupancy
        FROM units u
        JOIN buildings b ON b.id = u.building_id
        LEFT JOIN leases l ON l.unit_id = u.id AND l.status = 'ACTIVE' AND l.deleted_at IS NULL AND l.archived_at IS NULL
@@ -7868,7 +7877,7 @@ export class SaasService {
         [rows[0].id, step.step_order, step.name, step.approver_role, step.approver_user_id, this.context.organizationId()],
       );
     }
-    await this.addWorkflowAction(client, rows[0].id, 'CREATED', body.comment ? String(body.comment) : 'Workflow crÃƒÂ©ÃƒÂ©');
+    await this.addWorkflowAction(client, rows[0].id, 'CREATED', body.comment ? String(body.comment) : 'Workflow créé');
     return rows[0];
   }
 
@@ -7890,8 +7899,8 @@ export class SaasService {
       [workflowInstanceId, this.context.organizationId()],
     );
     const step = requireRow(rows[0], 'Workflow step');
-    if (step.approver_user_id && Number(step.approver_user_id) !== this.context.userId()) throw new BadRequestException('Vous ne pouvez pas valider cette ÃƒÂ©tape');
-    if (step.approver_role && step.approver_role !== this.context.user()?.role) throw new BadRequestException('RÃƒÂ´le approbateur requis');
+    if (step.approver_user_id && Number(step.approver_user_id) !== this.context.userId()) throw new BadRequestException('Vous ne pouvez pas valider cette étape');
+    if (step.approver_role && step.approver_role !== this.context.user()?.role) throw new BadRequestException('Rôle approbateur requis');
   }
 
   private async ensureWorkflowApproved(client: PoolClient, workflowInstanceId?: unknown) {
@@ -7901,8 +7910,8 @@ export class SaasService {
       [workflowInstanceId, this.context.organizationId()],
     );
     const workflow = requireRow(rows[0], 'Workflow');
-    if (workflow.status === 'REJECTED') throw new BadRequestException('Workflow rejetÃƒÂ©: action bloquÃƒÂ©e');
-    if (workflow.status !== 'APPROVED') throw new BadRequestException('Workflow en attente: action bloquÃƒÂ©e');
+    if (workflow.status === 'REJECTED') throw new BadRequestException('Workflow rejeté: action bloquée');
+    if (workflow.status !== 'APPROVED') throw new BadRequestException('Workflow en attente: action bloquée');
   }
 
   private async addMaintenanceTimeline(client: PoolClient, maintenanceRequestId: number, eventType: string, title: string, details?: string) {
@@ -7935,7 +7944,7 @@ export class SaasService {
        LIMIT 1`,
       [unitId, this.context.organizationId(), startDate, endDate, ignoredLeaseId ?? null],
     );
-    if (rows[0]) throw new BadRequestException('Un bail actif existe dÃƒÂ©jÃƒÂ  sur cette unitÃƒÂ© pour cette pÃƒÂ©riode');
+    if (rows[0]) throw new BadRequestException('Un bail actif existe déjà sur cette unité pour cette période');
   }
 
   private async activateLeaseInTransaction(client: PoolClient, id: number) {
@@ -7957,6 +7966,20 @@ export class SaasService {
       this.context.organizationId(),
     ]);
     return rows[0];
+  }
+
+  private async generateImmediateInitialRentInvoiceIfNeeded(leaseId: number) {
+    try {
+      const result = await this.automationsService.generateImmediateInitialRentInvoiceForLease(leaseId);
+      if (result.status === 'SUCCESS') {
+        this.logger.log(`Immediate initial rent invoice generated for lease ${leaseId}: ${result.invoice_number}`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Immediate initial rent invoice failed for lease ${leaseId}: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 
   private async upsertLeaseGuarantee(client: PoolClient, leaseId: number, guarantee: Record<string, unknown>) {
