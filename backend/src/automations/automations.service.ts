@@ -1137,6 +1137,43 @@ export class AutomationsService {
          AND (
            (period_start = $3::DATE AND period_end = $4::DATE)
            OR (billing_month = $5 AND billing_year = $6)
+           OR (
+             COALESCE(
+               period_start,
+               CASE
+                 WHEN billing_year >= 2000 AND billing_month BETWEEN 1 AND 12
+                 THEN MAKE_DATE(billing_year, billing_month, 1)
+                 ELSE NULL
+               END
+             ) IS NOT NULL
+             AND COALESCE(
+               period_end,
+               CASE
+                 WHEN billing_year >= 2000 AND billing_month BETWEEN 1 AND 12
+                 THEN (MAKE_DATE(billing_year, billing_month, 1) + INTERVAL '1 month' - INTERVAL '1 day')::DATE
+                 ELSE NULL
+               END
+             ) IS NOT NULL
+             AND daterange(
+               COALESCE(
+                 period_start,
+                 CASE
+                   WHEN billing_year >= 2000 AND billing_month BETWEEN 1 AND 12
+                   THEN MAKE_DATE(billing_year, billing_month, 1)
+                   ELSE NULL
+                 END
+               ),
+               COALESCE(
+                 period_end,
+                 CASE
+                   WHEN billing_year >= 2000 AND billing_month BETWEEN 1 AND 12
+                   THEN (MAKE_DATE(billing_year, billing_month, 1) + INTERVAL '1 month' - INTERVAL '1 day')::DATE
+                   ELSE NULL
+                 END
+               ),
+               '[]'
+             ) && daterange($3::DATE, $4::DATE, '[]')
+           )
          )
          AND invoice_type = 'RENT'
          AND deleted_at IS NULL
@@ -1156,6 +1193,43 @@ export class AutomationsService {
          AND (
            (period_start = $3::DATE AND period_end = $4::DATE)
            OR (billing_month = $5 AND billing_year = $6)
+           OR (
+             COALESCE(
+               period_start,
+               CASE
+                 WHEN billing_year >= 2000 AND billing_month BETWEEN 1 AND 12
+                 THEN MAKE_DATE(billing_year, billing_month, 1)
+                 ELSE NULL
+               END
+             ) IS NOT NULL
+             AND COALESCE(
+               period_end,
+               CASE
+                 WHEN billing_year >= 2000 AND billing_month BETWEEN 1 AND 12
+                 THEN (MAKE_DATE(billing_year, billing_month, 1) + INTERVAL '1 month' - INTERVAL '1 day')::DATE
+                 ELSE NULL
+               END
+             ) IS NOT NULL
+             AND daterange(
+               COALESCE(
+                 period_start,
+                 CASE
+                   WHEN billing_year >= 2000 AND billing_month BETWEEN 1 AND 12
+                   THEN MAKE_DATE(billing_year, billing_month, 1)
+                   ELSE NULL
+                 END
+               ),
+               COALESCE(
+                 period_end,
+                 CASE
+                   WHEN billing_year >= 2000 AND billing_month BETWEEN 1 AND 12
+                   THEN (MAKE_DATE(billing_year, billing_month, 1) + INTERVAL '1 month' - INTERVAL '1 day')::DATE
+                   ELSE NULL
+                 END
+               ),
+               '[]'
+             ) && daterange($3::DATE, $4::DATE, '[]')
+           )
          )
          AND invoice_type = 'RENT'
          AND deleted_at IS NULL
@@ -1163,7 +1237,7 @@ export class AutomationsService {
       [organizationId, leaseId, period.periodStart, period.periodEnd, period.month, period.year],
     );
     if (existing.rows[0]) {
-      throw new BadRequestException(`Facture RENT deja existante pour ${period.month}/${period.year}: ${existing.rows[0].invoice_number}`);
+      throw new BadRequestException(`Facture RENT deja existante ou couvrant deja cette periode: ${existing.rows[0].invoice_number}`);
     }
   }
 
