@@ -6,6 +6,7 @@ import { useAuth } from '../../../auth';
 import { EmptyState, Modal, PageHeader, SearchableSelect, StatusBadge, SuccessMessage, TenantSearchSelect } from '../../../components';
 import { useApiList } from '../../../hooks';
 import { openOrDownloadDocument } from '../../../core/utils/documentActions';
+import { BILLING_FREQUENCY_OPTIONS } from '../../../utils/billing-frequency';
 import { formatLeaseReference } from '../../../utils/lease-reference';
 
 type Lease = {
@@ -33,6 +34,7 @@ type Lease = {
   maintenance_fee_amount?: number;
   other_charges_amount?: number;
   notice_months?: number;
+  billing_frequency_months?: number;
   signature_place?: string;
   signature_date?: string;
   contract_file_name?: string;
@@ -338,6 +340,7 @@ function LeaseEditModal({
   const [guaranteePaidValue] = useState(String(guaranteePaid(lease)));
   const [guaranteeStatusValue] = useState(guaranteeStatus(lease));
   const [guaranteePaymentDate] = useState(lease.rental_guarantee_payment_date?.slice(0, 10) ?? '');
+  const [billingFrequencyMonths, setBillingFrequencyMonths] = useState(String(Number(lease.billing_frequency_months ?? 1)));
   const [contractName, setContractName] = useState(lease.contract_file_name ?? '');
   const [notes, setNotes] = useState(lease.notes ?? '');
   const [contractNote, setContractNote] = useState(lease.contract_note ?? '');
@@ -417,6 +420,7 @@ function LeaseEditModal({
         maintenance_fee_amount: normalizedMaintenanceFeeAmount,
         other_charges_amount: Number(lease.other_charges_amount ?? 0),
         guarantee_months: guaranteeMonthsValue,
+        billing_frequency_months: Number(billingFrequencyMonths || 1),
         lease_usage: leaseUsage,
         lease_activity_description: (leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL' || leaseUsage === 'MIXED') ? leaseActivityDescription.trim() : null,
         rental_guarantee_amount: calculatedGuaranteeAmount,
@@ -458,6 +462,13 @@ function LeaseEditModal({
             <label>Date fin<input type="date" value={endDate} onChange={(event) => updateEndDate(event.target.value)} /></label>
             <label>Duree du bail (mois)<input type="number" min="1" value={durationMonths} onChange={(event) => updateDuration(event.target.value)} placeholder="12" /></label>
             <label>Jour limite paiement<input type="number" min="1" max="31" defaultValue="5" /></label>
+            <label className="lease-field-wide">
+              Periodicite de paiement du loyer
+              <select value={billingFrequencyMonths} onChange={(event) => setBillingFrequencyMonths(event.target.value)} required>
+                {BILLING_FREQUENCY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+              <small>Determine le nombre de mois regroupes dans chaque cycle de facturation.</small>
+            </label>
             <label>Loyer de base<input type="number" value={rent} onChange={(event) => setRent(Number(event.target.value))} required /></label>
             <label>Frais d'entretien<input type="number" min="0" step="0.01" value={maintenanceFeeAmount} onChange={(event) => setMaintenanceFeeAmount(event.target.value)} /></label>
             <label>Montant syndic<input type="number" min="0" value={syndicAmount} onChange={(event) => setSyndicAmount(Number(event.target.value))} /></label>

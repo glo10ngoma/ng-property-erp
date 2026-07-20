@@ -5,6 +5,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, money, shortDate, statusLabel } from '../api';
 import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage } from '../components';
 import { useAuth } from '../core/auth/AuthContext';
+import { billingFrequencyLabel } from '../utils/billing-frequency';
 import { formatLeaseReference } from '../utils/lease-reference';
 
 type Lease = Record<string, any>;
@@ -473,6 +474,7 @@ export function LeaseDetail() {
         <SummaryItem label="Unite" value={lease.unit_number} />
         <SummaryItem label="Usage" value={leaseUsageLabel(lease.lease_usage ?? lease.usage_type)} />
         <SummaryItem label="Activite / destination" value={lease.lease_activity_description || '-'} />
+        <SummaryItem label="Periodicite de paiement" value={billingFrequencyLabel(lease.billing_frequency_months)} />
         <SummaryItem label="Loyer" value={money(rentAmount)} />
         <SummaryItem label="Total mensuel" value={money(totalMonthly)} />
         <SummaryItem label="Garantie" value={`${money(lease.guarantee?.paid_amount ?? lease.rental_guarantee_paid)} / ${money(lease.guarantee?.amount ?? lease.rental_guarantee_amount)}`} />

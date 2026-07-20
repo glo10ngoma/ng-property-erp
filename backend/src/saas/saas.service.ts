@@ -4347,8 +4347,9 @@ export class SaasService {
          (tenant_id, unit_id, start_date, end_date, monthly_rent, monthly_syndic_amount, rental_guarantee_amount, rental_guarantee_paid,
           rental_guarantee_payment_date, rental_guarantee_status, contract_file_url, contract_file_name, status,
           maintenance_fee_amount, other_charges_amount, lease_total_amount, guarantee_months, notice_months,
-          signature_place, signature_date, lease_usage, lease_activity_description, contract_template_code, organization_id, notes, contract_note, lease_number)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+          signature_place, signature_date, lease_usage, lease_activity_description, contract_template_code, organization_id, notes, contract_note, lease_number,
+          billing_frequency_months)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
          RETURNING *`,
         [
           normalized.tenantId,
@@ -4378,6 +4379,7 @@ export class SaasService {
           normalized.notes,
           normalized.contractNote,
           leaseNumber,
+          normalized.billingFrequencyMonths,
         ],
       );
       await this.upsertLeaseGuarantee(client, rows[0].id, {
@@ -4456,6 +4458,7 @@ export class SaasService {
         'signature_place = $20',
         'signature_date = $21',
         'lease_usage = $22',
+        'billing_frequency_months = $23',
       ];
       const values: unknown[] = [
         id,
@@ -4480,8 +4483,9 @@ export class SaasService {
         normalized.signaturePlace,
         normalized.signatureDate,
         normalized.leaseUsage,
+        normalized.billingFrequencyMonths,
       ];
-      let nextPlaceholder = 23;
+      let nextPlaceholder = 24;
       if (hasLeaseActivityDescriptionColumn) {
         updateColumns.push(`lease_activity_description = $${nextPlaceholder}`);
         values.push(normalized.leaseActivityDescription);
@@ -8430,6 +8434,7 @@ export class SaasService {
     const leaseUsage = this.normalizeLeaseUsageCode(body.lease_usage);
     const leaseActivityDescription = body.lease_activity_description ? String(body.lease_activity_description).trim() : null;
     const contractNote = this.normalizeOptionalMultilineText(body.contract_note);
+    const billingFrequencyMonths = this.normalizeLeaseBillingFrequency(body.billing_frequency_months);
     const guaranteePaymentDateValue = forceInitialGuaranteeUnpaid
       ? null
       : this.normalizeLeasePayloadDate(body.rental_guarantee_payment_date ?? body.guarantee_payment_date, 'rental_guarantee_payment_date');
@@ -8475,8 +8480,17 @@ export class SaasService {
       contractFileUrl: body.contract_file_url ? String(body.contract_file_url).trim() : null,
       notes: body.notes ? String(body.notes) : null,
       contractNote,
+      billingFrequencyMonths,
       status: String(body.status ?? 'DRAFT'),
     };
+  }
+
+  private normalizeLeaseBillingFrequency(value: unknown) {
+    const raw = value === undefined || value === null || value === '' ? 1 : Number(value);
+    if (!Number.isInteger(raw) || raw < 1 || raw > 12) {
+      throw new BadRequestException('Periodicite de paiement du loyer invalide');
+    }
+    return raw;
   }
 
   private normalizeOptionalMultilineText(value: unknown) {

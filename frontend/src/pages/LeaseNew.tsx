@@ -5,6 +5,7 @@ import { api, money, statusLabel } from '../api';
 import { PageHeader, SearchableSelect, SuccessMessage, TenantSearchSelect } from '../components';
 import type { TenantSearchOption } from '../components';
 import { useApiList } from '../hooks';
+import { BILLING_FREQUENCY_OPTIONS } from '../utils/billing-frequency';
 
 type Building = { id: number; name: string; city?: string; commune?: string; building_type?: string; address?: string };
 type Unit = {
@@ -63,6 +64,7 @@ export function LeaseNew() {
   const [otherCharges, setOtherCharges] = useState(0);
   const [guaranteeMonths, setGuaranteeMonths] = useState('3');
   const [noticeMonths, setNoticeMonths] = useState('1');
+  const [billingFrequencyMonths, setBillingFrequencyMonths] = useState('1');
   const [signaturePlace, setSignaturePlace] = useState('Kinshasa');
   const [signatureDate, setSignatureDate] = useState(new Date().toISOString().slice(0, 10));
   const [leaseUsage, setLeaseUsage] = useState('RESIDENTIAL');
@@ -208,6 +210,7 @@ export function LeaseNew() {
       rental_guarantee_payment_date: null,
       rental_guarantee_status: 'NOT_PAID',
       notice_months: Number(noticeMonths || 0),
+      billing_frequency_months: Number(billingFrequencyMonths || 1),
       signature_place: signaturePlace || null,
       signature_date: signatureDate || null,
       lease_usage: leaseUsage || null,
@@ -256,6 +259,13 @@ export function LeaseNew() {
             <label>Date fin<input name="end_date" type="date" value={endDate} onChange={(event) => updateEndDate(event.target.value)} /></label>
             <label>Duree du bail (mois)<input name="duration" type="number" min="1" value={durationMonths} onChange={(event) => updateDuration(event.target.value)} placeholder="12" /></label>
             <label>Preavis (mois)<input name="notice_months" type="number" min="0" value={noticeMonths} onChange={(event) => setNoticeMonths(event.target.value)} /></label>
+            <label className="lease-field-wide">
+              Periodicite de paiement du loyer
+              <select name="billing_frequency_months" value={billingFrequencyMonths} onChange={(event) => setBillingFrequencyMonths(event.target.value)} required>
+                {BILLING_FREQUENCY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+              <small>Determine le nombre de mois regroupes dans chaque cycle de facturation.</small>
+            </label>
             <label>Loyer de base<input name="monthly_rent" type="number" required value={rent} onChange={(event) => setRent(Number(event.target.value))} /></label>
             <label>Frais d'entretien<input name="maintenance_fee_amount" type="number" min="0" value={maintenanceFee} onChange={(event) => setMaintenanceFee(Number(event.target.value))} /></label>
             <label>Frais syndic<input name="monthly_syndic_amount" type="number" min="0" value={syndicAmount} onChange={(event) => setSyndicAmount(Number(event.target.value))} /></label>
