@@ -4401,12 +4401,15 @@ export class SaasService {
       if (rows[0].status === 'ACTIVE') await this.activateLeaseInTransaction(client, rows[0].id);
       return rows[0];
     });
-    await this.generateImmediateInitialRentInvoiceIfNeeded(Number(lease.id));
+    if (String(lease.status ?? '').toUpperCase() === 'ACTIVE') {
+      await this.generateImmediateInitialRentInvoiceIfNeeded(Number(lease.id));
+    }
     return lease;
   }
 
   async updateLease(id: number, body: Record<string, unknown>) {
     const current = await this.leaseDetail(id) as Record<string, unknown>;
+    let shouldGenerateImmediateInitialRentInvoice = false;
     const lease = await this.db.transaction(async (client) => {
       const hasLeaseActivityDescriptionColumn = await this.tableHasColumn(client, 'leases', 'lease_activity_description');
       const currentUsage = this.normalizeLeaseUsageCode(current.lease_usage ?? current.usage_type);
@@ -4438,6 +4441,7 @@ export class SaasService {
         },
         { requireBusinessActivity },
       );
+      shouldGenerateImmediateInitialRentInvoice = this.shouldGenerateImmediateInitialRentInvoiceAfterLeaseUpdate(current, normalized, body);
       if (normalized.status === 'ACTIVE') {
         await this.ensureNoLeaseConflict(client, normalized.unitId, normalized.startDate, normalized.endDate, id);
       }
@@ -4545,7 +4549,9 @@ export class SaasService {
       }
       return this.leaseDetail(id);
     });
-    await this.generateImmediateInitialRentInvoiceIfNeeded(id);
+    if (shouldGenerateImmediateInitialRentInvoice) {
+      await this.generateImmediateInitialRentInvoiceIfNeeded(id);
+    }
     return lease;
   }
 
@@ -7980,6 +7986,24 @@ export class SaasService {
         error instanceof Error ? error.stack : undefined,
       );
     }
+  }
+
+  private shouldGenerateImmediateInitialRentInvoiceAfterLeaseUpdate(
+    current: Record<string, unknown>,
+    normalized: { status: string; startDate: string },
+    body: Record<string, unknown>,
+  ) {
+    if (String(normalized.status ?? '').toUpperCase() !== 'ACTIVE') {
+      return false;
+    }
+    const previousStatus = String(current.status ?? '').toUpperCase();
+    if (previousStatus !== 'ACTIVE') {
+      return true;
+    }
+    if (!Object.prototype.hasOwnProperty.call(body, 'start_date')) {
+      return false;
+    }
+    return String(current.start_date ?? '').slice(0, 10) !== normalized.startDate;
   }
 
   private async upsertLeaseGuarantee(client: PoolClient, leaseId: number, guarantee: Record<string, unknown>) {
