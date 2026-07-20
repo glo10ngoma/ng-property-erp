@@ -1204,6 +1204,17 @@ export class SaasService {
       const employeeNumber = providedEmployeeNumber && !providedEmployeeNumber.toLowerCase().includes('automatique')
         ? providedEmployeeNumber
         : await this.nextEmployeeNumber(client);
+      const contractPayload = this.normalizeInitialEmployeeContractPayload(body, {
+        contractType: body.contract_type,
+        startDate: body.contract_start_date ?? body.start_date ?? body.hire_date,
+        endDate: body.contract_end_date ?? body.end_date,
+        salaryAmount: body.contract_salary_amount ?? body.salary_amount ?? body.monthly_salary,
+        currency: body.contract_currency ?? body.currency,
+        jobTitle: positionName,
+        department: serviceName,
+        observations: body.contract_observations ?? body.observations,
+        status: body.contract_status,
+      });
       const payload = {
         ...body,
         service_id: serviceId,
@@ -1221,7 +1232,17 @@ export class SaasService {
         'mobile_money_number', 'id_document_type', 'id_document_number', 'identity_attachment_name', 'cv_attachment_name',
         'signed_contract_attachment_name', 'emergency_contact_name', 'emergency_contact_phone', 'internal_notes',
       ]);
-      return employee;
+      const contractNumber = await this.nextEmployeeContractNumber(client);
+      const contract = await this.insertInTransaction(client, 'employee_contracts', {
+        employee_id: employee.id,
+        contract_number: contractNumber,
+        ...contractPayload,
+        created_by: this.context.userId() ?? 1,
+      }, [
+        'employee_id', 'contract_number', 'contract_type', 'start_date', 'end_date', 'salary_amount', 'currency',
+        'job_title', 'department', 'contract_file_name', 'contract_file_url', 'observations', 'status', 'created_by',
+      ]);
+      return { ...employee, contract, contract_id: contract.id, contract_status: contract.status };
     });
   }
 
@@ -9507,6 +9528,73 @@ export class SaasService {
     };
   }
 
+  private normalizeInitialEmployeeContractPayload(body: Record<string, unknown>, values: {
+    contractType: unknown;
+    startDate: unknown;
+    endDate: unknown;
+    salaryAmount: unknown;
+    currency: unknown;
+    jobTitle: unknown;
+    department: unknown;
+    observations: unknown;
+    status: unknown;
+  }) {
+    const contractType = String(values.contractType ?? '').trim();
+    if (!contractType) {
+      throw new BadRequestException('Type de contrat requis.');
+    }
+    const startDate = this.normalizeHrDate(values.startDate, 'date de debut du contrat', true);
+    const endDate = this.normalizeHrDate(values.endDate, 'date de fin du contrat');
+    if (contractType.toUpperCase() === 'CDD' && !endDate) {
+      throw new BadRequestException('Date de fin obligatoire pour un CDD.');
+    }
+    if (endDate && startDate && endDate <= startDate) {
+      throw new BadRequestException('La date de fin du contrat doit etre posterieure a la date de debut.');
+    }
+    const salaryAmount = Number(values.salaryAmount ?? 0);
+    if (!Number.isFinite(salaryAmount) || salaryAmount < 0) {
+      throw new BadRequestException('Salaire de contrat invalide.');
+    }
+    const currency = String(values.currency ?? 'USD').trim().toUpperCase();
+    if (salaryAmount > 0 && !currency) {
+      throw new BadRequestException('Devise obligatoire pour le contrat.');
+    }
+    const status = String(values.status ?? 'ACTIVE').trim().toUpperCase() || 'ACTIVE';
+    if (!['ACTIVE', 'DRAFT', 'PENDING', 'FUTURE', 'TERMINATED'].includes(status)) {
+      throw new BadRequestException('Statut de contrat invalide.');
+    }
+    return {
+      contract_type: contractType,
+      start_date: startDate,
+      end_date: contractType.toUpperCase() === 'CDI' ? null : endDate,
+      salary_amount: salaryAmount,
+      currency: currency || 'USD',
+      job_title: String(values.jobTitle ?? '').trim() || null,
+      department: String(values.department ?? '').trim() || null,
+      observations: String(values.observations ?? '').trim() || null,
+      status,
+    };
+  }
+
+  private normalizeHrDate(value: unknown, fieldName: string, required = false) {
+    if (value === undefined || value === null || value === '') {
+      if (required) throw new BadRequestException(`Date requise pour ${fieldName}.`);
+      return null;
+    }
+    const raw = String(value).trim();
+    if (!raw) {
+      if (required) throw new BadRequestException(`Date requise pour ${fieldName}.`);
+      return null;
+    }
+    const isoDate = /^\d{4}-\d{2}-\d{2}/.exec(raw)?.[0];
+    if (isoDate) return isoDate;
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException(`Date invalide pour ${fieldName}.`);
+    }
+    return parsed.toISOString().slice(0, 10);
+  }
+
   private normalizeCashExpenseCategoryPayload(body: Record<string, unknown>) {
     const name = String(body.name ?? '').trim();
     if (!name) {
@@ -9573,7 +9661,10 @@ export class SaasService {
   private async createHrCatalogRow(table: 'hr_services' | 'hr_positions', body: Record<string, unknown>) {
     const payload = this.normalizeHrCatalogPayload(body);
     try {
-      return await this.insert(table, payload, ['code', 'name', 'description', 'status']);
+      return await this.db.transaction(async (client) => {
+        payload.code = await this.nextHrCatalogCode(client, table);
+        return this.insertInTransaction(client, table, payload, ['code', 'name', 'description', 'status']);
+      });
     } catch (error: any) {
       if (error?.code === '23505') {
         throw new ConflictException('Cette valeur existe déjà dans le référentiel RH.');
@@ -9584,8 +9675,9 @@ export class SaasService {
 
   private async updateHrCatalogRow(table: 'hr_services' | 'hr_positions', id: number, body: Record<string, unknown>) {
     const payload = this.normalizeHrCatalogPayload(body);
+    delete (payload as Record<string, unknown>).code;
     try {
-      return await this.updateById(table, id, payload, ['code', 'name', 'description', 'status']);
+      return await this.updateById(table, id, payload, ['name', 'description', 'status']);
     } catch (error: any) {
       if (error?.code === '23505') {
         throw new ConflictException('Cette valeur existe déjà dans le référentiel RH.');
@@ -9615,5 +9707,18 @@ export class SaasService {
       [this.context.organizationId()],
     );
     return `CTR-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
+  }
+
+  private async nextHrCatalogCode(client: PoolClient, table: 'hr_services' | 'hr_positions') {
+    const prefix = table === 'hr_services' ? 'SRV' : 'FCT';
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`${table}-code-${this.context.organizationId()}`]);
+    const { rows } = await client.query(
+      `SELECT COALESCE(MAX(NULLIF(SUBSTRING(code FROM '([0-9]+)$'), '')::INT), 0) + 1 AS value
+       FROM ${table}
+       WHERE organization_id = $1
+         AND code LIKE $2`,
+      [this.context.organizationId(), `${prefix}-%`],
+    );
+    return `${prefix}-${String(rows[0]?.value ?? 1).padStart(4, '0')}`;
   }
 }
