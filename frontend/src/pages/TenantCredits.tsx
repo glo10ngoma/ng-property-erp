@@ -520,7 +520,14 @@ export function TenantCredits() {
             {pagedCredits.map((credit) => (
               <tr key={credit.id}>
                 <td>{shortDate(credit.payment_date)}</td>
-                <td><strong>{credit.tenant_name ?? '-'}</strong><small>{credit.building_name ?? ''} {credit.unit_number ? `- ${credit.unit_number}` : ''}</small></td>
+                <td>
+                  <div className="tenant-credit-tenant-cell">
+                    <strong>{credit.tenant_name ?? '-'}</strong>
+                    <small>
+                      {[credit.building_name, credit.unit_number].filter((value) => String(value ?? '').trim().length > 0).join(' - ') || '-'}
+                    </small>
+                  </div>
+                </td>
                 <td>{credit.lease_id ? formatLeaseReference(credit.lease_number, credit.lease_id) : '-'}</td>
                 <td>{credit.receipt_number ?? '-'}</td>
                 <td>{paymentMethodLabel(credit.payment_method ?? '')}</td>
