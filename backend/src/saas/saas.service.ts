@@ -6371,7 +6371,7 @@ export class SaasService {
 
   async createTenantCredit(body: Record<string, unknown>) {
     await this.ensureTenantCreditSchema();
-    if (!this.context.user()?.permissions?.includes('payments.create')) {
+    if (!this.hasPermission('payments.create')) {
       throw new ForbiddenException('Permission de création de paiement requise.');
     }
     return this.db.transaction(async (client) => {
@@ -6688,7 +6688,7 @@ export class SaasService {
 
   async refundTenantCredit(id: number, body: Record<string, unknown>) {
     await this.ensureTenantCreditRefundSchema();
-    if (!this.context.user()?.permissions?.includes('tenant_credits.refund')) {
+    if (!this.hasPermission('tenant_credits.refund')) {
       throw new ForbiddenException('Permission de remboursement de crédit locataire requise.');
     }
     return this.db.transaction(async (client) => {
@@ -6698,7 +6698,7 @@ export class SaasService {
 
   async cancelTenantCredit(id: number, body: Record<string, unknown>) {
     await this.ensureTenantCreditRefundSchema();
-    if (!this.context.user()?.permissions?.includes('tenant_credits.cancel')) {
+    if (!this.hasPermission('tenant_credits.cancel')) {
       throw new ForbiddenException('Permission d annulation de crédit locataire requise.');
     }
     return this.db.transaction(async (client) => {
@@ -6741,6 +6741,11 @@ export class SaasService {
     if (!(await this.tableExists('tenant_credit_refunds'))) {
       throw new BadRequestException('Le module de remboursement des crédits locataires n est pas encore configuré.');
     }
+  }
+
+  private hasPermission(permission: string) {
+    const permissions = this.context.user()?.permissions ?? [];
+    return permissions.includes('*') || permissions.includes(permission);
   }
 
   private async nextTenantCreditRefundReceiptNumber(client: PoolClient) {
