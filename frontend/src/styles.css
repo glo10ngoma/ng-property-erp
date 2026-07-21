@@ -107,6 +107,8 @@ tbody tr.clickable-row:hover { background: #f8fafb; }
 .badge.paid, .badge.active, .badge.occupied { background: #e0f2e9; color: #1f7a4d; }
 .badge.partial, .badge.maintenance, .badge.construction { background: #fff0cf; color: #946200; }
 .badge.unpaid, .badge.vacant, .badge.overdue, .badge.closed { background: #fbe3e3; color: #a4343a; }
+.badge.refunded { background: #e8f1fb; color: #295d93; }
+.badge.cancelled { background: #fbe3e3; color: #a4343a; }
 .badge.exploited { background: #e0f2e9; color: #1f7a4d; }
 .empty { padding: 18px; color: #637783; display: grid; gap: 6px; justify-items: start; }
 .empty strong { color: #334e68; font-size: 14px; }
@@ -516,6 +518,14 @@ textarea { min-height: 72px; resize: vertical; }
 .detail-section h4 { margin: 0 0 7px; font-size: 13px; color: #334e68; }
 .report-section > h4 { font-size: 15px; color: #255e7e; background: #f4f7f9; border-left: 4px solid #255e7e; border-radius: 6px; padding: 7px 10px; margin-bottom: 8px; }
 .compact-list { display: grid; gap: 6px; max-height: 260px; overflow: auto; }
+.tenant-credit-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.tenant-credit-refund-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 12px; padding: 12px; border: 1px solid #dce5eb; border-radius: 8px; background: #f8fafb; }
+.tenant-credit-refund-summary span { display: block; font-size: 12px; color: #607381; }
+.tenant-credit-refund-summary strong { display: block; margin-top: 4px; font-size: 15px; color: #112433; }
+.inline-info-card { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid #dce5eb; border-radius: 8px; background: #f8fafb; color: #203845; }
+.inline-info-card p { margin: 4px 0 0; font-size: 13px; color: #526a78; }
+.print-invoice .negative { color: #a4343a; }
+td.negative { color: #a4343a; }
 .compact-item { display: flex; justify-content: space-between; gap: 10px; border: 1px solid #e1e8ed; border-radius: 6px; padding: 7px 9px; }
 .summary-band { background: white; border: 1px solid #dde5ea; border-radius: 8px; padding: 7px 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px 14px; margin-bottom: 8px; }
 .summary-item { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }

@@ -109,6 +109,18 @@ export class PermissionsGuard implements CanActivate {
   }
 
   private permissionFor(path: string, method: string) {
+    if (/^\/api\/tenant-credits\/\d+\/refund$/.test(path)) {
+      return 'tenant_credits.refund';
+    }
+    if (/^\/api\/tenant-credits\/\d+\/cancel$/.test(path)) {
+      return 'tenant_credits.cancel';
+    }
+    if (/^\/api\/tenant-credits\/refunds\/\d+$/.test(path)) {
+      return 'payments.read';
+    }
+    if (/^\/api\/tenant-credits/.test(path)) {
+      return method === 'GET' ? 'payments.read' : 'payments.create';
+    }
     if (/^\/api\/guarantee-cash\/expenses$/.test(path)) {
       return 'guarantee_cash.expense';
     }

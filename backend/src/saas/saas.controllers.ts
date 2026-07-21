@@ -621,6 +621,11 @@ export class TenantCreditsController {
     return this.service.tenantCreditFormData();
   }
 
+  @Get('refunds/:id')
+  refundDetail(@Param('id', ParseIntPipe) id: number) {
+    return this.service.tenantCreditRefundDetail(id);
+  }
+
   @Get(':id')
   credit(@Param('id', ParseIntPipe) id: number) {
     return this.service.tenantCreditDetail(id);
@@ -629,6 +634,16 @@ export class TenantCreditsController {
   @Post()
   create(@Body() body: Record<string, unknown>) {
     return this.service.createTenantCredit(body);
+  }
+
+  @Post(':id/refund')
+  refund(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.refundTenantCredit(id, body);
+  }
+
+  @Post(':id/cancel')
+  cancel(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.cancelTenantCredit(id, body);
   }
 }
 

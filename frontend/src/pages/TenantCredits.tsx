@@ -1,4 +1,4 @@
-import { ArrowLeft, FileText, Plus, Printer, RefreshCw, Search } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Ban, FileText, Plus, Printer, RefreshCw, Search, Wallet } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -16,6 +16,22 @@ type TenantCreditAllocation = {
   payment_id: number;
   payment_date: string;
   created_at: string;
+};
+
+type TenantCreditRefund = {
+  id: number;
+  amount: number;
+  currency: 'USD' | 'CDF';
+  refund_date: string;
+  payment_method: string;
+  reference?: string;
+  reason: string;
+  cash_movement_id?: number;
+  receipt_number: string;
+  status: string;
+  created_at: string;
+  cash_piece_number?: string;
+  created_by_name?: string;
 };
 
 type TenantCredit = {
@@ -40,11 +56,34 @@ type TenantCredit = {
   amount_cdf?: number;
   total_equivalent_usd?: number;
   allocations?: TenantCreditAllocation[];
+  refunds?: TenantCreditRefund[];
+  can_refund?: boolean;
+  can_cancel?: boolean;
 };
 
 type FormDataPayload = {
   tenants: Array<{ id: number; name: string; tenant_number?: string }>;
   leases: Array<{ id: number; tenant_id: number; lease_number?: number; unit_number?: string; building_name?: string; status: string }>;
+};
+
+type RefundFormState = {
+  amount: string;
+  refund_date: string;
+  payment_method: string;
+  reference: string;
+  reason: string;
+};
+
+type CreditHistoryRow = {
+  key: string;
+  date: string;
+  type: string;
+  detail: string;
+  amountLabel: string;
+  direction: 'IN' | 'OUT';
+  paymentId?: number;
+  invoiceId?: number;
+  refundId?: number;
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -58,6 +97,8 @@ export function TenantCredits() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [refundOpen, setRefundOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const [selectedCredit, setSelectedCredit] = useState<TenantCredit | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -73,6 +114,19 @@ export function TenantCredits() {
     exchange_rate_used: '',
     reference: '',
     notes: '',
+  });
+  const [refundForm, setRefundForm] = useState<RefundFormState>({
+    amount: '',
+    refund_date: today(),
+    payment_method: 'CASH',
+    reference: '',
+    reason: '',
+  });
+  const [cancelForm, setCancelForm] = useState<Omit<RefundFormState, 'amount'>>({
+    refund_date: today(),
+    payment_method: 'CASH',
+    reference: '',
+    reason: '',
   });
 
   const load = async () => {
@@ -117,6 +171,17 @@ export function TenantCredits() {
     return Number((amount / rate).toFixed(2));
   }, [form.amount, form.currency, form.exchange_rate_used]);
 
+  const refundSummary = useMemo(() => {
+    if (!selectedCredit) return null;
+    const amount = Number(refundForm.amount || 0);
+    const before = Number(selectedCredit.remaining_amount ?? 0);
+    return {
+      before,
+      refund: amount > 0 ? amount : 0,
+      after: Math.max(Number((before - (amount > 0 ? amount : 0)).toFixed(2)), 0),
+    };
+  }, [refundForm.amount, selectedCredit]);
+
   const updateFilter = (key: keyof typeof filters, value: string) => setFilters((current) => ({ ...current, [key]: value }));
   const updateForm = (key: keyof typeof form, value: string) => {
     setForm((current) => ({
@@ -124,6 +189,40 @@ export function TenantCredits() {
       [key]: value,
       ...(key === 'tenant_id' ? { lease_id: '' } : {}),
     }));
+  };
+
+  const openDetail = async (creditId: number) => {
+    setError('');
+    try {
+      const response = await api.get<TenantCredit>(`/tenant-credits/${creditId}`);
+      setSelectedCredit(response.data);
+      setDetailOpen(true);
+    } catch (detailError: any) {
+      setError(detailError?.response?.data?.message ?? 'Impossible de charger le détail du crédit.');
+    }
+  };
+
+  const reloadDetail = async (creditId: number) => {
+    await Promise.all([load(), openDetail(creditId)]);
+  };
+
+  const resetRefundForm = (credit: TenantCredit | null) => {
+    setRefundForm({
+      amount: credit ? String(Number(credit.remaining_amount ?? 0)) : '',
+      refund_date: today(),
+      payment_method: 'CASH',
+      reference: '',
+      reason: '',
+    });
+  };
+
+  const resetCancelForm = () => {
+    setCancelForm({
+      refund_date: today(),
+      payment_method: 'CASH',
+      reference: '',
+      reason: '',
+    });
   };
 
   const submit = async (event: FormEvent) => {
@@ -164,16 +263,62 @@ export function TenantCredits() {
     }
   };
 
-  const openDetail = async (creditId: number) => {
+  const submitRefund = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selectedCredit) return;
+    setSubmitting(true);
     setError('');
     try {
-      const response = await api.get<TenantCredit>(`/tenant-credits/${creditId}`);
-      setSelectedCredit(response.data);
-      setDetailOpen(true);
-    } catch (detailError: any) {
-      setError(detailError?.response?.data?.message ?? 'Impossible de charger le détail du crédit.');
+      const response = await api.post<{ refund: TenantCreditRefund }>(`/tenant-credits/${selectedCredit.id}/refund`, {
+        amount: Number(refundForm.amount),
+        refund_date: refundForm.refund_date,
+        payment_method: refundForm.payment_method,
+        reference: refundForm.reference || null,
+        reason: refundForm.reason,
+        idempotency_key: `tenant-credit-refund:${selectedCredit.id}:${refundForm.refund_date}:${refundForm.amount}:${refundForm.payment_method}:${refundForm.reference || 'noref'}`,
+      });
+      setSuccess(
+        response.data?.refund?.receipt_number
+          ? `Remboursement enregistré. Justificatif ${response.data.refund.receipt_number}.`
+          : 'Remboursement enregistré.',
+      );
+      setRefundOpen(false);
+      await reloadDetail(selectedCredit.id);
+    } catch (refundError: any) {
+      setError(refundError?.response?.data?.message ?? 'Impossible d’enregistrer le remboursement.');
+    } finally {
+      setSubmitting(false);
     }
   };
+
+  const submitCancel = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selectedCredit) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const response = await api.post<{ refund: TenantCreditRefund }>(`/tenant-credits/${selectedCredit.id}/cancel`, {
+        refund_date: cancelForm.refund_date,
+        payment_method: cancelForm.payment_method,
+        reference: cancelForm.reference || null,
+        reason: cancelForm.reason,
+        idempotency_key: `tenant-credit-cancel:${selectedCredit.id}:${cancelForm.refund_date}:${cancelForm.payment_method}:${cancelForm.reference || 'noref'}`,
+      });
+      setSuccess(
+        response.data?.refund?.receipt_number
+          ? `Crédit annulé. Justificatif ${response.data.refund.receipt_number}.`
+          : 'Crédit annulé.',
+      );
+      setCancelOpen(false);
+      await reloadDetail(selectedCredit.id);
+    } catch (cancelError: any) {
+      setError(cancelError?.response?.data?.message ?? 'Impossible d’annuler ce crédit.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const historyRows = useMemo(() => buildCreditHistory(selectedCredit), [selectedCredit]);
 
   return (
     <section>
@@ -207,6 +352,7 @@ export function TenantCredits() {
           <option value="AVAILABLE">Disponible</option>
           <option value="PARTIALLY_USED">Partiellement utilisé</option>
           <option value="USED">Utilisé</option>
+          <option value="REFUNDED">Remboursé</option>
           <option value="CANCELLED">Annulé</option>
         </select>
         <select value={filters.currency} onChange={(event) => updateFilter('currency', event.target.value)}>
@@ -242,10 +388,10 @@ export function TenantCredits() {
                 <td>{paymentMethodLabel(credit.payment_method ?? '')}</td>
                 <td className="right">{formatCreditAmount(credit.original_amount, credit.currency)}</td>
                 <td className="right">{formatCreditAmount(credit.remaining_amount, credit.currency)}</td>
-                <td><span className={`badge ${credit.status.toLowerCase()}`}>{creditStatusLabel(credit.status)}</span></td>
+                <td><span className={`badge ${String(credit.status ?? '').toLowerCase()}`}>{creditStatusLabel(credit.status)}</span></td>
                 <td>
                   <button type="button" className="icon-button" title="Voir le détail" onClick={() => void openDetail(credit.id)}><FileText size={15} /></button>
-                  <button type="button" className="icon-button" title="Ouvrir le reçu" onClick={() => navigate(`/payments/${credit.source_payment_id}`)}><Printer size={15} /></button>
+                  <button type="button" className="icon-button" title="Ouvrir le reçu d'origine" onClick={() => navigate(`/payments/${credit.source_payment_id}`)}><Printer size={15} /></button>
                 </td>
               </tr>
             ))}
@@ -302,30 +448,132 @@ export function TenantCredits() {
             <div className="compact-item"><span>Disponible</span><strong>{formatCreditAmount(selectedCredit.remaining_amount, selectedCredit.currency)}</strong></div>
             <div className="compact-item"><span>Utilisé</span><strong>{formatCreditAmount(Number(selectedCredit.original_amount ?? 0) - Number(selectedCredit.remaining_amount ?? 0), selectedCredit.currency)}</strong></div>
             <div className="compact-item"><span>Reçu d'origine</span><strong>{selectedCredit.receipt_number ?? '-'}</strong></div>
+            <div className="compact-item"><span>Statut</span><strong>{creditStatusLabel(selectedCredit.status)}</strong></div>
           </div>
+
+          <div className="tenant-credit-detail-actions">
+            <button type="button" className="secondary" onClick={() => navigate(`/payments/${selectedCredit.source_payment_id}`)}><Printer size={15} />Reçu d'origine</button>
+            {can('tenant_credits.refund') && selectedCredit.can_refund ? (
+              <button
+                type="button"
+                onClick={() => {
+                  resetRefundForm(selectedCredit);
+                  setRefundOpen(true);
+                }}
+              >
+                <Wallet size={15} />Rembourser le solde
+              </button>
+            ) : null}
+            {can('tenant_credits.cancel') && selectedCredit.can_cancel ? (
+              <button
+                type="button"
+                className="secondary danger"
+                onClick={() => {
+                  resetCancelForm();
+                  setCancelOpen(true);
+                }}
+              >
+                <Ban size={15} />Annuler le crédit
+              </button>
+            ) : null}
+          </div>
+
           <div className="table-wrap" style={{ marginTop: 12 }}>
             <table>
               <thead>
                 <tr>
                   <th>Date</th>
-                  <th>Facture</th>
-                  <th className="right">Utilisé</th>
-                  <th>Historique</th>
+                  <th>Type</th>
+                  <th>Détail</th>
+                  <th className="right">Montant</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {(selectedCredit.allocations ?? []).map((allocation) => (
-                  <tr key={allocation.id}>
-                    <td>{shortDate(allocation.created_at || allocation.payment_date)}</td>
-                    <td>{allocation.invoice_number}</td>
-                    <td className="right">{formatCreditAmount(allocation.amount_applied, allocation.currency)}</td>
-                    <td><button type="button" className="link-button" onClick={() => navigate(`/invoices/${allocation.invoice_id}`)}>Ouvrir la facture</button></td>
+                {historyRows.map((row) => (
+                  <tr key={row.key}>
+                    <td>{shortDate(row.date)}</td>
+                    <td>{row.type}</td>
+                    <td>{row.detail}</td>
+                    <td className={`right ${row.direction === 'OUT' ? 'negative' : ''}`}>{row.amountLabel}</td>
+                    <td>
+                      {row.invoiceId ? <button type="button" className="link-button" onClick={() => navigate(`/invoices/${row.invoiceId}`)}>Ouvrir la facture</button> : null}
+                      {row.refundId ? <button type="button" className="link-button" onClick={() => navigate(`/tenant-credits/refunds/${row.refundId}`)}>Justificatif</button> : null}
+                      {row.paymentId ? <button type="button" className="link-button" onClick={() => navigate(`/payments/${row.paymentId}`)}>Reçu</button> : null}
+                    </td>
                   </tr>
                 ))}
-                {!(selectedCredit.allocations ?? []).length && <tr><td colSpan={4} className="empty">Aucune consommation enregistrée.</td></tr>}
+                {!historyRows.length && <tr><td colSpan={5} className="empty">Aucun historique disponible.</td></tr>}
               </tbody>
             </table>
           </div>
+
+          {selectedCredit.status === 'REFUNDED' && !(selectedCredit.refunds ?? []).length ? (
+            <div className="inline-info-card" style={{ marginTop: 12 }}>
+              <AlertCircle size={16} />
+              <div>
+                <strong>Historique incomplet</strong>
+                <p>Le crédit est marqué remboursé mais aucun justificatif détaillé n’a été trouvé.</p>
+              </div>
+            </div>
+          ) : null}
+        </Modal>
+      )}
+
+      {refundOpen && selectedCredit && (
+        <Modal title="Rembourser un crédit locataire" onClose={() => setRefundOpen(false)}>
+          <form className="form-grid" onSubmit={(event) => void submitRefund(event)}>
+            <label>Solde disponible<input readOnly value={formatCreditAmount(Number(selectedCredit.remaining_amount ?? 0), selectedCredit.currency)} /></label>
+            <label>Devise<input readOnly value={selectedCredit.currency} /></label>
+            <label>Montant à rembourser<input type="number" min="0.01" step="0.01" max={selectedCredit.remaining_amount} required value={refundForm.amount} onChange={(event) => setRefundForm((current) => ({ ...current, amount: event.target.value }))} /></label>
+            <label>Date<input type="date" required value={refundForm.refund_date} onChange={(event) => setRefundForm((current) => ({ ...current, refund_date: event.target.value }))} /></label>
+            <label>Mode<select value={refundForm.payment_method} onChange={(event) => setRefundForm((current) => ({ ...current, payment_method: event.target.value }))}>
+              <option value="CASH">Espèces</option>
+              <option value="BANK">Banque</option>
+              <option value="MOBILE_MONEY">Mobile Money</option>
+            </select></label>
+            <label>Référence<input value={refundForm.reference} onChange={(event) => setRefundForm((current) => ({ ...current, reference: event.target.value }))} /></label>
+            <label className="full">Motif<textarea required value={refundForm.reason} onChange={(event) => setRefundForm((current) => ({ ...current, reason: event.target.value }))} /></label>
+            {refundSummary ? (
+              <div className="tenant-credit-refund-summary full">
+                <div><span>Disponible avant</span><strong>{formatCreditAmount(refundSummary.before, selectedCredit.currency)}</strong></div>
+                <div><span>Montant remboursé</span><strong>{formatCreditAmount(refundSummary.refund, selectedCredit.currency)}</strong></div>
+                <div><span>Disponible après</span><strong>{formatCreditAmount(refundSummary.after, selectedCredit.currency)}</strong></div>
+              </div>
+            ) : null}
+            <div className="form-actions full">
+              <button type="button" className="secondary" onClick={() => setRefundOpen(false)}>Annuler</button>
+              <button type="submit" disabled={submitting}><Wallet size={16} />{submitting ? 'Enregistrement...' : 'Valider le remboursement'}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {cancelOpen && selectedCredit && (
+        <Modal title="Annuler un crédit inutilisé" onClose={() => setCancelOpen(false)}>
+          <form className="form-grid" onSubmit={(event) => void submitCancel(event)}>
+            <label>Montant annulé<input readOnly value={formatCreditAmount(Number(selectedCredit.remaining_amount ?? 0), selectedCredit.currency)} /></label>
+            <label>Devise<input readOnly value={selectedCredit.currency} /></label>
+            <label>Date<input type="date" required value={cancelForm.refund_date} onChange={(event) => setCancelForm((current) => ({ ...current, refund_date: event.target.value }))} /></label>
+            <label>Mode<select value={cancelForm.payment_method} onChange={(event) => setCancelForm((current) => ({ ...current, payment_method: event.target.value }))}>
+              <option value="CASH">Espèces</option>
+              <option value="BANK">Banque</option>
+              <option value="MOBILE_MONEY">Mobile Money</option>
+            </select></label>
+            <label>Référence<input value={cancelForm.reference} onChange={(event) => setCancelForm((current) => ({ ...current, reference: event.target.value }))} /></label>
+            <label className="full">Motif obligatoire<textarea required value={cancelForm.reason} onChange={(event) => setCancelForm((current) => ({ ...current, reason: event.target.value }))} /></label>
+            <div className="inline-info-card full">
+              <AlertCircle size={16} />
+              <div>
+                <strong>Annulation contrôlée</strong>
+                <p>Cette opération n’est autorisée que pour un crédit jamais utilisé. Le paiement initial et son reçu d’origine seront conservés.</p>
+              </div>
+            </div>
+            <div className="form-actions full">
+              <button type="button" className="secondary" onClick={() => setCancelOpen(false)}>Retour</button>
+              <button type="submit" className="danger" disabled={submitting}><Ban size={16} />{submitting ? 'Annulation...' : 'Confirmer l’annulation'}</button>
+            </div>
+          </form>
         </Modal>
       )}
     </section>
@@ -341,6 +589,45 @@ function creditStatusLabel(status: string) {
     AVAILABLE: 'Disponible',
     PARTIALLY_USED: 'Partiellement utilisé',
     USED: 'Utilisé',
+    REFUNDED: 'Remboursé',
     CANCELLED: 'Annulé',
   } as Record<string, string>)[status] ?? status;
+}
+
+function buildCreditHistory(credit: TenantCredit | null): CreditHistoryRow[] {
+  if (!credit) return [];
+  const creationRow: CreditHistoryRow = {
+    key: `credit-created-${credit.id}`,
+    date: credit.payment_date,
+    type: 'Création',
+    detail: `Crédit créé${credit.receipt_number ? ` - ${credit.receipt_number}` : ''}`,
+    amountLabel: `+ ${formatCreditAmount(Number(credit.original_amount ?? 0), credit.currency)}`,
+    direction: 'IN' as const,
+    paymentId: credit.source_payment_id,
+  };
+  const allocationRows: CreditHistoryRow[] = (credit.allocations ?? []).map((allocation) => ({
+    key: `credit-allocation-${allocation.id}`,
+    date: allocation.created_at || allocation.payment_date,
+    type: 'Affectation',
+    detail: `Affecté à ${allocation.invoice_number}`,
+    amountLabel: `- ${formatCreditAmount(Number(allocation.amount_applied ?? 0), allocation.currency)}`,
+    direction: 'OUT' as const,
+    invoiceId: allocation.invoice_id,
+    paymentId: allocation.payment_id,
+  }));
+  const refundRows: CreditHistoryRow[] = (credit.refunds ?? []).map((refund) => ({
+    key: `credit-refund-${refund.id}`,
+    date: refund.refund_date,
+    type: refund.status === 'CANCELLED' ? 'Annulation' : 'Remboursement',
+    detail: `${paymentMethodLabel(refund.payment_method)}${refund.reference ? ` - ${refund.reference}` : ''}`,
+    amountLabel: `- ${formatCreditAmount(Number(refund.amount ?? 0), refund.currency)}`,
+    direction: 'OUT' as const,
+    refundId: refund.id,
+  }));
+  return [creationRow, ...allocationRows, ...refundRows].sort((a, b) => {
+    const timeA = new Date(a.date).getTime();
+    const timeB = new Date(b.date).getTime();
+    if (timeA !== timeB) return timeA - timeB;
+    return a.key.localeCompare(b.key);
+  });
 }

@@ -1951,13 +1951,14 @@ export class SaasService {
                WHEN cm.payment_id IS NOT NULL THEN TRUE
                WHEN cm.invoice_id IS NOT NULL THEN TRUE
                WHEN cm.stock_purchase_id IS NOT NULL THEN TRUE
-               WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND') THEN TRUE
+               WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND', 'TENANT_CREDIT_REFUND') THEN TRUE
                ELSE FALSE
              END AS is_locked,
              CASE
                WHEN cm.payment_id IS NOT NULL THEN 'Ce mouvement est lié à un paiement.'
                WHEN cm.invoice_id IS NOT NULL THEN 'Ce mouvement est lié à une facture.'
                WHEN cm.stock_purchase_id IS NOT NULL THEN 'Ce mouvement est lié à un achat fournisseur.'
+               WHEN cm.category = 'TENANT_CREDIT_REFUND' THEN 'Ce mouvement est lié à un remboursement de crédit locataire.'
                WHEN cm.category IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND') THEN 'Ce mouvement est généré automatiquement pour une garantie.'
                WHEN cm.category IN ('SALARY_ADVANCE', 'SALARY_PAYMENT') THEN 'Ce mouvement est généré automatiquement pour la paie.'
                WHEN cm.category = 'MAINTENANCE_EXPENSE' THEN 'Ce mouvement est lié à une dépense de maintenance.'
@@ -6242,7 +6243,7 @@ export class SaasService {
   }
 
   async tenantCreditDetail(id: number) {
-    await this.ensureTenantCreditSchema();
+    await this.ensureTenantCreditRefundSchema();
     const { rows: direct } = await this.db.query(
       `SELECT tc.*, p.receipt_number, p.payment_method, p.amount_usd, p.amount_cdf, p.total_equivalent_usd,
               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, t.first_name, '')
@@ -6259,7 +6260,8 @@ export class SaasService {
       [id, this.context.organizationId()],
     );
     const credit = requireRow(direct[0], 'Tenant credit');
-    const allocations = await this.db.query(
+    const [allocations, refunds] = await Promise.all([
+      this.db.query(
       `SELECT tca.id, tca.amount_applied, tca.currency, tca.created_at,
               i.id AS invoice_id, i.invoice_number, i.issue_date, i.due_date,
               p.id AS payment_id, p.payment_date
@@ -6271,8 +6273,65 @@ export class SaasService {
          AND tca.deleted_at IS NULL
        ORDER BY tca.created_at ASC, tca.id ASC`,
       [id, this.context.organizationId()],
+      ),
+      this.db.query(
+        `SELECT tcr.id, tcr.amount, tcr.currency, tcr.refund_date, tcr.payment_method, tcr.reference, tcr.reason,
+                tcr.cash_movement_id, tcr.receipt_number, tcr.status, tcr.created_at,
+                cm.piece_number AS cash_piece_number,
+                COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name
+         FROM tenant_credit_refunds tcr
+         LEFT JOIN cash_movements cm ON cm.id = tcr.cash_movement_id AND cm.organization_id = tcr.organization_id AND cm.deleted_at IS NULL
+         LEFT JOIN app_users u ON u.id = tcr.created_by AND u.deleted_at IS NULL
+         WHERE tcr.tenant_credit_id = $1
+           AND tcr.organization_id = $2
+           AND tcr.deleted_at IS NULL
+         ORDER BY tcr.refund_date ASC, tcr.id ASC`,
+        [id, this.context.organizationId()],
+      ),
+    ]);
+    const allocationsRows = allocations.rows;
+    const refundsRows = refunds.rows;
+    const hasAllocations = allocationsRows.length > 0;
+    const hasRefunds = refundsRows.length > 0;
+    const remainingAmount = Number(credit.remaining_amount ?? 0);
+    return {
+      ...credit,
+      allocations: allocationsRows,
+      refunds: refundsRows,
+      can_refund: remainingAmount > 0,
+      can_cancel: !hasAllocations && !hasRefunds && Number(credit.original_amount ?? 0) === remainingAmount,
+    };
+  }
+
+  async tenantCreditRefundDetail(id: number) {
+    await this.ensureTenantCreditRefundSchema();
+    const { rows } = await this.db.query(
+      `SELECT tcr.*, tc.original_amount, tc.remaining_amount, tc.status AS credit_status, tc.reference AS credit_reference,
+              tc.source_payment_id, tc.payment_date AS credit_payment_date,
+              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, t.first_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name,
+              l.lease_number,
+              u.number AS unit_number,
+              b.name AS building_name,
+              cm.piece_number AS cash_piece_number,
+              p.receipt_number AS source_receipt_number,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(creator.first_name, ''), ' ', COALESCE(creator.last_name, ''))), ''), creator.email) AS created_by_name
+       FROM tenant_credit_refunds tcr
+       JOIN tenant_credits tc ON tc.id = tcr.tenant_credit_id AND tc.organization_id = tcr.organization_id AND tc.deleted_at IS NULL
+       JOIN tenants t ON t.id = tcr.tenant_id AND t.organization_id = tcr.organization_id AND t.deleted_at IS NULL
+       LEFT JOIN leases l ON l.id = tcr.lease_id AND l.organization_id = tcr.organization_id AND l.deleted_at IS NULL
+       LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = tcr.organization_id AND u.deleted_at IS NULL
+       LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = tcr.organization_id AND b.deleted_at IS NULL
+       LEFT JOIN cash_movements cm ON cm.id = tcr.cash_movement_id AND cm.organization_id = tcr.organization_id AND cm.deleted_at IS NULL
+       LEFT JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tcr.organization_id AND p.deleted_at IS NULL
+       LEFT JOIN app_users creator ON creator.id = tcr.created_by AND creator.deleted_at IS NULL
+       WHERE tcr.id = $1
+         AND tcr.organization_id = $2
+         AND tcr.deleted_at IS NULL`,
+      [id, this.context.organizationId()],
     );
-    return { ...credit, allocations: allocations.rows };
+    return requireRow(rows[0], 'Tenant credit refund');
   }
 
   async tenantCreditFormData() {
@@ -6616,6 +6675,26 @@ export class SaasService {
     };
   }
 
+  async refundTenantCredit(id: number, body: Record<string, unknown>) {
+    await this.ensureTenantCreditRefundSchema();
+    if (!this.context.user()?.permissions?.includes('tenant_credits.refund')) {
+      throw new ForbiddenException('Permission de remboursement de crédit locataire requise.');
+    }
+    return this.db.transaction(async (client) => {
+      return this.refundTenantCreditInTransaction(client, id, body, false);
+    });
+  }
+
+  async cancelTenantCredit(id: number, body: Record<string, unknown>) {
+    await this.ensureTenantCreditRefundSchema();
+    if (!this.context.user()?.permissions?.includes('tenant_credits.cancel')) {
+      throw new ForbiddenException('Permission d annulation de crédit locataire requise.');
+    }
+    return this.db.transaction(async (client) => {
+      return this.refundTenantCreditInTransaction(client, id, body, true);
+    });
+  }
+
   async leaseTenantCreditSummary(leaseId: number) {
     if (!(await this.tableExists('tenant_credits'))) return { total_usd: 0, total_cdf: 0, credits: [] };
     const { rows } = await this.db.query(
@@ -6644,6 +6723,254 @@ export class SaasService {
     if (!(await this.tableExists('tenant_credits')) || !(await this.columnExists('cash_movements', 'tenant_credit_id'))) {
       throw new BadRequestException('Le module des crédits locataires n est pas encore configuré.');
     }
+  }
+
+  private async ensureTenantCreditRefundSchema() {
+    await this.ensureTenantCreditSchema();
+    if (!(await this.tableExists('tenant_credit_refunds'))) {
+      throw new BadRequestException('Le module de remboursement des crédits locataires n est pas encore configuré.');
+    }
+  }
+
+  private async nextTenantCreditRefundReceiptNumber(client: PoolClient) {
+    const year = new Date().getFullYear();
+    const { rows } = await client.query(
+      `SELECT COALESCE(MAX((SUBSTRING(receipt_number FROM $1))::INT), 0) + 1 AS value
+       FROM tenant_credit_refunds
+       WHERE receipt_number LIKE $2
+         AND organization_id = $3`,
+      [`TCRF-${year}-([0-9]+)`, `TCRF-${year}-%`, this.context.organizationId()],
+    );
+    return `TCRF-${year}-${String(rows[0].value).padStart(4, '0')}`;
+  }
+
+  private async refundTenantCreditInTransaction(
+    client: PoolClient,
+    id: number,
+    body: Record<string, unknown>,
+    cancelWholeCredit: boolean,
+  ) {
+    const creditResult = await client.query(
+      `SELECT *
+       FROM tenant_credits
+       WHERE id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL
+       FOR UPDATE`,
+      [id, this.context.organizationId()],
+    );
+    const credit = requireRow(creditResult.rows[0], 'Tenant credit');
+    const remainingBefore = Number(credit.remaining_amount ?? 0);
+    if (!(remainingBefore > 0)) {
+      throw new ConflictException('Aucun solde disponible à rembourser pour ce crédit locataire.');
+    }
+
+    const allocationStats = await client.query(
+      `SELECT COUNT(*)::INT AS count,
+              COALESCE(SUM(amount_applied), 0)::NUMERIC(14,2) AS total
+       FROM tenant_credit_allocations
+       WHERE tenant_credit_id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+    const refundStats = await client.query(
+      `SELECT COUNT(*)::INT AS count,
+              COALESCE(SUM(amount), 0)::NUMERIC(14,2) AS total
+       FROM tenant_credit_refunds
+       WHERE tenant_credit_id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+    const allocationCount = Number(allocationStats.rows[0]?.count ?? 0);
+    const refundCount = Number(refundStats.rows[0]?.count ?? 0);
+    const sourcePayment = await client.query(
+      `SELECT exchange_rate_used, exchange_rate_date, cdf_equivalent_usd, total_equivalent_usd
+       FROM payments
+       WHERE id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL`,
+      [credit.source_payment_id, this.context.organizationId()],
+    );
+    const paymentRow = sourcePayment.rows[0];
+    if (String(credit.currency ?? 'USD') === 'CDF' && !(Number(paymentRow?.exchange_rate_used ?? 0) > 0)) {
+      throw new ConflictException('Impossible de rembourser ce crédit CDF sans taux de change source valide.');
+    }
+
+    const refundDate = String(body.refund_date ?? new Date().toISOString().slice(0, 10));
+    const paymentMethod = String(body.payment_method ?? 'CASH').toUpperCase();
+    const reference = String(body.reference ?? `TCR-${id}-${refundDate}`).trim();
+    const reason = String(body.reason ?? '').trim();
+    if (!reason) throw new BadRequestException('Le motif est obligatoire.');
+    if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethod)) {
+      throw new BadRequestException('Mode de remboursement invalide.');
+    }
+
+    if (cancelWholeCredit) {
+      if (allocationCount > 0) {
+        throw new ConflictException('Ce crédit a déjà été utilisé. Seul le solde disponible peut être remboursé.');
+      }
+      if (refundCount > 0) {
+        throw new ConflictException('Ce crédit a déjà fait l objet d un remboursement. L annulation globale n est plus autorisée.');
+      }
+      if (Number(credit.original_amount ?? 0) !== remainingBefore) {
+        throw new ConflictException('Seul un crédit totalement inutilisé peut être annulé.');
+      }
+    }
+
+    const requestedAmount = cancelWholeCredit ? remainingBefore : Number(body.amount ?? 0);
+    if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+      throw new BadRequestException('Montant de remboursement invalide.');
+    }
+    const amount = Number(requestedAmount.toFixed(2));
+    if (amount > remainingBefore) {
+      throw new ConflictException('Le montant demandé dépasse le solde disponible du crédit.');
+    }
+
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`tenant-credit-refund:${this.context.organizationId()}:${id}`]);
+
+    const idempotencyKey = String(
+      body.idempotency_key
+      ?? [
+        cancelWholeCredit ? 'TENANT_CREDIT_CANCEL' : 'TENANT_CREDIT_REFUND',
+        this.context.organizationId(),
+        id,
+        refundDate,
+        amount.toFixed(2),
+        paymentMethod,
+        reference,
+      ].join(':'),
+    );
+    const existingRefund = await client.query(
+      `SELECT id
+       FROM tenant_credit_refunds
+       WHERE organization_id = $1
+         AND idempotency_key = $2
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [this.context.organizationId(), idempotencyKey],
+    );
+    if (existingRefund.rows[0]) {
+      throw new ConflictException('Cette opération de remboursement a déjà été enregistrée.');
+    }
+
+    const receiptNumber = await this.nextTenantCreditRefundReceiptNumber(client);
+    const refundInsert = await client.query(
+      `INSERT INTO tenant_credit_refunds
+        (organization_id, tenant_credit_id, tenant_id, lease_id, amount, currency, refund_date, payment_method,
+         reference, reason, cash_movement_id, receipt_number, status, created_by, idempotency_key)
+       VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8,
+         $9, $10, NULL, $11, $12, $13, $14)
+       RETURNING *`,
+      [
+        this.context.organizationId(),
+        id,
+        credit.tenant_id,
+        credit.lease_id ?? null,
+        amount,
+        String(credit.currency ?? 'USD'),
+        refundDate,
+        paymentMethod,
+        reference || null,
+        reason,
+        receiptNumber,
+        cancelWholeCredit ? 'CANCELLED' : 'REFUNDED',
+        this.context.userId() ?? null,
+        idempotencyKey,
+      ],
+    );
+    const refund = requireRow(refundInsert.rows[0], 'Tenant credit refund');
+
+    const movement = await this.createCashMovementInTransaction(client, {
+      type: 'OUT',
+      category: 'TENANT_CREDIT_REFUND',
+      label: cancelWholeCredit ? 'Annulation de crédit locataire' : 'Remboursement de crédit locataire',
+      amount,
+      movement_date: refundDate,
+      tenant_id: credit.tenant_id,
+      description: cancelWholeCredit ? 'Annulation de crédit locataire' : 'Remboursement de crédit locataire',
+      reference: reference || receiptNumber,
+      currency: String(credit.currency ?? 'USD'),
+      exchange_rate_used: paymentRow?.exchange_rate_used ?? null,
+      exchange_rate_date: paymentRow?.exchange_rate_date ?? null,
+      equivalent_usd:
+        String(credit.currency ?? 'USD') === 'CDF'
+          ? Number((amount / Number(paymentRow?.exchange_rate_used ?? 1)).toFixed(2))
+          : amount,
+      tenant_credit_id: credit.id,
+    });
+    await client.query(
+      `UPDATE cash_movements
+       SET tenant_credit_id = $1
+       WHERE id = $2 AND organization_id = $3`,
+      [credit.id, movement.id, this.context.organizationId()],
+    );
+    await client.query(
+      `UPDATE tenant_credit_refunds
+       SET cash_movement_id = $2
+       WHERE id = $1 AND organization_id = $3`,
+      [refund.id, movement.id, this.context.organizationId()],
+    );
+
+    const remainingAfter = Number((remainingBefore - amount).toFixed(2));
+    const nextStatus = cancelWholeCredit
+      ? 'CANCELLED'
+      : remainingAfter <= 0
+        ? 'REFUNDED'
+        : 'PARTIALLY_USED';
+    await client.query(
+      `UPDATE tenant_credits
+       SET remaining_amount = $2,
+           status = $3,
+           updated_at = NOW()
+       WHERE id = $1
+         AND organization_id = $4`,
+      [credit.id, remainingAfter, nextStatus, this.context.organizationId()],
+    );
+    await client.query(
+      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+       VALUES ($1, $2, $3, 'tenant_credits', $4, 'POST', $5, 200, $6)`,
+      [
+        this.context.organizationId(),
+        this.context.userId() ?? null,
+        cancelWholeCredit ? 'TENANT_CREDIT_CANCELLED' : 'TENANT_CREDIT_REFUNDED',
+        String(credit.id),
+        cancelWholeCredit ? `/api/tenant-credits/${credit.id}/cancel` : `/api/tenant-credits/${credit.id}/refund`,
+        JSON.stringify({
+          tenant_credit_id: credit.id,
+          tenant_id: credit.tenant_id,
+          lease_id: credit.lease_id,
+          previous_remaining_amount: remainingBefore,
+          refunded_amount: amount,
+          new_remaining_amount: remainingAfter,
+          currency: credit.currency,
+          reason,
+          refund_id: refund.id,
+          receipt_number: receiptNumber,
+          cash_movement_id: movement.id,
+        }),
+      ],
+    );
+
+    return {
+      credit: await this.tenantCreditDetailInTransaction(client, credit.id),
+      refund: { ...refund, cash_movement_id: movement.id, receipt_number: receiptNumber },
+      cash_movement: movement,
+    };
+  }
+
+  private async tenantCreditDetailInTransaction(client: PoolClient, id: number) {
+    const { rows } = await client.query(
+      `SELECT tc.*
+       FROM tenant_credits tc
+       WHERE tc.id = $1
+         AND tc.organization_id = $2
+         AND tc.deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+    return requireRow(rows[0], 'Tenant credit');
   }
 
   async refreshInvoiceStatusInTransaction(client: PoolClient, organizationId: number, invoiceId: number) {

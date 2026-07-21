@@ -39,6 +39,7 @@ import { LeaseDetail } from '../pages/LeaseDetail';
 import { LeaseNew } from '../pages/LeaseNew';
 import { Login } from '../pages/Login';
 import { PaymentDetail } from '../pages/PaymentDetail';
+import { TenantCreditRefundDetail } from '../pages/TenantCreditRefundDetail';
 import { TenantCredits } from '../pages/TenantCredits';
 import { ProfilePage } from '../pages/ProfilePage';
 import { SelectOrganization } from '../pages/SelectOrganization';
@@ -111,6 +112,7 @@ export function AppRouter() {
           <Route path="/payments" element={guarded('payments.read', <PaymentsPage />)} />
           <Route path="/payments/:id" element={guarded('payments.read', <PaymentDetail />)} />
           <Route path="/tenant-credits" element={guarded('payments.read', <TenantCredits />)} />
+          <Route path="/tenant-credits/refunds/:id" element={guarded('payments.read', <TenantCreditRefundDetail />)} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/cash" element={guarded('cash.read', <CashPage />)} />
           <Route path="/guarantee-cash" element={guarded('guarantee_cash.read', <GuaranteeCashPage />)} />

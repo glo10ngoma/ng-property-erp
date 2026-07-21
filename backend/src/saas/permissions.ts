@@ -27,6 +27,8 @@ const editorPermissions = [
   'payments.read',
   'payments.create',
   'payments.update',
+  'tenant_credits.refund',
+  'tenant_credits.cancel',
   'cash.read',
   'cash.create',
   'cash.update',
