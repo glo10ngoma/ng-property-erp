@@ -12,9 +12,9 @@ const TEMPLATE_CODE_BY_USAGE: Record<LeaseDocumentUsage, string> = {
 };
 
 const TEMPLATE_FILE_BY_USAGE: Record<LeaseDocumentUsage, string> = {
-  RESIDENTIAL: 'residential.html',
+  RESIDENTIAL: 'standard.html',
   COMMERCIAL: 'commercial.html',
-  PROFESSIONAL: 'professional.html',
+  PROFESSIONAL: 'standard.html',
   MIXED: 'mixed.html',
 };
 
@@ -163,6 +163,7 @@ export class DocumentTemplateService {
       durationText: context.lease.durationText,
       noticeMonths: context.lease.noticeMonths,
       usageLabelLower: context.lease.usageLabel.toLowerCase(),
+      usageDisplay: usageDisplay(context),
       activityDescription: context.lease.activityDescription,
       destinationPhrase: destinationPhrase(context),
       totalMonthly: money(context.lease.totalMonthly, context.lease.currency),
@@ -233,11 +234,14 @@ function tenantParagraph(context: LeaseDocumentRenderContext) {
 }
 
 function destinationPhrase(context: LeaseDocumentRenderContext) {
-  if (context.lease.usage === 'RESIDENTIAL') {
-    return `Les lieux loués sont destinés à un usage ${context.lease.usageLabel.toLowerCase()}.`;
+  return `Les lieux loués sont destinés à l'usage suivant : ${usageDisplay(context)}.`;
+}
+
+function usageDisplay(context: LeaseDocumentRenderContext) {
+  if (context.lease.usage === 'PROFESSIONAL') {
+    return context.lease.activityDescription || context.lease.usageLabel;
   }
-  const activity = context.lease.activityDescription || "l'activité déclarée par le Preneur";
-  return `Les lieux loués sont exclusivement destinés à ${activity}. Toute modification substantielle de cette destination requiert l'accord écrit préalable du Bailleur.`;
+  return context.lease.usageLabel;
 }
 
 function money(value: number, currency: string) {
