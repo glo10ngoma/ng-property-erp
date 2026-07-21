@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowLeft, Ban, FileText, Plus, Printer, RefreshCw, Search, Wallet } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Ban, FileText, Plus, Printer, RefreshCw, Search, Wallet, X } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -103,7 +103,16 @@ export function TenantCredits() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [filters, setFilters] = useState({ search: '', status: '', currency: '', lease_id: searchParams.get('lease_id') ?? '' });
+  const [filters, setFilters] = useState({
+    search: '',
+    status: '',
+    currency: '',
+    start: '',
+    end: '',
+    lease_id: searchParams.get('lease_id') ?? '',
+  });
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   const [form, setForm] = useState({
     tenant_id: '',
     lease_id: '',
@@ -140,6 +149,7 @@ export function TenantCredits() {
       ]);
       setCredits(creditResponse.data);
       setFormData(formResponse.data);
+      setPage(1);
     } catch (loadError: any) {
       setError(loadError?.response?.data?.message ?? 'Impossible de charger les crédits locataires.');
     } finally {
@@ -156,13 +166,46 @@ export function TenantCredits() {
     [form.tenant_id, formData.leases],
   );
 
+  const visibleCredits = useMemo(() => {
+    const search = filters.search.trim().toLowerCase();
+    return credits.filter((credit) => {
+      if (filters.status && credit.status !== filters.status) return false;
+      if (filters.currency && credit.currency !== filters.currency) return false;
+      if (filters.lease_id && String(credit.lease_id ?? '') !== filters.lease_id) return false;
+      if (filters.start && credit.payment_date < filters.start) return false;
+      if (filters.end && credit.payment_date > filters.end) return false;
+      if (!search) return true;
+      const haystack = [
+        credit.tenant_name,
+        credit.building_name,
+        credit.unit_number,
+        credit.reference,
+        credit.receipt_number,
+        credit.status,
+        credit.currency,
+        credit.lease_number ? formatLeaseReference(credit.lease_number, credit.lease_id ?? credit.id) : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(search);
+    });
+  }, [credits, filters]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleCredits.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedCredits = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return visibleCredits.slice(start, start + pageSize);
+  }, [currentPage, pageSize, visibleCredits]);
+
   const totals = useMemo(() => ({
-    usd: credits.filter((credit) => credit.currency === 'USD').reduce((sum, credit) => sum + Number(credit.remaining_amount ?? 0), 0),
-    cdf: credits.filter((credit) => credit.currency === 'CDF').reduce((sum, credit) => sum + Number(credit.remaining_amount ?? 0), 0),
-    usedUsd: credits.filter((credit) => credit.currency === 'USD').reduce((sum, credit) => sum + Number(credit.original_amount ?? 0) - Number(credit.remaining_amount ?? 0), 0),
-    usedCdf: credits.filter((credit) => credit.currency === 'CDF').reduce((sum, credit) => sum + Number(credit.original_amount ?? 0) - Number(credit.remaining_amount ?? 0), 0),
-    count: credits.length,
-  }), [credits]);
+    usd: visibleCredits.filter((credit) => credit.currency === 'USD').reduce((sum, credit) => sum + Number(credit.remaining_amount ?? 0), 0),
+    cdf: visibleCredits.filter((credit) => credit.currency === 'CDF').reduce((sum, credit) => sum + Number(credit.remaining_amount ?? 0), 0),
+    usedUsd: visibleCredits.filter((credit) => credit.currency === 'USD').reduce((sum, credit) => sum + Number(credit.original_amount ?? 0) - Number(credit.remaining_amount ?? 0), 0),
+    usedCdf: visibleCredits.filter((credit) => credit.currency === 'CDF').reduce((sum, credit) => sum + Number(credit.original_amount ?? 0) - Number(credit.remaining_amount ?? 0), 0),
+    count: visibleCredits.length,
+  }), [visibleCredits]);
 
   const cdfEquivalent = useMemo(() => {
     const amount = Number(form.amount || 0);
@@ -183,6 +226,21 @@ export function TenantCredits() {
   }, [refundForm.amount, selectedCredit]);
 
   const updateFilter = (key: keyof typeof filters, value: string) => setFilters((current) => ({ ...current, [key]: value }));
+  const updateFilterAndReset = (key: keyof typeof filters, value: string) => {
+    setPage(1);
+    updateFilter(key, value);
+  };
+  const resetFilters = () => {
+    setFilters({
+      search: '',
+      status: '',
+      currency: '',
+      start: '',
+      end: '',
+      lease_id: searchParams.get('lease_id') ?? '',
+    });
+    setPage(1);
+  };
   const updateForm = (key: keyof typeof form, value: string) => {
     setForm((current) => ({
       ...current,
@@ -345,22 +403,44 @@ export function TenantCredits() {
         <div className="summary-card"><span>Utilisé CDF</span><strong>{totals.usedCdf.toLocaleString('fr-FR')} CDF</strong></div>
       </div>
 
-      <div className="toolbar tenant-credit-toolbar">
-        <label><Search size={15} /><input value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} placeholder="Recherche" /></label>
-        <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)}>
-          <option value="">Tous les statuts</option>
-          <option value="AVAILABLE">Disponible</option>
-          <option value="PARTIALLY_USED">Partiellement utilisé</option>
-          <option value="USED">Utilisé</option>
-          <option value="REFUNDED">Remboursé</option>
-          <option value="CANCELLED">Annulé</option>
-        </select>
-        <select value={filters.currency} onChange={(event) => updateFilter('currency', event.target.value)}>
-          <option value="">Toutes devises</option>
-          <option value="USD">USD</option>
-          <option value="CDF">CDF</option>
-        </select>
-        <button type="button" className="secondary" onClick={() => void load()}>Filtrer</button>
+      <div className="tenant-credit-toolbar">
+        <div className="tenant-credit-toolbar-row tenant-credit-toolbar-search">
+          <label className="tenant-credit-search">
+            <Search size={15} />
+            <input
+              value={filters.search}
+              onChange={(event) => updateFilterAndReset('search', event.target.value)}
+              placeholder="Rechercher par locataire, bail, référence..."
+            />
+          </label>
+        </div>
+        <div className="tenant-credit-toolbar-row tenant-credit-toolbar-filters">
+          <select value={filters.status} onChange={(event) => updateFilterAndReset('status', event.target.value)}>
+            <option value="">Tous les statuts</option>
+            <option value="AVAILABLE">Disponible</option>
+            <option value="PARTIALLY_USED">Partiellement utilisé</option>
+            <option value="USED">Utilisé</option>
+            <option value="REFUNDED">Remboursé</option>
+            <option value="CANCELLED">Annulé</option>
+          </select>
+          <select value={filters.currency} onChange={(event) => updateFilterAndReset('currency', event.target.value)}>
+            <option value="">Toutes devises</option>
+            <option value="USD">USD</option>
+            <option value="CDF">CDF</option>
+          </select>
+          <label className="tenant-credit-date-field">
+            <span>Du</span>
+            <input type="date" value={filters.start} onChange={(event) => updateFilterAndReset('start', event.target.value)} />
+          </label>
+          <label className="tenant-credit-date-field">
+            <span>Au</span>
+            <input type="date" value={filters.end} onChange={(event) => updateFilterAndReset('end', event.target.value)} />
+          </label>
+          <div className="tenant-credit-toolbar-actions">
+            <button type="button" className="secondary" onClick={resetFilters}>Réinitialiser</button>
+            <button type="button" onClick={() => void load()}>Filtrer</button>
+          </div>
+        </div>
       </div>
 
       <div className="table-wrap">
@@ -379,7 +459,7 @@ export function TenantCredits() {
             </tr>
           </thead>
           <tbody>
-            {credits.map((credit) => (
+            {pagedCredits.map((credit) => (
               <tr key={credit.id}>
                 <td>{shortDate(credit.payment_date)}</td>
                 <td><strong>{credit.tenant_name ?? '-'}</strong><small>{credit.building_name ?? ''} {credit.unit_number ? `- ${credit.unit_number}` : ''}</small></td>
@@ -395,50 +475,132 @@ export function TenantCredits() {
                 </td>
               </tr>
             ))}
-            {!loading && credits.length === 0 && <tr><td colSpan={9} className="empty">Aucun crédit locataire.</td></tr>}
-            {loading && <tr><td colSpan={9} className="empty">Chargement...</td></tr>}
+            {!loading && visibleCredits.length === 0 && (
+              <tr>
+                <td colSpan={9}>
+                  <div className="empty tenant-credit-empty">
+                    <strong>Aucun crédit locataire.</strong>
+                    <span>Aucun paiement anticipé enregistré pour les filtres sélectionnés.</span>
+                  </div>
+                </td>
+              </tr>
+            )}
+            {loading && (
+              <tr>
+                <td colSpan={9}>
+                  <div className="empty tenant-credit-empty">
+                    <strong>Chargement...</strong>
+                    <span>Veuillez patienter pendant la récupération des crédits.</span>
+                  </div>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
 
+      <div className="pagination-bar tenant-credit-pagination">
+        <div className="table-meta">Total {visibleCredits.length} crédit{visibleCredits.length > 1 ? 's' : ''}</div>
+        <div className="tenant-credit-pagination-controls">
+          <span>Page {currentPage} sur {totalPages}</span>
+          <button type="button" className="icon-btn" onClick={() => setPage((current) => Math.max(current - 1, 1))} disabled={currentPage <= 1} aria-label="Page précédente">‹</button>
+          <button type="button" className="icon-btn" onClick={() => setPage(currentPage)} disabled>{currentPage}</button>
+          <button type="button" className="icon-btn" onClick={() => setPage((current) => Math.min(current + 1, totalPages))} disabled={currentPage >= totalPages} aria-label="Page suivante">›</button>
+        </div>
+      </div>
+
       {modalOpen && (
-        <Modal title="Nouveau crédit locataire" onClose={() => setModalOpen(false)}>
-          <form className="form-grid" onSubmit={(event) => void submit(event)}>
-            <label>Locataire<select required value={form.tenant_id} onChange={(event) => updateForm('tenant_id', event.target.value)}>
-              <option value="">Sélectionner</option>
-              {formData.tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
-            </select></label>
-            <label>Bail actif<select value={form.lease_id} onChange={(event) => updateForm('lease_id', event.target.value)}>
-              <option value="">Aucun bail lié</option>
-              {filteredLeases.map((lease) => (
-                <option key={lease.id} value={lease.id}>{formatLeaseReference(lease.lease_number, lease.id)} - {lease.building_name ?? '-'} / {lease.unit_number ?? '-'}</option>
-              ))}
-            </select></label>
-            <label>Date<input type="date" required value={form.payment_date} onChange={(event) => updateForm('payment_date', event.target.value)} /></label>
-            <label>Devise<select value={form.currency} onChange={(event) => updateForm('currency', event.target.value)}>
-              <option value="USD">USD</option>
-              <option value="CDF">CDF</option>
-            </select></label>
-            <label>Montant<input type="number" min="0.01" step="0.01" required value={form.amount} onChange={(event) => updateForm('amount', event.target.value)} /></label>
-            <label>Mode de paiement<select value={form.payment_method} onChange={(event) => updateForm('payment_method', event.target.value)}>
-              <option value="CASH">Espèces</option>
-              <option value="BANK">Banque</option>
-              <option value="MOBILE_MONEY">Mobile Money</option>
-            </select></label>
-            {form.currency === 'CDF' && (
-              <>
-                <label>Taux USD/CDF<input type="number" min="0.000001" step="0.000001" required value={form.exchange_rate_used} onChange={(event) => updateForm('exchange_rate_used', event.target.value)} /></label>
-                <label>Équivalent USD<input readOnly value={money(cdfEquivalent)} /></label>
-              </>
-            )}
-            <label>Référence<input value={form.reference} onChange={(event) => updateForm('reference', event.target.value)} /></label>
-            <label className="full">Notes<textarea value={form.notes} onChange={(event) => updateForm('notes', event.target.value)} /></label>
-            <div className="form-actions full">
-              <button type="button" className="secondary" onClick={() => setModalOpen(false)}>Annuler</button>
-              <button type="submit" disabled={submitting}><FileText size={16} />{submitting ? 'Enregistrement...' : 'Enregistrer le crédit'}</button>
+        <div className="tenant-credit-drawer-backdrop" role="presentation" onClick={() => setModalOpen(false)}>
+          <aside className="tenant-credit-drawer" role="dialog" aria-modal="true" aria-labelledby="tenant-credit-drawer-title" onClick={(event) => event.stopPropagation()}>
+            <div className="tenant-credit-drawer-head">
+              <div>
+                <h3 id="tenant-credit-drawer-title">Nouveau crédit locataire</h3>
+                <p>Renseignez un paiement anticipé pour le locataire et le bail concernés.</p>
+              </div>
+              <button type="button" className="icon-btn secondary" onClick={() => setModalOpen(false)} aria-label="Fermer">
+                <X size={16} />
+              </button>
             </div>
-          </form>
-        </Modal>
+            <form className="tenant-credit-drawer-form" onSubmit={(event) => void submit(event)}>
+              <label>
+                <span>Locataire *</span>
+                <select required value={form.tenant_id} onChange={(event) => updateForm('tenant_id', event.target.value)}>
+                  <option value="">Sélectionner un locataire</option>
+                  {formData.tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
+                </select>
+                <small>Choisissez le locataire concerné par ce crédit.</small>
+              </label>
+              <label>
+                <span>Bail actif *</span>
+                <select value={form.lease_id} onChange={(event) => updateForm('lease_id', event.target.value)}>
+                  <option value="">Sélectionner un bail</option>
+                  {filteredLeases.map((lease) => (
+                    <option key={lease.id} value={lease.id}>{formatLeaseReference(lease.lease_number, lease.id)} - {lease.building_name ?? '-'} / {lease.unit_number ?? '-'}</option>
+                  ))}
+                </select>
+                <small>Sélectionnez le bail actif du locataire.</small>
+              </label>
+              <label>
+                <span>Date *</span>
+                <input type="date" required value={form.payment_date} onChange={(event) => updateForm('payment_date', event.target.value)} />
+                <small>Date du paiement anticipé.</small>
+              </label>
+              <label>
+                <span>Devise *</span>
+                <select value={form.currency} onChange={(event) => updateForm('currency', event.target.value)}>
+                  <option value="USD">USD</option>
+                  <option value="CDF">CDF</option>
+                </select>
+                <small>Devise du crédit locataire.</small>
+              </label>
+              <label>
+                <span>Montant *</span>
+                <div className="tenant-credit-amount-field">
+                  <input type="number" min="0.01" step="0.01" required value={form.amount} onChange={(event) => updateForm('amount', event.target.value)} />
+                  <span>{form.currency === 'USD' ? '$US' : 'CDF'}</span>
+                </div>
+                <small>Montant payé d’avance.</small>
+              </label>
+              <label>
+                <span>Mode de paiement *</span>
+                <select value={form.payment_method} onChange={(event) => updateForm('payment_method', event.target.value)}>
+                  <option value="CASH">Espèces</option>
+                  <option value="BANK">Banque</option>
+                  <option value="MOBILE_MONEY">Mobile Money</option>
+                </select>
+                <small>Mode de paiement utilisé.</small>
+              </label>
+              {form.currency === 'CDF' && (
+                <>
+                  <label>
+                    <span>Taux USD/CDF *</span>
+                    <input type="number" min="0.000001" step="0.000001" required value={form.exchange_rate_used} onChange={(event) => updateForm('exchange_rate_used', event.target.value)} />
+                    <small>Taux appliqué pour l’équivalent USD.</small>
+                  </label>
+                  <label>
+                    <span>Équivalent USD</span>
+                    <input readOnly value={money(cdfEquivalent)} />
+                    <small>Valeur calculée automatiquement.</small>
+                  </label>
+                </>
+              )}
+              <label className="tenant-credit-drawer-wide">
+                <span>Référence</span>
+                <input value={form.reference} onChange={(event) => updateForm('reference', event.target.value)} placeholder="Référence du paiement" />
+                <small>Numéro de reçu, bordereau, chèque, etc.</small>
+              </label>
+              <label className="tenant-credit-drawer-wide">
+                <span>Notes</span>
+                <textarea value={form.notes} onChange={(event) => updateForm('notes', event.target.value)} placeholder="Notes (optionnel)" />
+                <small>Informations complémentaires.</small>
+              </label>
+              <div className="tenant-credit-drawer-footer tenant-credit-drawer-wide">
+                <button type="button" className="secondary" onClick={() => setModalOpen(false)}>Annuler</button>
+                <button type="submit" disabled={submitting}><FileText size={16} />{submitting ? 'Enregistrement...' : 'Enregistrer le crédit'}</button>
+              </div>
+            </form>
+          </aside>
+        </div>
       )}
 
       {detailOpen && selectedCredit && (
