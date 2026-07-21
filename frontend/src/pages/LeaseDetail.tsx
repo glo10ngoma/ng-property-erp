@@ -35,6 +35,7 @@ type LeaseContractGeneration = {
 type LeaseDetailData = Lease & {
   guarantee?: { amount: number; paid_amount: number; status: string; payment_date?: string };
   guarantee_payments?: Array<{ id: number; payment_date: string; amount: number; payment_method: string; reference?: string; receipt_number?: string; cash_movement_id?: number; guarantee_cash_movement_id?: number; amount_usd?: number; amount_cdf?: number; total_equivalent_usd?: number }>;
+  tenant_credit_summary?: { total_usd: number; total_cdf: number; credits: Array<{ id: number; source_payment_id: number; receipt_number?: string; currency: string; remaining_amount: number }> };
   documents: Array<{ id: number; document_type: string; file_name: string; file_url?: string; uploaded_at?: string }>;
   history: Lease[];
   latest_contract?: LeaseContractGeneration | null;
@@ -94,6 +95,8 @@ export function LeaseDetail() {
   const hasGuaranteeReceipts = guaranteePayments.length > 0;
   const guaranteeDisplayStatus = guaranteeStatusFromAmounts(guaranteeRequired, guaranteePaid);
   const hasHistoricalPaidGuaranteeWithoutReceipt = !hasGuaranteeReceipts && guaranteeRequired > 0 && (guaranteePaid + 0.01 >= guaranteeRequired || guaranteeDisplayStatus === 'PAID');
+  const tenantCreditSummary = lease?.tenant_credit_summary;
+  const hasTenantCredits = Number(tenantCreditSummary?.total_usd ?? 0) > 0 || Number(tenantCreditSummary?.total_cdf ?? 0) > 0;
   const canPayGuarantee = Boolean(lease && can('payments.create') && !isReadOnlyLifecycleView && guaranteeRequired > 0 && guaranteeRemaining > 0 && ['DRAFT', 'ACTIVE'].includes(String(lease.status ?? '').toUpperCase()));
   const guaranteeRate = Number(guaranteePaymentRate || exchangeRate?.rate || 0);
   const guaranteeCdfEquivalentUsd = guaranteePaymentCurrency === 'USD' || guaranteeRate <= 0 ? 0 : Number((Number(guaranteePaymentCdfAmount || 0) / guaranteeRate).toFixed(2));
@@ -508,6 +511,20 @@ export function LeaseDetail() {
           <SummaryItem label="Meuble" value={lease.is_furnished ? 'Oui' : 'Non'} />
         </div>
       </div>
+
+      {hasTenantCredits ? (
+        <div className="detail-section report-section tenant-credit-lease-card">
+          <h4>Crédit locataire disponible</h4>
+          <div className="summary-band">
+            <SummaryItem label="Disponible USD" value={money(tenantCreditSummary?.total_usd ?? 0)} />
+            <SummaryItem label="Disponible CDF" value={`${Number(tenantCreditSummary?.total_cdf ?? 0).toLocaleString('fr-FR')} CDF`} />
+            <SummaryItem label="Reçus" value={tenantCreditSummary?.credits?.length ?? 0} />
+          </div>
+          <div className="actions" style={{ marginTop: 10 }}>
+            <button type="button" className="secondary" onClick={() => navigate(`/tenant-credits?lease_id=${lease.id}`)}><Receipt size={16} />Voir les crédits</button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="detail-section report-section">
         <h4>Garantie locative</h4>

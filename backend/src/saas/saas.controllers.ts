@@ -607,6 +607,31 @@ export class GuaranteeCashController {
   }
 }
 
+@Controller('tenant-credits')
+export class TenantCreditsController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get()
+  credits(@Query() query: Record<string, unknown>) {
+    return this.service.tenantCredits(query);
+  }
+
+  @Get('form-data')
+  formData() {
+    return this.service.tenantCreditFormData();
+  }
+
+  @Get(':id')
+  credit(@Param('id', ParseIntPipe) id: number) {
+    return this.service.tenantCreditDetail(id);
+  }
+
+  @Post()
+  create(@Body() body: Record<string, unknown>) {
+    return this.service.createTenantCredit(body);
+  }
+}
+
 @Controller('suppliers')
 export class SuppliersController {
   constructor(private readonly service: SaasService) {}

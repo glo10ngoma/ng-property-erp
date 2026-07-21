@@ -33,15 +33,17 @@ export class PaymentsService {
              t.phone AS tenant_phone,
              t.email AS tenant_email,
              u.number AS unit_number,
-             COALESCE(l.lease_number, gl.lease_number, l.id, gl.id) AS lease_number,
+             COALESCE(l.lease_number, gl.lease_number, cl.lease_number, l.id, gl.id, cl.id) AS lease_number,
              b.name AS building_name
       FROM payments p
       LEFT JOIN invoices i ON i.id = p.invoice_id
       LEFT JOIN lease_guarantees g ON g.id = p.lease_guarantee_id
       LEFT JOIN leases gl ON gl.id = g.lease_id
-      LEFT JOIN tenants t ON t.id = COALESCE(i.tenant_id, gl.tenant_id)
+      LEFT JOIN tenant_credits tc ON tc.source_payment_id = p.id AND tc.organization_id = p.organization_id AND tc.deleted_at IS NULL
+      LEFT JOIN leases cl ON cl.id = tc.lease_id
+      LEFT JOIN tenants t ON t.id = COALESCE(i.tenant_id, gl.tenant_id, tc.tenant_id)
       LEFT JOIN leases l ON l.id = i.lease_id
-      LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, gl.unit_id, t.unit_id)
+      LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, gl.unit_id, cl.unit_id, t.unit_id)
       LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
       WHERE p.organization_id = $1 AND p.deleted_at IS NULL
       ORDER BY p.payment_date DESC, p.id DESC
@@ -70,15 +72,22 @@ export class PaymentsService {
               g.amount AS guarantee_amount,
               g.paid_amount AS guarantee_paid_amount,
               g.status AS guarantee_status,
+              tc.id AS tenant_credit_id,
+              tc.currency AS tenant_credit_currency,
+              tc.original_amount AS tenant_credit_original_amount,
+              tc.remaining_amount AS tenant_credit_remaining_amount,
+              tc.status AS tenant_credit_status,
               pcm.created_by AS created_by_user_id,
               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(creator.first_name, ''), ' ', COALESCE(creator.last_name, ''))), ''), creator.email) AS created_by_name
        FROM payments p
        LEFT JOIN invoices i ON i.id = p.invoice_id
        LEFT JOIN lease_guarantees g ON g.id = p.lease_guarantee_id
        LEFT JOIN leases gl ON gl.id = g.lease_id
-       LEFT JOIN tenants t ON t.id = COALESCE(i.tenant_id, gl.tenant_id)
+       LEFT JOIN tenant_credits tc ON tc.source_payment_id = p.id AND tc.organization_id = p.organization_id AND tc.deleted_at IS NULL
+       LEFT JOIN leases cl ON cl.id = tc.lease_id
+       LEFT JOIN tenants t ON t.id = COALESCE(i.tenant_id, gl.tenant_id, tc.tenant_id)
        LEFT JOIN leases l ON l.id = i.lease_id
-       LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, gl.unit_id, t.unit_id)
+       LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, gl.unit_id, cl.unit_id, t.unit_id)
        LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
       LEFT JOIN LATERAL (
          SELECT created_by

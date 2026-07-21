@@ -55,6 +55,11 @@ type PaymentDetailData = {
   guarantee_amount?: number;
   guarantee_paid_amount?: number;
   guarantee_status?: string;
+  tenant_credit_id?: number;
+  tenant_credit_currency?: string;
+  tenant_credit_original_amount?: number;
+  tenant_credit_remaining_amount?: number;
+  tenant_credit_status?: string;
   created_by_user_id?: number;
   created_by_name?: string;
   allocations?: { id: number; invoice_id: number; invoice_number: string; amount: number }[];
@@ -101,6 +106,7 @@ export function PaymentDetail() {
   const useCustomReceipt = payment ? CUSTOM_RECEIPT_ORGANIZATION_IDS.has(Number(payment.organization_id)) : false;
   const receiptTitle = payment ? paymentReceiptTitle(payment) : 'Reçu de paiement';
   const isGuaranteeReceipt = payment ? isGuaranteePayment(payment) : false;
+  const isTenantCreditReceipt = payment ? isTenantCreditPayment(payment) : false;
   const displayReference = payment ? displayValue(payment.reference) : '—';
   const displayCreator = payment ? displayValue(payment.created_by_name) : '—';
 
@@ -166,15 +172,15 @@ export function PaymentDetail() {
         <h2>Fiche paiement</h2>
         <div className="actions invoice-detail-actions">
           <button className="secondary" onClick={() => navigate('/payments')}><ArrowLeft size={16} />Retour</button>
-          {can('payments.update') && !isGuaranteeReceipt && <button onClick={() => setEditOpen(true)}><Pencil size={16} />Modifier</button>}
+          {can('payments.update') && !isGuaranteeReceipt && !isTenantCreditReceipt && <button onClick={() => setEditOpen(true)}><Pencil size={16} />Modifier</button>}
           <button onClick={() => window.print()}><Printer size={16} />Imprimer reçu</button>
           <button className="secondary" onClick={() => window.print()}><FileSpreadsheet size={16} />PDF</button>
           {can('communication.send') && <button className="secondary" onClick={() => send('WHATSAPP')}><MessageCircle size={16} />WhatsApp</button>}
           {can('communication.send') && <button className="secondary" onClick={() => send('EMAIL')}><Mail size={16} />Email</button>}
           {can('communication.send') && <button className="secondary" onClick={() => send('SMS')}><Smartphone size={16} />SMS</button>}
           <button className="secondary" onClick={() => exportPaymentExcel(payment)}>Excel</button>
-          {can('payments.update') && !isGuaranteeReceipt && <button className="secondary" onClick={refund}><Wallet size={16} />Rembourser</button>}
-          {can('payments.delete') && !isGuaranteeReceipt && <button className="secondary danger" onClick={cancelPayment}><Trash2 size={16} />Annuler</button>}
+          {can('payments.update') && !isGuaranteeReceipt && !isTenantCreditReceipt && <button className="secondary" onClick={refund}><Wallet size={16} />Rembourser</button>}
+          {can('payments.delete') && !isGuaranteeReceipt && !isTenantCreditReceipt && <button className="secondary danger" onClick={cancelPayment}><Trash2 size={16} />Annuler</button>}
         </div>
       </div>
 
@@ -198,7 +204,7 @@ export function PaymentDetail() {
           )}
           <div className="invoice-meta">
             <strong>Reçu {payment.receipt_number ?? `PAY-${payment.id}`}</strong>
-            <span>{isGuaranteePayment(payment) ? 'Garantie locative' : `Facture: ${payment.invoice_number ?? '-'}`}</span>
+            <span>{paymentSubjectLabel(payment)}</span>
             <span>Date: {shortDate(payment.payment_date)}</span>
             <span>Mode: {paymentMethodLabel(payment.payment_method)}</span>
             <span className={`badge ${(payment.invoice_status ?? 'PAID').toLowerCase()}`}>{statusLabel(payment.invoice_status ?? 'PAID')}</span>
@@ -236,7 +242,7 @@ export function PaymentDetail() {
         <tbody>
             <tr>
               <td>{displayReference}</td>
-              <td>{isGuaranteePayment(payment) ? 'Garantie locative' : payment.invoice_number}</td>
+              <td>{paymentSubjectLabel(payment)}</td>
               <td>{paymentMethodLabel(payment.payment_method)}</td>
               <td className="right">{money(payment.amount)}</td>
               <td>USD</td>
@@ -277,7 +283,7 @@ export function PaymentDetail() {
 
 function exportPaymentExcel(payment: PaymentDetailData) {
   exportXlsxWorkbook(`Paiement_${payment.receipt_number ?? payment.id}.xlsx`, [
-    { name: 'Resume', rows: [{ reference: payment.receipt_number ?? `PAY-${payment.id}`, facture: payment.invoice_number ?? (isGuaranteePayment(payment) ? 'Garantie locative' : ''), date: shortDate(payment.payment_date), mode: paymentMethodLabel(payment.payment_method), montant: money(payment.amount), devise: 'USD', statut: statusLabel(payment.invoice_status ?? 'PAID') }] },
+    { name: 'Resume', rows: [{ reference: payment.receipt_number ?? `PAY-${payment.id}`, facture: paymentSubjectLabel(payment), date: shortDate(payment.payment_date), mode: paymentMethodLabel(payment.payment_method), montant: money(payment.amount), devise: 'USD', statut: statusLabel(payment.invoice_status ?? 'PAID') }] },
     { name: 'Informations paiement', rows: [paymentInfo(payment)] },
     { name: 'Facture', rows: [{ numero: payment.invoice_number, statut: payment.invoice_status ?? 'PAID', total: money(payment.invoice_total ?? payment.amount), montant_paye: money(payment.amount), reste: money(Math.max(Number(payment.invoice_total ?? payment.amount) - Number(payment.amount), 0)), devise: 'USD' }] },
     { name: 'Locataire', rows: [tenantInfo(payment)] },
@@ -293,7 +299,7 @@ function exportPaymentExcel(payment: PaymentDetailData) {
 function paymentInfo(payment: PaymentDetailData) {
   return {
     reference: displayValue(payment.reference),
-    facture: payment.invoice_number ?? (isGuaranteePayment(payment) ? 'Garantie locative' : ''),
+    facture: paymentSubjectLabel(payment),
     date: shortDate(payment.payment_date),
     montant: money(payment.amount),
     devise: 'USD',
@@ -361,7 +367,7 @@ function auditRows(payment: PaymentDetailData) {
 function generalRows(payment: PaymentDetailData) {
   return [{
     reference: payment.receipt_number ?? `PAY-${payment.id}`,
-    facture: payment.invoice_number ?? (isGuaranteePayment(payment) ? 'Garantie locative' : ''),
+    facture: paymentSubjectLabel(payment),
     date: shortDate(payment.payment_date),
     montant: money(payment.amount),
     devise: 'USD',
@@ -372,6 +378,20 @@ function generalRows(payment: PaymentDetailData) {
 }
 
 function invoiceRows(payment: PaymentDetailData) {
+  if (isTenantCreditPayment(payment)) {
+    return [{
+      facture: 'Crédit locataire',
+      statut: tenantCreditStatusLabel(payment.tenant_credit_status ?? 'AVAILABLE'),
+      total: payment.tenant_credit_currency === 'CDF'
+        ? `${Number(payment.tenant_credit_original_amount ?? payment.amount_cdf ?? 0).toLocaleString('fr-FR')} CDF`
+        : money(payment.tenant_credit_original_amount ?? payment.amount),
+      paye: money(payment.total_equivalent_usd ?? payment.amount),
+      restant: payment.tenant_credit_currency === 'CDF'
+        ? `${Number(payment.tenant_credit_remaining_amount ?? 0).toLocaleString('fr-FR')} CDF`
+        : money(payment.tenant_credit_remaining_amount ?? 0),
+      devise: payment.tenant_credit_currency ?? payment.currency ?? 'USD',
+    }];
+  }
   if (isGuaranteePayment(payment)) {
     return [{
       facture: 'Garantie locative',
@@ -413,6 +433,16 @@ function isGuaranteePayment(payment: PaymentDetailData) {
   return String(payment.payment_type ?? '').toUpperCase() === 'GUARANTEE';
 }
 
+function isTenantCreditPayment(payment: PaymentDetailData) {
+  return String(payment.payment_type ?? '').toUpperCase() === 'TENANT_CREDIT';
+}
+
+function paymentSubjectLabel(payment: PaymentDetailData) {
+  if (isTenantCreditPayment(payment)) return 'Crédit locataire';
+  if (isGuaranteePayment(payment)) return 'Garantie locative';
+  return `Facture: ${payment.invoice_number ?? '-'}`;
+}
+
 function displayValue(value: unknown) {
   const normalized = String(value ?? '').trim();
   return normalized || '—';
@@ -420,8 +450,13 @@ function displayValue(value: unknown) {
 
 function paymentReceiptTitle(payment: PaymentDetailData) {
   if (isGuaranteePayment(payment)) return 'REÇU PAIEMENT GARANTIE';
+  if (isTenantCreditPayment(payment)) return 'REÇU CRÉDIT LOCATAIRE';
   if (String(payment.invoice_type ?? '').toUpperCase() === 'OTHER_CHARGE') return 'REÇU PAIEMENT AUTRES CHARGES';
   return 'REÇU PAIEMENT LOYER';
+}
+
+function tenantCreditStatusLabel(value: string) {
+  return ({ AVAILABLE: 'Disponible', PARTIALLY_USED: 'Partiellement utilisé', USED: 'Utilisé', CANCELLED: 'Annulé' } as Record<string, string>)[value] ?? value;
 }
 
 function statusLabel(value: string) {

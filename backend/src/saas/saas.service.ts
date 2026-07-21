@@ -1,6 +1,6 @@
 ﻿import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
-import { forwardRef, HttpException, Inject, InternalServerErrorException, Logger } from '@nestjs/common';
+import { ForbiddenException, forwardRef, HttpException, Inject, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { RequestContext } from '../auth/request-context';
 import { hashPassword } from '../auth/password';
@@ -4330,6 +4330,7 @@ export class SaasService {
       ...row,
       guarantee,
       guarantee_payments: await this.leaseGuaranteePayments(id),
+      tenant_credit_summary: await this.leaseTenantCreditSummary(id),
       documents: await this.leaseDocuments(id),
       history: await this.unitOccupationHistory(lease.rows[0]?.unit_id ?? 0),
       latest_contract: await this.latestLeaseContract(id),
@@ -6186,6 +6187,279 @@ export class SaasService {
       [`RCPT-${year}-([0-9]+)`, `RCPT-${year}-%`, this.context.organizationId()],
     );
     return `RCPT-${year}-${String(rows[0].value).padStart(4, '0')}`;
+  }
+
+  async tenantCredits(filters: Record<string, unknown> = {}) {
+    await this.ensureTenantCreditSchema();
+    const values: unknown[] = [this.context.organizationId()];
+    const clauses = ['tc.organization_id = $1', 'tc.deleted_at IS NULL'];
+    const add = (sql: string, value: unknown) => {
+      values.push(value);
+      clauses.push(sql.replace('?', `$${values.length}`));
+    };
+    if (filters.tenant_id) add('tc.tenant_id = ?::INT', Number(filters.tenant_id));
+    if (filters.lease_id) add('tc.lease_id = ?::INT', Number(filters.lease_id));
+    if (filters.status) add('tc.status = ?', String(filters.status).toUpperCase());
+    if (filters.currency) add('tc.currency = ?', String(filters.currency).toUpperCase());
+    if (filters.start) add('tc.payment_date >= ?::DATE', String(filters.start));
+    if (filters.end) add('tc.payment_date <= ?::DATE', String(filters.end));
+    if (filters.id) add('tc.id = ?::INT', Number(filters.id));
+    const search = String(filters.search ?? '').trim();
+    if (search) {
+      const placeholders = [1, 2, 3, 4, 5].map(() => {
+        values.push(search);
+        return `$${values.length}`;
+      });
+      clauses.push(`(
+        tc.reference ILIKE '%' || ${placeholders[0]} || '%'
+        OR p.receipt_number ILIKE '%' || ${placeholders[1]} || '%'
+        OR tenant_name.name ILIKE '%' || ${placeholders[2]} || '%'
+        OR u.number ILIKE '%' || ${placeholders[3]} || '%'
+        OR b.name ILIKE '%' || ${placeholders[4]} || '%'
+      )`);
+    }
+    const { rows } = await this.db.query(
+      `SELECT tc.*, p.receipt_number, p.payment_method, p.amount_usd, p.amount_cdf, p.total_equivalent_usd,
+              tenant_name.name AS tenant_name,
+              u.number AS unit_number, b.name AS building_name,
+              l.lease_number
+       FROM tenant_credits tc
+       JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tc.organization_id AND p.deleted_at IS NULL
+       JOIN tenants t ON t.id = tc.tenant_id AND t.organization_id = tc.organization_id AND t.deleted_at IS NULL
+       LEFT JOIN LATERAL (
+         SELECT CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, t.first_name, '')
+                     ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+                END AS name
+       ) tenant_name ON TRUE
+       LEFT JOIN leases l ON l.id = tc.lease_id AND l.organization_id = tc.organization_id AND l.deleted_at IS NULL
+       LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = tc.organization_id AND u.deleted_at IS NULL
+       LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = tc.organization_id AND b.deleted_at IS NULL
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY tc.payment_date DESC, tc.id DESC`,
+      values,
+    );
+    return rows;
+  }
+
+  async tenantCreditDetail(id: number) {
+    await this.ensureTenantCreditSchema();
+    const rows = await this.tenantCredits({ id });
+    const credit = rows.find((row) => Number(row.id) === id);
+    if (credit) return credit;
+    const { rows: direct } = await this.db.query(
+      `SELECT tc.*, p.receipt_number, p.payment_method, p.amount_usd, p.amount_cdf, p.total_equivalent_usd,
+              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, t.first_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name,
+              u.number AS unit_number, b.name AS building_name, l.lease_number
+       FROM tenant_credits tc
+       JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tc.organization_id AND p.deleted_at IS NULL
+       JOIN tenants t ON t.id = tc.tenant_id AND t.organization_id = tc.organization_id AND t.deleted_at IS NULL
+       LEFT JOIN leases l ON l.id = tc.lease_id AND l.organization_id = tc.organization_id AND l.deleted_at IS NULL
+       LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = tc.organization_id AND u.deleted_at IS NULL
+       LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = tc.organization_id AND b.deleted_at IS NULL
+       WHERE tc.id = $1 AND tc.organization_id = $2 AND tc.deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+    return requireRow(direct[0], 'Tenant credit');
+  }
+
+  async tenantCreditFormData() {
+    const [tenants, leases] = await Promise.all([
+      this.db.query(
+        `SELECT id,
+                CASE WHEN tenant_type = 'COMPANY' THEN COALESCE(company_name, first_name, '')
+                     ELSE TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''), ' ', COALESCE(post_name, '')))
+                END AS name,
+                tenant_number
+         FROM tenants
+         WHERE organization_id = $1 AND deleted_at IS NULL
+         ORDER BY name`,
+        [this.context.organizationId()],
+      ),
+      this.db.query(
+        `SELECT l.id, l.tenant_id, l.lease_number, l.status, u.number AS unit_number, b.name AS building_name
+         FROM leases l
+         JOIN units u ON u.id = l.unit_id AND u.organization_id = l.organization_id AND u.deleted_at IS NULL
+         LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = l.organization_id AND b.deleted_at IS NULL
+         WHERE l.organization_id = $1 AND l.deleted_at IS NULL AND l.archived_at IS NULL AND l.status = 'ACTIVE'
+         ORDER BY b.name, u.number, l.id DESC`,
+        [this.context.organizationId()],
+      ),
+    ]);
+    return { tenants: tenants.rows, leases: leases.rows };
+  }
+
+  async createTenantCredit(body: Record<string, unknown>) {
+    await this.ensureTenantCreditSchema();
+    if (!this.context.user()?.permissions?.includes('payments.create')) {
+      throw new ForbiddenException('Permission de création de paiement requise.');
+    }
+    return this.db.transaction(async (client) => {
+      const tenantId = Number(body.tenant_id ?? 0);
+      const leaseId = body.lease_id ? Number(body.lease_id) : null;
+      const currency = String(body.currency ?? 'USD').toUpperCase();
+      const amount = Number(body.amount ?? 0);
+      const paymentMethod = String(body.payment_method ?? 'CASH').toUpperCase();
+      const paymentDate = String(body.payment_date ?? new Date().toISOString().slice(0, 10));
+      const exchangeRateUsed = Number(body.exchange_rate_used ?? 0) || null;
+      const exchangeRateDate = body.exchange_rate_date ? String(body.exchange_rate_date) : null;
+      if (!tenantId) throw new BadRequestException('Locataire requis.');
+      if (!['USD', 'CDF'].includes(currency)) throw new BadRequestException('Devise invalide.');
+      if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Montant du crédit invalide.');
+      if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethod)) throw new BadRequestException('Mode de paiement invalide.');
+      if (currency === 'CDF' && (!exchangeRateUsed || exchangeRateUsed <= 0)) {
+        throw new BadRequestException('Un taux de change est requis pour un crédit locataire en CDF.');
+      }
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`tenant-credit-${this.context.organizationId()}-${tenantId}-${paymentDate}-${amount}-${currency}`]);
+      const tenant = await client.query(
+        `SELECT id,
+                CASE WHEN tenant_type = 'COMPANY' THEN COALESCE(company_name, first_name, '')
+                     ELSE TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''), ' ', COALESCE(post_name, '')))
+                END AS name
+         FROM tenants
+         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+        [tenantId, this.context.organizationId()],
+      );
+      const tenantRow = requireRow(tenant.rows[0], 'Tenant');
+      if (leaseId) {
+        const lease = await client.query(
+          `SELECT id FROM leases
+           WHERE id = $1 AND tenant_id = $2 AND organization_id = $3
+             AND deleted_at IS NULL AND archived_at IS NULL AND status = 'ACTIVE'`,
+          [leaseId, tenantId, this.context.organizationId()],
+        );
+        requireRow(lease.rows[0], 'Lease');
+      }
+      const amountUsd = currency === 'USD' ? amount : 0;
+      const amountCdf = currency === 'CDF' ? amount : 0;
+      const cdfEquivalentUsd = currency === 'CDF' && exchangeRateUsed ? Number((amount / exchangeRateUsed).toFixed(2)) : 0;
+      const totalEquivalentUsd = currency === 'USD' ? amount : cdfEquivalentUsd;
+      const receiptNumber = await this.nextPaymentReceiptNumber(client);
+      const normalizedReference = body.reference ? String(body.reference).trim() : `CREDIT-${tenantId}-${paymentDate}`;
+      const idempotencyKey = String(body.idempotency_key ?? [
+        'TENANT_CREDIT',
+        this.context.organizationId(),
+        tenantId,
+        leaseId ?? 'NOLEASE',
+        paymentDate,
+        currency,
+        amount.toFixed(2),
+        normalizedReference,
+      ].join(':'));
+      const payment = await client.query(
+        `INSERT INTO payments
+          (invoice_id, payment_date, amount, payment_method, reference, notes, payer_name, receipt_number,
+           currency, amount_usd, amount_cdf, exchange_rate_used, exchange_rate_date, cdf_equivalent_usd, total_equivalent_usd,
+           organization_id, payment_type, idempotency_key)
+         VALUES
+          (NULL, $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11, $12, $13, $14,
+           $15, 'TENANT_CREDIT', $16)
+         ON CONFLICT (organization_id, idempotency_key)
+         WHERE deleted_at IS NULL AND idempotency_key IS NOT NULL
+         DO NOTHING
+         RETURNING *`,
+        [
+          paymentDate,
+          totalEquivalentUsd,
+          paymentMethod,
+          normalizedReference,
+          body.notes ? String(body.notes) : 'Paiement anticipé locataire',
+          tenantRow.name,
+          receiptNumber,
+          currency,
+          amountUsd,
+          amountCdf,
+          exchangeRateUsed,
+          exchangeRateDate,
+          cdfEquivalentUsd,
+          totalEquivalentUsd,
+          this.context.organizationId(),
+          idempotencyKey,
+        ],
+      );
+      if (!payment.rows[0]) throw new ConflictException('Ce crédit locataire est déjà enregistré.');
+      const credit = await client.query(
+        `INSERT INTO tenant_credits
+          (organization_id, tenant_id, lease_id, source_payment_id, currency, original_amount, remaining_amount,
+           status, payment_date, reference, notes, idempotency_key, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $6, 'AVAILABLE', $7, $8, $9, $10, $11)
+         RETURNING *`,
+        [
+          this.context.organizationId(),
+          tenantId,
+          leaseId,
+          payment.rows[0].id,
+          currency,
+          amount,
+          paymentDate,
+          normalizedReference,
+          body.notes ? String(body.notes) : null,
+          idempotencyKey,
+          this.context.userId() ?? 1,
+        ],
+      );
+      const movement = await this.createCashMovementInTransaction(client, {
+        type: 'IN',
+        category: 'TENANT_CREDIT',
+        amount,
+        movement_date: paymentDate,
+        payment_id: payment.rows[0].id,
+        tenant_id: tenantId,
+        description: 'Paiement anticipé locataire',
+        reference: normalizedReference,
+        currency,
+        exchange_rate_used: exchangeRateUsed,
+        exchange_rate_date: exchangeRateDate,
+        equivalent_usd: totalEquivalentUsd,
+      });
+      await client.query(
+        `UPDATE cash_movements
+         SET tenant_credit_id = $1
+         WHERE id = $2 AND organization_id = $3`,
+        [credit.rows[0].id, movement.id, this.context.organizationId()],
+      );
+      await client.query(
+        `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+         VALUES ($1, $2, 'TENANT_CREDIT_CREATED', 'tenant_credits', $3, 'POST', '/api/tenant-credits', 201, $4)`,
+        [
+          this.context.organizationId(),
+          this.context.userId() ?? null,
+          String(credit.rows[0].id),
+          JSON.stringify({ tenant_id: tenantId, lease_id: leaseId, source_payment_id: payment.rows[0].id, amount, currency }),
+        ],
+      );
+      return { ...credit.rows[0], receipt_number: payment.rows[0].receipt_number, source_payment_id: payment.rows[0].id, cash_movement_id: movement.id };
+    });
+  }
+
+  async leaseTenantCreditSummary(leaseId: number) {
+    if (!(await this.tableExists('tenant_credits'))) return { total_usd: 0, total_cdf: 0, credits: [] };
+    const { rows } = await this.db.query(
+      `SELECT tc.id, tc.currency, tc.remaining_amount, tc.original_amount, tc.status, tc.payment_date,
+              tc.source_payment_id, p.receipt_number
+       FROM tenant_credits tc
+       JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tc.organization_id AND p.deleted_at IS NULL
+       WHERE tc.lease_id = $1
+         AND tc.organization_id = $2
+         AND tc.deleted_at IS NULL
+         AND tc.status IN ('AVAILABLE', 'PARTIALLY_USED')
+         AND tc.remaining_amount > 0
+       ORDER BY tc.payment_date DESC, tc.id DESC`,
+      [leaseId, this.context.organizationId()],
+    );
+    return {
+      total_usd: rows.filter((row) => row.currency === 'USD').reduce((sum, row) => sum + Number(row.remaining_amount ?? 0), 0),
+      total_cdf: rows.filter((row) => row.currency === 'CDF').reduce((sum, row) => sum + Number(row.remaining_amount ?? 0), 0),
+      credits: rows,
+    };
+  }
+
+  private async ensureTenantCreditSchema() {
+    if (!(await this.tableExists('tenant_credits')) || !(await this.columnExists('cash_movements', 'tenant_credit_id'))) {
+      throw new BadRequestException('Le module des crédits locataires n est pas encore configuré.');
+    }
   }
 
   async unitOccupationHistory(unitId: number) {
