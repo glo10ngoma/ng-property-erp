@@ -42,6 +42,7 @@ export const paymentMethodLabel = (value: string) =>
     CASH: 'Espèces',
     BANK: 'Banque',
     MOBILE_MONEY: 'Mobile Money',
+    TENANT_CREDIT: 'Crédit locataire',
   })[value] ?? value;
 
 export const itemLabel = (value: string) =>

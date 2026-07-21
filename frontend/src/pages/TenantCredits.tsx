@@ -7,6 +7,17 @@ import { useAuth } from '../auth';
 import { Modal, SuccessMessage } from '../components';
 import { formatLeaseReference } from '../utils/lease-reference';
 
+type TenantCreditAllocation = {
+  id: number;
+  amount_applied: number;
+  currency: 'USD' | 'CDF';
+  invoice_id: number;
+  invoice_number: string;
+  payment_id: number;
+  payment_date: string;
+  created_at: string;
+};
+
 type TenantCredit = {
   id: number;
   tenant_id: number;
@@ -28,6 +39,7 @@ type TenantCredit = {
   amount_usd?: number;
   amount_cdf?: number;
   total_equivalent_usd?: number;
+  allocations?: TenantCreditAllocation[];
 };
 
 type FormDataPayload = {
@@ -45,6 +57,8 @@ export function TenantCredits() {
   const [formData, setFormData] = useState<FormDataPayload>({ tenants: [], leases: [] });
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedCredit, setSelectedCredit] = useState<TenantCredit | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -65,8 +79,9 @@ export function TenantCredits() {
     setLoading(true);
     setError('');
     try {
+      const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value));
       const [creditResponse, formResponse] = await Promise.all([
-        api.get<TenantCredit[]>('/tenant-credits', { params: Object.fromEntries(Object.entries(filters).filter(([, value]) => value)) }),
+        api.get<TenantCredit[]>('/tenant-credits', { params }),
         api.get<FormDataPayload>('/tenant-credits/form-data'),
       ]);
       setCredits(creditResponse.data);
@@ -79,18 +94,22 @@ export function TenantCredits() {
   };
 
   useEffect(() => {
-    load();
+    void load();
   }, []);
 
   const filteredLeases = useMemo(
     () => formData.leases.filter((lease) => !form.tenant_id || Number(lease.tenant_id) === Number(form.tenant_id)),
     [form.tenant_id, formData.leases],
   );
+
   const totals = useMemo(() => ({
     usd: credits.filter((credit) => credit.currency === 'USD').reduce((sum, credit) => sum + Number(credit.remaining_amount ?? 0), 0),
     cdf: credits.filter((credit) => credit.currency === 'CDF').reduce((sum, credit) => sum + Number(credit.remaining_amount ?? 0), 0),
+    usedUsd: credits.filter((credit) => credit.currency === 'USD').reduce((sum, credit) => sum + Number(credit.original_amount ?? 0) - Number(credit.remaining_amount ?? 0), 0),
+    usedCdf: credits.filter((credit) => credit.currency === 'CDF').reduce((sum, credit) => sum + Number(credit.original_amount ?? 0) - Number(credit.remaining_amount ?? 0), 0),
     count: credits.length,
   }), [credits]);
+
   const cdfEquivalent = useMemo(() => {
     const amount = Number(form.amount || 0);
     const rate = Number(form.exchange_rate_used || 0);
@@ -126,12 +145,33 @@ export function TenantCredits() {
       });
       setSuccess('Crédit locataire enregistré.');
       setModalOpen(false);
-      setForm({ tenant_id: '', lease_id: '', payment_date: today(), currency: 'USD', amount: '', payment_method: 'CASH', exchange_rate_used: '', reference: '', notes: '' });
+      setForm({
+        tenant_id: '',
+        lease_id: '',
+        payment_date: today(),
+        currency: 'USD',
+        amount: '',
+        payment_method: 'CASH',
+        exchange_rate_used: '',
+        reference: '',
+        notes: '',
+      });
       await load();
     } catch (submitError: any) {
       setError(submitError?.response?.data?.message ?? 'Impossible d’enregistrer le crédit locataire.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const openDetail = async (creditId: number) => {
+    setError('');
+    try {
+      const response = await api.get<TenantCredit>(`/tenant-credits/${creditId}`);
+      setSelectedCredit(response.data);
+      setDetailOpen(true);
+    } catch (detailError: any) {
+      setError(detailError?.response?.data?.message ?? 'Impossible de charger le détail du crédit.');
     }
   };
 
@@ -144,7 +184,7 @@ export function TenantCredits() {
           <p>Paiements anticipés disponibles, sans création de factures futures.</p>
         </div>
         <div className="actions">
-          <button type="button" className="secondary" onClick={load}><RefreshCw size={16} />Actualiser</button>
+          <button type="button" className="secondary" onClick={() => void load()}><RefreshCw size={16} />Actualiser</button>
           {can('payments.create') ? <button type="button" onClick={() => setModalOpen(true)}><Plus size={16} />Nouveau crédit locataire</button> : null}
         </div>
       </div>
@@ -153,9 +193,11 @@ export function TenantCredits() {
       {error && <div className="error">{error}</div>}
 
       <div className="summary-grid tenant-credit-kpis">
-        <div className="summary-card"><span>Crédits disponibles</span><strong>{totals.count}</strong></div>
+        <div className="summary-card"><span>Crédits visibles</span><strong>{totals.count}</strong></div>
         <div className="summary-card"><span>Disponible USD</span><strong>{money(totals.usd)}</strong></div>
         <div className="summary-card"><span>Disponible CDF</span><strong>{totals.cdf.toLocaleString('fr-FR')} CDF</strong></div>
+        <div className="summary-card"><span>Utilisé USD</span><strong>{money(totals.usedUsd)}</strong></div>
+        <div className="summary-card"><span>Utilisé CDF</span><strong>{totals.usedCdf.toLocaleString('fr-FR')} CDF</strong></div>
       </div>
 
       <div className="toolbar tenant-credit-toolbar">
@@ -172,7 +214,7 @@ export function TenantCredits() {
           <option value="USD">USD</option>
           <option value="CDF">CDF</option>
         </select>
-        <button type="button" className="secondary" onClick={load}>Filtrer</button>
+        <button type="button" className="secondary" onClick={() => void load()}>Filtrer</button>
       </div>
 
       <div className="table-wrap">
@@ -202,6 +244,7 @@ export function TenantCredits() {
                 <td className="right">{formatCreditAmount(credit.remaining_amount, credit.currency)}</td>
                 <td><span className={`badge ${credit.status.toLowerCase()}`}>{creditStatusLabel(credit.status)}</span></td>
                 <td>
+                  <button type="button" className="icon-button" title="Voir le détail" onClick={() => void openDetail(credit.id)}><FileText size={15} /></button>
                   <button type="button" className="icon-button" title="Ouvrir le reçu" onClick={() => navigate(`/payments/${credit.source_payment_id}`)}><Printer size={15} /></button>
                 </td>
               </tr>
@@ -214,7 +257,7 @@ export function TenantCredits() {
 
       {modalOpen && (
         <Modal title="Nouveau crédit locataire" onClose={() => setModalOpen(false)}>
-          <form className="form-grid" onSubmit={submit}>
+          <form className="form-grid" onSubmit={(event) => void submit(event)}>
             <label>Locataire<select required value={form.tenant_id} onChange={(event) => updateForm('tenant_id', event.target.value)}>
               <option value="">Sélectionner</option>
               {formData.tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
@@ -249,6 +292,40 @@ export function TenantCredits() {
               <button type="submit" disabled={submitting}><FileText size={16} />{submitting ? 'Enregistrement...' : 'Enregistrer le crédit'}</button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {detailOpen && selectedCredit && (
+        <Modal title={`Crédit locataire #${selectedCredit.id}`} onClose={() => { setDetailOpen(false); setSelectedCredit(null); }}>
+          <div className="compact-list">
+            <div className="compact-item"><span>Création</span><strong>{shortDate(selectedCredit.payment_date)} | {formatCreditAmount(selectedCredit.original_amount, selectedCredit.currency)}</strong></div>
+            <div className="compact-item"><span>Disponible</span><strong>{formatCreditAmount(selectedCredit.remaining_amount, selectedCredit.currency)}</strong></div>
+            <div className="compact-item"><span>Utilisé</span><strong>{formatCreditAmount(Number(selectedCredit.original_amount ?? 0) - Number(selectedCredit.remaining_amount ?? 0), selectedCredit.currency)}</strong></div>
+            <div className="compact-item"><span>Reçu d'origine</span><strong>{selectedCredit.receipt_number ?? '-'}</strong></div>
+          </div>
+          <div className="table-wrap" style={{ marginTop: 12 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Facture</th>
+                  <th className="right">Utilisé</th>
+                  <th>Historique</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(selectedCredit.allocations ?? []).map((allocation) => (
+                  <tr key={allocation.id}>
+                    <td>{shortDate(allocation.created_at || allocation.payment_date)}</td>
+                    <td>{allocation.invoice_number}</td>
+                    <td className="right">{formatCreditAmount(allocation.amount_applied, allocation.currency)}</td>
+                    <td><button type="button" className="link-button" onClick={() => navigate(`/invoices/${allocation.invoice_id}`)}>Ouvrir la facture</button></td>
+                  </tr>
+                ))}
+                {!(selectedCredit.allocations ?? []).length && <tr><td colSpan={4} className="empty">Aucune consommation enregistrée.</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </Modal>
       )}
     </section>

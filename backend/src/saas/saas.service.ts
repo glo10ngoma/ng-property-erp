@@ -6243,9 +6243,6 @@ export class SaasService {
 
   async tenantCreditDetail(id: number) {
     await this.ensureTenantCreditSchema();
-    const rows = await this.tenantCredits({ id });
-    const credit = rows.find((row) => Number(row.id) === id);
-    if (credit) return credit;
     const { rows: direct } = await this.db.query(
       `SELECT tc.*, p.receipt_number, p.payment_method, p.amount_usd, p.amount_cdf, p.total_equivalent_usd,
               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, t.first_name, '')
@@ -6261,7 +6258,21 @@ export class SaasService {
        WHERE tc.id = $1 AND tc.organization_id = $2 AND tc.deleted_at IS NULL`,
       [id, this.context.organizationId()],
     );
-    return requireRow(direct[0], 'Tenant credit');
+    const credit = requireRow(direct[0], 'Tenant credit');
+    const allocations = await this.db.query(
+      `SELECT tca.id, tca.amount_applied, tca.currency, tca.created_at,
+              i.id AS invoice_id, i.invoice_number, i.issue_date, i.due_date,
+              p.id AS payment_id, p.payment_date
+       FROM tenant_credit_allocations tca
+       JOIN invoices i ON i.id = tca.invoice_id AND i.organization_id = tca.organization_id AND i.deleted_at IS NULL
+       JOIN payments p ON p.id = tca.payment_id AND p.organization_id = tca.organization_id AND p.deleted_at IS NULL
+       WHERE tca.tenant_credit_id = $1
+         AND tca.organization_id = $2
+         AND tca.deleted_at IS NULL
+       ORDER BY tca.created_at ASC, tca.id ASC`,
+      [id, this.context.organizationId()],
+    );
+    return { ...credit, allocations: allocations.rows };
   }
 
   async tenantCreditFormData() {
@@ -6434,6 +6445,177 @@ export class SaasService {
     });
   }
 
+  async applyTenantCreditsToRentInvoiceInTransaction(client: PoolClient, args: {
+    organizationId: number;
+    invoiceId: number;
+    leaseId: number | null;
+    tenantId: number | null;
+    createdBy?: number | null;
+  }) {
+    if (!args.leaseId || !args.tenantId) {
+      return { applied_total: 0, allocations: [] as Array<Record<string, unknown>> };
+    }
+
+    const invoiceResult = await client.query(
+      `SELECT id, invoice_number, invoice_type, issue_date, status, total
+       FROM invoices
+       WHERE id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL
+       FOR UPDATE`,
+      [args.invoiceId, args.organizationId],
+    );
+    const invoice = requireRow(invoiceResult.rows[0], 'Invoice');
+    if (String(invoice.invoice_type ?? '').toUpperCase() !== 'RENT') {
+      return { applied_total: 0, allocations: [] as Array<Record<string, unknown>> };
+    }
+    if (['DRAFT', 'CANCELLED'].includes(String(invoice.status ?? '').toUpperCase())) {
+      return { applied_total: 0, allocations: [] as Array<Record<string, unknown>> };
+    }
+
+    const credits = await client.query(
+      `SELECT *
+       FROM tenant_credits
+       WHERE organization_id = $1
+         AND lease_id = $2
+         AND tenant_id = $3
+         AND currency = 'USD'
+         AND status IN ('AVAILABLE', 'PARTIALLY_USED')
+         AND remaining_amount > 0
+         AND deleted_at IS NULL
+       ORDER BY payment_date ASC, id ASC
+       FOR UPDATE`,
+      [args.organizationId, args.leaseId, args.tenantId],
+    );
+
+    let remainingToApply = Number(invoice.total ?? 0);
+    const allocations: Array<Record<string, unknown>> = [];
+
+    for (const credit of credits.rows) {
+      if (remainingToApply <= 0) break;
+      const duplicate = await client.query(
+        `SELECT 1
+         FROM tenant_credit_allocations
+         WHERE organization_id = $1
+           AND tenant_credit_id = $2
+           AND invoice_id = $3
+           AND deleted_at IS NULL
+         LIMIT 1`,
+        [args.organizationId, credit.id, args.invoiceId],
+      );
+      if (duplicate.rows[0]) {
+        continue;
+      }
+
+      const available = Number(credit.remaining_amount ?? 0);
+      if (!(available > 0)) continue;
+      const amountApplied = Number(Math.min(available, remainingToApply).toFixed(2));
+      if (!(amountApplied > 0)) continue;
+
+      const paymentReference = `CREDIT-ALLOC-${credit.id}-${args.invoiceId}`;
+      const idempotencyKey = `TENANT_CREDIT_ALLOCATION:${args.organizationId}:${credit.id}:${args.invoiceId}`;
+      const paymentResult = await client.query(
+        `INSERT INTO payments
+          (invoice_id, payment_date, amount, payment_method, reference, notes, payer_name, receipt_number,
+           currency, amount_usd, amount_cdf, exchange_rate_used, exchange_rate_date, cdf_equivalent_usd, total_equivalent_usd,
+           organization_id, payment_type, idempotency_key)
+         VALUES
+          ($1, $2, $3, 'TENANT_CREDIT', $4, $5, $6, NULL,
+           'USD', $3, 0, NULL, NULL, 0, $3,
+           $7, 'TENANT_CREDIT_ALLOCATION', $8)
+         ON CONFLICT (organization_id, idempotency_key)
+         WHERE deleted_at IS NULL AND idempotency_key IS NOT NULL
+         DO NOTHING
+         RETURNING *`,
+        [
+          args.invoiceId,
+          String(invoice.issue_date).slice(0, 10),
+          amountApplied,
+          paymentReference,
+          'Paiement par crédit locataire',
+          credit.reference ?? `Crédit locataire #${credit.id}`,
+          args.organizationId,
+          idempotencyKey,
+        ],
+      );
+
+      const payment =
+        paymentResult.rows[0]
+        ?? (
+          await client.query(
+            `SELECT *
+             FROM payments
+             WHERE organization_id = $1
+               AND idempotency_key = $2
+               AND deleted_at IS NULL
+             LIMIT 1`,
+            [args.organizationId, idempotencyKey],
+          )
+        ).rows[0];
+      if (!payment) {
+        throw new ConflictException('Impossible de créer le paiement d’affectation du crédit locataire.');
+      }
+
+      await client.query(
+        `INSERT INTO payment_allocations (organization_id, payment_id, invoice_id, amount)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT DO NOTHING`,
+        [args.organizationId, payment.id, args.invoiceId, amountApplied],
+      );
+      await client.query(
+        `INSERT INTO tenant_credit_allocations
+          (organization_id, tenant_credit_id, invoice_id, payment_id, amount_applied, currency, created_by)
+         VALUES ($1, $2, $3, $4, $5, 'USD', $6)
+         ON CONFLICT (organization_id, tenant_credit_id, invoice_id)
+         WHERE deleted_at IS NULL
+         DO NOTHING`,
+        [args.organizationId, credit.id, args.invoiceId, payment.id, amountApplied, args.createdBy ?? null],
+      );
+
+      const remainingAmount = Number((available - amountApplied).toFixed(2));
+      const nextStatus = remainingAmount <= 0 ? 'USED' : 'PARTIALLY_USED';
+      await client.query(
+        `UPDATE tenant_credits
+         SET remaining_amount = $2,
+             status = $3,
+             updated_at = NOW()
+         WHERE id = $1 AND organization_id = $4`,
+        [credit.id, remainingAmount, nextStatus, args.organizationId],
+      );
+      await client.query(
+        `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+         VALUES ($1, $2, 'TENANT_CREDIT_APPLIED', 'tenant_credits', $3, 'POST', $4, 200, $5)`,
+        [
+          args.organizationId,
+          args.createdBy ?? null,
+          String(credit.id),
+          `/api/invoices/${args.invoiceId}/tenant-credit-allocation`,
+          JSON.stringify({
+            invoice_id: args.invoiceId,
+            payment_id: payment.id,
+            tenant_credit_allocation_amount: amountApplied,
+            invoice_number: invoice.invoice_number,
+          }),
+        ],
+      );
+
+      allocations.push({
+        tenant_credit_id: credit.id,
+        payment_id: payment.id,
+        invoice_id: args.invoiceId,
+        amount_applied: amountApplied,
+        currency: 'USD',
+      });
+      remainingToApply = Number((remainingToApply - amountApplied).toFixed(2));
+    }
+
+    await this.refreshInvoiceStatusInTransaction(client, args.organizationId, args.invoiceId);
+    return {
+      applied_total: allocations.reduce((sum, allocation) => sum + Number(allocation.amount_applied ?? 0), 0),
+      allocations,
+    };
+  }
+
   async leaseTenantCreditSummary(leaseId: number) {
     if (!(await this.tableExists('tenant_credits'))) return { total_usd: 0, total_cdf: 0, credits: [] };
     const { rows } = await this.db.query(
@@ -6444,15 +6626,17 @@ export class SaasService {
        WHERE tc.lease_id = $1
          AND tc.organization_id = $2
          AND tc.deleted_at IS NULL
-         AND tc.status IN ('AVAILABLE', 'PARTIALLY_USED')
-         AND tc.remaining_amount > 0
        ORDER BY tc.payment_date DESC, tc.id DESC`,
       [leaseId, this.context.organizationId()],
     );
+    const availableCredits = rows.filter((row) => ['AVAILABLE', 'PARTIALLY_USED'].includes(String(row.status ?? '').toUpperCase()) && Number(row.remaining_amount ?? 0) > 0);
     return {
-      total_usd: rows.filter((row) => row.currency === 'USD').reduce((sum, row) => sum + Number(row.remaining_amount ?? 0), 0),
-      total_cdf: rows.filter((row) => row.currency === 'CDF').reduce((sum, row) => sum + Number(row.remaining_amount ?? 0), 0),
-      credits: rows,
+      total_usd: availableCredits.filter((row) => row.currency === 'USD').reduce((sum, row) => sum + Number(row.remaining_amount ?? 0), 0),
+      total_cdf: availableCredits.filter((row) => row.currency === 'CDF').reduce((sum, row) => sum + Number(row.remaining_amount ?? 0), 0),
+      used_usd: rows.filter((row) => row.currency === 'USD').reduce((sum, row) => sum + Number((row.original_amount ?? 0) - (row.remaining_amount ?? 0)), 0),
+      used_cdf: rows.filter((row) => row.currency === 'CDF').reduce((sum, row) => sum + Number((row.original_amount ?? 0) - (row.remaining_amount ?? 0)), 0),
+      history_count: rows.length,
+      credits: availableCredits,
     };
   }
 
@@ -6460,6 +6644,24 @@ export class SaasService {
     if (!(await this.tableExists('tenant_credits')) || !(await this.columnExists('cash_movements', 'tenant_credit_id'))) {
       throw new BadRequestException('Le module des crédits locataires n est pas encore configuré.');
     }
+  }
+
+  async refreshInvoiceStatusInTransaction(client: PoolClient, organizationId: number, invoiceId: number) {
+    await client.query(
+      `UPDATE invoices i
+       SET status = CASE
+         WHEN i.status = 'DRAFT' THEN 'DRAFT'
+         WHEN i.status = 'CANCELLED' THEN 'CANCELLED'
+         WHEN s.paid_amount <= 0 THEN 'UNPAID'
+         WHEN s.paid_amount < i.total THEN 'PARTIAL'
+         ELSE 'PAID'
+       END
+       FROM invoice_payment_summary s
+       WHERE s.invoice_id = i.id
+         AND i.id = $1
+         AND i.organization_id = $2`,
+      [invoiceId, organizationId],
+    );
   }
 
   async unitOccupationHistory(unitId: number) {

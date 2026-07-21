@@ -689,6 +689,14 @@ export class AutomationsService {
         );
       }
 
+      await this.saasService.applyTenantCreditsToRentInvoiceInTransaction(client, {
+        organizationId: args.organizationId,
+        invoiceId: nextId,
+        leaseId: Number(args.lease.id),
+        tenantId: Number(args.lease.tenant_id),
+        createdBy: args.createdBy ?? null,
+      });
+
       return rows[0];
     });
   }

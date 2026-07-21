@@ -3,11 +3,16 @@ import { PoolClient } from 'pg';
 import { RequestContext } from '../auth/request-context';
 import { requireRow } from '../common/not-found';
 import { DatabaseService } from '../database/database.service';
+import { SaasService } from '../saas/saas.service';
 import { CreateInvoiceDto, InvoiceItemDto, UpdateInvoiceDto } from './dto';
 
 @Injectable()
 export class InvoicesService {
-  constructor(private readonly db: DatabaseService, private readonly context: RequestContext) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly context: RequestContext,
+    private readonly saasService: SaasService,
+  ) {}
 
   async findAll() {
     const organizationId = this.context.organizationId();
@@ -58,7 +63,15 @@ export class InvoicesService {
     const invoice = rows[0];
     if (!invoice) throw new NotFoundException('Facture introuvable');
     const items = await this.db.query('SELECT * FROM invoice_items WHERE invoice_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY id', [id, organizationId]);
-    const payments = await this.db.query('SELECT * FROM payments WHERE invoice_id = $1 AND organization_id = $2 AND deleted_at IS NULL ORDER BY payment_date DESC', [id, organizationId]);
+    const payments = await this.db.query(
+      `SELECT p.*
+       FROM payments p
+       WHERE p.invoice_id = $1
+         AND p.organization_id = $2
+         AND p.deleted_at IS NULL
+       ORDER BY p.payment_date DESC, p.id DESC`,
+      [id, organizationId],
+    );
     const reminders = await this.db.query('SELECT * FROM invoice_reminders WHERE invoice_id = $1 AND organization_id = $2 ORDER BY reminded_at DESC', [id, organizationId]);
     const emailLogs = await this.db.query(
       `SELECT id, recipient, subject, message, status, provider_response, sent_at, created_at
@@ -160,6 +173,15 @@ export class InvoicesService {
         ],
       );
       await this.insertItems(client, rows[0].id, dto.items, organizationId);
+      if (invoiceType === 'RENT' && dto.lease_id && String(rows[0].status ?? 'UNPAID').toUpperCase() !== 'DRAFT') {
+        await this.saasService.applyTenantCreditsToRentInvoiceInTransaction(client, {
+          organizationId,
+          invoiceId: Number(rows[0].id),
+          leaseId: Number(dto.lease_id),
+          tenantId: Number(tenantId),
+          createdBy: this.context.userId() ?? null,
+        });
+      }
       return Number(rows[0].id);
     });
     return this.findOne(invoiceId);

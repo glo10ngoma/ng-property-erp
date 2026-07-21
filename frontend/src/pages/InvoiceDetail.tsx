@@ -53,7 +53,7 @@ type Invoice = {
   attachment_file_name?: string;
   attachment_file_url?: string;
   items: { id: number; item_type?: string; description: string; amount: number }[];
-  payments: { id: number; payment_date: string; amount: number; payment_method: string; receipt_number?: string; reference?: string; notes?: string; created_by?: number }[];
+  payments: { id: number; payment_date: string; amount: number; payment_method: string; payment_type?: string; receipt_number?: string; reference?: string; notes?: string; created_by?: number }[];
   reminders: { id: number; channel: string; message: string; status: string; reminded_at: string; reminded_by?: number }[];
   email_logs: { id: number; recipient: string; subject?: string; message: string; status: string; sent_at?: string; created_at: string }[];
   whatsapp_logs: { id: number; recipient: string; message: string; status: string; sent_at?: string; created_at: string }[];
@@ -340,7 +340,10 @@ export function InvoiceDetail() {
   const paymentBuildingDisplay = invoice.building_name || 'Non renseigné';
   const paymentUnitDisplay = invoice.unit_number || 'Non renseigné';
   const paymentLeaseDisplay = invoice.lease_id ? formatLeaseReference(invoice.lease_number, invoice.lease_id) : 'Non renseigné';
-  const receiptPayments = invoice.payments ?? [];
+  const creditAppliedAmount = (invoice.payments ?? [])
+    .filter((payment) => String(payment.payment_type ?? '').toUpperCase() === 'TENANT_CREDIT_ALLOCATION')
+    .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
+  const receiptPayments = (invoice.payments ?? []).filter((payment) => String(payment.payment_type ?? '').toUpperCase() !== 'TENANT_CREDIT_ALLOCATION' && Boolean(payment.receipt_number));
   const canPrintReceipt = ['PARTIAL', 'PAID'].includes(String(invoice.status).toUpperCase()) && receiptPayments.length > 0;
 
   function printInvoice() {
@@ -434,6 +437,8 @@ export function InvoiceDetail() {
           <div className="summary-item"><span>Email</span><strong>{deliveryStatus(invoice.email_delivery_status)}</strong></div>
           <div className="summary-item"><span>WhatsApp</span><strong>{deliveryStatus(invoice.whatsapp_delivery_status)}</strong></div>
           {isRentInvoice && <div className="summary-item summary-item-wide"><span>Periode facturee</span><strong>{periodLabel(billingMonth, billingYear)}</strong></div>}
+          <div className="summary-item"><span>Réglé par crédit</span><strong>{money(creditAppliedAmount)}</strong></div>
+          <div className="summary-item"><span>Solde restant</span><strong>{money(invoice.remaining_amount)}</strong></div>
           <div className="summary-item summary-item-wide"><span>Origine</span><strong>{invoice.generated_automatically ? 'Generation automatique de fin de mois' : 'Creation manuelle'}</strong></div>
         </div>
 
@@ -465,6 +470,11 @@ export function InvoiceDetail() {
           </tfoot>
         </table>
 
+        <div className="compact-list">
+          <div className="compact-item"><span>Montant réglé par crédit</span><strong>{money(creditAppliedAmount)}</strong></div>
+          <div className="compact-item"><span>Solde restant</span><strong>{money(invoice.remaining_amount)}</strong></div>
+        </div>
+
         {invoice.public_notes && <p className="thanks">{invoice.public_notes}</p>}
         <p className="thanks">Merci pour votre confiance.</p>
         <footer className="print-invoice-footer">Powered by Property ERP</footer>
@@ -478,7 +488,7 @@ export function InvoiceDetail() {
             <div className="compact-list">
               {!!invoice.payments?.length && invoice.payments.map((payment) => (
                 <div className="compact-item" key={payment.id}>
-                  <span>{payment.receipt_number ?? 'Recu'} - {shortDate(payment.payment_date)} - {paymentMethodLabel(payment.payment_method)}</span>
+                  <span>{payment.receipt_number ?? (String(payment.payment_type ?? '').toUpperCase() === 'TENANT_CREDIT_ALLOCATION' ? 'Paiement par crédit locataire' : 'Recu')} - {shortDate(payment.payment_date)} - {paymentMethodLabel(payment.payment_method)}</span>
                   <strong>{money(payment.amount)}</strong>
                 </div>
               ))}

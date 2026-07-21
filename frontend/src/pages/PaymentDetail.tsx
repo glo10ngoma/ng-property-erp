@@ -378,6 +378,16 @@ function generalRows(payment: PaymentDetailData) {
 }
 
 function invoiceRows(payment: PaymentDetailData) {
+  if (isTenantCreditAllocationPayment(payment)) {
+    return [{
+      facture: payment.invoice_number ?? 'Facture de loyer',
+      statut: 'Réglée par crédit locataire',
+      total: money(payment.invoice_total ?? payment.amount),
+      paye: money(payment.amount),
+      restant: money(Math.max(Number(payment.invoice_total ?? payment.amount) - Number(payment.amount), 0)),
+      devise: 'USD',
+    }];
+  }
   if (isTenantCreditPayment(payment)) {
     return [{
       facture: 'Crédit locataire',
@@ -437,7 +447,12 @@ function isTenantCreditPayment(payment: PaymentDetailData) {
   return String(payment.payment_type ?? '').toUpperCase() === 'TENANT_CREDIT';
 }
 
+function isTenantCreditAllocationPayment(payment: PaymentDetailData) {
+  return String(payment.payment_type ?? '').toUpperCase() === 'TENANT_CREDIT_ALLOCATION';
+}
+
 function paymentSubjectLabel(payment: PaymentDetailData) {
+  if (isTenantCreditAllocationPayment(payment)) return `Facture: ${payment.invoice_number ?? '-'}`;
   if (isTenantCreditPayment(payment)) return 'Crédit locataire';
   if (isGuaranteePayment(payment)) return 'Garantie locative';
   return `Facture: ${payment.invoice_number ?? '-'}`;
@@ -449,6 +464,7 @@ function displayValue(value: unknown) {
 }
 
 function paymentReceiptTitle(payment: PaymentDetailData) {
+  if (isTenantCreditAllocationPayment(payment)) return 'AFFECTATION CRÉDIT LOCATAIRE';
   if (isGuaranteePayment(payment)) return 'REÇU PAIEMENT GARANTIE';
   if (isTenantCreditPayment(payment)) return 'REÇU CRÉDIT LOCATAIRE';
   if (String(payment.invoice_type ?? '').toUpperCase() === 'OTHER_CHARGE') return 'REÇU PAIEMENT AUTRES CHARGES';
