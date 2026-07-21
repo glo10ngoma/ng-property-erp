@@ -55,16 +55,9 @@ export class TenantsService {
         WHERE l.tenant_id = t.id
           AND l.organization_id = t.organization_id
           AND l.deleted_at IS NULL
-          AND l.start_date <= CURRENT_DATE
-          AND (l.end_date IS NULL OR l.end_date >= CURRENT_DATE)
-          AND COALESCE(l.status, '') NOT IN ('DRAFT', 'CANCELLED')
-        ORDER BY CASE
-                   WHEN l.status = 'ACTIVE' THEN 0
-                   WHEN l.status IN ('SIGNED', 'VALIDATED', 'PENDING') THEN 1
-                   WHEN l.status = 'TERMINATED' THEN 2
-                   ELSE 3
-                 END,
-                 l.start_date DESC,
+          AND l.archived_at IS NULL
+          AND COALESCE(l.status, '') = 'ACTIVE'
+        ORDER BY l.start_date DESC,
                  l.id DESC
         LIMIT 1
       ) lease_info ON TRUE
@@ -83,9 +76,8 @@ export class TenantsService {
         WHERE l.tenant_id = t.id
           AND l.organization_id = t.organization_id
           AND l.deleted_at IS NULL
-          AND l.start_date <= CURRENT_DATE
-          AND (l.end_date IS NULL OR l.end_date >= CURRENT_DATE)
-          AND COALESCE(l.status, '') NOT IN ('DRAFT', 'CANCELLED')
+          AND l.archived_at IS NULL
+          AND COALESCE(l.status, '') = 'ACTIVE'
       ) lease_stats ON TRUE
       LEFT JOIN (
         SELECT i.tenant_id,
