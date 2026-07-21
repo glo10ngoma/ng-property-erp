@@ -25,6 +25,9 @@ export class PaymentsService {
     if (!(await this.supportsGuaranteePaymentSchema())) {
       return this.findAllInvoicePayments(organizationId);
     }
+    if (!(await this.supportsTenantCreditSchema())) {
+      return this.findAllGuaranteePaymentsWithoutTenantCredits(organizationId);
+    }
     const { rows } = await this.db.query(`
       SELECT p.*, i.invoice_number, i.invoice_type, i.total, i.status AS invoice_status,
              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
@@ -55,6 +58,9 @@ export class PaymentsService {
     const organizationId = this.context.organizationId();
     if (!(await this.supportsGuaranteePaymentSchema())) {
       return this.findOneInvoicePayment(id, organizationId);
+    }
+    if (!(await this.supportsTenantCreditSchema())) {
+      return this.findOneGuaranteePaymentWithoutTenantCredits(id, organizationId);
     }
     const { rows } = await this.db.query(
       `SELECT p.*, i.invoice_number, i.invoice_type, i.month, i.year, i.issue_date, i.due_date, i.total AS invoice_total, i.status AS invoice_status,
@@ -150,6 +156,23 @@ export class PaymentsService {
     return Number(rows[0]?.column_count ?? 0) === this.guaranteePaymentColumns.length;
   }
 
+  private async supportsTenantCreditSchema() {
+    return this.tableExists('tenant_credits');
+  }
+
+  private async tableExists(tableName: string) {
+    const { rows } = await this.db.query(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM information_schema.tables
+         WHERE table_schema = 'public'
+           AND table_name = $1
+       ) AS exists`,
+      [tableName],
+    );
+    return Boolean(rows[0]?.exists);
+  }
+
   private async findAllInvoicePayments(organizationId: number) {
     const { rows } = await this.db.query(`
       SELECT p.*, i.invoice_number, i.invoice_type, i.total, i.status AS invoice_status,
@@ -166,6 +189,31 @@ export class PaymentsService {
       LEFT JOIN tenants t ON t.id = i.tenant_id
       LEFT JOIN leases l ON l.id = i.lease_id
       LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
+      LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
+      WHERE p.organization_id = $1 AND p.deleted_at IS NULL
+      ORDER BY p.payment_date DESC, p.id DESC
+    `, [organizationId]);
+    return rows;
+  }
+
+  private async findAllGuaranteePaymentsWithoutTenantCredits(organizationId: number) {
+    const { rows } = await this.db.query(`
+      SELECT p.*, i.invoice_number, i.invoice_type, i.total, i.status AS invoice_status,
+             CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                  ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+             END AS tenant_name,
+             t.phone AS tenant_phone,
+             t.email AS tenant_email,
+             u.number AS unit_number,
+             COALESCE(l.lease_number, gl.lease_number, l.id, gl.id) AS lease_number,
+             b.name AS building_name
+      FROM payments p
+      LEFT JOIN invoices i ON i.id = p.invoice_id
+      LEFT JOIN lease_guarantees g ON g.id = p.lease_guarantee_id
+      LEFT JOIN leases gl ON gl.id = g.lease_id
+      LEFT JOIN tenants t ON t.id = COALESCE(i.tenant_id, gl.tenant_id)
+      LEFT JOIN leases l ON l.id = i.lease_id
+      LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, gl.unit_id, t.unit_id)
       LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
       WHERE p.organization_id = $1 AND p.deleted_at IS NULL
       ORDER BY p.payment_date DESC, p.id DESC
@@ -205,6 +253,87 @@ export class PaymentsService {
            AND cm.organization_id = p.organization_id
            AND cm.deleted_at IS NULL
          ORDER BY cm.id
+         LIMIT 1
+       ) pcm ON TRUE
+       LEFT JOIN app_users creator ON creator.id = pcm.created_by AND creator.deleted_at IS NULL
+       WHERE p.id = $1 AND p.organization_id = $2 AND p.deleted_at IS NULL`,
+      [id, organizationId],
+    );
+    const payment = requireRow(rows[0], 'Payment');
+    const allocations = await this.db.query(
+      `SELECT pa.*, i.invoice_number
+       FROM payment_allocations pa
+       JOIN invoices i ON i.id = pa.invoice_id
+       WHERE pa.payment_id = $1 AND pa.organization_id = $2 AND pa.deleted_at IS NULL
+       ORDER BY pa.id`,
+      [id, organizationId],
+    );
+    const reminders = payment.invoice_id
+      ? await this.db.query(
+        `SELECT * FROM invoice_reminders WHERE invoice_id = $1 AND organization_id = $2 ORDER BY reminded_at DESC`,
+        [payment.invoice_id, organizationId],
+      )
+      : { rows: [] };
+    const audit = await this.db.query(
+      `SELECT al.id, al.created_at AS date, al.action, al.resource, al.method, al.path, al.status_code, al.metadata,
+              CONCAT(u.first_name, ' ', u.last_name) AS user_name
+       FROM audit_logs al
+       LEFT JOIN app_users u ON u.id = al.user_id
+       WHERE al.organization_id = $1 AND al.resource = 'payments' AND al.resource_id = $2
+       ORDER BY al.created_at DESC`,
+      [organizationId, String(id)],
+    );
+    return { ...payment, allocations: allocations.rows, reminders: reminders.rows, audit: audit.rows };
+  }
+
+  private async findOneGuaranteePaymentWithoutTenantCredits(id: number, organizationId: number) {
+    const { rows } = await this.db.query(
+      `SELECT p.*, i.invoice_number, i.invoice_type, i.month, i.year, i.issue_date, i.due_date, i.total AS invoice_total, i.status AS invoice_status,
+              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name,
+              t.tenant_type, t.phone AS tenant_phone, t.secondary_phone AS tenant_secondary_phone, t.email AS tenant_email,
+              t.company_name, t.rccm, t.tax_number, t.business_sector,
+              u.number AS unit_number, u.monthly_rent, u.status AS unit_status,
+              b.name AS building_name, b.address AS building_address, b.city AS building_city, b.commune AS building_commune,
+              COALESCE(l.id, gl.id) AS lease_id, COALESCE(l.lease_number, gl.lease_number, l.id, gl.id) AS lease_number,
+              COALESCE(l.start_date, gl.start_date) AS lease_start_date,
+              COALESCE(l.end_date, gl.end_date) AS lease_end_date,
+              COALESCE(l.status, gl.status) AS lease_status,
+              g.amount AS guarantee_amount,
+              g.paid_amount AS guarantee_paid_amount,
+              g.status AS guarantee_status,
+              NULL::INTEGER AS tenant_credit_id,
+              NULL::TEXT AS tenant_credit_currency,
+              NULL::NUMERIC AS tenant_credit_original_amount,
+              NULL::NUMERIC AS tenant_credit_remaining_amount,
+              NULL::TEXT AS tenant_credit_status,
+              pcm.created_by AS created_by_user_id,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(creator.first_name, ''), ' ', COALESCE(creator.last_name, ''))), ''), creator.email) AS created_by_name
+       FROM payments p
+       LEFT JOIN invoices i ON i.id = p.invoice_id
+       LEFT JOIN lease_guarantees g ON g.id = p.lease_guarantee_id
+       LEFT JOIN leases gl ON gl.id = g.lease_id
+       LEFT JOIN tenants t ON t.id = COALESCE(i.tenant_id, gl.tenant_id)
+       LEFT JOIN leases l ON l.id = i.lease_id
+       LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, gl.unit_id, t.unit_id)
+       LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
+       LEFT JOIN LATERAL (
+         SELECT created_by
+         FROM (
+           SELECT cm.created_by, cm.id
+           FROM cash_movements cm
+           WHERE cm.payment_id = p.id
+             AND cm.organization_id = p.organization_id
+             AND cm.deleted_at IS NULL
+           UNION ALL
+           SELECT gcm.created_by, gcm.id
+           FROM guarantee_cash_movements gcm
+           WHERE gcm.payment_id = p.id
+             AND gcm.organization_id = p.organization_id
+             AND gcm.deleted_at IS NULL
+         ) movement_creators
+         ORDER BY id
          LIMIT 1
        ) pcm ON TRUE
        LEFT JOIN app_users creator ON creator.id = pcm.created_by AND creator.deleted_at IS NULL
