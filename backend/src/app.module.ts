@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { PermissionsGuard } from './auth/permissions.guard';
 import { RequestContextInterceptor } from './auth/request-context.interceptor';
 import { BuildingsModule } from './buildings/buildings.module';
+import { CommunicationModule } from './communication/communication.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { DatabaseModule } from './database/database.module';
 import { EmailModule } from './email/email.module';
@@ -28,6 +29,7 @@ import { UnitsModule } from './units/units.module';
     HealthModule,
     AuthModule,
     ActivityModule,
+    CommunicationModule,
     DashboardModule,
     BuildingsModule,
     UnitsModule,

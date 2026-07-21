@@ -1,8 +1,8 @@
-import { Building2, FileCog, Image as ImageIcon, Mail, MapPin, Percent, Save, Settings2, ShieldCheck, Trash2, Upload, User } from 'lucide-react';
+﻿import { Building2, FileCog, Image as ImageIcon, Mail, MapPin, Percent, Save, Settings2, ShieldCheck, Trash2, Upload, User } from 'lucide-react';
 import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { api, shortDate } from '../../../api';
 import { useAuth } from '../../../auth';
-import { EmptyState, LoadingState, PageHeader, SuccessMessage } from '../../../components';
+import { EmptyState, LoadingState, Modal, PageHeader, SuccessMessage } from '../../../components';
 
 type CompanySettingsResponse = {
   logo_url?: string;
@@ -72,20 +72,25 @@ type ExchangeRate = {
   updatedAt?: string;
 };
 
-type EmailSettingsSummary = {
+type CommunicationEmailSettingsSummary = {
   provider: string;
-  sendingEnabled: boolean;
-  sandboxMode: boolean;
-  fromAddress?: string | null;
-  fromName?: string | null;
-  replyTo?: string | null;
-  testRecipient?: string | null;
-  maxPerRun: number;
-  maxRetries: number;
-  invoiceAutomaticEnabled: boolean;
-  reminderEnabled: boolean;
-  paymentReceiptEnabled: boolean;
-  maintenanceEnabled: boolean;
+  fromName: string;
+  fromEmail: string;
+  replyTo: string;
+  enabled: boolean;
+  hasApiKey: boolean;
+  updatedAt: string | null;
+};
+
+type CommunicationEmailSettingsDraft = {
+  provider: string;
+  fromName: string;
+  fromEmail: string;
+  replyTo: string;
+  enabled: boolean;
+  apiKey: string;
+  hasApiKey: boolean;
+  updatedAt: string | null;
 };
 
 type AutomationSummary = {
@@ -226,11 +231,11 @@ type OfficialFileKind = keyof typeof officialFileLabels;
 
 const referenceTypeLabels: Record<string, string> = {
   charge_types: 'Types de charges',
-  expense_categories: 'Catégories de dépenses',
-  stock_categories: 'Catégories stock',
+  expense_categories: 'CatÃ©gories de dÃ©penses',
+  stock_categories: 'CatÃ©gories stock',
   document_types: 'Types de documents',
   staff_positions: 'Fonctions du personnel',
-  leave_types: 'Types de congés',
+  leave_types: 'Types de congÃ©s',
   payment_methods: 'Modes de paiement',
   banks: 'Banques',
   cities: 'Villes',
@@ -278,6 +283,30 @@ const defaultSettingsDraft = (): SettingsDraft => ({
   default_contract_template_code: 'LEASE_RESIDENTIAL',
 });
 
+const defaultCommunicationEmailSettingsDraft = (): CommunicationEmailSettingsDraft => ({
+  provider: 'RESEND',
+  fromName: '',
+  fromEmail: '',
+  replyTo: '',
+  enabled: false,
+  apiKey: '',
+  hasApiKey: false,
+  updatedAt: null,
+});
+
+function draftFromCommunicationEmailSettings(settings: CommunicationEmailSettingsSummary): CommunicationEmailSettingsDraft {
+  return {
+    provider: settings.provider || 'RESEND',
+    fromName: settings.fromName || '',
+    fromEmail: settings.fromEmail || '',
+    replyTo: settings.replyTo || '',
+    enabled: Boolean(settings.enabled),
+    apiKey: '',
+    hasApiKey: Boolean(settings.hasApiKey),
+    updatedAt: settings.updatedAt,
+  };
+}
+
 export function SettingsPage() {
   const { can } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -286,9 +315,12 @@ export function SettingsPage() {
   const [services, setServices] = useState<PublisherService[]>([]);
   const [restricted, setRestricted] = useState<RestrictedSetting[]>([]);
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
-  const [emailSettings, setEmailSettings] = useState<EmailSettingsSummary | null>(null);
+  const [emailSettings, setEmailSettings] = useState<CommunicationEmailSettingsSummary | null>(null);
+  const [emailSettingsDraft, setEmailSettingsDraft] = useState<CommunicationEmailSettingsDraft>(defaultCommunicationEmailSettingsDraft);
   const [testEmailRecipient, setTestEmailRecipient] = useState('');
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
+  const [testingEmailConnection, setTestingEmailConnection] = useState(false);
+  const [testEmailModalOpen, setTestEmailModalOpen] = useState(false);
   const [exchangeRateDraft, setExchangeRateDraft] = useState('');
   const [exchangeRateDateDraft, setExchangeRateDateDraft] = useState(today());
   const [automation, setAutomation] = useState<AutomationSummary | null>(null);
@@ -296,7 +328,7 @@ export function SettingsPage() {
   const [automationPreview, setAutomationPreview] = useState<AutomationPreview | null>(null);
   const [automationMonthDraft, setAutomationMonthDraft] = useState(String(new Date().getMonth() + 1));
   const [automationYearDraft, setAutomationYearDraft] = useState(String(new Date().getFullYear()));
-  const [savingSection, setSavingSection] = useState<'company' | 'location' | 'representative' | 'lease' | 'documents' | 'general' | 'rate' | 'automation' | null>(null);
+  const [savingSection, setSavingSection] = useState<'company' | 'location' | 'representative' | 'lease' | 'documents' | 'general' | 'communication' | 'rate' | 'automation' | null>(null);
   const [automationAction, setAutomationAction] = useState<'preview' | 'run' | null>(null);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -312,7 +344,7 @@ export function SettingsPage() {
       const referencesPromise = api.get<ReferenceData[]>('/reference-data');
       const servicesPromise = api.get<PublisherService[]>('/settings/publisher-services');
       const exchangeRatePromise = api.get<ExchangeRate | null>('/settings/exchange-rate');
-      const emailSettingsPromise = api.get<EmailSettingsSummary>('/settings/email-notifications');
+      const emailSettingsPromise = api.get<CommunicationEmailSettingsSummary>('/communications/email/settings');
       const automationPromise = can('automations.read')
         ? api.get<AutomationSummary>('/automations/monthly-rent-billing')
         : Promise.resolve({ data: null as AutomationSummary | null });
@@ -339,19 +371,19 @@ export function SettingsPage() {
       if (companyResult.status === 'fulfilled') {
         setSettings(normalizeSettings(companyResult.value.data));
       } else {
-        setError(extractErrorMessage(companyResult.reason, "Impossible de charger les paramètres de l’entreprise."));
+        setError(extractErrorMessage(companyResult.reason, "Impossible de charger les paramÃ¨tres de lâ€™entreprise."));
       }
 
       if (referencesResult.status === 'fulfilled') {
         setReferences(referencesResult.value.data);
       } else {
-        setError((current) => current || extractErrorMessage(referencesResult.reason, 'Impossible de charger les référentiels.'));
+        setError((current) => current || extractErrorMessage(referencesResult.reason, 'Impossible de charger les rÃ©fÃ©rentiels.'));
       }
 
       if (servicesResult.status === 'fulfilled') {
         setServices(servicesResult.value.data);
       } else {
-        setError((current) => current || extractErrorMessage(servicesResult.reason, 'Impossible de charger les services complémentaires.'));
+        setError((current) => current || extractErrorMessage(servicesResult.reason, 'Impossible de charger les services complÃ©mentaires.'));
       }
 
       if (exchangeRateResult.status === 'fulfilled') {
@@ -369,9 +401,10 @@ export function SettingsPage() {
       if (emailSettingsResult.status === 'fulfilled') {
         const nextEmailSettings = emailSettingsResult.value.data;
         setEmailSettings(nextEmailSettings);
-        setTestEmailRecipient(nextEmailSettings.testRecipient ?? '');
+        setEmailSettingsDraft(draftFromCommunicationEmailSettings(nextEmailSettings));
       } else {
         setEmailSettings(null);
+        setEmailSettingsDraft(defaultCommunicationEmailSettingsDraft());
         setError((current) => current || extractErrorMessage(emailSettingsResult.reason, 'Impossible de charger la configuration email.'));
       }
 
@@ -392,7 +425,7 @@ export function SettingsPage() {
       if (restrictedResult.status === 'fulfilled') {
         setRestricted(restrictedResult.value.data);
       } else {
-        setError((current) => current || extractErrorMessage(restrictedResult.reason, 'Impossible de charger les paramètres réservés.'));
+        setError((current) => current || extractErrorMessage(restrictedResult.reason, 'Impossible de charger les paramÃ¨tres rÃ©servÃ©s.'));
       }
 
       setLoading(false);
@@ -418,6 +451,7 @@ export function SettingsPage() {
   const leaseDisabled = !can('settings.update') || savingSection === 'lease';
   const documentsDisabled = !can('settings.update') || savingSection === 'documents';
   const generalDisabled = !can('settings.update') || savingSection === 'general';
+  const communicationDisabled = !can('communication.update') || savingSection === 'communication';
   const rateDisabled = !can('settings.update') || savingSection === 'rate';
   const automationDisabled = !can('automations.update') || savingSection === 'automation';
 
@@ -447,9 +481,9 @@ export function SettingsPage() {
   }
 
   async function refreshEmailSettings() {
-    const response = await api.get<EmailSettingsSummary>('/settings/email-notifications');
+    const response = await api.get<CommunicationEmailSettingsSummary>('/communications/email/settings');
     setEmailSettings(response.data);
-    setTestEmailRecipient((current) => current || response.data.testRecipient || '');
+    setEmailSettingsDraft(draftFromCommunicationEmailSettings(response.data));
     return response.data;
   }
 
@@ -472,7 +506,7 @@ export function SettingsPage() {
       formData.append('file', file);
       const response = await api.post<CompanySettingsResponse>(`/settings/company-files/${kind}`, formData);
       setSettings(normalizeSettings(response.data));
-      setSuccess(`${officialFileLabels[kind]} enregistré avec succès.`);
+      setSuccess(`${officialFileLabels[kind]} enregistrÃ© avec succÃ¨s.`);
       return response.data;
     } catch (uploadError) {
       setError(extractErrorMessage(uploadError, `Impossible d'enregistrer le ${officialFileLabels[kind].toLowerCase()}.`));
@@ -486,7 +520,7 @@ export function SettingsPage() {
     try {
       const response = await api.delete<CompanySettingsResponse>(`/settings/company-files/${kind}`);
       setSettings(normalizeSettings(response.data));
-      setSuccess(`${officialFileLabels[kind]} supprimé avec succès.`);
+      setSuccess(`${officialFileLabels[kind]} supprimÃ© avec succÃ¨s.`);
       return response.data;
     } catch (deleteError) {
       setError(extractErrorMessage(deleteError, `Impossible de supprimer le ${officialFileLabels[kind].toLowerCase()}.`));
@@ -574,9 +608,9 @@ export function SettingsPage() {
         effectiveDate: exchangeRateDateDraft,
       });
       await refreshExchangeRate();
-      setSuccess('Paramètres enregistrés avec succès.');
+      setSuccess('ParamÃ¨tres enregistrÃ©s avec succÃ¨s.');
     } catch (submissionError) {
-      setError(extractErrorMessage(submissionError, "Impossible d’enregistrer le taux de change."));
+      setError(extractErrorMessage(submissionError, "Impossible dâ€™enregistrer le taux de change."));
     } finally {
       setSavingSection(null);
     }
@@ -606,17 +640,55 @@ export function SettingsPage() {
     }
   }
 
+  async function saveCommunicationEmailSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setSuccess('');
+    setSavingSection('communication');
+    try {
+      await api.patch('/communications/email/settings', {
+        provider: emailSettingsDraft.provider,
+        from_name: cleanText(emailSettingsDraft.fromName),
+        from_email: cleanText(emailSettingsDraft.fromEmail),
+        reply_to: cleanOptionalText(emailSettingsDraft.replyTo),
+        api_key: cleanOptionalText(emailSettingsDraft.apiKey),
+        enabled: emailSettingsDraft.enabled,
+      });
+      await refreshEmailSettings();
+      setSuccess('Configuration email enregistr\u00E9e avec succ\u00E8s.');
+    } catch (submissionError) {
+      setError(extractErrorMessage(submissionError, "Impossible d'enregistrer la configuration email."));
+    } finally {
+      setSavingSection(null);
+    }
+  }
+
+  async function testCommunicationConnection() {
+    setError('');
+    setSuccess('');
+    setTestingEmailConnection(true);
+    try {
+      const response = await api.post<{ message?: string }>('/communications/email/test-connection');
+      setSuccess(response.data?.message || 'Connexion Resend valid\u00E9e.');
+    } catch (submissionError) {
+      setError(extractErrorMessage(submissionError, 'Impossible de tester la connexion email.'));
+    } finally {
+      setTestingEmailConnection(false);
+    }
+  }
+
   async function sendTestEmailMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
     setSuccess('');
     setSendingTestEmail(true);
     try {
-      await api.post('/settings/email-notifications/test', {
+      await api.post('/communications/email/send-test', {
         recipient: testEmailRecipient,
       });
       await refreshEmailSettings();
-      setSuccess('Email de test envoyé.');
+      setTestEmailModalOpen(false);
+      setSuccess('Email de test envoy\u00E9.');
     } catch (submissionError) {
       setError(extractErrorMessage(submissionError, "Impossible d'envoyer l'email de test."));
     } finally {
@@ -672,22 +744,22 @@ export function SettingsPage() {
     try {
       await api.patch<CompanySettingsResponse>('/settings/company', payload);
       await refreshCompanySettings();
-      setSuccess('Paramètres enregistrés avec succès.');
+      setSuccess('ParamÃ¨tres enregistrÃ©s avec succÃ¨s.');
     } catch (submissionError) {
-      setError(extractErrorMessage(submissionError, "Impossible d’enregistrer les paramètres."));
+      setError(extractErrorMessage(submissionError, "Impossible dâ€™enregistrer les paramÃ¨tres."));
     } finally {
       setSavingSection(null);
     }
   }
 
   if (loading) {
-    return <LoadingState message="Chargement des paramètres..." />;
+    return <LoadingState message="Chargement des paramÃ¨tres..." />;
   }
 
   return (
     <section className="settings-page">
-      <PageHeader title="Paramètres" />
-      <p className="muted-text settings-intro">Centralisez les informations du bailleur, les paramètres des baux et le taux de change.</p>
+      <PageHeader title="ParamÃ¨tres" />
+      <p className="muted-text settings-intro">Centralisez les informations du bailleur, les paramÃ¨tres des baux et le taux de change.</p>
       <SuccessMessage message={success} />
       {error ? <div className="error-message">{error}</div> : null}
 
@@ -712,7 +784,7 @@ export function SettingsPage() {
 
       <SettingsSection
         title="Entreprise / Bailleur"
-        description="Informations juridiques utilisées dans les contrats, factures et documents officiels."
+        description="Informations juridiques utilisÃ©es dans les contrats, factures et documents officiels."
         icon={<Building2 size={16} />}
       >
         <form className="settings-grid" onSubmit={saveCompanySection}>
@@ -734,7 +806,7 @@ export function SettingsPage() {
           <SettingField label="ID national">
             <input {...fieldProps('company_national_id')} disabled={companyDisabled} />
           </SettingField>
-          <SettingField label="Numéro fiscal">
+          <SettingField label="NumÃ©ro fiscal">
             <input {...fieldProps('company_tax_id')} disabled={companyDisabled} />
           </SettingField>
           <SettingActions>
@@ -770,20 +842,20 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
-        title="Représentant légal"
-        description="Nom et contact du signataire utilisé dans les contrats."
+        title="ReprÃ©sentant lÃ©gal"
+        description="Nom et contact du signataire utilisÃ© dans les contrats."
         icon={<User size={16} />}
       >
         <form className="settings-grid" onSubmit={saveRepresentativeSection}>
-          <SettingField label="Nom du représentant">
+          <SettingField label="Nom du reprÃ©sentant">
             <input {...fieldProps('legal_representative_name')} disabled={representativeDisabled} />
           </SettingField>
           <SettingField label="Fonction">
             <input {...fieldProps('legal_representative_title')} disabled={representativeDisabled} />
           </SettingField>
-          <SettingField label="Civilité du représentant">
+          <SettingField label="CivilitÃ© du reprÃ©sentant">
             <select {...fieldProps('legal_representative_civility')} disabled={representativeDisabled}>
-              <option value="">Sélectionner une civilité</option>
+              <option value="">SÃ©lectionner une civilitÃ©</option>
               {representativeCivilities.map((item) => (
                 <option key={item.value} value={item.value}>
                   {item.label}
@@ -791,7 +863,7 @@ export function SettingsPage() {
               ))}
             </select>
           </SettingField>
-          <SettingField label="Téléphone">
+          <SettingField label="TÃ©lÃ©phone">
             <input {...fieldProps('phone')} disabled={representativeDisabled} />
           </SettingField>
           <SettingField label="Adresse e-mail">
@@ -810,33 +882,33 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
-        title="Paramètres des baux"
-        description="Valeurs par défaut reprises dans les nouveaux baux et contrats générés."
+        title="ParamÃ¨tres des baux"
+        description="Valeurs par dÃ©faut reprises dans les nouveaux baux et contrats gÃ©nÃ©rÃ©s."
         icon={<FileCog size={16} />}
       >
         <form className="settings-grid" onSubmit={saveLeaseSection}>
-          <SettingField label="Durée par défaut (mois)">
+          <SettingField label="DurÃ©e par dÃ©faut (mois)">
             <input {...fieldProps('default_lease_duration_months')} type="number" min="1" step="1" disabled={leaseDisabled} required />
           </SettingField>
-          <SettingField label="Préavis par défaut (mois)">
+          <SettingField label="PrÃ©avis par dÃ©faut (mois)">
             <input {...fieldProps('default_notice_months')} type="number" min="0" step="1" disabled={leaseDisabled} required />
           </SettingField>
-          <SettingField label="Garantie par défaut (mois)">
+          <SettingField label="Garantie par dÃ©faut (mois)">
             <input {...fieldProps('default_guarantee_months')} type="number" min="0" step="1" disabled={leaseDisabled} required />
           </SettingField>
           <SettingField label="Lieu de signature">
             <input {...fieldProps('default_signature_place')} disabled={leaseDisabled} />
           </SettingField>
-          <SettingField label="Usage par défaut">
+          <SettingField label="Usage par dÃ©faut">
             <select {...fieldProps('default_lease_usage')} disabled={leaseDisabled}>
-              <option value="RESIDENTIAL">Résidentiel</option>
+              <option value="RESIDENTIAL">RÃ©sidentiel</option>
               <option value="COMMERCIAL">Commercial</option>
               <option value="MIXED">Mixte</option>
             </select>
           </SettingField>
-          <SettingField label="Modèle de contrat">
+          <SettingField label="ModÃ¨le de contrat">
             <select {...fieldProps('default_contract_template_code')} disabled={leaseDisabled}>
-              <option value="LEASE_RESIDENTIAL">Bail résidentiel</option>
+              <option value="LEASE_RESIDENTIAL">Bail rÃ©sidentiel</option>
               <option value="LEASE_COMMERCIAL">Bail commercial</option>
               <option value="LEASE_MIXED">Bail mixte</option>
             </select>
@@ -852,11 +924,11 @@ export function SettingsPage() {
 
       <SettingsSection
         title="Taux de change"
-        description="Le taux USD/CDF est chargé au chargement de la page et réutilisé dans les paiements."
+        description="Le taux USD/CDF est chargÃ© au chargement de la page et rÃ©utilisÃ© dans les paiements."
         icon={<Percent size={16} />}
       >
         <form className="settings-grid" onSubmit={saveExchangeRate}>
-          <SettingField label="Devise de référence">
+          <SettingField label="Devise de rÃ©fÃ©rence">
             <input value="USD" readOnly className="locked-field" />
           </SettingField>
           <SettingField label="Devise locale">
@@ -882,10 +954,10 @@ export function SettingsPage() {
               required
             />
           </SettingField>
-          <SettingField label="Dernière mise à jour">
+          <SettingField label="DerniÃ¨re mise Ã  jour">
             <input value={exchangeRate?.updatedAt ?? exchangeRate?.createdAt ?? '-'} readOnly className="locked-field" />
           </SettingField>
-          <SettingField label="Aperçu">
+          <SettingField label="AperÃ§u">
             <input
               value={Number(exchangeRateDraft) > 0 ? `1 USD = ${Number(exchangeRateDraft).toLocaleString('fr-FR')} CDF` : 'Non disponible'}
               readOnly
@@ -902,61 +974,88 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
-        title="Email et notifications"
-        description="Configuration effective des emails transactionnels, pilotée par Railway et isolée par organisation."
+        title="Communication - Email"
+        description="Infrastructure email Resend isol\u00E9e par organisation. Aucun envoi m\u00E9tier n'est d\u00E9clench\u00E9 depuis cette configuration."
         icon={<Mail size={16} />}
       >
-        <form className="settings-grid" onSubmit={sendTestEmailMessage}>
-          <SettingField label="Fournisseur">
-            <input value={emailSettings?.provider ?? '-'} readOnly className="locked-field" />
+        <form className="settings-grid" onSubmit={saveCommunicationEmailSettings}>
+          <SettingField label="Provider">
+            <select
+              value={emailSettingsDraft.provider}
+              onChange={(event) => setEmailSettingsDraft((current) => ({ ...current, provider: event.target.value }))}
+              disabled={communicationDisabled}
+            >
+              <option value="RESEND">Resend</option>
+            </select>
           </SettingField>
-          <SettingField label="Envoi activé">
-            <input value={emailSettings ? (emailSettings.sendingEnabled ? 'Oui' : 'Non') : '-'} readOnly className="locked-field" />
+          <SettingField label="Actif">
+            <select
+              value={emailSettingsDraft.enabled ? 'true' : 'false'}
+              onChange={(event) => setEmailSettingsDraft((current) => ({ ...current, enabled: event.target.value === 'true' }))}
+              disabled={communicationDisabled}
+            >
+              <option value="true">Oui</option>
+              <option value="false">Non</option>
+            </select>
           </SettingField>
-          <SettingField label="Mode test">
-            <input value={emailSettings ? (emailSettings.sandboxMode ? 'Oui' : 'Non') : '-'} readOnly className="locked-field" />
-          </SettingField>
-          <SettingField label="Adresse expéditeur">
-            <input value={emailSettings?.fromAddress ?? '-'} readOnly className="locked-field" />
-          </SettingField>
-          <SettingField label="Nom expéditeur">
-            <input value={emailSettings?.fromName ?? '-'} readOnly className="locked-field" />
-          </SettingField>
-          <SettingField label="Reply-To">
-            <input value={emailSettings?.replyTo ?? '-'} readOnly className="locked-field" />
-          </SettingField>
-          <SettingField label="Factures automatiques">
-            <input value={emailSettings ? (emailSettings.invoiceAutomaticEnabled ? 'Actif' : 'Inactif') : '-'} readOnly className="locked-field" />
-          </SettingField>
-          <SettingField label="Relances facture">
-            <input value={emailSettings ? (emailSettings.reminderEnabled ? 'Actif' : 'Inactif') : '-'} readOnly className="locked-field" />
-          </SettingField>
-          <SettingField label="Reçus de paiement">
-            <input value={emailSettings ? (emailSettings.paymentReceiptEnabled ? 'Actif' : 'Inactif') : '-'} readOnly className="locked-field" />
-          </SettingField>
-          <SettingField label="Maintenance">
-            <input value={emailSettings ? (emailSettings.maintenanceEnabled ? 'Actif' : 'Inactif') : '-'} readOnly className="locked-field" />
-          </SettingField>
-          <SettingField label="Email de test" wide>
+          <SettingField label="Nom exp\u00E9diteur">
             <input
-              type="email"
-              value={testEmailRecipient}
-              onChange={(event) => setTestEmailRecipient(event.target.value)}
-              placeholder="destinataire@test.com"
-              required
+              value={emailSettingsDraft.fromName}
+              onChange={(event) => setEmailSettingsDraft((current) => ({ ...current, fromName: event.target.value }))}
+              disabled={communicationDisabled}
             />
           </SettingField>
-          <SettingField label="Limites runtime" wide>
+          <SettingField label="Email exp\u00E9diteur">
             <input
-              value={emailSettings ? `${emailSettings.maxPerRun} email(s) par run, ${emailSettings.maxRetries} tentative(s) max.` : '-'}
+              type="email"
+              value={emailSettingsDraft.fromEmail}
+              onChange={(event) => setEmailSettingsDraft((current) => ({ ...current, fromEmail: event.target.value }))}
+              disabled={communicationDisabled}
+            />
+          </SettingField>
+          <SettingField label="Reply-To">
+            <input
+              type="email"
+              value={emailSettingsDraft.replyTo}
+              onChange={(event) => setEmailSettingsDraft((current) => ({ ...current, replyTo: event.target.value }))}
+              disabled={communicationDisabled}
+            />
+          </SettingField>
+          <SettingField label="Cl\u00E9 API" wide>
+            <input
+              type="password"
+              value={emailSettingsDraft.apiKey}
+              onChange={(event) => setEmailSettingsDraft((current) => ({ ...current, apiKey: event.target.value }))}
+              placeholder={emailSettingsDraft.hasApiKey ? 'Laisser vide pour conserver la cl\u00E9 actuelle' : 'Saisir la cl\u00E9 API Resend'}
+              disabled={communicationDisabled}
+            />
+          </SettingField>
+          <SettingField label="\u00C9tat de la cl\u00E9" wide>
+            <input
+              value={emailSettingsDraft.hasApiKey ? 'Cl\u00E9 API enregistr\u00E9e' : 'Aucune cl\u00E9 API enregistr\u00E9e'}
+              readOnly
+              className="locked-field"
+            />
+          </SettingField>
+          <SettingField label="Derni\u00E8re mise \u00E0 jour" wide>
+            <input
+              value={emailSettingsDraft.updatedAt ? shortDate(emailSettingsDraft.updatedAt) : '-'}
               readOnly
               className="locked-field"
             />
           </SettingField>
           <SettingActions>
-            <button type="submit" disabled={sendingTestEmail}>
+            <button type="button" className="secondary" onClick={() => void testCommunicationConnection()} disabled={!can('communication.test') || testingEmailConnection}>
+              <ShieldCheck size={16} />
+              {testingEmailConnection ? 'Test...' : 'Tester la connexion'}
+            </button>
+            <button type="button" className="secondary" onClick={() => setTestEmailModalOpen(true)} disabled={!can('communication.test')}>
               <Mail size={16} />
-              {sendingTestEmail ? 'Envoi...' : "Envoyer un email de test"}
+              Envoyer un email de test
+            </button>
+            <button type="submit" disabled={communicationDisabled}>
+              <Save size={16} />
+              {savingSection === 'communication' ? 'Enregistrement...' : 'Enregistrer'}
             </button>
           </SettingActions>
         </form>
@@ -1181,14 +1280,14 @@ export function SettingsPage() {
 
       <SettingsSection
         title="Documents et impression"
-        description="Logos, signatures et mentions visibles dans les documents générés."
+        description="Logos, signatures et mentions visibles dans les documents gÃ©nÃ©rÃ©s."
         icon={<Settings2 size={16} />}
       >
         <form className="settings-grid" onSubmit={saveDocumentsSection}>
           <OfficialFileUpload
             kind="logo"
             title="Logo principal"
-            description="Pièce jointe utilisée dans les documents officiels."
+            description="PiÃ¨ce jointe utilisÃ©e dans les documents officiels."
             fileName={settings.logo_file_name}
             fileUrl={settings.logo_file_url}
             disabled={documentsDisabled}
@@ -1201,7 +1300,7 @@ export function SettingsPage() {
           <OfficialFileUpload
             kind="signature"
             title="Signature"
-            description="Signature officielle réutilisable dans les futurs documents."
+            description="Signature officielle rÃ©utilisable dans les futurs documents."
             fileName={settings.signature_file_name}
             fileUrl={settings.signature_file_url}
             disabled={documentsDisabled}
@@ -1211,7 +1310,7 @@ export function SettingsPage() {
           <OfficialFileUpload
             kind="stamp"
             title="Cachet"
-            description="Cachet officiel réutilisable dans les futurs documents."
+            description="Cachet officiel rÃ©utilisable dans les futurs documents."
             fileName={settings.stamp_file_name}
             fileUrl={settings.stamp_file_url}
             disabled={documentsDisabled}
@@ -1241,7 +1340,7 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
-        title="Paramètres généraux"
+        title="ParamÃ¨tres gÃ©nÃ©raux"
         description="Devise, langue et fuseau horaire de la plateforme."
         icon={<ShieldCheck size={16} />}
       >
@@ -1254,7 +1353,7 @@ export function SettingsPage() {
           </SettingField>
           <SettingField label="Langue">
             <select {...fieldProps('language')} disabled={generalDisabled}>
-              <option value="fr">Français</option>
+              <option value="fr">FranÃ§ais</option>
               <option value="en">English</option>
             </select>
           </SettingField>
@@ -1270,15 +1369,15 @@ export function SettingsPage() {
         </form>
       </SettingsSection>
 
-      <SettingsSection title="Référentiels">
+      <SettingsSection title="RÃ©fÃ©rentiels">
         {!Object.keys(groupedReferences).length ? (
-          <EmptyState message="Aucun référentiel disponible." />
+          <EmptyState message="Aucun rÃ©fÃ©rentiel disponible." />
         ) : (
           <div className="chart-grid">
             {Object.entries(groupedReferences).map(([label, items]) => (
               <article className="chart-card" key={label}>
                 <h3>{label}</h3>
-                <p>{items.slice(0, 4).map((item) => item.label).join(', ') || 'Aucune donnée'}</p>
+                <p>{items.slice(0, 4).map((item) => item.label).join(', ') || 'Aucune donnÃ©e'}</p>
                 <small>{items.length} valeur(s)</small>
               </article>
             ))}
@@ -1286,7 +1385,7 @@ export function SettingsPage() {
         )}
       </SettingsSection>
 
-      <SettingsSection title="Services complémentaires" description="Zones non connectées à la V1, visibles à titre informatif uniquement.">
+      <SettingsSection title="Services complÃ©mentaires" description="Zones non connectÃ©es Ã  la V1, visibles Ã  titre informatif uniquement.">
         <div className="chart-grid">
           {services.map((service) => (
             <article className="chart-card" key={service.title}>
@@ -1299,15 +1398,15 @@ export function SettingsPage() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Réservé éditeur" description="Paramètres avancés non modifiables dans cette version.">
+      <SettingsSection title="RÃ©servÃ© Ã©diteur" description="ParamÃ¨tres avancÃ©s non modifiables dans cette version.">
         {!can('publisher_settings.read') ? (
-          <EmptyState message="Accès réservé." />
+          <EmptyState message="AccÃ¨s rÃ©servÃ©." />
         ) : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Paramètre avancé</th>
+                  <th>ParamÃ¨tre avancÃ©</th>
                   <th>Statut</th>
                 </tr>
               </thead>
@@ -1323,6 +1422,41 @@ export function SettingsPage() {
           </div>
         )}
       </SettingsSection>
+      {testEmailModalOpen ? (
+        <Modal
+          title="Envoyer un email de test"
+          onClose={() => {
+            if (sendingTestEmail) return;
+            setTestEmailModalOpen(false);
+          }}
+          footer={(
+            <>
+              <button type="button" className="secondary" onClick={() => setTestEmailModalOpen(false)} disabled={sendingTestEmail}>
+                Annuler
+              </button>
+              <button type="submit" form="communication-test-email-form" disabled={sendingTestEmail}>
+                <Mail size={16} />
+                {sendingTestEmail ? 'Envoi...' : "Envoyer l'email"}
+              </button>
+            </>
+          )}
+        >
+          <form id="communication-test-email-form" className="settings-grid" onSubmit={sendTestEmailMessage}>
+            <SettingField label="Destinataire" wide>
+              <input
+                type="email"
+                value={testEmailRecipient}
+                onChange={(event) => setTestEmailRecipient(event.target.value)}
+                placeholder="destinataire@test.com"
+                required
+              />
+            </SettingField>
+            <p className="muted-text settings-inline-note">
+              Un email de test simple sera envoyé avec l'organisation active et la date du jour.
+            </p>
+          </form>
+        </Modal>
+      ) : null}
     </section>
   );
 }
@@ -1540,7 +1674,7 @@ function OfficialFileUpload({
 
   const hasStoredFile = Boolean(fileName || fileUrl);
   const previewUrl = selectedFile ? objectUrl : remotePreviewUrl;
-  const displayName = selectedFile ? selectedFile.name : hasStoredFile ? fileName || 'Fichier enregistré' : 'Aucun fichier';
+  const displayName = selectedFile ? selectedFile.name : hasStoredFile ? fileName || 'Fichier enregistrÃ©' : 'Aucun fichier';
   const displayType = inferFileType(selectedFile?.name, fileUrl, selectedFile?.type);
   const displaySize = selectedFile ? formatBytes(selectedFile.size) : hasStoredFile ? 'Taille non disponible' : '-';
 
@@ -1637,7 +1771,7 @@ function OfficialFileUpload({
         </button>
         <button type="button" onClick={() => void handleUpload()} disabled={disabled || busy || !selectedFile}>
           <Save size={14} />
-          {busy ? 'Enregistrement...' : hasStoredFile ? 'Remplacer' : 'Téléverser'}
+          {busy ? 'Enregistrement...' : hasStoredFile ? 'Remplacer' : 'TÃ©lÃ©verser'}
         </button>
         <button type="button" className="secondary" onClick={() => void handleDelete()} disabled={disabled || busy || (!selectedFile && !hasStoredFile)}>
           <Trash2 size={14} />

@@ -185,6 +185,7 @@ tbody tr.clickable-row:hover { background: #f8fafb; }
 .settings-field.wide { grid-column: 1 / -1; }
 .settings-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; flex-wrap: wrap; border-top: 1px solid #edf2f5; margin-top: 2px; }
 .settings-actions button { min-width: 142px; }
+.settings-inline-note { grid-column: 1 / -1; margin: 0; }
 .company-file-card { grid-column: span 1; border: 1px solid #dde5ea; border-radius: 8px; background: #fff; padding: 10px; display: grid; gap: 8px; min-width: 0; }
 .company-file-head h5 { margin: 0; font-size: 13px; color: #203845; }
 .company-file-head p { margin: 2px 0 0; font-size: 12px; }
