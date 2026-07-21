@@ -6357,7 +6357,16 @@ export class SaasService {
         [this.context.organizationId()],
       ),
     ]);
-    return { tenants: tenants.rows, leases: leases.rows };
+    return {
+      tenants: tenants.rows,
+      leases: leases.rows,
+      paymentMethods: [
+        { value: 'CASH', label: 'Espèces' },
+        { value: 'BANK', label: 'Banque' },
+        { value: 'MOBILE_MONEY', label: 'Mobile Money' },
+      ],
+      currencies: ['USD', 'CDF'],
+    };
   }
 
   async createTenantCredit(body: Record<string, unknown>) {
@@ -6484,12 +6493,14 @@ export class SaasService {
         exchange_rate_date: exchangeRateDate,
         equivalent_usd: totalEquivalentUsd,
       });
-      await client.query(
-        `UPDATE cash_movements
-         SET tenant_credit_id = $1
-         WHERE id = $2 AND organization_id = $3`,
-        [credit.rows[0].id, movement.id, this.context.organizationId()],
-      );
+      if (await this.columnExists('cash_movements', 'tenant_credit_id')) {
+        await client.query(
+          `UPDATE cash_movements
+           SET tenant_credit_id = $1
+           WHERE id = $2 AND organization_id = $3`,
+          [credit.rows[0].id, movement.id, this.context.organizationId()],
+        );
+      }
       await client.query(
         `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
          VALUES ($1, $2, 'TENANT_CREDIT_CREATED', 'tenant_credits', $3, 'POST', '/api/tenant-credits', 201, $4)`,
@@ -6720,8 +6731,8 @@ export class SaasService {
   }
 
   private async ensureTenantCreditSchema() {
-    if (!(await this.tableExists('tenant_credits')) || !(await this.columnExists('cash_movements', 'tenant_credit_id'))) {
-      throw new BadRequestException('Le module des crédits locataires n est pas encore configuré.');
+    if (!(await this.tableExists('tenant_credits'))) {
+      throw new BadRequestException('Le module des crédits locataires n’est pas encore configuré.');
     }
   }
 
@@ -6901,12 +6912,14 @@ export class SaasService {
           : amount,
       tenant_credit_id: credit.id,
     });
-    await client.query(
-      `UPDATE cash_movements
-       SET tenant_credit_id = $1
-       WHERE id = $2 AND organization_id = $3`,
-      [credit.id, movement.id, this.context.organizationId()],
-    );
+    if (await this.columnExists('cash_movements', 'tenant_credit_id')) {
+      await client.query(
+        `UPDATE cash_movements
+         SET tenant_credit_id = $1
+         WHERE id = $2 AND organization_id = $3`,
+        [credit.id, movement.id, this.context.organizationId()],
+      );
+    }
     await client.query(
       `UPDATE tenant_credit_refunds
        SET cash_movement_id = $2

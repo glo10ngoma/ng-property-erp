@@ -64,6 +64,8 @@ type TenantCredit = {
 type FormDataPayload = {
   tenants: Array<{ id: number; name: string; tenant_number?: string }>;
   leases: Array<{ id: number; tenant_id: number; lease_number?: number; unit_number?: string; building_name?: string; status: string }>;
+  paymentMethods?: Array<{ value: string; label: string }>;
+  currencies?: string[];
 };
 
 type RefundFormState = {
@@ -95,6 +97,7 @@ export function TenantCredits() {
   const [credits, setCredits] = useState<TenantCredit[]>([]);
   const [formData, setFormData] = useState<FormDataPayload>({ tenants: [], leases: [] });
   const [loading, setLoading] = useState(true);
+  const [formDataLoading, setFormDataLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
@@ -102,6 +105,7 @@ export function TenantCredits() {
   const [selectedCredit, setSelectedCredit] = useState<TenantCredit | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [formDataError, setFormDataError] = useState('');
   const [success, setSuccess] = useState('');
   const [filters, setFilters] = useState({
     search: '',
@@ -138,32 +142,86 @@ export function TenantCredits() {
     reason: '',
   });
 
-  const load = async () => {
+  const resolveLoadError = (loadError: any) => {
+    const message = String(loadError?.response?.data?.message ?? '').trim();
+    const status = Number(loadError?.response?.status ?? 0);
+    if (status === 401) return 'Votre session a expiré. Veuillez vous reconnecter.';
+    if (status === 403) return 'Accès refusé au module crédits locataires.';
+    if (status === 404) return 'Le module des crédits locataires n’est pas encore configuré.';
+    if (status === 400 && /crédits locataires/i.test(message)) return message;
+    if (message) return message;
+    return 'Impossible de charger les crédits locataires.';
+  };
+
+  const resolveFormDataError = (loadError: any) => {
+    const message = String(loadError?.response?.data?.message ?? '').trim();
+    const status = Number(loadError?.response?.status ?? 0);
+    if (status === 401) return 'Votre session a expiré. Veuillez vous reconnecter.';
+    if (status === 403) return 'Accès refusé pour charger le formulaire.';
+    if (status === 404) return 'Le formulaire des crédits locataires est indisponible.';
+    if (status >= 500) return 'Le chargement des locataires et baux a échoué.';
+    if (message) return message;
+    return 'Impossible de charger le formulaire des crédits locataires.';
+  };
+
+  const loadCredits = async () => {
     setLoading(true);
     setError('');
     try {
       const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value));
-      const [creditResponse, formResponse] = await Promise.all([
-        api.get<TenantCredit[]>('/tenant-credits', { params }),
-        api.get<FormDataPayload>('/tenant-credits/form-data'),
-      ]);
-      setCredits(creditResponse.data);
-      setFormData(formResponse.data);
+      const response = await api.get<TenantCredit[]>('/tenant-credits', { params });
+      setCredits(response.data);
       setPage(1);
     } catch (loadError: any) {
-      setError(loadError?.response?.data?.message ?? 'Impossible de charger les crédits locataires.');
+      setError(resolveLoadError(loadError));
     } finally {
       setLoading(false);
     }
   };
 
+  const loadFormData = async () => {
+    setFormDataLoading(true);
+    setFormDataError('');
+    try {
+      const response = await api.get<FormDataPayload>('/tenant-credits/form-data');
+      setFormData(response.data);
+    } catch (loadError: any) {
+      setFormDataError(resolveFormDataError(loadError));
+      setFormData({ tenants: [], leases: [], paymentMethods: [], currencies: ['USD', 'CDF'] });
+    } finally {
+      setFormDataLoading(false);
+    }
+  };
+
   useEffect(() => {
-    void load();
+    void loadCredits();
+    void loadFormData();
   }, []);
 
   const filteredLeases = useMemo(
     () => formData.leases.filter((lease) => !form.tenant_id || Number(lease.tenant_id) === Number(form.tenant_id)),
     [form.tenant_id, formData.leases],
+  );
+
+  const paymentMethods = formData.paymentMethods?.length
+    ? formData.paymentMethods
+    : [
+        { value: 'CASH', label: 'Espèces' },
+        { value: 'BANK', label: 'Banque' },
+        { value: 'MOBILE_MONEY', label: 'Mobile Money' },
+      ];
+
+  const currencies = formData.currencies?.length ? formData.currencies : ['USD', 'CDF'];
+  const tenantSelectDisabled = formDataLoading || !!formDataError || formData.tenants.length === 0;
+  const leaseSelectDisabled = !form.tenant_id || formDataLoading || !!formDataError;
+  const canSubmitCredit = Boolean(
+    form.tenant_id
+      && form.lease_id
+      && Number(form.amount) > 0
+      && (form.currency === 'USD' || Number(form.exchange_rate_used) > 0)
+      && !submitting
+      && !formDataLoading
+      && !formDataError,
   );
 
   const visibleCredits = useMemo(() => {
@@ -261,7 +319,7 @@ export function TenantCredits() {
   };
 
   const reloadDetail = async (creditId: number) => {
-    await Promise.all([load(), openDetail(creditId)]);
+    await Promise.all([loadCredits(), openDetail(creditId)]);
   };
 
   const resetRefundForm = (credit: TenantCredit | null) => {
@@ -313,7 +371,7 @@ export function TenantCredits() {
         reference: '',
         notes: '',
       });
-      await load();
+      await loadCredits();
     } catch (submitError: any) {
       setError(submitError?.response?.data?.message ?? 'Impossible d’enregistrer le crédit locataire.');
     } finally {
@@ -387,8 +445,8 @@ export function TenantCredits() {
           <p>Paiements anticipés disponibles, sans création de factures futures.</p>
         </div>
         <div className="actions">
-          <button type="button" className="secondary" onClick={() => void load()}><RefreshCw size={16} />Actualiser</button>
-          {can('payments.create') ? <button type="button" onClick={() => setModalOpen(true)}><Plus size={16} />Nouveau crédit locataire</button> : null}
+          <button type="button" className="secondary" onClick={() => void loadCredits()}><RefreshCw size={16} />Actualiser</button>
+          {can('payments.create') ? <button type="button" onClick={() => { setModalOpen(true); void loadFormData(); }}><Plus size={16} />Nouveau crédit locataire</button> : null}
         </div>
       </div>
 
@@ -438,7 +496,7 @@ export function TenantCredits() {
           </label>
           <div className="tenant-credit-toolbar-actions">
             <button type="button" className="secondary" onClick={resetFilters}>Réinitialiser</button>
-            <button type="button" onClick={() => void load()}>Filtrer</button>
+            <button type="button" onClick={() => void loadCredits()}>Filtrer</button>
           </div>
         </div>
       </div>
@@ -521,84 +579,123 @@ export function TenantCredits() {
                 <X size={16} />
               </button>
             </div>
-            <form className="tenant-credit-drawer-form" onSubmit={(event) => void submit(event)}>
-              <label>
-                <span>Locataire *</span>
-                <select required value={form.tenant_id} onChange={(event) => updateForm('tenant_id', event.target.value)}>
-                  <option value="">Sélectionner un locataire</option>
-                  {formData.tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
-                </select>
-                <small>Choisissez le locataire concerné par ce crédit.</small>
-              </label>
-              <label>
-                <span>Bail actif *</span>
-                <select value={form.lease_id} onChange={(event) => updateForm('lease_id', event.target.value)}>
-                  <option value="">Sélectionner un bail</option>
-                  {filteredLeases.map((lease) => (
-                    <option key={lease.id} value={lease.id}>{formatLeaseReference(lease.lease_number, lease.id)} - {lease.building_name ?? '-'} / {lease.unit_number ?? '-'}</option>
-                  ))}
-                </select>
-                <small>Sélectionnez le bail actif du locataire.</small>
-              </label>
-              <label>
-                <span>Date *</span>
-                <input type="date" required value={form.payment_date} onChange={(event) => updateForm('payment_date', event.target.value)} />
-                <small>Date du paiement anticipé.</small>
-              </label>
-              <label>
-                <span>Devise *</span>
-                <select value={form.currency} onChange={(event) => updateForm('currency', event.target.value)}>
-                  <option value="USD">USD</option>
-                  <option value="CDF">CDF</option>
-                </select>
-                <small>Devise du crédit locataire.</small>
-              </label>
-              <label>
-                <span>Montant *</span>
-                <div className="tenant-credit-amount-field">
-                  <input type="number" min="0.01" step="0.01" required value={form.amount} onChange={(event) => updateForm('amount', event.target.value)} />
-                  <span>{form.currency === 'USD' ? '$US' : 'CDF'}</span>
+
+            <div className="tenant-credit-drawer-body">
+              {formDataError ? (
+                <div className="tenant-credit-drawer-state tenant-credit-drawer-state-error" role="alert">
+                  <AlertCircle size={18} />
+                  <div>
+                    <strong>Impossible de charger les locataires et baux.</strong>
+                    <p>{formDataError}</p>
+                  </div>
+                  <button type="button" className="secondary" onClick={() => void loadFormData()}>Réessayer</button>
                 </div>
-                <small>Montant payé d’avance.</small>
-              </label>
-              <label>
-                <span>Mode de paiement *</span>
-                <select value={form.payment_method} onChange={(event) => updateForm('payment_method', event.target.value)}>
-                  <option value="CASH">Espèces</option>
-                  <option value="BANK">Banque</option>
-                  <option value="MOBILE_MONEY">Mobile Money</option>
-                </select>
-                <small>Mode de paiement utilisé.</small>
-              </label>
-              {form.currency === 'CDF' && (
-                <>
-                  <label>
-                    <span>Taux USD/CDF *</span>
-                    <input type="number" min="0.000001" step="0.000001" required value={form.exchange_rate_used} onChange={(event) => updateForm('exchange_rate_used', event.target.value)} />
-                    <small>Taux appliqué pour l’équivalent USD.</small>
-                  </label>
-                  <label>
-                    <span>Équivalent USD</span>
-                    <input readOnly value={money(cdfEquivalent)} />
-                    <small>Valeur calculée automatiquement.</small>
-                  </label>
-                </>
-              )}
-              <label className="tenant-credit-drawer-wide">
-                <span>Référence</span>
-                <input value={form.reference} onChange={(event) => updateForm('reference', event.target.value)} placeholder="Référence du paiement" />
-                <small>Numéro de reçu, bordereau, chèque, etc.</small>
-              </label>
-              <label className="tenant-credit-drawer-wide">
-                <span>Notes</span>
-                <textarea value={form.notes} onChange={(event) => updateForm('notes', event.target.value)} placeholder="Notes (optionnel)" />
-                <small>Informations complémentaires.</small>
-              </label>
-              <div className="tenant-credit-drawer-footer tenant-credit-drawer-wide">
-                <button type="button" className="secondary" onClick={() => setModalOpen(false)}>Annuler</button>
-                <button type="submit" disabled={submitting}><FileText size={16} />{submitting ? 'Enregistrement...' : 'Enregistrer le crédit'}</button>
-              </div>
-            </form>
+              ) : null}
+
+              {formDataLoading ? (
+                <div className="tenant-credit-drawer-state tenant-credit-drawer-state-loading" aria-live="polite">
+                  <div className="spinner" />
+                  <div>
+                    <strong>Chargement du formulaire…</strong>
+                    <p>Nous préparons les locataires et les baux de l’organisation active.</p>
+                  </div>
+                </div>
+              ) : null}
+
+              <form className="tenant-credit-drawer-form" onSubmit={(event) => void submit(event)}>
+                <label>
+                  <span>Locataire *</span>
+                  <select required value={form.tenant_id} disabled={tenantSelectDisabled} onChange={(event) => updateForm('tenant_id', event.target.value)}>
+                    {formDataLoading ? (
+                      <option value="">Chargement des locataires…</option>
+                    ) : formData.tenants.length === 0 ? (
+                      <option value="">Aucun locataire disponible</option>
+                    ) : (
+                      <>
+                        <option value="">Sélectionner un locataire</option>
+                        {formData.tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
+                      </>
+                    )}
+                  </select>
+                  <small>{formDataLoading ? 'Chargement des locataires…' : formData.tenants.length === 0 ? 'Aucun locataire disponible.' : 'Choisissez le locataire concerné par ce crédit.'}</small>
+                </label>
+                <label>
+                  <span>Bail actif *</span>
+                  <select required value={form.lease_id} disabled={leaseSelectDisabled} onChange={(event) => updateForm('lease_id', event.target.value)}>
+                    {!form.tenant_id ? (
+                      <option value="">Sélectionnez d’abord un locataire</option>
+                    ) : formDataLoading ? (
+                      <option value="">Chargement des baux…</option>
+                    ) : filteredLeases.length === 0 ? (
+                      <option value="">Aucun bail actif pour ce locataire</option>
+                    ) : (
+                      <>
+                        <option value="">Sélectionner un bail</option>
+                        {filteredLeases.map((lease) => (
+                          <option key={lease.id} value={lease.id}>{formatLeaseReference(lease.lease_number, lease.id)} - {lease.building_name ?? '-'} / {lease.unit_number ?? '-'}</option>
+                        ))}
+                      </>
+                    )}
+                  </select>
+                  <small>{!form.tenant_id ? 'Sélectionnez d’abord un locataire.' : formDataLoading ? 'Chargement des baux…' : filteredLeases.length === 0 ? 'Aucun bail actif pour ce locataire.' : 'Sélectionnez le bail actif du locataire.'}</small>
+                </label>
+                <label>
+                  <span>Date *</span>
+                  <input type="date" required value={form.payment_date} onChange={(event) => updateForm('payment_date', event.target.value)} />
+                  <small>Date du paiement anticipé.</small>
+                </label>
+                <label>
+                  <span>Devise *</span>
+                  <select value={form.currency} onChange={(event) => updateForm('currency', event.target.value)}>
+                    {currencies.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+                  </select>
+                  <small>Devise du crédit locataire.</small>
+                </label>
+                <label>
+                  <span>Montant *</span>
+                  <div className="tenant-credit-amount-field">
+                    <input type="number" min="0.01" step="0.01" required value={form.amount} onChange={(event) => updateForm('amount', event.target.value)} />
+                    <span>{form.currency === 'USD' ? '$US' : 'CDF'}</span>
+                  </div>
+                  <small>Montant payé d’avance.</small>
+                </label>
+                <label>
+                  <span>Mode de paiement *</span>
+                  <select value={form.payment_method} onChange={(event) => updateForm('payment_method', event.target.value)}>
+                    {paymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
+                  </select>
+                  <small>Mode de paiement utilisé.</small>
+                </label>
+                {form.currency === 'CDF' && (
+                  <>
+                    <label>
+                      <span>Taux USD/CDF *</span>
+                      <input type="number" min="0.000001" step="0.000001" required value={form.exchange_rate_used} onChange={(event) => updateForm('exchange_rate_used', event.target.value)} />
+                      <small>Taux appliqué pour l’équivalent USD.</small>
+                    </label>
+                    <label>
+                      <span>Équivalent USD</span>
+                      <input readOnly value={money(cdfEquivalent)} />
+                      <small>Valeur calculée automatiquement.</small>
+                    </label>
+                  </>
+                )}
+                <label className="tenant-credit-drawer-wide">
+                  <span>Référence</span>
+                  <input value={form.reference} onChange={(event) => updateForm('reference', event.target.value)} placeholder="Référence du paiement" />
+                  <small>Numéro de reçu, bordereau, chèque, etc.</small>
+                </label>
+                <label className="tenant-credit-drawer-wide">
+                  <span>Notes</span>
+                  <textarea value={form.notes} onChange={(event) => updateForm('notes', event.target.value)} placeholder="Notes (optionnel)" />
+                  <small>Informations complémentaires.</small>
+                </label>
+                <div className="tenant-credit-drawer-footer tenant-credit-drawer-wide">
+                  <button type="button" className="secondary" onClick={() => setModalOpen(false)}>Annuler</button>
+                  <button type="submit" disabled={!canSubmitCredit}><FileText size={16} />{submitting ? 'Enregistrement...' : 'Enregistrer le crédit'}</button>
+                </div>
+              </form>
+            </div>
           </aside>
         </div>
       )}

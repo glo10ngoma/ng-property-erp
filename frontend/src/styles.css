@@ -548,7 +548,15 @@ textarea { min-height: 72px; resize: vertical; }
 .tenant-credit-drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 18px 18px 12px; border-bottom: 1px solid #e3e9ee; }
 .tenant-credit-drawer-head h3 { margin: 0; font-size: 20px; color: #203845; }
 .tenant-credit-drawer-head p { margin: 4px 0 0; color: #607381; font-size: 13px; line-height: 1.45; }
-.tenant-credit-drawer-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 16px 18px 18px; overflow: auto; align-content: start; }
+.tenant-credit-drawer-body { display: grid; gap: 12px; min-height: 0; overflow: auto; padding: 14px 18px 18px; align-content: start; }
+.tenant-credit-drawer-state { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; justify-items: start; padding: 12px 14px; border: 1px solid #dce5eb; border-radius: 8px; background: #f8fafb; color: #203845; }
+.tenant-credit-drawer-state strong { display: block; font-size: 14px; }
+.tenant-credit-drawer-state p { margin: 4px 0 0; color: #526a78; font-size: 13px; line-height: 1.45; }
+.tenant-credit-drawer-state-error { border-color: #efb8bd; background: #fbe3e3; color: #a4343a; }
+.tenant-credit-drawer-state-error p { color: #a4343a; }
+.tenant-credit-drawer-state-loading { grid-template-columns: auto minmax(0, 1fr); }
+.tenant-credit-drawer-state-loading .spinner { width: 18px; height: 18px; }
+.tenant-credit-drawer-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 0; overflow: visible; align-content: start; }
 .tenant-credit-drawer-form label { display: grid; gap: 5px; color: #607381; font-size: 12px; font-weight: 700; min-width: 0; }
 .tenant-credit-drawer-form label > span { color: #607381; font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .tenant-credit-drawer-form label > small { color: #7a8d99; font-size: 12px; line-height: 1.35; }
@@ -565,9 +573,11 @@ textarea { min-height: 72px; resize: vertical; }
   .tenant-credit-toolbar-actions button { flex: 1 1 160px; }
   .tenant-credit-drawer-backdrop { padding: 0; }
   .tenant-credit-drawer { width: 100%; height: 100vh; border-radius: 0; }
+  .tenant-credit-drawer-body { padding: 12px 14px 14px; }
   .tenant-credit-drawer-form { grid-template-columns: 1fr; }
   .tenant-credit-drawer-wide { grid-column: 1 / -1; }
   .tenant-credit-pagination { gap: 8px; }
+  .tenant-credit-drawer-state { grid-template-columns: 1fr; justify-items: center; text-align: center; }
 }
 .inline-info-card { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid #dce5eb; border-radius: 8px; background: #f8fafb; color: #203845; }
 .inline-info-card p { margin: 4px 0 0; font-size: 13px; color: #526a78; }
