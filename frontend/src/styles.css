@@ -324,6 +324,24 @@ textarea { min-height: 72px; resize: vertical; }
 .page-header-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .page-subtitle { margin: -2px 0 12px; color: #637783; font-size: 14px; }
 .shareholder-toolbar { grid-template-columns: minmax(240px, 2fr) minmax(180px, 1fr) auto; }
+.bank-kpis { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-bottom: 12px; }
+.bank-toolbar { display: grid; gap: 8px; margin-bottom: 12px; background: white; border: 1px solid #dde5ea; border-radius: 8px; padding: 10px; }
+.bank-toolbar-search { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bank-toolbar-search input { flex: 1 1 auto; min-width: 0; }
+.bank-toolbar-grid { display: grid; grid-template-columns: minmax(150px, 1.3fr) repeat(7, minmax(110px, 1fr)) minmax(120px, 1fr) minmax(120px, 1fr) auto; gap: 8px; align-items: end; }
+.bank-toolbar-grid > * { min-width: 0; }
+.bank-toolbar-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.bank-toolbar-actions button { min-width: 0; }
+.bank-account-cell { display: grid; gap: 4px; min-width: 0; }
+.bank-account-cell strong { color: #112433; line-height: 1.35; word-break: break-word; }
+.bank-account-cell small { color: #607381; line-height: 1.3; word-break: break-word; }
+.bank-account-modal { width: min(900px, calc(100vw - 48px)); }
+.bank-account-form { display: grid; gap: 12px; }
+.bank-account-form-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 10px; }
+.bank-account-summary { margin-bottom: 12px; }
+.bank-pagination { display: flex; justify-content: flex-end; }
+.bank-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.bank-transaction-drawer { width: min(540px, 100%); }
 .shareholder-form { display: grid; gap: 12px; }
 .shareholder-form-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 10px; }
 .shareholder-history-modal { width: min(1040px, calc(100vw - 48px)); }
@@ -628,6 +646,10 @@ textarea { min-height: 72px; resize: vertical; }
 .tenant-credit-drawer-footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
 .tenant-credit-drawer-footer button { min-width: 132px; }
 @media (max-width: 900px) {
+  .bank-toolbar-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bank-toolbar-actions { grid-column: 1 / -1; justify-content: stretch; }
+  .bank-toolbar-actions button { flex: 1 1 0; }
+  .bank-account-form-grid, .bank-detail-grid { grid-template-columns: 1fr; }
   .tenant-credit-toolbar-actions { width: 100%; margin-left: 0; }
   .tenant-credit-toolbar-actions button { flex: 1 1 160px; }
   .tenant-credit-drawer-backdrop { padding: 0; }

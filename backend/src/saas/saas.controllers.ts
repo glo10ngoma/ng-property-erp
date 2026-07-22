@@ -657,6 +657,56 @@ export class ShareholdersController {
   }
 }
 
+@Controller('bank-dashboard')
+export class BankDashboardController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get()
+  dashboard(@Query() query: Record<string, unknown>) {
+    return this.service.bankDashboard(query);
+  }
+}
+
+@Controller('bank-accounts')
+export class BankAccountsController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get()
+  accounts(@Query() query: Record<string, unknown>) {
+    return this.service.bankAccounts(query);
+  }
+
+  @Get(':id')
+  account(@Param('id', ParseIntPipe) id: number) {
+    return this.service.bankAccount(id);
+  }
+
+  @Post()
+  create(@Body() body: Record<string, unknown>) {
+    return this.service.createBankAccount(body);
+  }
+
+  @Patch(':id')
+  update(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.updateBankAccount(id, body);
+  }
+}
+
+@Controller('bank-transactions')
+export class BankTransactionsController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get()
+  transactions(@Query() query: Record<string, unknown>) {
+    return this.service.bankTransactions(query);
+  }
+
+  @Get(':id')
+  transaction(@Param('id', ParseIntPipe) id: number) {
+    return this.service.bankTransaction(id);
+  }
+}
+
 @Controller('shareholder-payouts')
 export class ShareholderPayoutsController {
   constructor(private readonly service: SaasService) {}

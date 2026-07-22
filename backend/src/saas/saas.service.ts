@@ -6049,6 +6049,552 @@ export class SaasService {
     return { overview, movements };
   }
 
+  async bankDashboard(filters: Record<string, unknown> = {}) {
+    await this.ensureBankSchema();
+    const period = this.normalizeBankPeriod(filters);
+    const accountValues: unknown[] = [this.context.organizationId()];
+    const accountClauses = ['ba.organization_id = $1', 'ba.deleted_at IS NULL'];
+    if (filters.bank_name) {
+      accountValues.push(`%${String(filters.bank_name).trim().toLowerCase()}%`);
+      accountClauses.push(`LOWER(ba.bank_name) LIKE $${accountValues.length}`);
+    }
+    if (filters.currency) {
+      accountValues.push(String(filters.currency).trim().toUpperCase());
+      accountClauses.push(`ba.currency = $${accountValues.length}`);
+    }
+    if (filters.status) {
+      accountValues.push(String(filters.status).trim().toUpperCase());
+      accountClauses.push(`ba.status = $${accountValues.length}`);
+    }
+
+    const transactionsValues: unknown[] = [this.context.organizationId(), period.start, period.end];
+    const transactionsClauses = [
+      'bt.organization_id = $1',
+      'bt.status = \'VALIDATED\'',
+      'bt.transaction_date >= $2',
+      'bt.transaction_date <= $3',
+    ];
+    if (filters.bank_account_id) {
+      transactionsValues.push(Number(filters.bank_account_id));
+      transactionsClauses.push(`bt.bank_account_id = $${transactionsValues.length}`);
+    }
+    if (filters.currency) {
+      transactionsValues.push(String(filters.currency).trim().toUpperCase());
+      transactionsClauses.push(`bt.currency = $${transactionsValues.length}`);
+    }
+
+    const [balancesResult, flowsResult, activeCountResult] = await Promise.all([
+      this.db.query(
+        `SELECT ba.currency,
+                COALESCE(SUM(COALESCE(tx.balance, 0)), 0)::NUMERIC(14,2) AS total_balance
+         FROM bank_accounts ba
+         LEFT JOIN (
+           SELECT bank_account_id,
+                  SUM(CASE WHEN direction = 'IN' THEN amount ELSE -amount END)::NUMERIC(14,2) AS balance
+           FROM bank_transactions
+           WHERE organization_id = $1
+             AND status = 'VALIDATED'
+           GROUP BY bank_account_id
+         ) tx ON tx.bank_account_id = ba.id
+         WHERE ${accountClauses.join(' AND ')}
+         GROUP BY ba.currency`,
+        accountValues,
+      ),
+      this.db.query(
+        `SELECT bt.currency,
+                COALESCE(SUM(CASE WHEN bt.direction = 'IN' THEN bt.amount ELSE 0 END), 0)::NUMERIC(14,2) AS total_in,
+                COALESCE(SUM(CASE WHEN bt.direction = 'OUT' THEN bt.amount ELSE 0 END), 0)::NUMERIC(14,2) AS total_out
+         FROM bank_transactions bt
+         JOIN bank_accounts ba ON ba.id = bt.bank_account_id AND ba.organization_id = bt.organization_id
+         WHERE ${transactionsClauses.join(' AND ')}
+         GROUP BY bt.currency`,
+        transactionsValues,
+      ),
+      this.db.query(
+        `SELECT COUNT(*)::INT AS active_count
+         FROM bank_accounts ba
+         WHERE ${accountClauses.join(' AND ')}
+           AND ba.status = 'ACTIVE'`,
+        accountValues,
+      ),
+    ]);
+
+    const byCurrency = Object.fromEntries(
+      balancesResult.rows.map((row) => [String(row.currency), Number(row.total_balance ?? 0)]),
+    ) as Record<string, number>;
+    const flowsByCurrency = Object.fromEntries(
+      flowsResult.rows.map((row) => [
+        String(row.currency),
+        {
+          total_in: Number(row.total_in ?? 0),
+          total_out: Number(row.total_out ?? 0),
+        },
+      ]),
+    ) as Record<string, { total_in: number; total_out: number }>;
+
+    return {
+      period,
+      totals: {
+        usd: Number(byCurrency.USD ?? 0),
+        cdf: Number(byCurrency.CDF ?? 0),
+        period_in_usd: Number(flowsByCurrency.USD?.total_in ?? 0),
+        period_in_cdf: Number(flowsByCurrency.CDF?.total_in ?? 0),
+        period_out_usd: Number(flowsByCurrency.USD?.total_out ?? 0),
+        period_out_cdf: Number(flowsByCurrency.CDF?.total_out ?? 0),
+        active_accounts: Number(activeCountResult.rows[0]?.active_count ?? 0),
+      },
+    };
+  }
+
+  async bankAccounts(filters: Record<string, unknown> = {}) {
+    await this.ensureBankSchema();
+    const values: unknown[] = [this.context.organizationId()];
+    const clauses = ['ba.organization_id = $1', 'ba.deleted_at IS NULL'];
+    if (filters.search) {
+      values.push(`%${String(filters.search).trim().toLowerCase()}%`);
+      clauses.push(`(
+        LOWER(COALESCE(ba.bank_name, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(ba.account_name, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(ba.account_number, '')) LIKE $${values.length}
+      )`);
+    }
+    if (filters.bank_name) {
+      values.push(`%${String(filters.bank_name).trim().toLowerCase()}%`);
+      clauses.push(`LOWER(ba.bank_name) LIKE $${values.length}`);
+    }
+    if (filters.currency) {
+      values.push(String(filters.currency).trim().toUpperCase());
+      clauses.push(`ba.currency = $${values.length}`);
+    }
+    if (filters.status) {
+      values.push(String(filters.status).trim().toUpperCase());
+      clauses.push(`ba.status = $${values.length}`);
+    }
+
+    const { rows } = await this.db.query(
+      `SELECT ba.*,
+              COALESCE(tx.total_in, 0)::NUMERIC(14,2) AS total_in,
+              COALESCE(tx.total_out, 0)::NUMERIC(14,2) AS total_out,
+              COALESCE(tx.current_balance, 0)::NUMERIC(14,2) AS current_balance,
+              COALESCE(tx.transaction_count, 0)::INT AS transaction_count,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name
+       FROM bank_accounts ba
+       LEFT JOIN (
+         SELECT bt.bank_account_id,
+                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'IN' THEN bt.amount ELSE 0 END) AS total_in,
+                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'OUT' THEN bt.amount ELSE 0 END) AS total_out,
+                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'IN' THEN bt.amount ELSE -bt.amount END) AS current_balance,
+                COUNT(*) FILTER (WHERE bt.status = 'VALIDATED') AS transaction_count
+         FROM bank_transactions bt
+         WHERE bt.organization_id = $1
+         GROUP BY bt.bank_account_id
+       ) tx ON tx.bank_account_id = ba.id
+       LEFT JOIN app_users u ON u.id = ba.created_by
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY ba.bank_name ASC, ba.account_name ASC, ba.id DESC`,
+      values,
+    );
+    return rows;
+  }
+
+  async bankAccount(id: number) {
+    await this.ensureBankSchema();
+    const { rows } = await this.db.query(
+      `SELECT ba.*,
+              COALESCE(tx.total_in, 0)::NUMERIC(14,2) AS total_in,
+              COALESCE(tx.total_out, 0)::NUMERIC(14,2) AS total_out,
+              COALESCE(tx.current_balance, 0)::NUMERIC(14,2) AS current_balance,
+              COALESCE(tx.transaction_count, 0)::INT AS transaction_count,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name
+       FROM bank_accounts ba
+       LEFT JOIN (
+         SELECT bt.bank_account_id,
+                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'IN' THEN bt.amount ELSE 0 END) AS total_in,
+                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'OUT' THEN bt.amount ELSE 0 END) AS total_out,
+                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'IN' THEN bt.amount ELSE -bt.amount END) AS current_balance,
+                COUNT(*) FILTER (WHERE bt.status = 'VALIDATED') AS transaction_count
+         FROM bank_transactions bt
+         WHERE bt.organization_id = $1
+         GROUP BY bt.bank_account_id
+       ) tx ON tx.bank_account_id = ba.id
+       LEFT JOIN app_users u ON u.id = ba.created_by
+       WHERE ba.organization_id = $1
+         AND ba.id = $2
+         AND ba.deleted_at IS NULL`,
+      [this.context.organizationId(), id],
+    );
+    return requireRow(rows[0], 'Bank account');
+  }
+
+  async createBankAccount(body: Record<string, unknown>) {
+    await this.ensureBankSchema();
+    const payload = this.normalizeBankAccountCreatePayload(body);
+    const createdId = await this.db.transaction(async (client) => {
+      try {
+        const inserted = await client.query(
+          `INSERT INTO bank_accounts
+            (organization_id, bank_name, account_name, account_number, account_type, currency, opening_balance, status, notes, created_by)
+           VALUES
+            ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           RETURNING *`,
+          [
+            this.context.organizationId(),
+            payload.bank_name,
+            payload.account_name,
+            payload.account_number,
+            payload.account_type,
+            payload.currency,
+            payload.opening_balance,
+            payload.status,
+            payload.notes,
+            this.context.userId() ?? null,
+          ],
+        );
+        const account = requireRow(inserted.rows[0], 'Bank account');
+        let openingTransactionId: number | null = null;
+        if (payload.opening_balance > 0) {
+          const transactionNumber = await this.nextBankTransactionNumber(client);
+          const openingTransaction = await client.query(
+            `INSERT INTO bank_transactions
+              (organization_id, bank_account_id, transaction_number, transaction_date, direction, transaction_type, amount, currency,
+               reference, description, counterparty_name, source_module, source_entity_type, source_entity_id, status, reversal_of_id,
+               idempotency_key, created_by)
+             VALUES
+              ($1, $2, $3, $4, 'IN', 'OPENING_BALANCE', $5, $6,
+               $7, $8, NULL, 'BANK', 'BANK_ACCOUNT', $2, 'VALIDATED', NULL,
+               $9, $10)
+             RETURNING id`,
+            [
+              this.context.organizationId(),
+              account.id,
+              transactionNumber,
+              payload.opening_date,
+              payload.opening_balance,
+              payload.currency,
+              `OPEN-${account.id}`,
+              'Solde initial du compte bancaire.',
+              `bank-opening-balance:${this.context.organizationId()}:${account.id}`,
+              this.context.userId() ?? null,
+            ],
+          );
+          openingTransactionId = Number(openingTransaction.rows[0]?.id ?? 0) || null;
+        }
+
+        await client.query(
+          `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+           VALUES ($1, $2, 'BANK_ACCOUNT_CREATED', 'bank_accounts', $3, 'POST', '/api/bank-accounts', 201, $4::JSONB)`,
+          [
+            this.context.organizationId(),
+            this.context.userId() ?? null,
+            String(account.id),
+            JSON.stringify({
+              bank_account_id: account.id,
+              bank_name: account.bank_name,
+              account_name: account.account_name,
+              account_number: account.account_number,
+              currency: account.currency,
+              status: account.status,
+              opening_balance: Number(account.opening_balance ?? 0),
+              opening_transaction_id: openingTransactionId,
+            }),
+          ],
+        );
+        return Number(account.id);
+      } catch (error: any) {
+        if (error?.code === '23505') {
+          throw new ConflictException('Un compte bancaire identique existe déjà pour cette organisation et cette devise.');
+        }
+        throw error;
+      }
+    });
+    return this.bankAccount(createdId);
+  }
+
+  async updateBankAccount(id: number, body: Record<string, unknown>) {
+    await this.ensureBankSchema();
+    const current = await this.bankAccount(id);
+    if (body.currency !== undefined || body.opening_balance !== undefined || body.organization_id !== undefined || body.created_by !== undefined || body.created_at !== undefined) {
+      throw new BadRequestException('Les champs devise, solde initial et métadonnées de création ne sont pas modifiables.');
+    }
+    const payload = this.normalizeBankAccountUpdatePayload(body);
+    const keys = Object.keys(payload);
+    if (!keys.length) {
+      throw new BadRequestException('Aucune donnée de mise à jour fournie.');
+    }
+    const statusValue = String(payload.status ?? current.status).toUpperCase();
+    const assignments = keys.map((key, index) => `${key} = $${index + 2}`);
+    const statusParamIndex = keys.length + 2;
+    const idParamIndex = keys.length + 3;
+    assignments.push(`archived_at = CASE WHEN $${statusParamIndex}::VARCHAR(20) = 'ARCHIVED' THEN COALESCE(archived_at, NOW()) ELSE NULL END`);
+    assignments.push('updated_at = NOW()');
+    try {
+      const { rows } = await this.db.query(
+        `UPDATE bank_accounts
+         SET ${assignments.join(', ')}
+         WHERE organization_id = $1
+           AND id = $${idParamIndex}
+           AND deleted_at IS NULL
+         RETURNING *`,
+        [
+          this.context.organizationId(),
+          ...keys.map((key) => (payload as Record<string, unknown>)[key]),
+          statusValue,
+          id,
+        ],
+      );
+      const updated = requireRow(rows[0], 'Bank account');
+      const action = String(updated.status) === 'ARCHIVED' && String(current.status) !== 'ARCHIVED'
+        ? 'BANK_ACCOUNT_ARCHIVED'
+        : 'BANK_ACCOUNT_UPDATED';
+      await this.db.query(
+        `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+         VALUES ($1, $2, $3, 'bank_accounts', $4, 'PATCH', $5, 200, $6::JSONB)`,
+        [
+          this.context.organizationId(),
+          this.context.userId() ?? null,
+          action,
+          String(updated.id),
+          `/api/bank-accounts/${updated.id}`,
+          JSON.stringify({
+            bank_account_id: updated.id,
+            bank_name: updated.bank_name,
+            account_name: updated.account_name,
+            currency: updated.currency,
+            previous: {
+              bank_name: current.bank_name,
+              account_name: current.account_name,
+              account_number: current.account_number,
+              account_type: current.account_type,
+              notes: current.notes,
+              status: current.status,
+            },
+            next: {
+              bank_name: updated.bank_name,
+              account_name: updated.account_name,
+              account_number: updated.account_number,
+              account_type: updated.account_type,
+              notes: updated.notes,
+              status: updated.status,
+            },
+          }),
+        ],
+      );
+      return this.bankAccount(Number(updated.id));
+    } catch (error: any) {
+      if (error?.code === '23505') {
+        throw new ConflictException('Un compte bancaire identique existe déjà pour cette organisation et cette devise.');
+      }
+      throw error;
+    }
+  }
+
+  async bankTransactions(filters: Record<string, unknown> = {}) {
+    await this.ensureBankSchema();
+    const values: unknown[] = [this.context.organizationId()];
+    const clauses = ['bt.organization_id = $1'];
+    if (filters.bank_account_id) {
+      values.push(Number(filters.bank_account_id));
+      clauses.push(`bt.bank_account_id = $${values.length}`);
+    }
+    if (filters.currency) {
+      values.push(String(filters.currency).trim().toUpperCase());
+      clauses.push(`bt.currency = $${values.length}`);
+    }
+    if (filters.direction) {
+      values.push(String(filters.direction).trim().toUpperCase());
+      clauses.push(`bt.direction = $${values.length}`);
+    }
+    if (filters.transaction_type) {
+      values.push(String(filters.transaction_type).trim().toUpperCase());
+      clauses.push(`bt.transaction_type = $${values.length}`);
+    }
+    if (filters.source_module) {
+      values.push(String(filters.source_module).trim().toUpperCase());
+      clauses.push(`UPPER(COALESCE(bt.source_module, '')) = $${values.length}`);
+    }
+    if (filters.status) {
+      values.push(String(filters.status).trim().toUpperCase());
+      clauses.push(`bt.status = $${values.length}`);
+    }
+    if (filters.start) {
+      values.push(this.normalizeLeasePayloadDate(filters.start, 'start'));
+      clauses.push(`bt.transaction_date >= $${values.length}`);
+    }
+    if (filters.end) {
+      values.push(this.normalizeLeasePayloadDate(filters.end, 'end'));
+      clauses.push(`bt.transaction_date <= $${values.length}`);
+    }
+    if (filters.bank_name) {
+      values.push(`%${String(filters.bank_name).trim().toLowerCase()}%`);
+      clauses.push(`LOWER(COALESCE(ba.bank_name, '')) LIKE $${values.length}`);
+    }
+    if (filters.reference) {
+      values.push(`%${String(filters.reference).trim().toLowerCase()}%`);
+      clauses.push(`LOWER(COALESCE(bt.reference, '')) LIKE $${values.length}`);
+    }
+    if (filters.search) {
+      values.push(`%${String(filters.search).trim().toLowerCase()}%`);
+      clauses.push(`(
+        LOWER(COALESCE(bt.transaction_number, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(ba.bank_name, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(ba.account_name, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(bt.reference, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(bt.description, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(bt.counterparty_name, '')) LIKE $${values.length}
+      )`);
+    }
+    const { rows } = await this.db.query(
+      `SELECT bt.*,
+              ba.bank_name,
+              ba.account_name,
+              ba.account_number,
+              ba.account_type,
+              CASE WHEN bt.direction = 'IN' THEN bt.amount ELSE 0 END AS entry_amount,
+              CASE WHEN bt.direction = 'OUT' THEN bt.amount ELSE 0 END AS exit_amount,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name
+       FROM bank_transactions bt
+       JOIN bank_accounts ba ON ba.id = bt.bank_account_id AND ba.organization_id = bt.organization_id
+       LEFT JOIN app_users u ON u.id = bt.created_by
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY bt.transaction_date DESC, bt.id DESC`,
+      values,
+    );
+    return rows;
+  }
+
+  async bankTransaction(id: number) {
+    await this.ensureBankSchema();
+    const { rows } = await this.db.query(
+      `SELECT bt.*,
+              ba.bank_name,
+              ba.account_name,
+              ba.account_number,
+              ba.account_type,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name
+       FROM bank_transactions bt
+       JOIN bank_accounts ba ON ba.id = bt.bank_account_id AND ba.organization_id = bt.organization_id
+       LEFT JOIN app_users u ON u.id = bt.created_by
+       WHERE bt.organization_id = $1
+         AND bt.id = $2`,
+      [this.context.organizationId(), id],
+    );
+    return requireRow(rows[0], 'Bank transaction');
+  }
+
+  private async ensureBankSchema() {
+    if (!(await this.tableExists('bank_accounts')) || !(await this.tableExists('bank_transactions'))) {
+      throw new BadRequestException('Le module Banque n’est pas encore configuré.');
+    }
+  }
+
+  private normalizeBankPeriod(filters: Record<string, unknown>) {
+    const now = new Date();
+    const start = filters.start
+      ? (this.normalizeLeasePayloadDate(filters.start, 'start', true) ?? this.localDateString(new Date(now.getFullYear(), now.getMonth(), 1)))
+      : this.localDateString(new Date(now.getFullYear(), now.getMonth(), 1));
+    const end = filters.end
+      ? (this.normalizeLeasePayloadDate(filters.end, 'end', true) ?? this.localDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0)))
+      : this.localDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+    if (start > end) {
+      throw new BadRequestException('La période bancaire est invalide.');
+    }
+    return { start, end };
+  }
+
+  private normalizeBankAccountCreatePayload(body: Record<string, unknown>) {
+    const bankName = String(body.bank_name ?? '').trim();
+    const accountName = String(body.account_name ?? '').trim();
+    const accountNumber = String(body.account_number ?? '').trim() || null;
+    const accountType = String(body.account_type ?? 'CURRENT').trim().toUpperCase();
+    const currency = String(body.currency ?? '').trim().toUpperCase();
+    const status = String(body.status ?? 'ACTIVE').trim().toUpperCase();
+    const openingBalance = body.opening_balance === '' || body.opening_balance == null ? 0 : Number(body.opening_balance);
+    const openingDate = this.normalizeLeasePayloadDate(body.opening_date ?? this.localDateString(new Date()), 'opening_date', true);
+    if (!bankName) {
+      throw new BadRequestException('Le nom de la banque est obligatoire.');
+    }
+    if (!accountName) {
+      throw new BadRequestException('Le nom du compte est obligatoire.');
+    }
+    if (!['CURRENT', 'SAVINGS', 'ESCROW', 'OTHER'].includes(accountType)) {
+      throw new BadRequestException('Type de compte bancaire invalide.');
+    }
+    if (!['USD', 'CDF'].includes(currency)) {
+      throw new BadRequestException('Devise bancaire invalide.');
+    }
+    if (!['ACTIVE', 'INACTIVE', 'ARCHIVED'].includes(status)) {
+      throw new BadRequestException('Statut de compte bancaire invalide.');
+    }
+    if (!Number.isFinite(openingBalance) || openingBalance < 0) {
+      throw new BadRequestException('Le solde initial doit être supérieur ou égal à zéro.');
+    }
+    return {
+      bank_name: bankName,
+      account_name: accountName,
+      account_number: accountNumber,
+      account_type: accountType,
+      currency,
+      opening_balance: Number(openingBalance.toFixed(2)),
+      opening_date: openingDate,
+      status,
+      notes: String(body.notes ?? '').trim() || null,
+    };
+  }
+
+  private normalizeBankAccountUpdatePayload(body: Record<string, unknown>) {
+    const payload: Record<string, unknown> = {};
+    if (body.bank_name !== undefined) {
+      const bankName = String(body.bank_name ?? '').trim();
+      if (!bankName) throw new BadRequestException('Le nom de la banque est obligatoire.');
+      payload.bank_name = bankName;
+    }
+    if (body.account_name !== undefined) {
+      const accountName = String(body.account_name ?? '').trim();
+      if (!accountName) throw new BadRequestException('Le nom du compte est obligatoire.');
+      payload.account_name = accountName;
+    }
+    if (body.account_number !== undefined) {
+      payload.account_number = String(body.account_number ?? '').trim() || null;
+    }
+    if (body.account_type !== undefined) {
+      const accountType = String(body.account_type ?? '').trim().toUpperCase();
+      if (!['CURRENT', 'SAVINGS', 'ESCROW', 'OTHER'].includes(accountType)) {
+        throw new BadRequestException('Type de compte bancaire invalide.');
+      }
+      payload.account_type = accountType;
+    }
+    if (body.status !== undefined) {
+      const status = String(body.status ?? '').trim().toUpperCase();
+      if (!['ACTIVE', 'INACTIVE', 'ARCHIVED'].includes(status)) {
+        throw new BadRequestException('Statut de compte bancaire invalide.');
+      }
+      payload.status = status;
+    }
+    if (body.notes !== undefined) {
+      payload.notes = String(body.notes ?? '').trim() || null;
+    }
+    return payload;
+  }
+
+  private async nextBankTransactionNumber(client: PoolClient) {
+    const year = new Date().getFullYear();
+    const { rows } = await client.query(
+      `SELECT COALESCE(MAX((SUBSTRING(transaction_number FROM $1))::INT), 0) + 1 AS value
+       FROM bank_transactions
+       WHERE organization_id = $2
+         AND transaction_number LIKE $3`,
+      [`BTR-${year}-([0-9]+)`, this.context.organizationId(), `BTR-${year}-%`],
+    );
+    return `BTR-${year}-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
+  }
+
+  private localDateString(value: Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
   async shareholders(filters: Record<string, unknown> = {}) {
     await this.ensureShareholderSchema();
     const values: unknown[] = [this.context.organizationId()];

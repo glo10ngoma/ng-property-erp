@@ -5,6 +5,9 @@ import { EmailModule } from '../email/email.module';
 import { AutomationsModule } from '../automations/automations.module';
 import {
   CashController,
+  BankAccountsController,
+  BankDashboardController,
+  BankTransactionsController,
   CommunicationsController,
   EmployeeAttendanceController,
   EmployeeContractsController,
@@ -51,6 +54,9 @@ import { SaasService } from './saas.service';
     PayrollsController,
     HrController,
     CashController,
+    BankDashboardController,
+    BankAccountsController,
+    BankTransactionsController,
     GuaranteeCashController,
     ShareholdersController,
     ShareholderPayoutsController,

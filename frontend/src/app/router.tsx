@@ -33,6 +33,7 @@ import { WorkflowsPage } from '../modules/workflows/pages/WorkflowsPage';
 import { PlatformLayout } from '../core/layout/PlatformLayout';
 import { BuildingReport } from '../pages/BuildingReport';
 import { ArchivesPage } from '../pages/ArchivesPage';
+import { BankAccountDetailPage, BankPage } from '../pages/BankPage';
 import { CashDetailPage } from '../pages/CashEnterprise';
 import { GuaranteeCashPage } from '../pages/GuaranteeCashPage';
 import { LeaseDetail } from '../pages/LeaseDetail';
@@ -114,6 +115,8 @@ export function AppRouter() {
           <Route path="/invoices/:id/print" element={guarded('invoices.read', <InvoicePrintPage />)} />
           <Route path="/payments" element={guarded('payments.read', <PaymentsPage />)} />
           <Route path="/payments/:id" element={guarded('payments.read', <PaymentDetail />)} />
+          <Route path="/bank" element={guarded('bank_accounts.read', <BankPage />)} />
+          <Route path="/bank/accounts/:id" element={guarded('bank_accounts.read', <BankAccountDetailPage />)} />
           <Route path="/tenant-credits" element={guarded('payments.read', <TenantCredits />)} />
           <Route path="/tenant-credits/refunds/:id" element={guarded('payments.read', <TenantCreditRefundDetail />)} />
           <Route path="/shareholders" element={guarded('shareholders.read', <ShareholdersPage />)} />

@@ -26,6 +26,8 @@ const routePermissions: Array<[RegExp, string]> = [
   [/^\/api\/activity/, 'activity'],
   [/^\/api\/users/, 'users'],
   [/^\/api\/shareholders/, 'shareholders'],
+  [/^\/api\/bank-accounts/, 'bank_accounts'],
+  [/^\/api\/bank-transactions/, 'bank_transactions'],
   [/^\/api\/buildings/, 'buildings'],
   [/^\/api\/units/, 'units'],
   [/^\/api\/tenants/, 'tenants'],
@@ -110,6 +112,17 @@ export class PermissionsGuard implements CanActivate {
   }
 
   private permissionFor(path: string, method: string) {
+    if (/^\/api\/bank-dashboard/.test(path)) {
+      return 'bank_accounts.read';
+    }
+    if (/^\/api\/bank-transactions/.test(path)) {
+      return 'bank_transactions.read';
+    }
+    if (/^\/api\/bank-accounts/.test(path)) {
+      if (method === 'GET') return 'bank_accounts.read';
+      if (method === 'POST') return 'bank_accounts.create';
+      return 'bank_accounts.update';
+    }
     if (/^\/api\/shareholder-payout-lines\/\d+\/receipt$/.test(path)) {
       return 'shareholder_payouts.receipt';
     }
