@@ -106,6 +106,7 @@ export function BankPage() {
   const [error, setError] = useState('');
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [transactionDetailOpen, setTransactionDetailOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'accounts' | 'transactions'>('accounts');
   const [selectedAccount, setSelectedAccount] = useState<BankAccount | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<BankTransaction | null>(null);
   const [filters, setFilters] = useState({
@@ -304,7 +305,7 @@ export function BankPage() {
               <RefreshCcw size={16} />
               Actualiser
             </button>
-            {can('bank_accounts.create') ? (
+            {activeTab === 'accounts' && can('bank_accounts.create') ? (
               <button type="button" onClick={openCreate}>
                 <Plus size={16} />
                 Nouveau compte bancaire
@@ -324,174 +325,193 @@ export function BankPage() {
         <div className="mini-stat"><span>Sorties de la période</span><strong>{money(dashboard?.totals.period_out_usd ?? 0)} $US</strong><small>{Number(dashboard?.totals.period_out_cdf ?? 0).toLocaleString('fr-FR')} CDF</small></div>
         <div className="mini-stat"><span>Comptes actifs</span><strong>{dashboard?.totals.active_accounts ?? 0}</strong></div>
       </div>
-
-      <div className="bank-toolbar">
-        <div className="bank-toolbar-search">
-          <Search size={16} />
-          <input
-            value={filters.search}
-            onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
-            placeholder="Rechercher une banque, un compte ou une transaction..."
-          />
-        </div>
-        <div className="bank-toolbar-grid">
-          <select value={filters.bank_name} onChange={(event) => setFilters((current) => ({ ...current, bank_name: event.target.value }))}>
-            <option value="">Toutes les banques</option>
-            {bankOptions.map((bankName) => <option key={bankName} value={bankName}>{bankName}</option>)}
-          </select>
-          <select value={filters.currency} onChange={(event) => setFilters((current) => ({ ...current, currency: event.target.value }))}>
-            <option value="">Toutes les devises</option>
-            <option value="USD">USD</option>
-            <option value="CDF">CDF</option>
-          </select>
-          <select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
-            <option value="">Tous les statuts</option>
-            <option value="ACTIVE">Actif</option>
-            <option value="INACTIVE">Inactif</option>
-            <option value="ARCHIVED">Archivé</option>
-          </select>
-          <select value={filters.bank_account_id} onChange={(event) => setFilters((current) => ({ ...current, bank_account_id: event.target.value }))}>
-            <option value="">Tous les comptes</option>
-            {accountOptions.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
-          </select>
-          <input type="date" value={filters.start} onChange={(event) => setFilters((current) => ({ ...current, start: event.target.value }))} />
-          <input type="date" value={filters.end} onChange={(event) => setFilters((current) => ({ ...current, end: event.target.value }))} />
-          <select value={filters.direction} onChange={(event) => setFilters((current) => ({ ...current, direction: event.target.value }))}>
-            <option value="">Toutes les directions</option>
-            <option value="IN">Entrée</option>
-            <option value="OUT">Sortie</option>
-          </select>
-          <select value={filters.transaction_type} onChange={(event) => setFilters((current) => ({ ...current, transaction_type: event.target.value }))}>
-            <option value="">Tous les types</option>
-            <option value="OPENING_BALANCE">Solde initial</option>
-            <option value="MANUAL_ADJUSTMENT">Ajustement manuel</option>
-          </select>
-          <input
-            value={filters.source_module}
-            onChange={(event) => setFilters((current) => ({ ...current, source_module: event.target.value }))}
-            placeholder="Origine"
-          />
-          <input
-            value={filters.reference}
-            onChange={(event) => setFilters((current) => ({ ...current, reference: event.target.value }))}
-            placeholder="Référence"
-          />
-          <div className="bank-toolbar-actions">
-            <button type="button" className="secondary" onClick={resetFilters}>Réinitialiser</button>
-            <button type="button" className="secondary" onClick={() => void load()}>Filtrer</button>
-          </div>
-        </div>
+      <div className="tabs compact-tabs bank-tabs" role="tablist" aria-label="Navigation Banque">
+        <button type="button" role="tab" aria-selected={activeTab === 'accounts'} className={activeTab === 'accounts' ? 'active' : ''} onClick={() => setActiveTab('accounts')}>
+          Comptes bancaires
+        </button>
+        <button type="button" role="tab" aria-selected={activeTab === 'transactions'} className={activeTab === 'transactions' ? 'active' : ''} onClick={() => setActiveTab('transactions')}>
+          Registre bancaire
+        </button>
       </div>
 
-      <div className="detail-section">
-        <h4>Comptes bancaires</h4>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Banque</th>
-                <th>Compte</th>
-                <th>Numéro</th>
-                <th>Devise</th>
-                <th className="right">Solde courant</th>
-                <th>Statut</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {accounts.map((account) => (
-                <tr key={account.id}>
-                  <td>{account.bank_name}</td>
-                  <td>
-                    <div className="bank-account-cell">
-                      <strong>{account.account_name}</strong>
-                      <small>{accountTypeLabel(account.account_type)}</small>
-                    </div>
-                  </td>
-                  <td>{maskAccountNumber(account.account_number)}</td>
-                  <td>{account.currency}</td>
-                  <td className="right">{formatBankMoney(account.current_balance ?? 0, account.currency)}</td>
-                  <td><span className={`badge ${statusBadgeClass(account.status)}`}>{accountStatusLabel(account.status)}</span></td>
-                  <td>
-                    <div className="row-actions">
-                      <button type="button" className="icon-btn" title="Détail" onClick={() => navigate(`/bank/accounts/${account.id}`)}>
-                        <Eye size={16} />
-                      </button>
-                      {can('bank_accounts.update') ? (
-                        <button type="button" className="icon-btn" title="Modifier" onClick={() => openEdit(account)}>
-                          <Pencil size={16} />
-                        </button>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!accounts.length ? <EmptyState title="Aucun compte bancaire" message="Créez le premier compte bancaire pour initialiser le registre." /> : null}
-        </div>
-      </div>
-
-      <div className="detail-section">
-        <h4>Registre bancaire</h4>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Numéro</th>
-                <th>Banque</th>
-                <th>Compte</th>
-                <th>Type</th>
-                <th>Origine</th>
-                <th>Payeur / bénéficiaire</th>
-                <th className="right">Entrée</th>
-                <th className="right">Sortie</th>
-                <th>Devise</th>
-                <th>Référence</th>
-                <th>Statut</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pagedTransactions.map((transaction) => (
-                <tr key={transaction.id}>
-                  <td>{shortDate(transaction.transaction_date)}</td>
-                  <td>{transaction.transaction_number}</td>
-                  <td>{transaction.bank_name || '-'}</td>
-                  <td>{transaction.account_name || '-'}</td>
-                  <td>{transactionTypeLabel(transaction.transaction_type)}</td>
-                  <td>{transaction.source_module || '-'}</td>
-                  <td>{transaction.counterparty_name || '-'}</td>
-                  <td className="right">{transaction.direction === 'IN' ? formatBankMoney(transaction.amount, transaction.currency) : ''}</td>
-                  <td className="right">{transaction.direction === 'OUT' ? formatBankMoney(transaction.amount, transaction.currency) : ''}</td>
-                  <td>{transaction.currency}</td>
-                  <td>{transaction.reference || '-'}</td>
-                  <td><span className={`badge ${transaction.status === 'VALIDATED' ? 'paid' : 'draft'}`}>{transaction.status}</span></td>
-                  <td>
-                    <div className="row-actions">
-                      <button type="button" className="icon-btn" title="Voir la transaction" onClick={() => void openTransactionDetail(transaction.id)}>
-                        <Eye size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!transactions.length ? <EmptyState title="Aucune transaction bancaire" message="Le registre affichera les soldes initiaux et les écritures automatiques des phases suivantes." /> : null}
-        </div>
-        {transactions.length ? (
-          <div className="tenant-credit-pagination bank-pagination">
-            <div className="tenant-credit-pagination-controls">
-              <button type="button" className="icon-btn" onClick={() => setTransactionsPage((current) => Math.max(current - 1, 1))} disabled={transactionsPage === 1}>‹</button>
-              <strong>Page {transactionsPage} / {totalTransactionPages}</strong>
-              <button type="button" className="icon-btn" onClick={() => setTransactionsPage((current) => Math.min(current + 1, totalTransactionPages))} disabled={transactionsPage >= totalTransactionPages}>›</button>
+      {activeTab === 'accounts' ? (
+        <>
+          <div className="bank-toolbar">
+            <div className="bank-toolbar-search">
+              <Search size={16} />
+              <input value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Rechercher une banque, un compte ou une transaction..." />
+            </div>
+            <div className="bank-toolbar-grid bank-toolbar-grid-accounts">
+              <select value={filters.bank_name} onChange={(event) => setFilters((current) => ({ ...current, bank_name: event.target.value }))}>
+                <option value="">Toutes les banques</option>
+                {bankOptions.map((bankName) => <option key={bankName} value={bankName}>{bankName}</option>)}
+              </select>
+              <select value={filters.currency} onChange={(event) => setFilters((current) => ({ ...current, currency: event.target.value }))}>
+                <option value="">Toutes les devises</option>
+                <option value="USD">USD</option>
+                <option value="CDF">CDF</option>
+              </select>
+              <select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
+                <option value="">Tous les statuts</option>
+                <option value="ACTIVE">Actif</option>
+                <option value="INACTIVE">Inactif</option>
+                <option value="ARCHIVED">Archivé</option>
+              </select>
+              <div className="bank-toolbar-actions">
+                <button type="button" className="secondary" onClick={resetFilters}>Réinitialiser</button>
+                <button type="button" className="secondary" onClick={() => void load()}>Filtrer</button>
+              </div>
             </div>
           </div>
-        ) : null}
-      </div>
 
+          <div className="detail-section">
+            <h4>Comptes bancaires</h4>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Banque</th>
+                    <th>Compte</th>
+                    <th>Numéro</th>
+                    <th>Devise</th>
+                    <th className="right">Solde courant</th>
+                    <th>Statut</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accounts.map((account) => (
+                    <tr key={account.id}>
+                      <td>{account.bank_name}</td>
+                      <td>
+                        <div className="bank-account-cell">
+                          <strong>{account.account_name}</strong>
+                          <small>{accountTypeLabel(account.account_type)}</small>
+                        </div>
+                      </td>
+                      <td>{maskAccountNumber(account.account_number)}</td>
+                      <td>{account.currency}</td>
+                      <td className="right">{formatBankMoney(account.current_balance ?? 0, account.currency)}</td>
+                      <td><span className={`badge ${statusBadgeClass(account.status)}`}>{accountStatusLabel(account.status)}</span></td>
+                      <td>
+                        <div className="row-actions">
+                          <button type="button" className="icon-btn" title="Détail" onClick={() => navigate(`/bank/accounts/${account.id}`)}>
+                            <Eye size={16} />
+                          </button>
+                          {can('bank_accounts.update') ? (
+                            <button type="button" className="icon-btn" title="Modifier" onClick={() => openEdit(account)}>
+                              <Pencil size={16} />
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!accounts.length ? <EmptyState title="Aucun compte bancaire" message="Créez le premier compte bancaire pour initialiser le registre." /> : null}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="bank-toolbar">
+            <div className="bank-toolbar-search bank-toolbar-search-transaction">
+              <Search size={16} />
+              <input value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Rechercher une banque, un compte ou une transaction..." />
+            </div>
+            <div className="bank-toolbar-grid bank-toolbar-grid-transactions">
+              <select value={filters.bank_account_id} onChange={(event) => setFilters((current) => ({ ...current, bank_account_id: event.target.value }))}>
+                <option value="">Tous les comptes</option>
+                {accountOptions.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
+              </select>
+              <input type="date" value={filters.start} onChange={(event) => setFilters((current) => ({ ...current, start: event.target.value }))} />
+              <input type="date" value={filters.end} onChange={(event) => setFilters((current) => ({ ...current, end: event.target.value }))} />
+              <select value={filters.currency} onChange={(event) => setFilters((current) => ({ ...current, currency: event.target.value }))}>
+                <option value="">Toutes les devises</option>
+                <option value="USD">USD</option>
+                <option value="CDF">CDF</option>
+              </select>
+              <select value={filters.direction} onChange={(event) => setFilters((current) => ({ ...current, direction: event.target.value }))}>
+                <option value="">Toutes les directions</option>
+                <option value="IN">Entrée</option>
+                <option value="OUT">Sortie</option>
+              </select>
+              <select value={filters.transaction_type} onChange={(event) => setFilters((current) => ({ ...current, transaction_type: event.target.value }))}>
+                <option value="">Tous les types</option>
+                <option value="OPENING_BALANCE">Solde initial</option>
+                <option value="MANUAL_ADJUSTMENT">Ajustement manuel</option>
+              </select>
+              <input value={filters.source_module} onChange={(event) => setFilters((current) => ({ ...current, source_module: event.target.value }))} placeholder="Origine" />
+              <input value={filters.reference} onChange={(event) => setFilters((current) => ({ ...current, reference: event.target.value }))} placeholder="Référence" />
+              <div className="bank-toolbar-actions">
+                <button type="button" className="secondary" onClick={resetFilters}>Réinitialiser</button>
+                <button type="button" className="secondary" onClick={() => void load()}>Filtrer</button>
+              </div>
+            </div>
+          </div>
+
+          <div className="detail-section">
+            <h4>Registre bancaire</h4>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Numéro</th>
+                    <th>Banque</th>
+                    <th>Compte</th>
+                    <th>Type</th>
+                    <th>Origine</th>
+                    <th>Payeur / bénéficiaire</th>
+                    <th className="right">Entrée</th>
+                    <th className="right">Sortie</th>
+                    <th>Devise</th>
+                    <th>Référence</th>
+                    <th>Statut</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedTransactions.map((transaction) => (
+                    <tr key={transaction.id}>
+                      <td>{shortDate(transaction.transaction_date)}</td>
+                      <td>{transaction.transaction_number}</td>
+                      <td>{transaction.bank_name || '-'}</td>
+                      <td>{transaction.account_name || '-'}</td>
+                      <td>{transactionTypeLabel(transaction.transaction_type)}</td>
+                      <td>{transaction.source_module || '-'}</td>
+                      <td>{transaction.counterparty_name || '-'}</td>
+                      <td className="right">{transaction.direction === 'IN' ? formatBankMoney(transaction.amount, transaction.currency) : ''}</td>
+                      <td className="right">{transaction.direction === 'OUT' ? formatBankMoney(transaction.amount, transaction.currency) : ''}</td>
+                      <td>{transaction.currency}</td>
+                      <td>{transaction.reference || '-'}</td>
+                      <td><span className={`badge ${transaction.status === 'VALIDATED' ? 'paid' : 'draft'}`}>{transaction.status}</span></td>
+                      <td>
+                        <div className="row-actions">
+                          <button type="button" className="icon-btn" title="Voir la transaction" onClick={() => void openTransactionDetail(transaction.id)}>
+                            <Eye size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!transactions.length ? <EmptyState title="Aucune transaction bancaire" message="Le registre affichera les soldes initiaux et les écritures automatiques des phases suivantes." /> : null}
+            </div>
+            {transactions.length ? (
+              <div className="tenant-credit-pagination bank-pagination">
+                <div className="tenant-credit-pagination-controls">
+                  <button type="button" className="icon-btn" onClick={() => setTransactionsPage((current) => Math.max(current - 1, 1))} disabled={transactionsPage === 1}>‹</button>
+                  <strong>Page {transactionsPage} / {totalTransactionPages}</strong>
+                  <button type="button" className="icon-btn" onClick={() => setTransactionsPage((current) => Math.min(current + 1, totalTransactionPages))} disabled={transactionsPage >= totalTransactionPages}>›</button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </>
+      )}
       {accountModalOpen ? (
         <Modal title={selectedAccount ? 'Modifier le compte bancaire' : 'Nouveau compte bancaire'} onClose={() => setAccountModalOpen(false)} className="bank-account-modal">
           <form className="bank-account-form" onSubmit={(event) => void submitAccount(event)}>
