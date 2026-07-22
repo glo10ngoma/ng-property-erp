@@ -388,6 +388,9 @@ export class PaymentsService {
       const bankAccount = paymentMethod === 'BANK'
         ? await this.validateBankAccountForPayment(client, dto.bank_account_id, paymentCurrency)
         : null;
+      const bankRentPaymentType = paymentMethod === 'BANK'
+        ? await this.bankRentPaymentType(client)
+        : 'MANUAL_ADJUSTMENT';
       if (paymentCurrency === 'CDF' && !rateUsed) {
         throw new BadRequestException('Aucun taux de change n\'est configure. Veuillez definir le taux dans Parametres.');
       }
@@ -476,6 +479,7 @@ export class PaymentsService {
           receiptNumber,
           reference: dto.reference ?? null,
           createdBy: this.context.userId() ?? null,
+          transactionType: bankRentPaymentType,
         });
       }
       await this.invoices.refreshStatus(client, primaryInvoiceId);
@@ -569,6 +573,7 @@ export class PaymentsService {
       receiptNumber: string;
       reference?: string | null;
       createdBy: number | null;
+      transactionType: string;
     },
   ) {
     const transactionNumber = await this.nextBankTransactionNumber(client);
@@ -582,13 +587,14 @@ export class PaymentsService {
          reference, description, counterparty_name, source_module, source_entity_type, source_entity_id, status, reversal_of_id,
          idempotency_key, created_by)
        VALUES
-        ($1, $2, $3, CURRENT_DATE, 'IN', 'RENT_PAYMENT', $4, $5,
-         $6, $7, $8, 'PAYMENTS', 'PAYMENT', $9, 'VALIDATED', NULL,
-         $10, $11)`,
+        ($1, $2, $3, CURRENT_DATE, 'IN', $4, $5, $6,
+         $7, $8, $9, 'PAYMENTS', 'PAYMENT', $10, 'VALIDATED', NULL,
+         $11, $12)`,
       [
         this.context.organizationId(),
         payload.bankAccount.id,
         transactionNumber,
+        payload.transactionType,
         amount,
         String(payload.currency).toUpperCase(),
         String(payload.reference ?? '').trim() || payload.receiptNumber,
@@ -623,6 +629,22 @@ export class PaymentsService {
     );
     const invoice = requireRow(rows[0], 'Invoice');
     return invoice;
+  }
+
+  private async bankRentPaymentType(client: import('pg').PoolClient) {
+    const { rows } = await client.query(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM pg_constraint c
+         JOIN pg_class t ON t.oid = c.conrelid
+         JOIN pg_namespace n ON n.oid = t.relnamespace
+         WHERE n.nspname = 'public'
+           AND t.relname = 'bank_transactions'
+           AND c.contype = 'c'
+           AND pg_get_constraintdef(c.oid) ILIKE '%RENT_PAYMENT%'
+       ) AS supported`,
+    );
+    return rows[0]?.supported ? 'RENT_PAYMENT' : 'MANUAL_ADJUSTMENT';
   }
 
   private async currentExchangeRate() {

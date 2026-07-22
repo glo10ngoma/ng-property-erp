@@ -486,7 +486,7 @@ export function BankPage() {
                       <td>{transaction.transaction_number}</td>
                       <td>{transaction.bank_name || '-'}</td>
                       <td>{transaction.account_name || '-'}</td>
-                      <td>{transactionTypeLabel(transaction.transaction_type)}</td>
+                      <td>{transactionTypeLabel(transaction.transaction_type, transaction.source_module, transaction.source_entity_type)}</td>
                       <td>{transaction.source_module || '-'}</td>
                       <td>{transaction.counterparty_name || '-'}</td>
                       <td className="right">{transaction.direction === 'IN' ? formatBankMoney(transaction.amount, transaction.currency) : ''}</td>
@@ -721,7 +721,7 @@ export function BankAccountDetailPage() {
                 <tr key={transaction.id}>
                   <td>{shortDate(transaction.transaction_date)}</td>
                   <td>{transaction.transaction_number}</td>
-                  <td>{transactionTypeLabel(transaction.transaction_type)}</td>
+                  <td>{transactionTypeLabel(transaction.transaction_type, transaction.source_module, transaction.source_entity_type)}</td>
                   <td>{transaction.source_module || '-'}</td>
                   <td>{transaction.reference || '-'}</td>
                   <td className="right">{transaction.direction === 'IN' ? formatBankMoney(transaction.amount, transaction.currency) : ''}</td>
@@ -768,7 +768,7 @@ function TransactionDetailDrawer({ transaction, onClose, navigate }: { transacti
             <div className="summary-item"><span>Banque</span><strong>{transaction.bank_name || '-'}</strong></div>
             <div className="summary-item"><span>Compte</span><strong>{transaction.account_name || '-'}</strong></div>
             <div className="summary-item"><span>Direction</span><strong>{transaction.direction === 'IN' ? 'Entrée' : 'Sortie'}</strong></div>
-            <div className="summary-item"><span>Type</span><strong>{transactionTypeLabel(transaction.transaction_type)}</strong></div>
+            <div className="summary-item"><span>Type</span><strong>{transactionTypeLabel(transaction.transaction_type, transaction.source_module, transaction.source_entity_type)}</strong></div>
             <div className="summary-item"><span>Montant</span><strong>{formatBankMoney(transaction.amount, transaction.currency)}</strong></div>
             <div className="summary-item"><span>Devise</span><strong>{transaction.currency}</strong></div>
             <div className="summary-item"><span>Statut</span><strong>{transaction.status}</strong></div>
@@ -846,7 +846,10 @@ function accountStatusLabel(value?: string | null) {
   }
 }
 
-function transactionTypeLabel(value?: string | null) {
+function transactionTypeLabel(value?: string | null, sourceModule?: string | null, sourceEntityType?: string | null) {
+  if (String(sourceModule ?? '').toUpperCase() === 'PAYMENTS' && String(sourceEntityType ?? '').toUpperCase() === 'PAYMENT') {
+    return 'Paiement de loyer';
+  }
   switch (String(value ?? '').toUpperCase()) {
     case 'OPENING_BALANCE':
       return 'Solde initial';
