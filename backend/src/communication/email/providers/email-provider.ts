@@ -4,9 +4,15 @@ export type EmailProviderSendInput = {
   fromName?: string | null;
   replyTo?: string | null;
   to: string;
+  cc?: string[] | null;
   subject: string;
   html: string;
   text?: string | null;
+  attachments?: Array<{
+    filename: string;
+    content: string;
+    contentType: string;
+  }> | null;
 };
 
 export type EmailProviderSendResult = {

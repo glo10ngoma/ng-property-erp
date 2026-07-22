@@ -1,5 +1,6 @@
 export { PageHeader } from './core/layout/PageHeader';
 export { Modal } from './core/components/Modal';
+export { DocumentEmailModal } from './core/components/DocumentEmailModal';
 export { StatusBadge } from './core/components/StatusBadge';
 export { EmptyState } from './core/components/EmptyState';
 export { LoadingState } from './core/components/LoadingState';

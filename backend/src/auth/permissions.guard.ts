@@ -196,6 +196,7 @@ export class PermissionsGuard implements CanActivate {
       if (path.includes('/email/logs')) return 'communication.logs';
       if (path.includes('/email/test-connection') || path.includes('/email/send-test')) return 'communication.test';
       if (path.includes('/email/settings')) return method === 'GET' ? 'communication.read' : 'communication.update';
+      if (path.includes('/send-document')) return 'communication.send';
       if (method === 'GET') return path.includes('logs') ? 'communication.logs.read' : 'communication.read';
       if (path.includes('/send-')) return 'communication.send';
       if (path.includes('/templates') && method === 'POST') return 'communication.template.create';

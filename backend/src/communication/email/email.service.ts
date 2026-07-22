@@ -4,6 +4,9 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { RequestContext } from '../../auth/request-context';
 import { DatabaseService } from '../../database/database.service';
+import { DocumentDeliveryTrigger } from '../shared/enums/document-delivery-trigger.enum';
+import { DocumentType } from '../shared/enums/document-type.enum';
+import { ResolvedDocument } from '../document-resolver.service';
 import { CommunicationChannel } from '../shared/enums/communication-channel.enum';
 import { CommunicationLog } from '../shared/interfaces/communication-log.interface';
 import { SendTestEmailDto } from './dto/send-test-email.dto';
@@ -21,6 +24,9 @@ type EmailSettingsRow = {
   reply_to: string | null;
   api_key_encrypted: string | null;
   enabled: boolean;
+  auto_send_invoice: boolean;
+  auto_send_payment_receipt: boolean;
+  auto_send_tenant_credit_receipt: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -32,6 +38,9 @@ type EmailSettingsSummary = {
   replyTo: string;
   enabled: boolean;
   hasApiKey: boolean;
+  autoSendInvoice: boolean;
+  autoSendPaymentReceipt: boolean;
+  autoSendTenantCreditReceipt: boolean;
   updatedAt: string | null;
 };
 
@@ -71,9 +80,12 @@ export class EmailService {
         reply_to,
         api_key_encrypted,
         enabled,
+        auto_send_invoice,
+        auto_send_payment_receipt,
+        auto_send_tenant_credit_receipt,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
       ON CONFLICT (organization_id)
       DO UPDATE SET
         provider = EXCLUDED.provider,
@@ -82,6 +94,9 @@ export class EmailService {
         reply_to = EXCLUDED.reply_to,
         api_key_encrypted = EXCLUDED.api_key_encrypted,
         enabled = EXCLUDED.enabled,
+        auto_send_invoice = EXCLUDED.auto_send_invoice,
+        auto_send_payment_receipt = EXCLUDED.auto_send_payment_receipt,
+        auto_send_tenant_credit_receipt = EXCLUDED.auto_send_tenant_credit_receipt,
         updated_at = NOW()
       RETURNING *
     `;
@@ -94,6 +109,9 @@ export class EmailService {
       dto.reply_to ?? null,
       apiKeyEncrypted,
       dto.enabled,
+      dto.auto_send_invoice ?? false,
+      dto.auto_send_payment_receipt ?? false,
+      dto.auto_send_tenant_credit_receipt ?? false,
     ]);
 
     return this.toSettingsSummary(result.rows[0] ?? null);
@@ -171,6 +189,197 @@ export class EmailService {
     }
   }
 
+  async sendResolvedDocumentEmail(args: {
+    to: string;
+    cc?: string;
+    subject?: string;
+    message: string;
+    document: ResolvedDocument;
+  }) {
+    const organizationId = this.context.organizationId();
+    const settings = await this.getValidatedSettingsForSending(organizationId, true);
+    const recipient = String(args.to ?? args.document.recipientFallback ?? '').trim();
+    if (!recipient) {
+      throw new BadRequestException("L'adresse email du destinataire est obligatoire.");
+    }
+    if (!this.isEmail(recipient)) {
+      throw new BadRequestException("L'adresse email du destinataire est invalide.");
+    }
+
+    const cc = this.parseCc(args.cc);
+    const [baseTemplate, bodyTemplate, organizationName] = await Promise.all([
+      this.readTemplate('base.html'),
+      this.readTemplate(args.document.templateName),
+      this.resolveOrganizationName(organizationId),
+    ]);
+
+    if (!args.document.pdfBuffer?.byteLength) {
+      throw new BadRequestException('Le PDF demandé est indisponible.');
+    }
+
+    const bodyHtml = this.renderTemplate(bodyTemplate, {
+      ...args.document.templateVariables,
+      organization_name: organizationName,
+    });
+    const finalSubject = args.subject?.trim() || args.document.subjectFallback;
+    const html = this.renderTemplate(baseTemplate, {
+      title: finalSubject,
+      body: bodyHtml,
+    });
+    const text = this.htmlToText(args.message || '');
+
+    let logId: number | null = null;
+    try {
+      logId = await this.insertPendingLog({
+        organizationId,
+        provider: settings.provider,
+        recipient,
+        subject: finalSubject,
+      });
+      const sent = await this.provider.send({
+        apiKey: settings.apiKey,
+        fromEmail: settings.fromEmail,
+        fromName: settings.fromName,
+        replyTo: settings.replyTo,
+        to: recipient,
+        cc,
+        subject: finalSubject,
+        html,
+        text,
+        attachments: [{
+          filename: args.document.attachmentFileName,
+          content: args.document.pdfBuffer.toString('base64'),
+          contentType: 'application/pdf',
+        }],
+      });
+
+      if (logId) {
+        await this.finalizeLog(logId, 'SENT', sent.externalMessageId, null);
+      }
+
+      return {
+        success: true,
+        recipient,
+        cc,
+        provider: sent.provider,
+        externalMessageId: sent.externalMessageId,
+        attachment_file_name: args.document.attachmentFileName,
+        logId,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erreur inconnue';
+      if (logId) {
+        await this.finalizeLog(logId, 'FAILED', null, message);
+      }
+      throw error;
+    }
+  }
+
+  async sendDocumentEmail(args: {
+    to?: string;
+    cc?: string;
+    subject?: string;
+    message: string;
+    document: ResolvedDocument;
+    documentType: DocumentType;
+    documentId: number;
+    trigger?: DocumentDeliveryTrigger;
+    idempotencyKey?: string | null;
+  }) {
+    const organizationId = this.context.organizationId();
+    const settings = await this.getValidatedSettingsForSending(organizationId, true);
+    const trigger = args.trigger ?? DocumentDeliveryTrigger.MANUAL;
+    const recipient = String(args.to ?? args.document.recipientFallback ?? '').trim();
+    const subject = args.subject?.trim() || args.document.subjectFallback;
+    const cc = this.parseCc(args.cc);
+
+    if (!args.document.pdfBuffer?.byteLength) {
+      throw new BadRequestException('Le PDF demandé est indisponible.');
+    }
+    if (!recipient) {
+      throw new BadRequestException("L'adresse email du destinataire est obligatoire.");
+    }
+    if (!this.isEmail(recipient)) {
+      throw new BadRequestException("L'adresse email du destinataire est invalide.");
+    }
+
+    const [baseTemplate, bodyTemplate, organizationName] = await Promise.all([
+      this.readTemplate('base.html'),
+      this.readTemplate(args.document.templateName),
+      this.resolveOrganizationName(organizationId),
+    ]);
+
+    const bodyHtml = this.renderTemplate(bodyTemplate, {
+      ...args.document.templateVariables,
+      organization_name: organizationName,
+    });
+    const html = this.renderTemplate(baseTemplate, {
+      title: subject,
+      body: bodyHtml,
+    });
+    const text = this.htmlToText(args.message || '');
+
+    const logId = await this.insertDocumentLog({
+      organizationId,
+      provider: settings.provider,
+      recipient,
+      subject,
+      documentType: args.documentType,
+      documentId: args.documentId,
+      trigger,
+      idempotencyKey: args.idempotencyKey ?? null,
+      status: 'PENDING',
+    });
+
+    if (!logId) {
+      return {
+        success: true,
+        recipient,
+        cc,
+        provider: settings.provider,
+        externalMessageId: null,
+        attachment_file_name: args.document.attachmentFileName,
+        logId: null,
+        skipped: true,
+        duplicated: true,
+      };
+    }
+
+    try {
+      const sent = await this.provider.send({
+        apiKey: settings.apiKey,
+        fromEmail: settings.fromEmail,
+        fromName: settings.fromName,
+        replyTo: settings.replyTo,
+        to: recipient,
+        cc,
+        subject,
+        html,
+        text,
+        attachments: [{
+          filename: args.document.attachmentFileName,
+          content: args.document.pdfBuffer.toString('base64'),
+          contentType: 'application/pdf',
+        }],
+      });
+
+      await this.finalizeLog(logId, 'SENT', sent.externalMessageId, null);
+      return {
+        success: true,
+        recipient,
+        cc,
+        provider: sent.provider,
+        externalMessageId: sent.externalMessageId,
+        attachment_file_name: args.document.attachmentFileName,
+        logId,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erreur inconnue';
+      await this.finalizeLog(logId, 'FAILED', null, message);
+      throw error;
+    }
+  }
+
   async listLogs(limit = 20) {
     const normalizedLimit = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 20;
     const result = await this.db.query<CommunicationLog>(
@@ -183,6 +392,10 @@ export class EmailService {
           recipient,
           subject,
           status,
+          document_type,
+          document_id,
+          delivery_trigger,
+          idempotency_key,
           external_message_id,
           error,
           created_at
@@ -209,6 +422,9 @@ export class EmailService {
           reply_to,
           api_key_encrypted,
           enabled,
+          auto_send_invoice,
+          auto_send_payment_receipt,
+          auto_send_tenant_credit_receipt,
           created_at,
           updated_at
         FROM communication_settings
@@ -227,6 +443,9 @@ export class EmailService {
       replyTo: row?.reply_to ?? '',
       enabled: row?.enabled ?? false,
       hasApiKey: Boolean(row?.api_key_encrypted),
+      autoSendInvoice: Boolean(row?.auto_send_invoice ?? false),
+      autoSendPaymentReceipt: Boolean(row?.auto_send_payment_receipt ?? false),
+      autoSendTenantCreditReceipt: Boolean(row?.auto_send_tenant_credit_receipt ?? false),
       updatedAt: row?.updated_at ?? null,
     };
   }
@@ -297,6 +516,33 @@ export class EmailService {
     return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key: string) => variables[key] ?? '');
   }
 
+  private parseCc(value?: string) {
+    const parts = String(value ?? '')
+      .split(/[;,]/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    for (const email of parts) {
+      if (!this.isEmail(email)) {
+        throw new BadRequestException(`Adresse CC invalide: ${email}`);
+      }
+    }
+    return parts;
+  }
+
+  private isEmail(value: string) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? '').trim());
+  }
+
+  private htmlToText(value: string) {
+    return this.normalizeMessage(value)
+      .replace(/\r\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n');
+  }
+
+  private normalizeMessage(value: string) {
+    return String(value ?? '').trim() || 'Veuillez trouver ci-joint votre document.';
+  }
+
   private async insertPendingLog({
     organizationId,
     provider,
@@ -323,6 +569,83 @@ export class EmailService {
         RETURNING id
       `,
       [organizationId, CommunicationChannel.EMAIL, provider, recipient, subject],
+    );
+    return result.rows[0]?.id ?? null;
+  }
+
+  async hasDocumentLogByIdempotencyKey(idempotencyKey: string) {
+    const result = await this.db.query<{ id: number }>(
+      `
+        SELECT id
+        FROM communication_logs
+        WHERE organization_id = $1
+          AND channel = $2
+          AND idempotency_key = $3
+        LIMIT 1
+      `,
+      [this.context.organizationId(), CommunicationChannel.EMAIL, idempotencyKey],
+    );
+    return Boolean(result.rows[0]);
+  }
+
+  async insertDocumentLog({
+    organizationId,
+    provider,
+    recipient,
+    subject,
+    documentType,
+    documentId,
+    trigger,
+    idempotencyKey,
+    status,
+    error,
+  }: {
+    organizationId: number;
+    provider: string;
+    recipient: string;
+    subject: string;
+    documentType?: DocumentType | null;
+    documentId?: number | null;
+    trigger?: DocumentDeliveryTrigger;
+    idempotencyKey?: string | null;
+    status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
+    error?: string | null;
+  }) {
+    const result = await this.db.query<{ id: number }>(
+      `
+        INSERT INTO communication_logs (
+          organization_id,
+          channel,
+          provider,
+          recipient,
+          subject,
+          status,
+          document_type,
+          document_id,
+          delivery_trigger,
+          idempotency_key,
+          error,
+          created_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+        ON CONFLICT (organization_id, channel, idempotency_key)
+        WHERE idempotency_key IS NOT NULL
+        DO NOTHING
+        RETURNING id
+      `,
+      [
+        organizationId,
+        CommunicationChannel.EMAIL,
+        provider,
+        recipient,
+        subject,
+        status,
+        documentType ?? null,
+        documentId ?? null,
+        trigger ?? DocumentDeliveryTrigger.MANUAL,
+        idempotencyKey ?? null,
+        error ?? null,
+      ],
     );
     return result.rows[0]?.id ?? null;
   }

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, money, paymentMethodLabel, shortDate } from '../api';
 import { useAuth } from '../auth';
-import { Modal, SuccessMessage } from '../components';
+import { DocumentEmailModal, Modal, SuccessMessage } from '../components';
 import { formatLeaseReference } from '../utils/lease-reference';
 
 type PaymentDetailData = {
@@ -77,6 +77,9 @@ export function PaymentDetail() {
   const [payment, setPayment] = useState<PaymentDetailData | null>(null);
   const [success, setSuccess] = useState('');
   const [editOpen, setEditOpen] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailError, setEmailError] = useState('');
 
   const load = async () => {
     if (!id) return;
@@ -164,6 +167,28 @@ export function PaymentDetail() {
     navigate('/payments');
   }
 
+  async function sendDocumentEmail(payload: { recipient: string; cc: string; subject: string; message: string }) {
+    if (!payment) return;
+    setEmailSending(true);
+    setEmailError('');
+    try {
+      await api.post('/communications/send-document', {
+        documentType: 'PAYMENT_RECEIPT',
+        documentId: payment.id,
+        to: payload.recipient,
+        cc: payload.cc,
+        subject: payload.subject,
+        message: payload.message,
+      });
+      setEmailOpen(false);
+      setSuccess('Reçu envoyé par email avec succès.');
+    } catch (error: any) {
+      setEmailError(String(error?.response?.data?.message ?? error?.message ?? 'Impossible d’envoyer le reçu.'));
+    } finally {
+      setEmailSending(false);
+    }
+  }
+
   if (!payment) return <div className="empty">Chargement du paiement...</div>;
 
   return (
@@ -175,6 +200,7 @@ export function PaymentDetail() {
           {can('payments.update') && !isGuaranteeReceipt && !isTenantCreditReceipt && <button onClick={() => setEditOpen(true)}><Pencil size={16} />Modifier</button>}
           <button onClick={() => window.print()}><Printer size={16} />Imprimer reçu</button>
           <button className="secondary" onClick={() => window.print()}><FileSpreadsheet size={16} />PDF</button>
+          {can('communication.send') && <button className="secondary" onClick={() => setEmailOpen(true)}><Mail size={16} />Envoyer le reçu</button>}
           {can('communication.send') && <button className="secondary" onClick={() => send('WHATSAPP')}><MessageCircle size={16} />WhatsApp</button>}
           {can('communication.send') && <button className="secondary" onClick={() => send('EMAIL')}><Mail size={16} />Email</button>}
           {can('communication.send') && <button className="secondary" onClick={() => send('SMS')}><Smartphone size={16} />SMS</button>}
@@ -254,6 +280,22 @@ export function PaymentDetail() {
         {payment.notes && <p className="thanks">{payment.notes}</p>}
         <p className="thanks">Merci pour votre confiance.</p>
       </article>
+
+      <DocumentEmailModal
+        title="Envoyer le reçu par email"
+        open={emailOpen}
+        defaultRecipient={payment.tenant_email ?? ''}
+        defaultSubject="Votre reçu de paiement"
+        defaultMessage={`Bonjour ${payment.tenant_name ?? ''},\n\nVeuillez trouver ci-joint votre reçu de paiement.\n\nCordialement.`}
+        attachmentName={payment.receipt_number ? `Recu_${payment.receipt_number}.pdf` : 'Recu.pdf'}
+        sending={emailSending}
+        error={emailError}
+        onClose={() => {
+          setEmailOpen(false);
+          setEmailError('');
+        }}
+        onSubmit={sendDocumentEmail}
+      />
 
       <div className="invoice-accordion-grid no-print">
         <details open={false}><summary>Informations generales</summary><SimpleBlock rows={generalRows(payment)} /></details>

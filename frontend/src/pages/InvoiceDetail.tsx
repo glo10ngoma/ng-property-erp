@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, invoiceDisplayStatus, itemLabel, money, paymentMethodLabel, shortDate } from '../api';
 import { useAuth } from '../auth';
-import { Modal, SuccessMessage } from '../components';
+import { DocumentEmailModal, Modal, SuccessMessage } from '../components';
 import { openOrDownloadDocument } from '../core/utils/documentActions';
 import { formatLeaseReference } from '../utils/lease-reference';
 
@@ -97,6 +97,9 @@ export function InvoiceDetail() {
   const [editInternalNotes, setEditInternalNotes] = useState('');
   const [editAttachmentName, setEditAttachmentName] = useState('');
   const [success, setSuccess] = useState('');
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailError, setEmailError] = useState('');
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [companySettings, setCompanySettings] = useState<CompanySettingsHeader | null>(null);
   const [paymentCurrency, setPaymentCurrency] = useState<'USD' | 'CDF' | 'MIXED'>('USD');
@@ -363,6 +366,28 @@ export function InvoiceDetail() {
     }
   }
 
+  async function sendInvoiceDocument(payload: { recipient: string; cc: string; subject: string; message: string }) {
+    if (!invoice) return;
+    setEmailSending(true);
+    setEmailError('');
+    try {
+      await api.post('/communications/send-document', {
+        documentType: 'INVOICE',
+        documentId: invoice.id,
+        to: payload.recipient,
+        cc: payload.cc,
+        subject: payload.subject,
+        message: payload.message,
+      });
+      setEmailOpen(false);
+      setSuccess('Facture envoyée par email avec succès.');
+    } catch (err) {
+      setEmailError(apiErrorMessage(err));
+    } finally {
+      setEmailSending(false);
+    }
+  }
+
   return (
     <section>
       <div className="page-header no-print">
@@ -371,6 +396,7 @@ export function InvoiceDetail() {
           <button className="secondary" onClick={() => navigate('/invoices')}><ArrowLeft size={16} />Retour</button>
           {can('invoices.update') && <button onClick={openEdit}><Pencil size={16} />Modifier</button>}
           <button onClick={printInvoice}><Printer size={16} />Imprimer</button>
+          {can('communication.send') && <button className="secondary" onClick={() => setEmailOpen(true)}><Mail size={16} />Envoyer par email</button>}
           {canPrintReceipt && receiptPayments.length === 1 && (
             <button className="secondary" onClick={() => navigate(`/payments/${receiptPayments[0].id}`)}><Printer size={16} />Imprimer le reçu</button>
           )}
@@ -393,6 +419,22 @@ export function InvoiceDetail() {
       </div>
 
       <div className="no-print"><SuccessMessage message={success} /></div>
+
+      <DocumentEmailModal
+        title="Envoyer la facture par email"
+        open={emailOpen}
+        defaultRecipient={invoice.email ?? ''}
+        defaultSubject="Votre facture de loyer"
+        defaultMessage={`Bonjour ${invoice.tenant_name ?? ''},\n\nVeuillez trouver ci-joint votre facture.\n\nCordialement.`}
+        attachmentName={`Facture_${invoice.invoice_number}.pdf`}
+        sending={emailSending}
+        error={emailError}
+        onClose={() => {
+          setEmailOpen(false);
+          setEmailError('');
+        }}
+        onSubmit={sendInvoiceDocument}
+      />
 
       <article className="print-invoice">
         <header className={titleOnlyInvoiceHeader ? 'invoice-header-title-only' : undefined}>

@@ -185,6 +185,10 @@ tbody tr.clickable-row:hover { background: #f8fafb; }
 .settings-field.wide { grid-column: 1 / -1; }
 .settings-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; flex-wrap: wrap; border-top: 1px solid #edf2f5; margin-top: 2px; }
 .settings-actions button { min-width: 142px; }
+.communication-auto-send { display: grid; gap: 8px; padding: 4px 0 2px; }
+.communication-auto-send-option { display: flex; align-items: flex-start; gap: 8px; color: #1f3442; font-size: 13px; font-weight: 600; line-height: 1.35; }
+.communication-auto-send-option input { margin-top: 2px; }
+.communication-auto-send-help { margin: 2px 0 0; font-size: 12px; }
 .settings-inline-note { grid-column: 1 / -1; margin: 0; }
 .company-file-card { grid-column: span 1; border: 1px solid #dde5ea; border-radius: 8px; background: #fff; padding: 10px; display: grid; gap: 8px; min-width: 0; }
 .company-file-head h5 { margin: 0; font-size: 13px; color: #203845; }
@@ -854,6 +858,9 @@ td.negative { color: #a4343a; }
 .compact-action { margin-top: 6px; min-height: 30px; }
 .reminder-actions { display: inline-flex; gap: 4px; flex-wrap: nowrap; }
 .reminder-actions button { min-height: 28px; padding: 0 7px; font-size: 12px; }
+.document-email-form { gap: 12px; }
+.document-email-form span { display: block; margin-bottom: 6px; color: #4b5a67; font-size: 12px; font-weight: 700; }
+.document-email-form textarea { min-height: 140px; resize: vertical; }
 
 @keyframes spin {
   to { transform: rotate(360deg); }

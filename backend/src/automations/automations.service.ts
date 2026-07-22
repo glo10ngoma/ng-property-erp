@@ -2,8 +2,10 @@ import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundEx
 import { Cron } from '@nestjs/schedule';
 import { PoolClient } from 'pg';
 import { RequestContext } from '../auth/request-context';
+import { CommunicationService } from '../communication/communication.service';
+import { DocumentDeliveryTrigger } from '../communication/shared/enums/document-delivery-trigger.enum';
+import { DocumentType } from '../communication/shared/enums/document-type.enum';
 import { DatabaseService } from '../database/database.service';
-import { EmailService } from '../email/email.service';
 import { SaasService } from '../saas/saas.service';
 import {
   calculateInitialBillingCycle,
@@ -96,7 +98,7 @@ export class AutomationsService {
     private readonly context: RequestContext,
     @Inject(forwardRef(() => SaasService))
     private readonly saasService: SaasService,
-    private readonly emailService: EmailService,
+    private readonly communicationService: CommunicationService,
   ) {}
 
   @Cron('0 * * 25 * *', { timeZone: 'Africa/Kinshasa' })
@@ -828,28 +830,13 @@ export class AutomationsService {
 
     try {
       const result = args.channel === 'EMAIL'
-        ? await this.emailService.sendInvoiceCreatedEmail({
-            organizationId: args.organizationId,
-            invoiceId: args.invoiceId,
-            invoiceNumber: args.invoiceNumber,
-            invoiceType: 'RENT',
-            tenantName: args.tenantName,
-            tenantEmail: args.recipient,
-            issueDate: args.issueDate,
-            dueDate: args.dueDate,
-            periodLabel: args.periodLabel,
-            unitNumber: args.unitNumber,
-            buildingName: args.buildingName,
-            currency: 'USD',
-            totalAmount: args.totalAmount,
-            rentAmount: args.rentAmount,
-            syndicAmount: args.syndicAmount,
-            lineItems: [
-              { description: `Loyer ${args.periodLabel}`, amount: args.rentAmount },
-              ...(args.syndicAmount > 0 ? [{ description: `Syndic ${args.periodLabel}`, amount: args.syndicAmount }] : []),
-            ],
-            createdBy: args.createdBy,
-            idempotencyKey: this.emailService.buildIdempotencyKey([args.organizationId, 'INVOICE_CREATED', args.invoiceId]),
+        ? await this.communicationService.sendDocument({
+            documentType: DocumentType.INVOICE,
+            documentId: args.invoiceId,
+            to: args.recipient,
+            subject: args.subject ?? undefined,
+            message: args.message,
+            trigger: DocumentDeliveryTrigger.AUTO,
           })
         : await this.context.run(
             {
@@ -872,7 +859,9 @@ export class AutomationsService {
               }),
           );
 
-      const status = String((result as { status?: string; log?: { status?: string } })?.status ?? (result as { log?: { status?: string } })?.log?.status ?? 'SIMULATED').toUpperCase();
+      const status = (result as { skipped?: boolean })?.skipped
+        ? 'SKIPPED'
+        : String((result as { status?: string; log?: { status?: string } })?.status ?? (result as { log?: { status?: string } })?.log?.status ?? 'SIMULATED').toUpperCase();
       return {
         status,
         reason: status === 'FAILED' ? 'SEND_FAILED' : null,

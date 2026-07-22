@@ -6,6 +6,9 @@ import { RequestContext } from '../auth/request-context';
 import { hashPassword } from '../auth/password';
 import { requireRow } from '../common/not-found';
 import { DatabaseService } from '../database/database.service';
+import { CommunicationService } from '../communication/communication.service';
+import { DocumentDeliveryTrigger } from '../communication/shared/enums/document-delivery-trigger.enum';
+import { DocumentType } from '../communication/shared/enums/document-type.enum';
 import { EmailService } from '../email/email.service';
 import { AutomationsService } from '../automations/automations.service';
 import {
@@ -47,6 +50,7 @@ export class SaasService {
     private readonly db: DatabaseService,
     private readonly context: RequestContext,
     private readonly emailService: EmailService,
+    private readonly communicationService: CommunicationService,
     @Inject(forwardRef(() => AutomationsService))
     private readonly automationsService: AutomationsService,
   ) {}
@@ -6222,6 +6226,7 @@ export class SaasService {
     const { rows } = await this.db.query(
       `SELECT tc.*, p.receipt_number, p.payment_method, p.amount_usd, p.amount_cdf, p.total_equivalent_usd,
               tenant_name.name AS tenant_name,
+              t.email AS tenant_email,
               u.number AS unit_number, b.name AS building_name,
               l.lease_number
        FROM tenant_credits tc
@@ -6249,6 +6254,7 @@ export class SaasService {
               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, t.first_name, '')
                    ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
               END AS tenant_name,
+              t.email AS tenant_email,
               u.number AS unit_number, b.name AS building_name, l.lease_number
        FROM tenant_credits tc
        JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tc.organization_id AND p.deleted_at IS NULL
@@ -6374,7 +6380,7 @@ export class SaasService {
     if (!this.hasPermission('payments.create')) {
       throw new ForbiddenException('Permission de création de paiement requise.');
     }
-    return this.db.transaction(async (client) => {
+    const credit = await this.db.transaction(async (client) => {
       const tenantId = Number(body.tenant_id ?? 0);
       const leaseId = body.lease_id ? Number(body.lease_id) : null;
       const currency = String(body.currency ?? 'USD').toUpperCase();
@@ -6512,6 +6518,30 @@ export class SaasService {
         ],
       );
       return { ...credit.rows[0], receipt_number: payment.rows[0].receipt_number, source_payment_id: payment.rows[0].id, cash_movement_id: movement.id };
+    });
+    void this.sendTenantCreditReceiptIfEnabled(credit.id).catch((error) => {
+      this.logger.error(
+        `[TENANT_CREDIT] async receipt email failed creditId=${Number(credit.id)} organizationId=${this.context.organizationId()} message=${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+    return credit;
+  }
+
+  private async sendLeaseInvoiceEmailIfEnabled(invoice: Record<string, any>) {
+    await this.communicationService.sendDocument({
+      documentType: DocumentType.INVOICE,
+      documentId: Number(invoice.id),
+      message: 'Veuillez trouver ci-joint votre facture.',
+      trigger: DocumentDeliveryTrigger.AUTO,
+    });
+  }
+
+  private async sendTenantCreditReceiptIfEnabled(creditId: number) {
+    await this.communicationService.sendDocument({
+      documentType: DocumentType.TENANT_CREDIT_RECEIPT,
+      documentId: creditId,
+      message: 'Veuillez trouver ci-joint votre reçu de crédit locataire.',
+      trigger: DocumentDeliveryTrigger.AUTO,
     });
   }
 
@@ -7066,7 +7096,7 @@ export class SaasService {
   }
 
   async createLeaseInvoice(id: number) {
-    return this.db.transaction(async (client) => {
+    const invoice = await this.db.transaction(async (client) => {
       const lease = await client.query(
         `SELECT l.*, u.building_id FROM leases l JOIN units u ON u.id = l.unit_id WHERE l.id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL AND l.archived_at IS NULL`,
         [id, this.context.organizationId()],
@@ -7102,6 +7132,12 @@ export class SaasService {
       }
       return invoice.rows[0];
     });
+    void this.sendLeaseInvoiceEmailIfEnabled(invoice).catch((error) => {
+      this.logger.error(
+        `[INVOICE] async receipt email failed invoiceId=${Number(invoice.id)} organizationId=${this.context.organizationId()} message=${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+    return invoice;
   }
 
   private async appendInvoiceItemSummaries(rows: Record<string, any>[]): Promise<Record<string, any>[]> {

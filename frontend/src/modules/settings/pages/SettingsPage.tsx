@@ -79,6 +79,9 @@ type CommunicationEmailSettingsSummary = {
   replyTo: string;
   enabled: boolean;
   hasApiKey: boolean;
+  autoSendInvoice: boolean;
+  autoSendPaymentReceipt: boolean;
+  autoSendTenantCreditReceipt: boolean;
   updatedAt: string | null;
 };
 
@@ -90,6 +93,9 @@ type CommunicationEmailSettingsDraft = {
   enabled: boolean;
   apiKey: string;
   hasApiKey: boolean;
+  autoSendInvoice: boolean;
+  autoSendPaymentReceipt: boolean;
+  autoSendTenantCreditReceipt: boolean;
   updatedAt: string | null;
 };
 
@@ -291,6 +297,9 @@ const defaultCommunicationEmailSettingsDraft = (): CommunicationEmailSettingsDra
   enabled: false,
   apiKey: '',
   hasApiKey: false,
+  autoSendInvoice: false,
+  autoSendPaymentReceipt: false,
+  autoSendTenantCreditReceipt: false,
   updatedAt: null,
 });
 
@@ -303,6 +312,9 @@ function draftFromCommunicationEmailSettings(settings: CommunicationEmailSetting
     enabled: Boolean(settings.enabled),
     apiKey: '',
     hasApiKey: Boolean(settings.hasApiKey),
+    autoSendInvoice: Boolean(settings.autoSendInvoice),
+    autoSendPaymentReceipt: Boolean(settings.autoSendPaymentReceipt),
+    autoSendTenantCreditReceipt: Boolean(settings.autoSendTenantCreditReceipt),
     updatedAt: settings.updatedAt,
   };
 }
@@ -653,6 +665,9 @@ export function SettingsPage() {
         reply_to: cleanOptionalText(emailSettingsDraft.replyTo),
         api_key: cleanOptionalText(emailSettingsDraft.apiKey),
         enabled: emailSettingsDraft.enabled,
+        auto_send_invoice: emailSettingsDraft.autoSendInvoice,
+        auto_send_payment_receipt: emailSettingsDraft.autoSendPaymentReceipt,
+        auto_send_tenant_credit_receipt: emailSettingsDraft.autoSendTenantCreditReceipt,
       });
       await refreshEmailSettings();
       setSuccess('Configuration email enregistr\u00E9e avec succ\u00E8s.');
@@ -1043,6 +1058,40 @@ export function SettingsPage() {
               readOnly
               className="locked-field"
             />
+          </SettingField>
+          <SettingField label="Envois automatiques" wide>
+            <div className="communication-auto-send">
+              <label className="communication-auto-send-option">
+                <input
+                  type="checkbox"
+                  checked={emailSettingsDraft.autoSendInvoice}
+                  onChange={(event) => setEmailSettingsDraft((current) => ({ ...current, autoSendInvoice: event.target.checked }))}
+                  disabled={communicationDisabled}
+                />
+                <span>Envoyer automatiquement les nouvelles factures</span>
+              </label>
+              <label className="communication-auto-send-option">
+                <input
+                  type="checkbox"
+                  checked={emailSettingsDraft.autoSendPaymentReceipt}
+                  onChange={(event) => setEmailSettingsDraft((current) => ({ ...current, autoSendPaymentReceipt: event.target.checked }))}
+                  disabled={communicationDisabled}
+                />
+                <span>Envoyer automatiquement les reçus de paiement</span>
+              </label>
+              <label className="communication-auto-send-option">
+                <input
+                  type="checkbox"
+                  checked={emailSettingsDraft.autoSendTenantCreditReceipt}
+                  onChange={(event) => setEmailSettingsDraft((current) => ({ ...current, autoSendTenantCreditReceipt: event.target.checked }))}
+                  disabled={communicationDisabled}
+                />
+                <span>Envoyer automatiquement les reçus de crédit locataire</span>
+              </label>
+              <p className="muted-text communication-auto-send-help">
+                Les documents sont envoyés uniquement si la configuration email est active et si le locataire possède une adresse email valide.
+              </p>
+            </div>
           </SettingField>
           <SettingActions>
             <button type="button" className="secondary" onClick={() => void testCommunicationConnection()} disabled={!can('communication.test') || testingEmailConnection}>

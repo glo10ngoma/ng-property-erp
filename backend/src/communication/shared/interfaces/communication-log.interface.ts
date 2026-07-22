@@ -6,6 +6,10 @@ export type CommunicationLog = {
   recipient: string;
   subject: string | null;
   status: string;
+  document_type: string | null;
+  document_id: number | null;
+  delivery_trigger: string | null;
+  idempotency_key: string | null;
   external_message_id: string | null;
   error: string | null;
   created_at: string;

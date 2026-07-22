@@ -35,4 +35,19 @@ export class UpdateEmailSettingsDto {
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   enabled!: boolean;
+
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  @IsOptional()
+  auto_send_invoice?: boolean;
+
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  @IsOptional()
+  auto_send_payment_receipt?: boolean;
+
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  @IsOptional()
+  auto_send_tenant_credit_receipt?: boolean;
 }

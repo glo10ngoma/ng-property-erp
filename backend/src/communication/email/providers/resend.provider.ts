@@ -30,10 +30,12 @@ export class ResendProvider implements EmailProvider {
       body: JSON.stringify({
         from,
         to: [input.to],
+        cc: input.cc?.length ? input.cc : undefined,
         subject: input.subject,
         html: input.html,
         text: input.text ?? undefined,
         reply_to: input.replyTo ?? undefined,
+        attachments: input.attachments?.length ? input.attachments : undefined,
       }),
     });
 

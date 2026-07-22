@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { RequestContext } from '../auth/request-context';
 import { requireRow } from '../common/not-found';
+import { CommunicationService } from '../communication/communication.service';
+import { DocumentDeliveryTrigger } from '../communication/shared/enums/document-delivery-trigger.enum';
+import { DocumentType } from '../communication/shared/enums/document-type.enum';
 import { DatabaseService } from '../database/database.service';
-import { EmailService } from '../email/email.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { SaasService } from '../saas/saas.service';
 import { CreatePaymentDto, UpdatePaymentDto } from './dto';
@@ -16,7 +18,7 @@ export class PaymentsService {
     private readonly db: DatabaseService,
     private readonly invoices: InvoicesService,
     private readonly saas: SaasService,
-    private readonly emailService: EmailService,
+    private readonly communicationService: CommunicationService,
     private readonly context: RequestContext,
   ) {}
 
@@ -554,36 +556,11 @@ export class PaymentsService {
   }
 
   private async sendPaymentReceiptIfEnabled(paymentId: number) {
-    const runtime = this.emailService.getRuntimeConfig();
-    if (!runtime.paymentReceiptEnabled) {
-      return;
-    }
-
-    const details = await this.findOne(paymentId) as Record<string, unknown>;
-    const remainingAmount = details.invoice_total !== undefined
-      ? Math.max(Number(details.invoice_total ?? 0) - Number(details.total_equivalent_usd ?? details.amount ?? 0), 0)
-      : null;
-
-    await this.emailService.sendPaymentReceiptEmail({
-      organizationId: this.context.organizationId(),
-      paymentId: Number(details.id),
-      invoiceId: details.invoice_id ? Number(details.invoice_id) : null,
-      invoiceNumber: details.invoice_number ? String(details.invoice_number) : null,
-      receiptNumber: String(details.receipt_number ?? `PAY-${details.id}`),
-      tenantName: String(details.tenant_name ?? 'Locataire'),
-      tenantEmail: details.tenant_email ? String(details.tenant_email) : null,
-      paymentDate: String(details.payment_date),
-      amount: Number(details.total_equivalent_usd ?? details.amount ?? 0),
-      currency: 'USD',
-      remainingAmount,
-      reference: details.reference ? String(details.reference) : null,
-      createdBy: this.context.userId() ?? 1,
-      idempotencyKey: this.emailService.buildIdempotencyKey([
-        this.context.organizationId(),
-        'PAYMENT_RECEIVED',
-        Number(details.id ?? paymentId),
-        String(details.receipt_number ?? details.reference ?? ''),
-      ]),
+    await this.communicationService.sendDocument({
+      documentType: DocumentType.PAYMENT_RECEIPT,
+      documentId: paymentId,
+      message: 'Veuillez trouver ci-joint votre reçu de paiement.',
+      trigger: DocumentDeliveryTrigger.AUTO,
     });
   }
 }
