@@ -411,6 +411,11 @@ export class EmailService {
   }
 
   private async loadSettingsRow(organizationId: number) {
+    const schema = await this.getCommunicationSettingsSchema();
+    if (!schema.table_exists) {
+      return null;
+    }
+
     const result = await this.db.query<EmailSettingsRow>(
       `
         SELECT
@@ -422,9 +427,9 @@ export class EmailService {
           reply_to,
           api_key_encrypted,
           enabled,
-          auto_send_invoice,
-          auto_send_payment_receipt,
-          auto_send_tenant_credit_receipt,
+          ${schema.has_auto_send_invoice ? 'auto_send_invoice' : 'FALSE AS auto_send_invoice'},
+          ${schema.has_auto_send_payment_receipt ? 'auto_send_payment_receipt' : 'FALSE AS auto_send_payment_receipt'},
+          ${schema.has_auto_send_tenant_credit_receipt ? 'auto_send_tenant_credit_receipt' : 'FALSE AS auto_send_tenant_credit_receipt'},
           created_at,
           updated_at
         FROM communication_settings
@@ -506,6 +511,48 @@ export class EmailService {
       return `Organisation ${organizationId}`;
     }
     return row.legal_name || row.company_name || row.organization_name;
+  }
+
+  private async getCommunicationSettingsSchema() {
+    const result = await this.db.query<{
+      table_exists: boolean;
+      has_auto_send_invoice: boolean;
+      has_auto_send_payment_receipt: boolean;
+      has_auto_send_tenant_credit_receipt: boolean;
+    }>(
+      `
+        SELECT
+          to_regclass('public.communication_settings') IS NOT NULL AS table_exists,
+          EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'communication_settings'
+              AND column_name = 'auto_send_invoice'
+          ) AS has_auto_send_invoice,
+          EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'communication_settings'
+              AND column_name = 'auto_send_payment_receipt'
+          ) AS has_auto_send_payment_receipt,
+          EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'communication_settings'
+              AND column_name = 'auto_send_tenant_credit_receipt'
+          ) AS has_auto_send_tenant_credit_receipt
+      `,
+    );
+
+    return result.rows[0] ?? {
+      table_exists: false,
+      has_auto_send_invoice: false,
+      has_auto_send_payment_receipt: false,
+      has_auto_send_tenant_credit_receipt: false,
+    };
   }
 
   private async readTemplate(fileName: string) {
