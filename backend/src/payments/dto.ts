@@ -17,6 +17,10 @@ export class CreatePaymentDto {
   invoice_id?: number;
 
   @IsOptional()
+  @IsInt()
+  bank_account_id?: number;
+
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })

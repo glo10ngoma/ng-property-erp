@@ -374,10 +374,20 @@ export class PaymentsService {
       const locked = await this.lockInvoiceForPayment(client, dto);
       const exchangeRate = await this.currentExchangeRate();
       const paymentCurrency = String(dto.payment_currency ?? 'USD').toUpperCase();
+      const paymentMethod = String(dto.payment_method ?? 'CASH').toUpperCase();
       const amountUsd = this.safeNumber(dto.amount_usd ?? (paymentCurrency === 'USD' ? dto.amount : 0));
       const amountCdf = this.safeNumber(dto.amount_cdf ?? (paymentCurrency === 'CDF' ? dto.amount : 0));
       const rateUsed = this.safeNumber(dto.exchange_rate_used ?? exchangeRate?.rate ?? 0) || null;
       const exchangeRateDate = dto.exchange_rate_date ?? exchangeRate?.effective_date ?? null;
+      if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethod)) {
+        throw new BadRequestException('Mode de paiement invalide');
+      }
+      if (paymentMethod === 'BANK' && paymentCurrency === 'MIXED') {
+        throw new BadRequestException('Les paiements bancaires ne sont pas compatibles avec un paiement mixte.');
+      }
+      const bankAccount = paymentMethod === 'BANK'
+        ? await this.validateBankAccountForPayment(client, dto.bank_account_id, paymentCurrency)
+        : null;
       if (paymentCurrency === 'CDF' && !rateUsed) {
         throw new BadRequestException('Aucun taux de change n\'est configure. Veuillez definir le taux dans Parametres.');
       }
@@ -419,7 +429,7 @@ export class PaymentsService {
           primaryInvoiceId,
           dto.payment_date,
           totalEquivalentUsd || allocationTotal || this.safeNumber(dto.amount),
-          dto.payment_method,
+          paymentMethod,
           dto.reference ?? null,
           dto.notes ?? null,
           dto.payer_name ?? null,
@@ -442,18 +452,30 @@ export class PaymentsService {
         );
         await this.invoices.refreshStatus(client, allocation.invoice_id);
       }
-      if (amountUsd > 0) {
+      if (paymentMethod !== 'BANK' && amountUsd > 0) {
         await this.saas.createInvoicePaymentMovement(client, rows[0].id, primaryInvoiceId, amountUsd, dto.reference, {
           currency: 'USD',
           equivalentUsd: amountUsd,
         });
       }
-      if (amountCdf > 0) {
+      if (paymentMethod !== 'BANK' && amountCdf > 0) {
         await this.saas.createInvoicePaymentMovement(client, rows[0].id, primaryInvoiceId, amountCdf, dto.reference, {
           currency: 'CDF',
           exchangeRateUsed: rateUsed,
           exchangeRateDate: exchangeRateDate ? String(exchangeRateDate) : null,
           equivalentUsd: cdfEquivalentUsd,
+        });
+      }
+      if (bankAccount) {
+        await this.createBankPaymentTransaction(client, {
+          paymentId: Number(rows[0].id),
+          invoice: locked,
+          bankAccount,
+          amount: paymentCurrency === 'CDF' ? amountCdf : amountUsd,
+          currency: paymentCurrency,
+          receiptNumber,
+          reference: dto.reference ?? null,
+          createdBy: this.context.userId() ?? null,
         });
       }
       await this.invoices.refreshStatus(client, primaryInvoiceId);
@@ -508,9 +530,75 @@ export class PaymentsService {
     return [{ invoice_id: Number(dto.invoice_id), amount: Number(dto.amount) }];
   }
 
+  private async validateBankAccountForPayment(client: import('pg').PoolClient, bankAccountId: number | undefined, paymentCurrency: string) {
+    const accountId = Number(bankAccountId ?? 0);
+    if (!accountId) {
+      throw new BadRequestException('Un compte bancaire actif est requis pour un paiement par banque.');
+    }
+    const { rows } = await client.query(
+      `SELECT id, bank_name, account_name, currency, status
+       FROM bank_accounts
+       WHERE id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL`,
+      [accountId, this.context.organizationId()],
+    );
+    const account = requireRow(rows[0], 'Bank account');
+    if (String(account.status).toUpperCase() !== 'ACTIVE') {
+      throw new BadRequestException('Le compte bancaire sélectionné doit être actif.');
+    }
+    if (String(account.currency).toUpperCase() !== String(paymentCurrency).toUpperCase()) {
+      throw new BadRequestException('La devise du compte bancaire doit correspondre à celle du paiement.');
+    }
+    return account;
+  }
+
   private safeNumber(value: unknown) {
     const number = Number(value ?? 0);
     return Number.isFinite(number) ? number : 0;
+  }
+
+  private async createBankPaymentTransaction(
+    client: import('pg').PoolClient,
+    payload: {
+      paymentId: number;
+      invoice: { id: number; invoice_number?: string | null; tenant_id?: number | null; tenant_name?: string | null };
+      bankAccount: { id: number; bank_name?: string | null; account_name?: string | null; currency: string };
+      amount: number;
+      currency: string;
+      receiptNumber: string;
+      reference?: string | null;
+      createdBy: number | null;
+    },
+  ) {
+    const transactionNumber = await this.nextBankTransactionNumber(client);
+    const amount = Number(payload.amount ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('Le montant du mouvement bancaire est invalide.');
+    }
+    await client.query(
+      `INSERT INTO bank_transactions
+        (organization_id, bank_account_id, transaction_number, transaction_date, direction, transaction_type, amount, currency,
+         reference, description, counterparty_name, source_module, source_entity_type, source_entity_id, status, reversal_of_id,
+         idempotency_key, created_by)
+       VALUES
+        ($1, $2, $3, CURRENT_DATE, 'IN', 'RENT_PAYMENT', $4, $5,
+         $6, $7, $8, 'PAYMENTS', 'PAYMENT', $9, 'VALIDATED', NULL,
+         $10, $11)`,
+      [
+        this.context.organizationId(),
+        payload.bankAccount.id,
+        transactionNumber,
+        amount,
+        String(payload.currency).toUpperCase(),
+        String(payload.reference ?? '').trim() || payload.receiptNumber,
+        `Paiement de loyer${payload.invoice.invoice_number ? ` - ${payload.invoice.invoice_number}` : ''}`,
+        payload.invoice.tenant_name ?? null,
+        payload.paymentId,
+        `rent-payment:${this.context.organizationId()}:${payload.paymentId}`,
+        payload.createdBy,
+      ],
+    );
   }
 
   private async lockInvoiceForPayment(client: import('pg').PoolClient, dto: CreatePaymentDto) {
@@ -519,10 +607,15 @@ export class PaymentsService {
       throw new BadRequestException('Une facture est requise pour enregistrer le paiement.');
     }
     const { rows } = await client.query(
-      `SELECT i.id, i.total, i.status,
+      `SELECT i.id, i.invoice_number, i.total, i.status,
+              i.tenant_id,
+              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name,
               COALESCE(s.paid_amount, 0)::NUMERIC(12,2) AS paid_amount,
               COALESCE(s.remaining_amount, i.total)::NUMERIC(12,2) AS remaining_amount
        FROM invoices i
+       LEFT JOIN tenants t ON t.id = i.tenant_id
        LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
        WHERE i.id = $1 AND i.organization_id = $2 AND i.deleted_at IS NULL
        FOR UPDATE OF i`,
@@ -553,6 +646,18 @@ export class PaymentsService {
       [`RCPT-${year}-([0-9]+)`, `RCPT-${year}-%`, this.context.organizationId()],
     );
     return `RCPT-${year}-${String(rows[0].value).padStart(4, '0')}`;
+  }
+
+  private async nextBankTransactionNumber(client: import('pg').PoolClient) {
+    const year = new Date().getFullYear();
+    const { rows } = await client.query(
+      `SELECT COALESCE(MAX((SUBSTRING(transaction_number FROM $1))::INT), 0) + 1 AS value
+       FROM bank_transactions
+       WHERE transaction_number LIKE $2
+         AND organization_id = $3`,
+      [`BTR-${year}-([0-9]+)`, `BTR-${year}-%`, this.context.organizationId()],
+    );
+    return `BTR-${year}-${String(rows[0].value).padStart(6, '0')}`;
   }
 
   private async sendPaymentReceiptIfEnabled(paymentId: number) {

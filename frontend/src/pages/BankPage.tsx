@@ -1,7 +1,7 @@
 import { Eye, Pencil, Plus, RefreshCcw, Search, X } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, type NavigateFunction } from 'react-router-dom';
 import { api, money, shortDate } from '../api';
 import { useAuth } from '../auth';
 import { EmptyState, LoadingState, Modal, PageHeader, SuccessMessage } from '../components';
@@ -47,7 +47,7 @@ type BankTransaction = {
   transaction_number: string;
   transaction_date: string;
   direction: 'IN' | 'OUT';
-  transaction_type: 'OPENING_BALANCE' | 'MANUAL_ADJUSTMENT';
+  transaction_type: 'OPENING_BALANCE' | 'MANUAL_ADJUSTMENT' | 'RENT_PAYMENT';
   amount: number;
   currency: 'USD' | 'CDF';
   reference?: string | null;
@@ -56,6 +56,12 @@ type BankTransaction = {
   source_module?: string | null;
   source_entity_type?: string | null;
   source_entity_id?: number | null;
+  source_payment_id?: number | null;
+  source_payment_receipt_number?: string | null;
+  source_invoice_id?: number | null;
+  source_invoice_number?: string | null;
+  source_tenant_id?: number | null;
+  source_tenant_name?: string | null;
   status: 'VALIDATED' | 'REVERSED';
   created_at: string;
   created_by_name?: string | null;
@@ -441,6 +447,7 @@ export function BankPage() {
                 <option value="">Tous les types</option>
                 <option value="OPENING_BALANCE">Solde initial</option>
                 <option value="MANUAL_ADJUSTMENT">Ajustement manuel</option>
+                <option value="RENT_PAYMENT">Paiement de loyer</option>
               </select>
               <input value={filters.source_module} onChange={(event) => setFilters((current) => ({ ...current, source_module: event.target.value }))} placeholder="Origine" />
               <input value={filters.reference} onChange={(event) => setFilters((current) => ({ ...current, reference: event.target.value }))} placeholder="Référence" />
@@ -594,7 +601,7 @@ export function BankPage() {
       ) : null}
 
       {transactionDetailOpen && selectedTransaction ? (
-        <TransactionDetailDrawer transaction={selectedTransaction} onClose={() => setTransactionDetailOpen(false)} />
+        <TransactionDetailDrawer transaction={selectedTransaction} onClose={() => setTransactionDetailOpen(false)} navigate={navigate} />
       ) : null}
     </section>
   );
@@ -736,13 +743,13 @@ export function BankAccountDetailPage() {
       </div>
 
       {detailOpen && selectedTransaction ? (
-        <TransactionDetailDrawer transaction={selectedTransaction} onClose={() => setDetailOpen(false)} />
+        <TransactionDetailDrawer transaction={selectedTransaction} onClose={() => setDetailOpen(false)} navigate={navigate} />
       ) : null}
     </section>
   );
 }
 
-function TransactionDetailDrawer({ transaction, onClose }: { transaction: BankTransaction; onClose: () => void }) {
+function TransactionDetailDrawer({ transaction, onClose, navigate }: { transaction: BankTransaction; onClose: () => void; navigate: NavigateFunction }) {
   return (
     <div className="tenant-credit-drawer-backdrop" role="presentation">
       <aside className="tenant-credit-drawer bank-transaction-drawer">
@@ -777,6 +784,27 @@ function TransactionDetailDrawer({ transaction, onClose }: { transaction: BankTr
             <div className="compact-item"><span>Créée le</span><strong>{shortDate(transaction.created_at)}</strong></div>
             <div className="compact-item"><span>Numéro de compte</span><strong>{maskAccountNumber(transaction.account_number)}</strong></div>
           </div>
+
+          {transaction.source_payment_id ? (
+            <div className="detail-section">
+              <h4>Source documentaire</h4>
+              <div className="row-actions">
+                <button type="button" className="secondary" onClick={() => navigate(`/payments/${transaction.source_payment_id}`)}>
+                  Reçu {transaction.source_payment_receipt_number || `PAY-${transaction.source_payment_id}`}
+                </button>
+                {transaction.source_invoice_id ? (
+                  <button type="button" className="secondary" onClick={() => navigate(`/invoices/${transaction.source_invoice_id}`)}>
+                    Facture {transaction.source_invoice_number || `INV-${transaction.source_invoice_id}`}
+                  </button>
+                ) : null}
+                {transaction.source_tenant_id ? (
+                  <button type="button" className="secondary" onClick={() => navigate(`/tenants/${transaction.source_tenant_id}/situation`)}>
+                    Locataire {transaction.source_tenant_name || `#${transaction.source_tenant_id}`}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           <div className="detail-section">
             <h4>Description</h4>
@@ -824,6 +852,8 @@ function transactionTypeLabel(value?: string | null) {
       return 'Solde initial';
     case 'MANUAL_ADJUSTMENT':
       return 'Ajustement manuel';
+    case 'RENT_PAYMENT':
+      return 'Paiement de loyer';
     default:
       return value || '-';
   }

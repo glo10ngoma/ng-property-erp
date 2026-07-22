@@ -6441,6 +6441,11 @@ export class SaasService {
         OR LOWER(COALESCE(bt.reference, '')) LIKE $${values.length}
         OR LOWER(COALESCE(bt.description, '')) LIKE $${values.length}
         OR LOWER(COALESCE(bt.counterparty_name, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(bp.receipt_number, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(bi.invoice_number, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(ten.company_name, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(ten.first_name, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(ten.last_name, '')) LIKE $${values.length}
       )`);
     }
     const { rows } = await this.db.query(
@@ -6451,10 +6456,25 @@ export class SaasService {
               ba.account_type,
               CASE WHEN bt.direction = 'IN' THEN bt.amount ELSE 0 END AS entry_amount,
               CASE WHEN bt.direction = 'OUT' THEN bt.amount ELSE 0 END AS exit_amount,
-              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
+              bp.id AS source_payment_id,
+              bp.receipt_number AS source_payment_receipt_number,
+              bi.id AS source_invoice_id,
+              bi.invoice_number AS source_invoice_number,
+              ten.id AS source_tenant_id,
+              CASE WHEN ten.tenant_type = 'COMPANY' THEN COALESCE(ten.company_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(ten.first_name, ''), ' ', COALESCE(ten.last_name, ''), ' ', COALESCE(ten.post_name, '')))
+              END AS source_tenant_name
        FROM bank_transactions bt
        JOIN bank_accounts ba ON ba.id = bt.bank_account_id AND ba.organization_id = bt.organization_id
        LEFT JOIN app_users u ON u.id = bt.created_by
+       LEFT JOIN payments bp ON bp.id = bt.source_entity_id
+         AND bt.source_module = 'PAYMENTS'
+         AND bt.source_entity_type = 'PAYMENT'
+         AND bp.organization_id = bt.organization_id
+         AND bp.deleted_at IS NULL
+       LEFT JOIN invoices bi ON bi.id = bp.invoice_id AND bi.organization_id = bp.organization_id AND bi.deleted_at IS NULL
+       LEFT JOIN tenants ten ON ten.id = bi.tenant_id AND ten.organization_id = bi.organization_id AND ten.deleted_at IS NULL
        WHERE ${clauses.join(' AND ')}
        ORDER BY bt.transaction_date DESC, bt.id DESC`,
       values,
@@ -6470,10 +6490,25 @@ export class SaasService {
               ba.account_name,
               ba.account_number,
               ba.account_type,
-              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
+              bp.id AS source_payment_id,
+              bp.receipt_number AS source_payment_receipt_number,
+              bi.id AS source_invoice_id,
+              bi.invoice_number AS source_invoice_number,
+              ten.id AS source_tenant_id,
+              CASE WHEN ten.tenant_type = 'COMPANY' THEN COALESCE(ten.company_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(ten.first_name, ''), ' ', COALESCE(ten.last_name, ''), ' ', COALESCE(ten.post_name, '')))
+              END AS source_tenant_name
        FROM bank_transactions bt
        JOIN bank_accounts ba ON ba.id = bt.bank_account_id AND ba.organization_id = bt.organization_id
        LEFT JOIN app_users u ON u.id = bt.created_by
+       LEFT JOIN payments bp ON bp.id = bt.source_entity_id
+         AND bt.source_module = 'PAYMENTS'
+         AND bt.source_entity_type = 'PAYMENT'
+         AND bp.organization_id = bt.organization_id
+         AND bp.deleted_at IS NULL
+       LEFT JOIN invoices bi ON bi.id = bp.invoice_id AND bi.organization_id = bp.organization_id AND bi.deleted_at IS NULL
+       LEFT JOIN tenants ten ON ten.id = bi.tenant_id AND ten.organization_id = bi.organization_id AND ten.deleted_at IS NULL
        WHERE bt.organization_id = $1
          AND bt.id = $2`,
       [this.context.organizationId(), id],

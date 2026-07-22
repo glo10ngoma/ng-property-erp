@@ -46,6 +46,14 @@ type Invoice = {
   paid_amount?: number;
 };
 
+type BankAccount = {
+  id: number;
+  bank_name: string;
+  account_name: string;
+  currency: 'USD' | 'CDF';
+  status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
+};
+
 type ExchangeRate = {
   fromCurrency?: string;
   toCurrency?: string;
@@ -66,6 +74,7 @@ export function Payments() {
   const [paymentsLoading, setPaymentsLoading] = useState(true);
   const [paymentsError, setPaymentsError] = useState('');
   const invoices = useApiList<Invoice>('/invoices');
+  const bankAccounts = useApiList<BankAccount>('/bank-accounts');
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState({
@@ -178,7 +187,8 @@ export function Payments() {
       amount_cdf: Number(form.get('amount_cdf') ?? 0),
       exchange_rate_used: Number(form.get('exchange_rate_used') ?? 0) || undefined,
       exchange_rate_date: form.get('exchange_rate_date'),
-      payment_method: form.get('payment_method'),
+      payment_method: String(form.get('payment_method') ?? 'CASH'),
+      bank_account_id: form.get('bank_account_id') ? Number(form.get('bank_account_id')) : undefined,
       reference: form.get('reference'),
       notes: form.get('notes'),
       payer_name: form.get('payer_name'),
@@ -324,6 +334,7 @@ export function Payments() {
       {open && (
         <PaymentModal
           invoices={invoiceOptions}
+          bankAccounts={bankAccounts.data}
           selectedInvoice={selectedInvoice}
           selectedInvoiceId={selectedInvoiceId}
           exchangeRate={exchangeRate}
@@ -348,6 +359,7 @@ export function Payments() {
 
 function PaymentModal({
   invoices,
+  bankAccounts,
   selectedInvoice,
   selectedInvoiceId,
   exchangeRate,
@@ -356,6 +368,7 @@ function PaymentModal({
   onSubmit,
 }: {
   invoices: Invoice[];
+  bankAccounts: BankAccount[];
   selectedInvoice: Invoice | null;
   selectedInvoiceId: number | null;
   exchangeRate: ExchangeRate | null;
@@ -365,12 +378,18 @@ function PaymentModal({
 }) {
   const remaining = Number(selectedInvoice?.remaining_amount ?? 0);
   const [paymentCurrency, setPaymentCurrency] = useState<'USD' | 'CDF' | 'MIXED'>('USD');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'BANK' | 'MOBILE_MONEY'>('CASH');
+  const [bankAccountId, setBankAccountId] = useState('');
   const [usdAmount, setUsdAmount] = useState<string>(remaining ? String(remaining) : '');
   const [cdfAmount, setCdfAmount] = useState<string>('');
   const [rateInput, setRateInput] = useState<string>(exchangeRate?.rate ? String(exchangeRate.rate) : '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const rate = Number(rateInput || exchangeRate?.rate || 0);
+  const compatibleBankAccounts = useMemo(
+    () => (paymentCurrency === 'MIXED' ? [] : bankAccounts.filter((account) => account.status === 'ACTIVE' && account.currency === paymentCurrency)),
+    [bankAccounts, paymentCurrency],
+  );
   const cdfEquivalentUsd = paymentCurrency === 'USD' || rate <= 0 ? 0 : Number((Number(cdfAmount || 0) / rate).toFixed(2));
   const totalEquivalentUsd = Number(
     (
@@ -384,6 +403,9 @@ function PaymentModal({
   const validationError = paymentValidationError({
     selectedInvoice,
     paymentCurrency,
+    paymentMethod,
+    bankAccountId,
+    compatibleBankAccounts,
     usdAmount,
     cdfAmount,
     rate,
@@ -417,6 +439,27 @@ function PaymentModal({
   }, [exchangeRate?.rate]);
 
   useEffect(() => {
+    if (paymentCurrency === 'MIXED' && paymentMethod === 'BANK') {
+      setPaymentMethod('CASH');
+      setBankAccountId('');
+    }
+  }, [paymentCurrency, paymentMethod]);
+
+  useEffect(() => {
+    if (paymentMethod !== 'BANK') {
+      setBankAccountId('');
+      return;
+    }
+    if (paymentCurrency === 'MIXED') {
+      setBankAccountId('');
+      return;
+    }
+    if (bankAccountId && !compatibleBankAccounts.some((account) => String(account.id) === bankAccountId)) {
+      setBankAccountId('');
+    }
+  }, [bankAccountId, compatibleBankAccounts, paymentCurrency, paymentMethod]);
+
+  useEffect(() => {
     if (!selectedInvoice || paymentCurrency !== 'CDF') return;
     setCdfAmount(rate > 0 && remaining > 0 ? String(Math.round(remaining * rate)) : '');
   }, [rate, paymentCurrency, remaining, selectedInvoice]);
@@ -442,6 +485,9 @@ function PaymentModal({
           const nextError = paymentValidationError({
             selectedInvoice,
             paymentCurrency,
+            paymentMethod,
+            bankAccountId,
+            compatibleBankAccounts,
             usdAmount,
             cdfAmount,
             rate,
@@ -549,12 +595,31 @@ function PaymentModal({
             <label>Équivalent USD du CDF<input value={cdfEquivalentUsd.toFixed(2)} readOnly className="locked-field" /></label>
             <label>Total équivalent USD<input name="amount" type="number" value={totalEquivalentUsd || usdAmount || cdfEquivalentUsd || ''} readOnly className="locked-field" /></label>
             <label>Mode de paiement
-              <select name="payment_method">
+              <select name="payment_method" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as 'CASH' | 'BANK' | 'MOBILE_MONEY')}>
                 <option value="CASH">Espèces</option>
-                <option value="BANK">Banque</option>
+                <option value="BANK" disabled={paymentCurrency === 'MIXED' || !compatibleBankAccounts.length}>Banque</option>
                 <option value="MOBILE_MONEY">Mobile Money</option>
               </select>
             </label>
+            {paymentMethod === 'BANK' ? (
+              <label>
+                Compte bancaire
+                <select
+                  name="bank_account_id"
+                  value={bankAccountId}
+                  onChange={(event) => setBankAccountId(event.target.value)}
+                  required
+                  disabled={!compatibleBankAccounts.length}
+                >
+                  <option value="">{compatibleBankAccounts.length ? 'Sélectionner un compte bancaire' : 'Aucun compte bancaire compatible'}</option>
+                  {compatibleBankAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.bank_name} - {account.account_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <label>Référence<input name="reference" placeholder="Référence" /></label>
             <input type="hidden" name="payment_currency" value={paymentCurrency} />
             <input type="hidden" name="exchange_rate_date" value={exchangeRate?.effectiveDate ?? new Date().toISOString().slice(0, 10)} />
@@ -590,6 +655,9 @@ function PaymentModal({
 function paymentValidationError({
   selectedInvoice,
   paymentCurrency,
+  paymentMethod,
+  bankAccountId,
+  compatibleBankAccounts,
   usdAmount,
   cdfAmount,
   rate,
@@ -598,6 +666,9 @@ function paymentValidationError({
 }: {
   selectedInvoice: Invoice | null;
   paymentCurrency: 'USD' | 'CDF' | 'MIXED';
+  paymentMethod: 'CASH' | 'BANK' | 'MOBILE_MONEY';
+  bankAccountId: string;
+  compatibleBankAccounts: BankAccount[];
   usdAmount: string;
   cdfAmount: string;
   rate: number;
@@ -609,6 +680,10 @@ function paymentValidationError({
   if (!selectedInvoice?.id) return 'Selectionnez une facture.';
   if (!Number.isFinite(amountUsd) || amountUsd < 0 || !Number.isFinite(amountCdf) || amountCdf < 0 || !Number.isFinite(totalEquivalentUsd)) return 'Montant invalide.';
   if (amountUsd <= 0 && amountCdf <= 0) return 'Le paiement doit contenir au moins un montant USD ou CDF.';
+  if (paymentMethod === 'BANK' && paymentCurrency === 'MIXED') return 'Les paiements bancaires ne sont pas compatibles avec un paiement mixte.';
+  if (paymentMethod === 'BANK' && !compatibleBankAccounts.length) return 'Aucun compte bancaire actif compatible n\'est disponible pour cette devise.';
+  if (paymentMethod === 'BANK' && !bankAccountId) return 'Un compte bancaire actif compatible est requis pour un paiement par banque.';
+  if (paymentMethod === 'BANK' && !compatibleBankAccounts.some((account) => String(account.id) === bankAccountId)) return 'Le compte bancaire sélectionné est invalide ou incompatible avec la devise choisie.';
   if ((paymentCurrency === 'CDF' || paymentCurrency === 'MIXED' || amountCdf > 0) && rate <= 0) return 'Aucun taux de change disponible pour un paiement CDF.';
   if (totalEquivalentUsd > remaining + 0.01) return `Le montant dépasse le restant dû (${money(remaining)} USD).`;
   return '';
