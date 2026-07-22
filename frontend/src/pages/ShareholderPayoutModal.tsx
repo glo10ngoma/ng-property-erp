@@ -233,7 +233,7 @@ export function ShareholderPayoutModal({
           <div className="shareholder-payout-lines">
             {lines.map((line, index) => (
               <div className="shareholder-payout-line" key={`line-${index}`}>
-                <label>
+                <label className="shareholder-payout-line-field shareholder-payout-line-shareholder">
                   Actionnaire
                   <select value={line.shareholder_id} onChange={(event) => updateLine(index, { shareholder_id: event.target.value })} required>
                     <option value="">Sélectionner</option>
@@ -244,21 +244,21 @@ export function ShareholderPayoutModal({
                     ))}
                   </select>
                 </label>
-                <label>
+                <label className="shareholder-payout-line-field shareholder-payout-line-amount">
                   Montant
                   <input type="number" min="0.01" step="0.01" value={line.amount} onChange={(event) => updateLine(index, { amount: event.target.value })} required />
                 </label>
-                <label>
+                <label className="shareholder-payout-line-field shareholder-payout-line-method">
                   Mode
                   <select value={line.payment_method} onChange={(event) => updateLine(index, { payment_method: event.target.value })}>
                     {paymentMethods.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                   </select>
                 </label>
-                <label>
+                <label className="shareholder-payout-line-field shareholder-payout-line-reference">
                   Référence
                   <input value={line.reference} onChange={(event) => updateLine(index, { reference: event.target.value })} />
                 </label>
-                <label className="form-field-full">
+                <label className="shareholder-payout-line-field shareholder-payout-line-comment">
                   Commentaire
                   <input value={line.notes} onChange={(event) => updateLine(index, { notes: event.target.value })} />
                 </label>

@@ -334,9 +334,33 @@ textarea { min-height: 72px; resize: vertical; }
 .shareholder-payout-warning { border: 1px solid #f1c27d; background: #fff8e7; color: #7b4f16; border-radius: 8px; padding: 10px 12px; font-size: 13px; }
 .shareholder-payout-grid { display: grid; grid-template-columns: repeat(4, minmax(170px, 1fr)); gap: 10px; }
 .shareholder-payout-lines-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.shareholder-payout-lines { display: grid; gap: 10px; }
-.shareholder-payout-line { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(140px, 1fr) minmax(160px, 1fr) minmax(180px, 1fr) minmax(220px, 2fr) auto; gap: 10px; align-items: end; padding: 12px; border: 1px solid #dce5eb; border-radius: 8px; background: #fbfdfe; }
-.shareholder-payout-line-actions { display: flex; justify-content: flex-end; }
+.shareholder-payout-lines { display: grid; gap: 8px; }
+.shareholder-payout-line {
+  display: grid;
+  grid-template-columns: minmax(220px, 2.2fr) minmax(120px, 0.95fr) minmax(130px, 1fr) minmax(140px, 1.05fr) minmax(140px, 1.1fr) 40px;
+  grid-template-areas: "shareholder amount method reference comment actions";
+  gap: 8px;
+  align-items: end;
+  padding: 10px 12px;
+  border: 1px solid #dce5eb;
+  border-radius: 8px;
+  background: #fbfdfe;
+}
+.shareholder-payout-line-field { min-width: 0; display: grid; gap: 6px; }
+.shareholder-payout-line-field > input,
+.shareholder-payout-line-field > select { min-width: 0; }
+.shareholder-payout-line-shareholder { grid-area: shareholder; }
+.shareholder-payout-line-amount { grid-area: amount; }
+.shareholder-payout-line-method { grid-area: method; }
+.shareholder-payout-line-reference { grid-area: reference; }
+.shareholder-payout-line-comment { grid-area: comment; }
+.shareholder-payout-line-actions {
+  grid-area: actions;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+.shareholder-payout-line-actions .icon-btn { width: 34px; height: 34px; padding: 0; }
 .shareholder-payout-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
 .shareholder-payout-summary > div { border: 1px solid #dce5eb; border-radius: 8px; padding: 10px 12px; background: #fff; display: grid; gap: 4px; }
 .shareholder-payout-summary span { color: #637783; font-size: 12px; }
@@ -899,7 +923,13 @@ td.negative { color: #a4343a; }
   .sidebar nav { grid-template-columns: 1fr; }
   .metrics-grid, .finance-band, .mini-stats, .chart-grid, .quick-form, .lease-section-grid { grid-template-columns: repeat(2, 1fr); }
   .shareholder-form-grid, .shareholder-payout-grid { grid-template-columns: repeat(2, 1fr); }
-  .shareholder-payout-line { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .shareholder-payout-line {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) 40px;
+    grid-template-areas:
+      "shareholder amount method reference actions"
+      "comment comment comment comment actions";
+    align-items: end;
+  }
   .settings-grid { grid-template-columns: 1fr; }
   .document-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
   .invoice-chart-row { grid-template-columns: 150px 1fr 90px; }
@@ -968,7 +998,18 @@ td.negative { color: #a4343a; }
 
 @media (max-width: 640px) {
   .lease-section-grid, .quick-form { grid-template-columns: 1fr; }
-  .shareholder-form-grid, .shareholder-payout-grid, .shareholder-payout-line, .shareholder-toolbar { grid-template-columns: 1fr; }
+  .shareholder-form-grid, .shareholder-payout-grid, .shareholder-toolbar { grid-template-columns: 1fr; }
+  .shareholder-payout-line {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "shareholder"
+      "amount"
+      "method"
+      "reference"
+      "comment"
+      "actions";
+  }
+  .shareholder-payout-line-actions { justify-content: flex-start; }
   .settings-grid { grid-template-columns: 1fr; }
   .statement-filters { grid-template-columns: 1fr; }
   .statement-filters .filter-actions { grid-column: auto; }
