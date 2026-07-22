@@ -149,23 +149,23 @@ export function TenantCredits() {
   const resolveLoadError = (loadError: any) => {
     const message = String(loadError?.response?.data?.message ?? '').trim();
     const status = Number(loadError?.response?.status ?? 0);
-    if (status === 401) return 'Votre session a expirÃ©. Veuillez vous reconnecter.';
-    if (status === 403) return 'AccÃ¨s refusÃ© au module crÃ©dits locataires.';
-    if (status === 404) return 'Le module des crÃ©dits locataires nâ€™est pas encore configurÃ©.';
-    if (status === 400 && /crÃ©dits locataires/i.test(message)) return message;
+    if (status === 401) return 'Votre session a expiré. Veuillez vous reconnecter.';
+    if (status === 403) return 'Accès refusé au module crédits locataires.';
+    if (status === 404) return 'Le module des crédits locataires n’est pas encore configuré.';
+    if (status === 400 && /crédits locataires/i.test(message)) return message;
     if (message) return message;
-    return 'Impossible de charger les crÃ©dits locataires.';
+    return 'Impossible de charger les crédits locataires.';
   };
 
   const resolveFormDataError = (loadError: any) => {
     const message = String(loadError?.response?.data?.message ?? '').trim();
     const status = Number(loadError?.response?.status ?? 0);
-    if (status === 401) return 'Votre session a expirÃ©. Veuillez vous reconnecter.';
-    if (status === 403) return 'AccÃ¨s refusÃ© pour charger le formulaire.';
-    if (status === 404) return 'Le formulaire des crÃ©dits locataires est indisponible.';
-    if (status >= 500) return 'Le chargement des locataires et baux a Ã©chouÃ©.';
+    if (status === 401) return 'Votre session a expiré. Veuillez vous reconnecter.';
+    if (status === 403) return 'Accès refusé pour charger le formulaire.';
+    if (status === 404) return 'Le formulaire des crédits locataires est indisponible.';
+    if (status >= 500) return 'Le chargement des locataires et baux a échoué.';
     if (message) return message;
-    return 'Impossible de charger le formulaire des crÃ©dits locataires.';
+    return 'Impossible de charger le formulaire des crédits locataires.';
   };
 
   const loadCredits = async () => {
@@ -216,9 +216,9 @@ export function TenantCredits() {
         message: payload.message,
       });
       setEmailOpen(false);
-      setSuccess('ReÃ§u de crÃ©dit locataire envoyÃ© par email avec succÃ¨s.');
+      setSuccess('Reçu de crédit locataire envoyé par email avec succès.');
     } catch (error: any) {
-      setEmailError(String(error?.response?.data?.message ?? error?.message ?? 'Impossible dâ€™envoyer le reÃ§u du crÃ©dit.'));
+      setEmailError(String(error?.response?.data?.message ?? error?.message ?? 'Impossible d’envoyer le reçu du crédit.'));
     } finally {
       setEmailSending(false);
     }
@@ -232,7 +232,7 @@ export function TenantCredits() {
   const paymentMethods = formData.paymentMethods?.length
     ? formData.paymentMethods
     : [
-        { value: 'CASH', label: 'EspÃ¨ces' },
+        { value: 'CASH', label: 'Espèces' },
         { value: 'BANK', label: 'Banque' },
         { value: 'MOBILE_MONEY', label: 'Mobile Money' },
       ];
@@ -340,7 +340,7 @@ export function TenantCredits() {
       setSelectedCredit(response.data);
       setDetailOpen(true);
     } catch (detailError: any) {
-      setError(detailError?.response?.data?.message ?? 'Impossible de charger le dÃ©tail du crÃ©dit.');
+      setError(detailError?.response?.data?.message ?? 'Impossible de charger le détail du crédit.');
     }
   };
 
@@ -384,7 +384,7 @@ export function TenantCredits() {
         notes: form.notes || null,
         idempotency_key: `tenant-credit:${form.tenant_id}:${form.lease_id || 'none'}:${form.payment_date}:${form.currency}:${form.amount}:${form.reference || 'noref'}`,
       });
-      setSuccess('CrÃ©dit locataire enregistrÃ©.');
+      setSuccess('Crédit locataire enregistré.');
       setModalOpen(false);
       setForm({
         tenant_id: '',
@@ -399,7 +399,7 @@ export function TenantCredits() {
       });
       await loadCredits();
     } catch (submitError: any) {
-      setError(submitError?.response?.data?.message ?? 'Impossible dâ€™enregistrer le crÃ©dit locataire.');
+      setError(submitError?.response?.data?.message ?? 'Impossible d’enregistrer le crédit locataire.');
     } finally {
       setSubmitting(false);
     }
@@ -421,13 +421,13 @@ export function TenantCredits() {
       });
       setSuccess(
         response.data?.refund?.receipt_number
-          ? `Remboursement enregistrÃ©. Justificatif ${response.data.refund.receipt_number}.`
-          : 'Remboursement enregistrÃ©.',
+          ? `Remboursement enregistré. Justificatif ${response.data.refund.receipt_number}.`
+          : 'Remboursement enregistré.',
       );
       setRefundOpen(false);
       await reloadDetail(selectedCredit.id);
     } catch (refundError: any) {
-      setError(refundError?.response?.data?.message ?? 'Impossible dâ€™enregistrer le remboursement.');
+      setError(refundError?.response?.data?.message ?? 'Impossible d’enregistrer le remboursement.');
     } finally {
       setSubmitting(false);
     }
@@ -448,13 +448,13 @@ export function TenantCredits() {
       });
       setSuccess(
         response.data?.refund?.receipt_number
-          ? `CrÃ©dit annulÃ©. Justificatif ${response.data.refund.receipt_number}.`
-          : 'CrÃ©dit annulÃ©.',
+          ? `Crédit annulé. Justificatif ${response.data.refund.receipt_number}.`
+          : 'Crédit annulé.',
       );
       setCancelOpen(false);
       await reloadDetail(selectedCredit.id);
     } catch (cancelError: any) {
-      setError(cancelError?.response?.data?.message ?? 'Impossible dâ€™annuler ce crÃ©dit.');
+      setError(cancelError?.response?.data?.message ?? 'Impossible d’annuler ce crédit.');
     } finally {
       setSubmitting(false);
     }
@@ -467,12 +467,12 @@ export function TenantCredits() {
       <div className="page-header">
         <div>
           <button type="button" className="link-button" onClick={() => navigate('/payments')}><ArrowLeft size={15} />Retour paiements</button>
-          <h2>CrÃ©dits locataires</h2>
-          <p>Paiements anticipÃ©s disponibles, sans crÃ©ation de factures futures.</p>
+          <h2>Crédits locataires</h2>
+          <p>Paiements anticipés disponibles, sans création de factures futures.</p>
         </div>
         <div className="actions">
           <button type="button" className="secondary" onClick={() => void loadCredits()}><RefreshCw size={16} />Actualiser</button>
-          {can('payments.create') ? <button type="button" onClick={() => { setModalOpen(true); void loadFormData(); }}><Plus size={16} />Nouveau crÃ©dit locataire</button> : null}
+          {can('payments.create') ? <button type="button" onClick={() => { setModalOpen(true); void loadFormData(); }}><Plus size={16} />Nouveau crédit locataire</button> : null}
         </div>
       </div>
 
@@ -480,11 +480,11 @@ export function TenantCredits() {
       {error && <div className="error">{error}</div>}
 
       <div className="summary-grid tenant-credit-kpis">
-        <div className="summary-card"><span>CrÃ©dits visibles</span><strong>{totals.count}</strong></div>
+        <div className="summary-card"><span>Crédits visibles</span><strong>{totals.count}</strong></div>
         <div className="summary-card"><span>Disponible USD</span><strong>{money(totals.usd)}</strong></div>
         <div className="summary-card"><span>Disponible CDF</span><strong>{totals.cdf.toLocaleString('fr-FR')} CDF</strong></div>
-        <div className="summary-card"><span>UtilisÃ© USD</span><strong>{money(totals.usedUsd)}</strong></div>
-        <div className="summary-card"><span>UtilisÃ© CDF</span><strong>{totals.usedCdf.toLocaleString('fr-FR')} CDF</strong></div>
+        <div className="summary-card"><span>Utilisé USD</span><strong>{money(totals.usedUsd)}</strong></div>
+        <div className="summary-card"><span>Utilisé CDF</span><strong>{totals.usedCdf.toLocaleString('fr-FR')} CDF</strong></div>
       </div>
 
       <div className="tenant-credit-toolbar">
@@ -494,7 +494,7 @@ export function TenantCredits() {
             <input
               value={filters.search}
               onChange={(event) => updateFilterAndReset('search', event.target.value)}
-              placeholder="Rechercher par locataire, bail, rÃ©fÃ©rence..."
+              placeholder="Rechercher par locataire, bail, référence..."
             />
           </label>
         </div>
@@ -502,10 +502,10 @@ export function TenantCredits() {
           <select value={filters.status} onChange={(event) => updateFilterAndReset('status', event.target.value)}>
             <option value="">Tous les statuts</option>
             <option value="AVAILABLE">Disponible</option>
-            <option value="PARTIALLY_USED">Partiellement utilisÃ©</option>
-            <option value="USED">UtilisÃ©</option>
-            <option value="REFUNDED">RemboursÃ©</option>
-            <option value="CANCELLED">AnnulÃ©</option>
+            <option value="PARTIALLY_USED">Partiellement utilisé</option>
+            <option value="USED">Utilisé</option>
+            <option value="REFUNDED">Remboursé</option>
+            <option value="CANCELLED">Annulé</option>
           </select>
           <select value={filters.currency} onChange={(event) => updateFilterAndReset('currency', event.target.value)}>
             <option value="">Toutes devises</option>
@@ -521,7 +521,7 @@ export function TenantCredits() {
             <input type="date" value={filters.end} onChange={(event) => updateFilterAndReset('end', event.target.value)} />
           </label>
           <div className="tenant-credit-toolbar-actions">
-            <button type="button" className="secondary" onClick={resetFilters}>RÃ©initialiser</button>
+            <button type="button" className="secondary" onClick={resetFilters}>Réinitialiser</button>
             <button type="button" onClick={() => void loadCredits()}>Filtrer</button>
           </div>
         </div>
@@ -534,7 +534,7 @@ export function TenantCredits() {
               <th>Date</th>
               <th>Locataire</th>
               <th>Bail</th>
-              <th>ReÃ§u</th>
+              <th>Reçu</th>
               <th>Mode</th>
               <th className="right">Montant initial</th>
               <th className="right">Disponible</th>
@@ -561,8 +561,8 @@ export function TenantCredits() {
                 <td className="right">{formatCreditAmount(credit.remaining_amount, credit.currency)}</td>
                 <td><span className={`badge ${String(credit.status ?? '').toLowerCase()}`}>{creditStatusLabel(credit.status)}</span></td>
                 <td>
-                  <button type="button" className="icon-button" title="Voir le dÃ©tail" onClick={() => void openDetail(credit.id)}><FileText size={15} /></button>
-                  <button type="button" className="icon-button" title="Ouvrir le reÃ§u d'origine" onClick={() => navigate(`/payments/${credit.source_payment_id}`)}><Printer size={15} /></button>
+                  <button type="button" className="icon-button" title="Voir le détail" onClick={() => void openDetail(credit.id)}><FileText size={15} /></button>
+                  <button type="button" className="icon-button" title="Ouvrir le reçu d'origine" onClick={() => navigate(`/payments/${credit.source_payment_id}`)}><Printer size={15} /></button>
                 </td>
               </tr>
             ))}
@@ -570,8 +570,8 @@ export function TenantCredits() {
               <tr>
                 <td colSpan={9}>
                   <div className="empty tenant-credit-empty">
-                    <strong>Aucun crÃ©dit locataire.</strong>
-                    <span>Aucun paiement anticipÃ© enregistrÃ© pour les filtres sÃ©lectionnÃ©s.</span>
+                    <strong>Aucun crédit locataire.</strong>
+                    <span>Aucun paiement anticipé enregistré pour les filtres sélectionnés.</span>
                   </div>
                 </td>
               </tr>
@@ -581,7 +581,7 @@ export function TenantCredits() {
                 <td colSpan={9}>
                   <div className="empty tenant-credit-empty">
                     <strong>Chargement...</strong>
-                    <span>Veuillez patienter pendant la rÃ©cupÃ©ration des crÃ©dits.</span>
+                    <span>Veuillez patienter pendant la récupération des crédits.</span>
                   </div>
                 </td>
               </tr>
@@ -591,12 +591,12 @@ export function TenantCredits() {
       </div>
 
       <div className="pagination-bar tenant-credit-pagination">
-        <div className="table-meta">Total {visibleCredits.length} crÃ©dit{visibleCredits.length > 1 ? 's' : ''}</div>
+        <div className="table-meta">Total {visibleCredits.length} crédit{visibleCredits.length > 1 ? 's' : ''}</div>
         <div className="tenant-credit-pagination-controls">
           <span>Page {currentPage} sur {totalPages}</span>
-          <button type="button" className="icon-btn" onClick={() => setPage((current) => Math.max(current - 1, 1))} disabled={currentPage <= 1} aria-label="Page prÃ©cÃ©dente">â€¹</button>
+          <button type="button" className="icon-btn" onClick={() => setPage((current) => Math.max(current - 1, 1))} disabled={currentPage <= 1} aria-label="Page précédente">‹</button>
           <button type="button" className="icon-btn" onClick={() => setPage(currentPage)} disabled>{currentPage}</button>
-          <button type="button" className="icon-btn" onClick={() => setPage((current) => Math.min(current + 1, totalPages))} disabled={currentPage >= totalPages} aria-label="Page suivante">â€º</button>
+          <button type="button" className="icon-btn" onClick={() => setPage((current) => Math.min(current + 1, totalPages))} disabled={currentPage >= totalPages} aria-label="Page suivante">›</button>
         </div>
       </div>
 
@@ -605,8 +605,8 @@ export function TenantCredits() {
           <aside className="tenant-credit-drawer" role="dialog" aria-modal="true" aria-labelledby="tenant-credit-drawer-title" onClick={(event) => event.stopPropagation()}>
             <div className="tenant-credit-drawer-head">
               <div>
-                <h3 id="tenant-credit-drawer-title">Nouveau crÃ©dit locataire</h3>
-                <p>Renseignez un paiement anticipÃ© pour le locataire et le bail concernÃ©s.</p>
+                <h3 id="tenant-credit-drawer-title">Nouveau crédit locataire</h3>
+                <p>Renseignez un paiement anticipé pour le locataire et le bail concernés.</p>
               </div>
               <button type="button" className="icon-btn secondary" onClick={() => setModalOpen(false)} aria-label="Fermer">
                 <X size={16} />
@@ -621,7 +621,7 @@ export function TenantCredits() {
                     <strong>Impossible de charger les locataires et baux.</strong>
                     <p>{formDataError}</p>
                   </div>
-                  <button type="button" className="secondary" onClick={() => void loadFormData()}>RÃ©essayer</button>
+                  <button type="button" className="secondary" onClick={() => void loadFormData()}>Réessayer</button>
                 </div>
               ) : null}
 
@@ -629,8 +629,8 @@ export function TenantCredits() {
                 <div className="tenant-credit-drawer-state tenant-credit-drawer-state-loading" aria-live="polite">
                   <div className="spinner" />
                   <div>
-                    <strong>Chargement du formulaireâ€¦</strong>
-                    <p>Nous prÃ©parons les locataires et les baux de lâ€™organisation active.</p>
+                    <strong>Chargement du formulaire…</strong>
+                    <p>Nous préparons les locataires et les baux de l’organisation active.</p>
                   </div>
                 </div>
               ) : null}
@@ -640,49 +640,49 @@ export function TenantCredits() {
                   <span>Locataire *</span>
                   <select required value={form.tenant_id} disabled={tenantSelectDisabled} onChange={(event) => updateForm('tenant_id', event.target.value)}>
                     {formDataLoading ? (
-                      <option value="">Chargement des locatairesâ€¦</option>
+                      <option value="">Chargement des locataires…</option>
                     ) : formData.tenants.length === 0 ? (
                       <option value="">Aucun locataire disponible</option>
                     ) : (
                       <>
-                        <option value="">SÃ©lectionner un locataire</option>
+                        <option value="">Sélectionner un locataire</option>
                         {formData.tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
                       </>
                     )}
                   </select>
-                  <small>{formDataLoading ? 'Chargement des locatairesâ€¦' : formData.tenants.length === 0 ? 'Aucun locataire disponible.' : 'Choisissez le locataire concernÃ© par ce crÃ©dit.'}</small>
+                  <small>{formDataLoading ? 'Chargement des locataires…' : formData.tenants.length === 0 ? 'Aucun locataire disponible.' : 'Choisissez le locataire concerné par ce crédit.'}</small>
                 </label>
                 <label>
                   <span>Bail actif *</span>
                   <select required value={form.lease_id} disabled={leaseSelectDisabled} onChange={(event) => updateForm('lease_id', event.target.value)}>
                     {!form.tenant_id ? (
-                      <option value="">SÃ©lectionnez dâ€™abord un locataire</option>
+                      <option value="">Sélectionnez d’abord un locataire</option>
                     ) : formDataLoading ? (
-                      <option value="">Chargement des bauxâ€¦</option>
+                      <option value="">Chargement des baux…</option>
                     ) : filteredLeases.length === 0 ? (
                       <option value="">Aucun bail actif pour ce locataire</option>
                     ) : (
                       <>
-                        <option value="">SÃ©lectionner un bail</option>
+                        <option value="">Sélectionner un bail</option>
                         {filteredLeases.map((lease) => (
                           <option key={lease.id} value={lease.id}>{formatLeaseReference(lease.lease_number, lease.id)} - {lease.building_name ?? '-'} / {lease.unit_number ?? '-'}</option>
                         ))}
                       </>
                     )}
                   </select>
-                  <small>{!form.tenant_id ? 'SÃ©lectionnez dâ€™abord un locataire.' : formDataLoading ? 'Chargement des bauxâ€¦' : filteredLeases.length === 0 ? 'Aucun bail actif pour ce locataire.' : 'SÃ©lectionnez le bail actif du locataire.'}</small>
+                  <small>{!form.tenant_id ? 'Sélectionnez d’abord un locataire.' : formDataLoading ? 'Chargement des baux…' : filteredLeases.length === 0 ? 'Aucun bail actif pour ce locataire.' : 'Sélectionnez le bail actif du locataire.'}</small>
                 </label>
                 <label>
                   <span>Date *</span>
                   <input type="date" required value={form.payment_date} onChange={(event) => updateForm('payment_date', event.target.value)} />
-                  <small>Date du paiement anticipÃ©.</small>
+                  <small>Date du paiement anticipé.</small>
                 </label>
                 <label>
                   <span>Devise *</span>
                   <select value={form.currency} onChange={(event) => updateForm('currency', event.target.value)}>
                     {currencies.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
                   </select>
-                  <small>Devise du crÃ©dit locataire.</small>
+                  <small>Devise du crédit locataire.</small>
                 </label>
                 <label>
                   <span>Montant *</span>
@@ -690,42 +690,42 @@ export function TenantCredits() {
                     <input type="number" min="0.01" step="0.01" required value={form.amount} onChange={(event) => updateForm('amount', event.target.value)} />
                     <span>{form.currency === 'USD' ? '$US' : 'CDF'}</span>
                   </div>
-                  <small>Montant payÃ© dâ€™avance.</small>
+                  <small>Montant payé d’avance.</small>
                 </label>
                 <label>
                   <span>Mode de paiement *</span>
                   <select value={form.payment_method} onChange={(event) => updateForm('payment_method', event.target.value)}>
                     {paymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
                   </select>
-                  <small>Mode de paiement utilisÃ©.</small>
+                  <small>Mode de paiement utilisé.</small>
                 </label>
                 {form.currency === 'CDF' && (
                   <>
                     <label>
                       <span>Taux USD/CDF *</span>
                       <input type="number" min="0.000001" step="0.000001" required value={form.exchange_rate_used} onChange={(event) => updateForm('exchange_rate_used', event.target.value)} />
-                      <small>Taux appliquÃ© pour lâ€™Ã©quivalent USD.</small>
+                      <small>Taux appliqué pour l’équivalent USD.</small>
                     </label>
                     <label>
-                      <span>Ã‰quivalent USD</span>
+                      <span>Équivalent USD</span>
                       <input readOnly value={money(cdfEquivalent)} />
-                      <small>Valeur calculÃ©e automatiquement.</small>
+                      <small>Valeur calculée automatiquement.</small>
                     </label>
                   </>
                 )}
                 <label className="tenant-credit-drawer-wide">
-                  <span>RÃ©fÃ©rence</span>
-                  <input value={form.reference} onChange={(event) => updateForm('reference', event.target.value)} placeholder="RÃ©fÃ©rence du paiement" />
-                  <small>NumÃ©ro de reÃ§u, bordereau, chÃ¨que, etc.</small>
+                  <span>Référence</span>
+                  <input value={form.reference} onChange={(event) => updateForm('reference', event.target.value)} placeholder="Référence du paiement" />
+                  <small>Numéro de reçu, bordereau, chèque, etc.</small>
                 </label>
                 <label className="tenant-credit-drawer-wide">
                   <span>Notes</span>
                   <textarea value={form.notes} onChange={(event) => updateForm('notes', event.target.value)} placeholder="Notes (optionnel)" />
-                  <small>Informations complÃ©mentaires.</small>
+                  <small>Informations complémentaires.</small>
                 </label>
                 <div className="tenant-credit-drawer-footer tenant-credit-drawer-wide">
                   <button type="button" className="secondary" onClick={() => setModalOpen(false)}>Annuler</button>
-                  <button type="submit" disabled={!canSubmitCredit}><FileText size={16} />{submitting ? 'Enregistrement...' : 'Enregistrer le crÃ©dit'}</button>
+                  <button type="submit" disabled={!canSubmitCredit}><FileText size={16} />{submitting ? 'Enregistrement...' : 'Enregistrer le crédit'}</button>
                 </div>
               </form>
             </div>
@@ -734,17 +734,17 @@ export function TenantCredits() {
       )}
 
       {detailOpen && selectedCredit && (
-        <Modal title={`CrÃ©dit locataire #${selectedCredit.id}`} onClose={() => { setDetailOpen(false); setSelectedCredit(null); }}>
+        <Modal title={`Crédit locataire #${selectedCredit.id}`} onClose={() => { setDetailOpen(false); setSelectedCredit(null); }}>
           <div className="compact-list">
-            <div className="compact-item"><span>CrÃ©ation</span><strong>{shortDate(selectedCredit.payment_date)} | {formatCreditAmount(selectedCredit.original_amount, selectedCredit.currency)}</strong></div>
+            <div className="compact-item"><span>Création</span><strong>{shortDate(selectedCredit.payment_date)} | {formatCreditAmount(selectedCredit.original_amount, selectedCredit.currency)}</strong></div>
             <div className="compact-item"><span>Disponible</span><strong>{formatCreditAmount(selectedCredit.remaining_amount, selectedCredit.currency)}</strong></div>
-            <div className="compact-item"><span>UtilisÃ©</span><strong>{formatCreditAmount(Number(selectedCredit.original_amount ?? 0) - Number(selectedCredit.remaining_amount ?? 0), selectedCredit.currency)}</strong></div>
-            <div className="compact-item"><span>ReÃ§u d'origine</span><strong>{selectedCredit.receipt_number ?? '-'}</strong></div>
+            <div className="compact-item"><span>Utilisé</span><strong>{formatCreditAmount(Number(selectedCredit.original_amount ?? 0) - Number(selectedCredit.remaining_amount ?? 0), selectedCredit.currency)}</strong></div>
+            <div className="compact-item"><span>Reçu d'origine</span><strong>{selectedCredit.receipt_number ?? '-'}</strong></div>
             <div className="compact-item"><span>Statut</span><strong>{creditStatusLabel(selectedCredit.status)}</strong></div>
           </div>
 
           <div className="tenant-credit-detail-actions">
-            <button type="button" className="secondary" onClick={() => navigate(`/payments/${selectedCredit.source_payment_id}`)}><Printer size={15} />ReÃ§u d'origine</button>
+            <button type="button" className="secondary" onClick={() => navigate(`/payments/${selectedCredit.source_payment_id}`)}><Printer size={15} />Reçu d'origine</button>
             {can('communication.send') ? (
               <button type="button" className="secondary" onClick={() => setEmailOpen(true)}><Mail size={15} />Envoyer par email</button>
             ) : null}
@@ -768,7 +768,7 @@ export function TenantCredits() {
                   setCancelOpen(true);
                 }}
               >
-                <Ban size={15} />Annuler le crÃ©dit
+                <Ban size={15} />Annuler le crédit
               </button>
             ) : null}
           </div>
@@ -779,7 +779,7 @@ export function TenantCredits() {
                 <tr>
                   <th>Date</th>
                   <th>Type</th>
-                  <th>DÃ©tail</th>
+                  <th>Détail</th>
                   <th className="right">Montant</th>
                   <th>Action</th>
                 </tr>
@@ -794,7 +794,7 @@ export function TenantCredits() {
                     <td>
                       {row.invoiceId ? <button type="button" className="link-button" onClick={() => navigate(`/invoices/${row.invoiceId}`)}>Ouvrir la facture</button> : null}
                       {row.refundId ? <button type="button" className="link-button" onClick={() => navigate(`/tenant-credits/refunds/${row.refundId}`)}>Justificatif</button> : null}
-                      {row.paymentId ? <button type="button" className="link-button" onClick={() => navigate(`/payments/${row.paymentId}`)}>ReÃ§u</button> : null}
+                      {row.paymentId ? <button type="button" className="link-button" onClick={() => navigate(`/payments/${row.paymentId}`)}>Reçu</button> : null}
                     </td>
                   </tr>
                 ))}
@@ -808,7 +808,7 @@ export function TenantCredits() {
               <AlertCircle size={16} />
               <div>
                 <strong>Historique incomplet</strong>
-                <p>Le crÃ©dit est marquÃ© remboursÃ© mais aucun justificatif dÃ©taillÃ© nâ€™a Ã©tÃ© trouvÃ©.</p>
+                <p>Le crédit est marqué remboursé mais aucun justificatif détaillé n’a été trouvé.</p>
               </div>
             </div>
           ) : null}
@@ -831,24 +831,24 @@ export function TenantCredits() {
       )}
 
       {refundOpen && selectedCredit && (
-        <Modal title="Rembourser un crÃ©dit locataire" onClose={() => setRefundOpen(false)}>
+        <Modal title="Rembourser un crédit locataire" onClose={() => setRefundOpen(false)}>
           <form className="form-grid" onSubmit={(event) => void submitRefund(event)}>
             <label>Solde disponible<input readOnly value={formatCreditAmount(Number(selectedCredit.remaining_amount ?? 0), selectedCredit.currency)} /></label>
             <label>Devise<input readOnly value={selectedCredit.currency} /></label>
-            <label>Montant Ã  rembourser<input type="number" min="0.01" step="0.01" max={selectedCredit.remaining_amount} required value={refundForm.amount} onChange={(event) => setRefundForm((current) => ({ ...current, amount: event.target.value }))} /></label>
+            <label>Montant à rembourser<input type="number" min="0.01" step="0.01" max={selectedCredit.remaining_amount} required value={refundForm.amount} onChange={(event) => setRefundForm((current) => ({ ...current, amount: event.target.value }))} /></label>
             <label>Date<input type="date" required value={refundForm.refund_date} onChange={(event) => setRefundForm((current) => ({ ...current, refund_date: event.target.value }))} /></label>
             <label>Mode<select value={refundForm.payment_method} onChange={(event) => setRefundForm((current) => ({ ...current, payment_method: event.target.value }))}>
-              <option value="CASH">EspÃ¨ces</option>
+              <option value="CASH">Espèces</option>
               <option value="BANK">Banque</option>
               <option value="MOBILE_MONEY">Mobile Money</option>
             </select></label>
-            <label>RÃ©fÃ©rence<input value={refundForm.reference} onChange={(event) => setRefundForm((current) => ({ ...current, reference: event.target.value }))} /></label>
+            <label>Référence<input value={refundForm.reference} onChange={(event) => setRefundForm((current) => ({ ...current, reference: event.target.value }))} /></label>
             <label className="full">Motif<textarea required value={refundForm.reason} onChange={(event) => setRefundForm((current) => ({ ...current, reason: event.target.value }))} /></label>
             {refundSummary ? (
               <div className="tenant-credit-refund-summary full">
                 <div><span>Disponible avant</span><strong>{formatCreditAmount(refundSummary.before, selectedCredit.currency)}</strong></div>
-                <div><span>Montant remboursÃ©</span><strong>{formatCreditAmount(refundSummary.refund, selectedCredit.currency)}</strong></div>
-                <div><span>Disponible aprÃ¨s</span><strong>{formatCreditAmount(refundSummary.after, selectedCredit.currency)}</strong></div>
+                <div><span>Montant remboursé</span><strong>{formatCreditAmount(refundSummary.refund, selectedCredit.currency)}</strong></div>
+                <div><span>Disponible après</span><strong>{formatCreditAmount(refundSummary.after, selectedCredit.currency)}</strong></div>
               </div>
             ) : null}
             <div className="form-actions full">
@@ -860,28 +860,28 @@ export function TenantCredits() {
       )}
 
       {cancelOpen && selectedCredit && (
-        <Modal title="Annuler un crÃ©dit inutilisÃ©" onClose={() => setCancelOpen(false)}>
+        <Modal title="Annuler un crédit inutilisé" onClose={() => setCancelOpen(false)}>
           <form className="form-grid" onSubmit={(event) => void submitCancel(event)}>
-            <label>Montant annulÃ©<input readOnly value={formatCreditAmount(Number(selectedCredit.remaining_amount ?? 0), selectedCredit.currency)} /></label>
+            <label>Montant annulé<input readOnly value={formatCreditAmount(Number(selectedCredit.remaining_amount ?? 0), selectedCredit.currency)} /></label>
             <label>Devise<input readOnly value={selectedCredit.currency} /></label>
             <label>Date<input type="date" required value={cancelForm.refund_date} onChange={(event) => setCancelForm((current) => ({ ...current, refund_date: event.target.value }))} /></label>
             <label>Mode<select value={cancelForm.payment_method} onChange={(event) => setCancelForm((current) => ({ ...current, payment_method: event.target.value }))}>
-              <option value="CASH">EspÃ¨ces</option>
+              <option value="CASH">Espèces</option>
               <option value="BANK">Banque</option>
               <option value="MOBILE_MONEY">Mobile Money</option>
             </select></label>
-            <label>RÃ©fÃ©rence<input value={cancelForm.reference} onChange={(event) => setCancelForm((current) => ({ ...current, reference: event.target.value }))} /></label>
+            <label>Référence<input value={cancelForm.reference} onChange={(event) => setCancelForm((current) => ({ ...current, reference: event.target.value }))} /></label>
             <label className="full">Motif obligatoire<textarea required value={cancelForm.reason} onChange={(event) => setCancelForm((current) => ({ ...current, reason: event.target.value }))} /></label>
             <div className="inline-info-card full">
               <AlertCircle size={16} />
               <div>
-                <strong>Annulation contrÃ´lÃ©e</strong>
-                <p>Cette opÃ©ration nâ€™est autorisÃ©e que pour un crÃ©dit jamais utilisÃ©. Le paiement initial et son reÃ§u dâ€™origine seront conservÃ©s.</p>
+                <strong>Annulation contrôlée</strong>
+                <p>Cette opération n’est autorisée que pour un crédit jamais utilisé. Le paiement initial et son reçu d’origine seront conservés.</p>
               </div>
             </div>
             <div className="form-actions full">
               <button type="button" className="secondary" onClick={() => setCancelOpen(false)}>Retour</button>
-              <button type="submit" className="danger" disabled={submitting}><Ban size={16} />{submitting ? 'Annulation...' : 'Confirmer lâ€™annulation'}</button>
+              <button type="submit" className="danger" disabled={submitting}><Ban size={16} />{submitting ? 'Annulation...' : 'Confirmer l’annulation'}</button>
             </div>
           </form>
         </Modal>
@@ -897,10 +897,10 @@ function formatCreditAmount(value: number, currency: 'USD' | 'CDF') {
 function creditStatusLabel(status: string) {
   return ({
     AVAILABLE: 'Disponible',
-    PARTIALLY_USED: 'Partiellement utilisÃ©',
-    USED: 'UtilisÃ©',
-    REFUNDED: 'RemboursÃ©',
-    CANCELLED: 'AnnulÃ©',
+    PARTIALLY_USED: 'Partiellement utilisé',
+    USED: 'Utilisé',
+    REFUNDED: 'Remboursé',
+    CANCELLED: 'Annulé',
   } as Record<string, string>)[status] ?? status;
 }
 
@@ -909,8 +909,8 @@ function buildCreditHistory(credit: TenantCredit | null): CreditHistoryRow[] {
   const creationRow: CreditHistoryRow = {
     key: `credit-created-${credit.id}`,
     date: credit.payment_date,
-    type: 'CrÃ©ation',
-    detail: `CrÃ©dit crÃ©Ã©${credit.receipt_number ? ` - ${credit.receipt_number}` : ''}`,
+    type: 'Création',
+    detail: `Crédit créé${credit.receipt_number ? ` - ${credit.receipt_number}` : ''}`,
     amountLabel: `+ ${formatCreditAmount(Number(credit.original_amount ?? 0), credit.currency)}`,
     direction: 'IN' as const,
     paymentId: credit.source_payment_id,
@@ -919,7 +919,7 @@ function buildCreditHistory(credit: TenantCredit | null): CreditHistoryRow[] {
     key: `credit-allocation-${allocation.id}`,
     date: allocation.created_at || allocation.payment_date,
     type: 'Affectation',
-    detail: `AffectÃ© Ã  ${allocation.invoice_number}`,
+    detail: `Affecté à ${allocation.invoice_number}`,
     amountLabel: `- ${formatCreditAmount(Number(allocation.amount_applied ?? 0), allocation.currency)}`,
     direction: 'OUT' as const,
     invoiceId: allocation.invoice_id,
