@@ -576,6 +576,16 @@ export class CashController {
     return this.service.createCashMovement(body);
   }
 
+  @Get('shareholder-payouts/form-data')
+  shareholderPayoutFormData() {
+    return this.service.shareholderPayoutFormData('MAIN_CASH');
+  }
+
+  @Post('shareholder-payouts')
+  createShareholderPayout(@Body() body: Record<string, unknown>) {
+    return this.service.createShareholderPayout('MAIN_CASH', body);
+  }
+
   @Get('report')
   report() {
     return this.service.cashReport();
@@ -601,9 +611,74 @@ export class GuaranteeCashController {
     return this.service.createGuaranteeCashExpense(body);
   }
 
+  @Get('shareholder-payouts/form-data')
+  shareholderPayoutFormData() {
+    return this.service.shareholderPayoutFormData('GUARANTEE_CASH');
+  }
+
+  @Post('shareholder-payouts')
+  createShareholderPayout(@Body() body: Record<string, unknown>) {
+    return this.service.createShareholderPayout('GUARANTEE_CASH', body);
+  }
+
   @Get('report')
   report(@Query() query: Record<string, unknown>) {
     return this.service.guaranteeCashReport(query);
+  }
+}
+
+@Controller('shareholders')
+export class ShareholdersController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get()
+  shareholders(@Query() query: Record<string, unknown>) {
+    return this.service.shareholders(query);
+  }
+
+  @Get(':id')
+  shareholder(@Param('id', ParseIntPipe) id: number) {
+    return this.service.shareholder(id);
+  }
+
+  @Get(':id/history')
+  shareholderHistory(@Param('id', ParseIntPipe) id: number) {
+    return this.service.shareholderHistory(id);
+  }
+
+  @Post()
+  create(@Body() body: Record<string, unknown>) {
+    return this.service.createShareholder(body);
+  }
+
+  @Patch(':id')
+  update(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.updateShareholder(id, body);
+  }
+}
+
+@Controller('shareholder-payouts')
+export class ShareholderPayoutsController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get(':id')
+  batch(@Param('id', ParseIntPipe) id: number) {
+    return this.service.shareholderPayoutBatch(id);
+  }
+
+  @Get(':id/summary')
+  summary(@Param('id', ParseIntPipe) id: number) {
+    return this.service.shareholderPayoutBatch(id);
+  }
+}
+
+@Controller('shareholder-payout-lines')
+export class ShareholderPayoutLinesController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get(':id/receipt')
+  receipt(@Param('id', ParseIntPipe) id: number) {
+    return this.service.shareholderPayoutLineReceipt(id);
   }
 }
 

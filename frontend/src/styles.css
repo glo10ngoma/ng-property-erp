@@ -321,6 +321,33 @@ textarea { min-height: 72px; resize: vertical; }
 .invoice-accordion-grid summary { cursor: pointer; font-weight: 800; color: #255e7e; }
 .invoice-accordion-grid .compact-list { margin-top: 8px; max-height: 220px; }
 .mini-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.page-header-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.page-subtitle { margin: -2px 0 12px; color: #637783; font-size: 14px; }
+.shareholder-toolbar { grid-template-columns: minmax(240px, 2fr) minmax(180px, 1fr) auto; }
+.shareholder-form { display: grid; gap: 12px; }
+.shareholder-form-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 10px; }
+.shareholder-history-modal { width: min(1040px, calc(100vw - 48px)); }
+.shareholder-payout-modal { width: min(1180px, calc(100vw - 40px)); }
+.shareholder-payout-form { display: grid; gap: 14px; }
+.shareholder-payout-source { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid #dce5eb; border-radius: 8px; background: #f8fafb; }
+.shareholder-payout-source strong { color: #203845; }
+.shareholder-payout-warning { border: 1px solid #f1c27d; background: #fff8e7; color: #7b4f16; border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+.shareholder-payout-grid { display: grid; grid-template-columns: repeat(4, minmax(170px, 1fr)); gap: 10px; }
+.shareholder-payout-lines-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.shareholder-payout-lines { display: grid; gap: 10px; }
+.shareholder-payout-line { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(140px, 1fr) minmax(160px, 1fr) minmax(180px, 1fr) minmax(220px, 2fr) auto; gap: 10px; align-items: end; padding: 12px; border: 1px solid #dce5eb; border-radius: 8px; background: #fbfdfe; }
+.shareholder-payout-line-actions { display: flex; justify-content: flex-end; }
+.shareholder-payout-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.shareholder-payout-summary > div { border: 1px solid #dce5eb; border-radius: 8px; padding: 10px 12px; background: #fff; display: grid; gap: 4px; }
+.shareholder-payout-summary span { color: #637783; font-size: 12px; }
+.shareholder-payout-summary strong { color: #203845; font-size: 15px; }
+.shareholder-payout-result { display: grid; gap: 12px; }
+.shareholder-payout-result-list { display: grid; gap: 8px; }
+.shareholder-payout-result-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid #dce5eb; border-radius: 8px; background: #fbfdfe; }
+.shareholder-payout-result-row > div { display: grid; gap: 4px; }
+.shareholder-payout-result-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.link-button { background: none; border: 0; padding: 0; color: #1d5f8c; cursor: pointer; font: inherit; }
+.link-button:hover { text-decoration: underline; }
 .mini-stat { background: white; border: 1px solid #dde5ea; border-radius: 8px; padding: 9px 10px; display: grid; gap: 2px; }
 .mini-stat span { color: #637783; font-size: 11px; text-transform: uppercase; }
 .mini-stat strong { font-size: 16px; }
@@ -871,6 +898,8 @@ td.negative { color: #a4343a; }
   .sidebar { position: static; }
   .sidebar nav { grid-template-columns: 1fr; }
   .metrics-grid, .finance-band, .mini-stats, .chart-grid, .quick-form, .lease-section-grid { grid-template-columns: repeat(2, 1fr); }
+  .shareholder-form-grid, .shareholder-payout-grid { grid-template-columns: repeat(2, 1fr); }
+  .shareholder-payout-line { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-grid { grid-template-columns: 1fr; }
   .document-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
   .invoice-chart-row { grid-template-columns: 150px 1fr 90px; }
@@ -939,6 +968,7 @@ td.negative { color: #a4343a; }
 
 @media (max-width: 640px) {
   .lease-section-grid, .quick-form { grid-template-columns: 1fr; }
+  .shareholder-form-grid, .shareholder-payout-grid, .shareholder-payout-line, .shareholder-toolbar { grid-template-columns: 1fr; }
   .settings-grid { grid-template-columns: 1fr; }
   .statement-filters { grid-template-columns: 1fr; }
   .statement-filters .filter-actions { grid-column: auto; }

@@ -39,6 +39,9 @@ import { LeaseDetail } from '../pages/LeaseDetail';
 import { LeaseNew } from '../pages/LeaseNew';
 import { Login } from '../pages/Login';
 import { PaymentDetail } from '../pages/PaymentDetail';
+import { ShareholderPayoutBatchDetail } from '../pages/ShareholderPayoutBatchDetail';
+import { ShareholderPayoutReceiptPage } from '../pages/ShareholderPayoutReceiptPage';
+import { ShareholdersPage } from '../pages/ShareholdersPage';
 import { TenantCreditRefundDetail } from '../pages/TenantCreditRefundDetail';
 import { TenantCredits } from '../pages/TenantCredits';
 import { ProfilePage } from '../pages/ProfilePage';
@@ -113,6 +116,9 @@ export function AppRouter() {
           <Route path="/payments/:id" element={guarded('payments.read', <PaymentDetail />)} />
           <Route path="/tenant-credits" element={guarded('payments.read', <TenantCredits />)} />
           <Route path="/tenant-credits/refunds/:id" element={guarded('payments.read', <TenantCreditRefundDetail />)} />
+          <Route path="/shareholders" element={guarded('shareholders.read', <ShareholdersPage />)} />
+          <Route path="/shareholder-payouts/:id" element={guarded('shareholder_payouts.read', <ShareholderPayoutBatchDetail />)} />
+          <Route path="/shareholder-payout-lines/:id/receipt" element={guarded('shareholder_payouts.receipt', <ShareholderPayoutReceiptPage />)} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/cash" element={guarded('cash.read', <CashPage />)} />
           <Route path="/guarantee-cash" element={guarded('guarantee_cash.read', <GuaranteeCashPage />)} />

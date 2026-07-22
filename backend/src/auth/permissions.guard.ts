@@ -25,6 +25,7 @@ const routePermissions: Array<[RegExp, string]> = [
   [/^\/api\/dashboard/, 'dashboard'],
   [/^\/api\/activity/, 'activity'],
   [/^\/api\/users/, 'users'],
+  [/^\/api\/shareholders/, 'shareholders'],
   [/^\/api\/buildings/, 'buildings'],
   [/^\/api\/units/, 'units'],
   [/^\/api\/tenants/, 'tenants'],
@@ -109,6 +110,24 @@ export class PermissionsGuard implements CanActivate {
   }
 
   private permissionFor(path: string, method: string) {
+    if (/^\/api\/shareholder-payout-lines\/\d+\/receipt$/.test(path)) {
+      return 'shareholder_payouts.receipt';
+    }
+    if (/^\/api\/shareholder-payouts\/\d+\/summary$/.test(path)) {
+      return 'shareholder_payouts.export';
+    }
+    if (/^\/api\/shareholder-payouts\/\d+$/.test(path)) {
+      return 'shareholder_payouts.read';
+    }
+    if (/^\/api\/shareholder-payouts/.test(path)) {
+      return method === 'GET' ? 'shareholder_payouts.read' : 'shareholder_payouts.create';
+    }
+    if (/^\/api\/cash\/shareholder-payouts/.test(path)) {
+      return 'shareholder_payouts.create';
+    }
+    if (/^\/api\/guarantee-cash\/shareholder-payouts/.test(path)) {
+      return 'shareholder_payouts.from_guarantee_cash';
+    }
     if (/^\/api\/tenant-credits\/\d+\/refund$/.test(path)) {
       return 'tenant_credits.refund';
     }

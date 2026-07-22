@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, includesText, shortDate } from '../api';
 import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, SuccessMessage } from '../components';
+import { ShareholderPayoutModal } from './ShareholderPayoutModal';
 
 type GuaranteeCashMovement = {
   id: number;
@@ -17,6 +18,8 @@ type GuaranteeCashMovement = {
   lease_number?: number | null;
   tenant_id?: number | null;
   tenant_name?: string | null;
+  shareholder_name?: string | null;
+  shareholder_batch_id?: number | null;
   reference?: string | null;
   reason?: string | null;
   notes?: string | null;
@@ -38,6 +41,7 @@ const movementTypes = [
   { value: 'GARANTY_REFUND', label: 'Remboursement garantie' },
   { value: 'GARANTY_EXPENSE', label: 'Sortie garantie' },
   { value: 'GARANTY_TRANSFER', label: 'Transfert garantie' },
+  { value: 'SHAREHOLDER_PAYOUT', label: 'Actionnaires' },
 ];
 
 export function GuaranteeCashPage() {
@@ -51,6 +55,7 @@ export function GuaranteeCashPage() {
   const [error, setError] = useState('');
   const [filters, setFilters] = useState({ date_from: '', date_to: '', currency: '', type: '', payment_id: searchParams.get('payment_id') ?? '' });
   const [expenseOpen, setExpenseOpen] = useState(false);
+  const [shareholderPayoutOpen, setShareholderPayoutOpen] = useState(false);
 
   const params = useMemo(
     () => Object.fromEntries(Object.entries(filters).filter(([, value]) => value)),
@@ -107,7 +112,7 @@ export function GuaranteeCashPage() {
       date: shortDate(movement.movement_date),
       type: movementTypeLabel(movement.movement_type),
       bail: movement.lease_number ? `B-${String(movement.lease_number).padStart(5, '0')}` : '',
-      locataire: movement.tenant_name ?? '',
+      locataire: movement.tenant_name ?? movement.shareholder_name ?? '',
       debit: movement.type === 'IN' ? movement.amount : '',
       credit: movement.type === 'OUT' ? movement.amount : '',
       devise: movement.currency,
@@ -122,7 +127,16 @@ export function GuaranteeCashPage() {
     <section>
       <PageHeader
         title="Caisse garanties locatives"
-        action={can('guarantee_cash.expense') ? <button onClick={() => setExpenseOpen(true)}><Plus size={16} />Nouvelle sortie</button> : undefined}
+        action={
+          <div className="page-header-actions">
+            {can('shareholder_payouts.from_guarantee_cash') ? (
+              <button type="button" className="secondary" onClick={() => setShareholderPayoutOpen(true)}>
+                Rembourser actionnaires
+              </button>
+            ) : null}
+            {can('guarantee_cash.expense') ? <button onClick={() => setExpenseOpen(true)}><Plus size={16} />Nouvelle sortie</button> : null}
+          </div>
+        }
       />
       <SuccessMessage message={success} />
       {error ? <div className="error-message">{error}</div> : null}
@@ -165,7 +179,7 @@ export function GuaranteeCashPage() {
               <th>Date</th>
               <th>Type</th>
               <th>Bail</th>
-              <th>Locataire</th>
+              <th>Bénéficiaire</th>
               <th className="right">Debit</th>
               <th className="right">Credit</th>
               <th>Devise</th>
@@ -180,7 +194,7 @@ export function GuaranteeCashPage() {
                 <td>{shortDate(movement.movement_date)}</td>
                 <td>{movementTypeLabel(movement.movement_type)}</td>
                 <td>{movement.lease_number ? `B-${String(movement.lease_number).padStart(5, '0')}` : '-'}</td>
-                <td>{movement.tenant_name || '-'}</td>
+                <td>{movement.tenant_name || movement.shareholder_name || '-'}</td>
                 <td className="right">{movement.type === 'IN' ? `${money(movement.amount)} ${movement.currency}` : ''}</td>
                 <td className="right">{movement.type === 'OUT' ? `${money(movement.amount)} ${movement.currency}` : ''}</td>
                 <td>{movement.currency}</td>
@@ -207,6 +221,17 @@ export function GuaranteeCashPage() {
           </form>
         </Modal>
       ) : null}
+      {shareholderPayoutOpen ? (
+        <ShareholderPayoutModal
+          endpoint="/guarantee-cash/shareholder-payouts"
+          sourceRegister="GUARANTEE_CASH"
+          onClose={() => setShareholderPayoutOpen(false)}
+          onSuccess={async () => {
+            await load();
+            setSuccess('Remboursement actionnaires enregistré.');
+          }}
+        />
+      ) : null}
     </section>
   );
 }
@@ -217,6 +242,7 @@ function movementTypeLabel(value: string) {
     GARANTY_REFUND: 'Remboursement garantie',
     GARANTY_EXPENSE: 'Sortie garantie',
     GARANTY_TRANSFER: 'Transfert garantie',
+    SHAREHOLDER_PAYOUT: 'Actionnaires',
   } as Record<string, string>)[value] ?? value;
 }
 

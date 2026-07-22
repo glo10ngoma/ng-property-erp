@@ -1947,15 +1947,31 @@ export class SaasService {
   }
 
   async cashMovements() {
+    const hasShareholderSchema = await this.hasShareholderPayoutSchema();
+    const shareholderSelect = hasShareholderSchema
+      ? `,
+             spl.batch_id AS shareholder_batch_id,
+             spl.shareholder_id,
+             sh.display_name AS shareholder_name`
+      : `,
+             NULL::INT AS shareholder_batch_id,
+             NULL::INT AS shareholder_id,
+             NULL::VARCHAR AS shareholder_name`;
+    const shareholderJoin = hasShareholderSchema
+      ? `
+      LEFT JOIN shareholder_payout_lines spl ON spl.cash_movement_id = cm.id AND spl.organization_id = cm.organization_id
+      LEFT JOIN shareholders sh ON sh.id = spl.shareholder_id AND sh.organization_id = spl.organization_id`
+      : '';
     const { rows } = await this.db.query(`
       SELECT cm.*, cs.status AS session_status, i.invoice_number,
              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
-             CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+             CONCAT(e.first_name, ' ', e.last_name) AS employee_name
+             ${shareholderSelect},
              CASE
                WHEN cm.payment_id IS NOT NULL THEN TRUE
                WHEN cm.invoice_id IS NOT NULL THEN TRUE
                WHEN cm.stock_purchase_id IS NOT NULL THEN TRUE
-               WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND', 'TENANT_CREDIT_REFUND') THEN TRUE
+               WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND', 'TENANT_CREDIT_REFUND', 'SHAREHOLDER_PAYOUT') THEN TRUE
                ELSE FALSE
              END AS is_locked,
              CASE
@@ -1963,6 +1979,7 @@ export class SaasService {
                WHEN cm.invoice_id IS NOT NULL THEN 'Ce mouvement est lié à une facture.'
                WHEN cm.stock_purchase_id IS NOT NULL THEN 'Ce mouvement est lié à un achat fournisseur.'
                WHEN cm.category = 'TENANT_CREDIT_REFUND' THEN 'Ce mouvement est lié à un remboursement de crédit locataire.'
+               WHEN cm.category = 'SHAREHOLDER_PAYOUT' THEN 'Ce mouvement est lié à un remboursement actionnaire.'
                WHEN cm.category IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND') THEN 'Ce mouvement est généré automatiquement pour une garantie.'
                WHEN cm.category IN ('SALARY_ADVANCE', 'SALARY_PAYMENT') THEN 'Ce mouvement est généré automatiquement pour la paie.'
                WHEN cm.category = 'MAINTENANCE_EXPENSE' THEN 'Ce mouvement est lié à une dépense de maintenance.'
@@ -1975,6 +1992,7 @@ export class SaasService {
       LEFT JOIN invoices i ON i.id = cm.invoice_id
       LEFT JOIN tenants t ON t.id = cm.tenant_id
       LEFT JOIN employees e ON e.id = cm.employee_id
+      ${shareholderJoin}
       WHERE cm.organization_id = $1
         AND cm.deleted_at IS NULL
         AND cm.category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')
@@ -1984,6 +2002,21 @@ export class SaasService {
   }
 
   async cashMovementDetail(id: number) {
+    const hasShareholderSchema = await this.hasShareholderPayoutSchema();
+    const shareholderSelect = hasShareholderSchema
+      ? `,
+              spl.batch_id AS shareholder_batch_id,
+              spl.shareholder_id,
+              sh.display_name AS shareholder_name`
+      : `,
+              NULL::INT AS shareholder_batch_id,
+              NULL::INT AS shareholder_id,
+              NULL::VARCHAR AS shareholder_name`;
+    const shareholderJoin = hasShareholderSchema
+      ? `
+       LEFT JOIN shareholder_payout_lines spl ON spl.cash_movement_id = cm.id AND spl.organization_id = cm.organization_id
+       LEFT JOIN shareholders sh ON sh.id = spl.shareholder_id AND sh.organization_id = spl.organization_id`
+      : '';
     const { rows } = await this.db.query(
       `SELECT cm.*, cs.status AS session_status, cs.opened_at, cs.closed_at, cs.opening_balance, cs.closing_balance,
               cs.expected_balance, cs.difference_amount,
@@ -1991,18 +2024,20 @@ export class SaasService {
               CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
               t.phone AS tenant_phone, t.email AS tenant_email,
               CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-              u.number AS unit_number, b.name AS building_name,
+              u.number AS unit_number, b.name AS building_name
+              ${shareholderSelect},
               CASE
                 WHEN cm.payment_id IS NOT NULL THEN TRUE
                 WHEN cm.invoice_id IS NOT NULL THEN TRUE
                 WHEN cm.stock_purchase_id IS NOT NULL THEN TRUE
-                WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND') THEN TRUE
+                WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND', 'SHAREHOLDER_PAYOUT') THEN TRUE
                 ELSE FALSE
               END AS is_locked,
               CASE
                 WHEN cm.payment_id IS NOT NULL THEN 'Ce mouvement est lié à un paiement.'
                 WHEN cm.invoice_id IS NOT NULL THEN 'Ce mouvement est lié à une facture.'
                 WHEN cm.stock_purchase_id IS NOT NULL THEN 'Ce mouvement est lié à un achat fournisseur.'
+                WHEN cm.category = 'SHAREHOLDER_PAYOUT' THEN 'Ce mouvement est lié à un remboursement actionnaire.'
                 WHEN cm.category IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND') THEN 'Ce mouvement est généré automatiquement pour une garantie.'
                 WHEN cm.category IN ('SALARY_ADVANCE', 'SALARY_PAYMENT') THEN 'Ce mouvement est généré automatiquement pour la paie.'
                 WHEN cm.category = 'MAINTENANCE_EXPENSE' THEN 'Ce mouvement est lié à une dépense de maintenance.'
@@ -2018,6 +2053,7 @@ export class SaasService {
        LEFT JOIN employees e ON e.id = cm.employee_id
        LEFT JOIN units u ON u.id = i.unit_id
        LEFT JOIN buildings b ON b.id = u.building_id
+       ${shareholderJoin}
        LEFT JOIN LATERAL (
          SELECT action, created_at, metadata
          FROM audit_logs
@@ -5931,17 +5967,34 @@ export class SaasService {
 
   async guaranteeCashMovements(filters: Record<string, unknown> = {}) {
     await this.ensureGuaranteeCashSchema();
+    const hasShareholderSchema = await this.hasShareholderPayoutSchema();
     const { where, values } = this.guaranteeCashWhere(filters);
+    const shareholderSelect = hasShareholderSchema
+      ? `,
+              spl.batch_id AS shareholder_batch_id,
+              spl.shareholder_id,
+              sh.display_name AS shareholder_name`
+      : `,
+              NULL::INT AS shareholder_batch_id,
+              NULL::INT AS shareholder_id,
+              NULL::VARCHAR AS shareholder_name`;
+    const shareholderJoin = hasShareholderSchema
+      ? `
+       LEFT JOIN shareholder_payout_lines spl ON spl.guarantee_cash_movement_id = gcm.id AND spl.organization_id = gcm.organization_id
+       LEFT JOIN shareholders sh ON sh.id = spl.shareholder_id AND sh.organization_id = spl.organization_id`
+      : '';
     const { rows } = await this.db.query(
       `SELECT gcm.*, l.lease_number,
               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
                    ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
               END AS tenant_name,
               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS user_name
+              ${shareholderSelect}
        FROM guarantee_cash_movements gcm
        LEFT JOIN leases l ON l.id = gcm.lease_id
        LEFT JOIN tenants t ON t.id = gcm.tenant_id
        LEFT JOIN app_users u ON u.id = gcm.created_by
+       ${shareholderJoin}
        ${where}
        ORDER BY gcm.movement_date DESC, gcm.id DESC`,
       values,
@@ -5994,6 +6047,309 @@ export class SaasService {
       this.guaranteeCashMovements(filters),
     ]);
     return { overview, movements };
+  }
+
+  async shareholders(filters: Record<string, unknown> = {}) {
+    await this.ensureShareholderSchema();
+    const values: unknown[] = [this.context.organizationId()];
+    const clauses = ['s.organization_id = $1', 's.deleted_at IS NULL'];
+    if (filters.status) {
+      values.push(String(filters.status).toUpperCase());
+      clauses.push(`s.status = $${values.length}`);
+    }
+    if (filters.search) {
+      values.push(`%${String(filters.search).trim().toLowerCase()}%`);
+      clauses.push(`(
+        LOWER(COALESCE(s.display_name, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(s.email, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(s.phone, '')) LIKE $${values.length}
+      )`);
+    }
+    const { rows } = await this.db.query(
+      `SELECT s.*,
+              COALESCE(main.total_usd, 0)::NUMERIC(14,2) AS total_received_usd,
+              COALESCE(main.total_cdf, 0)::NUMERIC(14,2) AS total_received_cdf,
+              COALESCE(main.payout_count, 0)::INT AS payout_count
+       FROM shareholders s
+       LEFT JOIN (
+         SELECT spl.shareholder_id,
+                SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'USD' THEN spl.amount ELSE 0 END) AS total_usd,
+                SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'CDF' THEN spl.amount ELSE 0 END) AS total_cdf,
+                COUNT(*) FILTER (WHERE spb.status = 'VALIDATED') AS payout_count
+         FROM shareholder_payout_lines spl
+         JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
+         WHERE spl.organization_id = $1
+         GROUP BY spl.shareholder_id
+       ) main ON main.shareholder_id = s.id
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY s.display_name ASC`,
+      values,
+    );
+    return rows;
+  }
+
+  async shareholder(id: number) {
+    await this.ensureShareholderSchema();
+    const { rows } = await this.db.query(
+      `SELECT s.*,
+              COALESCE(main.total_usd, 0)::NUMERIC(14,2) AS total_received_usd,
+              COALESCE(main.total_cdf, 0)::NUMERIC(14,2) AS total_received_cdf,
+              COALESCE(main.payout_count, 0)::INT AS payout_count
+       FROM shareholders s
+       LEFT JOIN (
+         SELECT spl.shareholder_id,
+                SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'USD' THEN spl.amount ELSE 0 END) AS total_usd,
+                SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'CDF' THEN spl.amount ELSE 0 END) AS total_cdf,
+                COUNT(*) FILTER (WHERE spb.status = 'VALIDATED') AS payout_count
+         FROM shareholder_payout_lines spl
+         JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
+         WHERE spl.organization_id = $1
+         GROUP BY spl.shareholder_id
+       ) main ON main.shareholder_id = s.id
+       WHERE s.id = $2
+         AND s.organization_id = $1
+         AND s.deleted_at IS NULL`,
+      [this.context.organizationId(), id],
+    );
+    return requireRow(rows[0], 'Shareholder');
+  }
+
+  async shareholderHistory(id: number) {
+    await this.ensureShareholderSchema();
+    await this.shareholder(id);
+    const { rows } = await this.db.query(
+      `SELECT spl.id,
+              spl.amount,
+              spl.currency,
+              spl.payment_method,
+              spl.reference,
+              spl.notes,
+              spl.receipt_number,
+              spl.cash_movement_id,
+              spl.guarantee_cash_movement_id,
+              spl.created_at,
+              spb.id AS batch_id,
+              spb.reference AS batch_reference,
+              spb.payout_date,
+              spb.source_register,
+              spb.operation_type,
+              spb.reason,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name
+       FROM shareholder_payout_lines spl
+       JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
+       LEFT JOIN app_users u ON u.id = spb.created_by
+       WHERE spl.organization_id = $1
+         AND spl.shareholder_id = $2
+       ORDER BY spb.payout_date DESC, spl.id DESC`,
+      [this.context.organizationId(), id],
+    );
+    return rows;
+  }
+
+  async createShareholder(body: Record<string, unknown>) {
+    await this.ensureShareholderSchema();
+    const payload = this.normalizeShareholderPayload(body);
+    const { rows } = await this.db.query(
+      `INSERT INTO shareholders
+        (organization_id, shareholder_type, display_name, first_name, last_name, company_name, phone, email,
+         identity_number, address, ownership_percentage, notes, status, created_by)
+       VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8,
+         $9, $10, $11, $12, $13, $14)
+       RETURNING *`,
+      [
+        this.context.organizationId(),
+        payload.shareholder_type,
+        payload.display_name,
+        payload.first_name,
+        payload.last_name,
+        payload.company_name,
+        payload.phone,
+        payload.email,
+        payload.identity_number,
+        payload.address,
+        payload.ownership_percentage,
+        payload.notes,
+        payload.status,
+        this.context.userId() ?? null,
+      ],
+    );
+    const shareholder = requireRow(rows[0], 'Shareholder');
+    await this.db.query(
+      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+       VALUES ($1, $2, 'SHAREHOLDER_CREATED', 'shareholders', $3, 'POST', '/api/shareholders', 201, $4::JSONB)`,
+      [
+        this.context.organizationId(),
+        this.context.userId() ?? null,
+        String(shareholder.id),
+        JSON.stringify({
+          shareholder_id: shareholder.id,
+          shareholder_type: shareholder.shareholder_type,
+          display_name: shareholder.display_name,
+          status: shareholder.status,
+        }),
+      ],
+    );
+    return shareholder;
+  }
+
+  async updateShareholder(id: number, body: Record<string, unknown>) {
+    await this.ensureShareholderSchema();
+    await this.shareholder(id);
+    const payload = this.normalizeShareholderPayload(body);
+    const { rows } = await this.db.query(
+      `UPDATE shareholders
+       SET shareholder_type = $3,
+           display_name = $4,
+           first_name = $5,
+           last_name = $6,
+           company_name = $7,
+           phone = $8,
+           email = $9,
+           identity_number = $10,
+           address = $11,
+           ownership_percentage = $12,
+           notes = $13,
+           status = $14,
+           archived_at = CASE WHEN $14::VARCHAR(20) = 'ARCHIVED' THEN COALESCE(archived_at, NOW()) ELSE NULL END,
+           updated_at = NOW()
+       WHERE id = $2
+         AND organization_id = $1
+         AND deleted_at IS NULL
+       RETURNING *`,
+      [
+        this.context.organizationId(),
+        id,
+        payload.shareholder_type,
+        payload.display_name,
+        payload.first_name,
+        payload.last_name,
+        payload.company_name,
+        payload.phone,
+        payload.email,
+        payload.identity_number,
+        payload.address,
+        payload.ownership_percentage,
+        payload.notes,
+        payload.status,
+      ],
+    );
+    const shareholder = requireRow(rows[0], 'Shareholder');
+    await this.db.query(
+      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+       VALUES ($1, $2, 'SHAREHOLDER_UPDATED', 'shareholders', $3, 'PATCH', $4, 200, $5::JSONB)`,
+      [
+        this.context.organizationId(),
+        this.context.userId() ?? null,
+        String(shareholder.id),
+        `/api/shareholders/${shareholder.id}`,
+        JSON.stringify({
+          shareholder_id: shareholder.id,
+          shareholder_type: shareholder.shareholder_type,
+          display_name: shareholder.display_name,
+          status: shareholder.status,
+        }),
+      ],
+    );
+    return shareholder;
+  }
+
+  async shareholderPayoutFormData(sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH') {
+    await this.ensureShareholderSchema();
+    this.assertShareholderPayoutPermission(sourceRegister);
+    const shareholders = await this.db.query(
+      `SELECT id, display_name, shareholder_type, phone, email
+       FROM shareholders
+       WHERE organization_id = $1
+         AND deleted_at IS NULL
+         AND status = 'ACTIVE'
+       ORDER BY display_name`,
+      [this.context.organizationId()],
+    );
+    const balances = sourceRegister === 'MAIN_CASH'
+      ? await this.shareholderMainCashBalances()
+      : await this.shareholderGuaranteeCashBalances();
+    return {
+      source_register: sourceRegister,
+      shareholders: shareholders.rows,
+      balances,
+      payment_methods: [
+        { value: 'CASH', label: 'Espèces' },
+        { value: 'BANK', label: 'Banque' },
+        { value: 'MOBILE_MONEY', label: 'Mobile Money' },
+      ],
+      operation_types: [
+        { value: 'SHAREHOLDER_REPAYMENT', label: 'Remboursement actionnaire' },
+        { value: 'SHAREHOLDER_CURRENT_ACCOUNT', label: 'Compte courant actionnaire' },
+        { value: 'DISTRIBUTION', label: 'Distribution' },
+        { value: 'ADVANCE', label: 'Avance' },
+        { value: 'OTHER', label: 'Autre' },
+      ],
+    };
+  }
+
+  async createShareholderPayout(sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH', body: Record<string, unknown>) {
+    await this.ensureShareholderSchema();
+    this.assertShareholderPayoutPermission(sourceRegister);
+    return this.db.transaction(async (client) => this.createShareholderPayoutInTransaction(client, sourceRegister, body));
+  }
+
+  async shareholderPayoutBatch(id: number) {
+    await this.ensureShareholderSchema();
+    const { rows } = await this.db.query(
+      `SELECT spb.*,
+              o.name AS organization_name,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name
+       FROM shareholder_payout_batches spb
+       JOIN organizations o ON o.id = spb.organization_id
+       LEFT JOIN app_users u ON u.id = spb.created_by
+       WHERE spb.organization_id = $1
+         AND spb.id = $2`,
+      [this.context.organizationId(), id],
+    );
+    const batch = requireRow(rows[0], 'Shareholder payout batch');
+    const lines = await this.db.query(
+      `SELECT spl.*,
+              s.display_name AS shareholder_name,
+              s.shareholder_type,
+              cm.piece_number AS cash_piece_number
+       FROM shareholder_payout_lines spl
+       JOIN shareholders s ON s.id = spl.shareholder_id AND s.organization_id = spl.organization_id
+       LEFT JOIN cash_movements cm ON cm.id = spl.cash_movement_id AND cm.organization_id = spl.organization_id
+       WHERE spl.organization_id = $1
+         AND spl.batch_id = $2
+       ORDER BY s.display_name, spl.id`,
+      [this.context.organizationId(), id],
+    );
+    return { ...batch, lines: lines.rows };
+  }
+
+  async shareholderPayoutLineReceipt(id: number) {
+    await this.ensureShareholderSchema();
+    const { rows } = await this.db.query(
+      `SELECT spl.*,
+              spb.reference AS batch_reference,
+              spb.source_register,
+              spb.operation_type,
+              spb.reason,
+              spb.notes AS batch_notes,
+              spb.payout_date,
+              o.name AS organization_name,
+              s.display_name AS shareholder_name,
+              s.shareholder_type,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
+              cm.piece_number AS cash_piece_number
+       FROM shareholder_payout_lines spl
+       JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
+       JOIN organizations o ON o.id = spl.organization_id
+       JOIN shareholders s ON s.id = spl.shareholder_id AND s.organization_id = spl.organization_id
+       LEFT JOIN app_users u ON u.id = spb.created_by
+       LEFT JOIN cash_movements cm ON cm.id = spl.cash_movement_id AND cm.organization_id = spl.organization_id
+       WHERE spl.organization_id = $1
+         AND spl.id = $2`,
+      [this.context.organizationId(), id],
+    );
+    return requireRow(rows[0], 'Shareholder payout receipt');
   }
 
   async payLeaseGuarantee(id: number, body: Record<string, unknown>) {
@@ -6776,6 +7132,435 @@ export class SaasService {
   private hasPermission(permission: string) {
     const permissions = this.context.user()?.permissions ?? [];
     return permissions.includes('*') || permissions.includes(permission);
+  }
+
+  private async ensureShareholderSchema() {
+    if (!(await this.hasShareholderPayoutSchema())) {
+      throw new BadRequestException('Le module des actionnaires n est pas encore configuré.');
+    }
+  }
+
+  private async hasShareholderPayoutSchema() {
+    return (await this.tableExists('shareholders'))
+      && (await this.tableExists('shareholder_payout_batches'))
+      && (await this.tableExists('shareholder_payout_lines'));
+  }
+
+  private assertShareholderPayoutPermission(sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH') {
+    if (sourceRegister === 'GUARANTEE_CASH') {
+      if (!this.hasPermission('shareholder_payouts.from_guarantee_cash')) {
+        throw new ForbiddenException('Permission requise pour utiliser la caisse des garanties locatives.');
+      }
+      return;
+    }
+    if (!this.hasPermission('shareholder_payouts.create')) {
+      throw new ForbiddenException('Permission requise pour valider un remboursement actionnaire.');
+    }
+  }
+
+  private normalizeShareholderPayload(body: Record<string, unknown>) {
+    const shareholderType = String(body.shareholder_type ?? 'INDIVIDUAL').toUpperCase();
+    if (!['INDIVIDUAL', 'COMPANY'].includes(shareholderType)) {
+      throw new BadRequestException('Type d actionnaire invalide.');
+    }
+    const status = String(body.status ?? 'ACTIVE').toUpperCase();
+    if (!['ACTIVE', 'INACTIVE', 'ARCHIVED'].includes(status)) {
+      throw new BadRequestException('Statut d actionnaire invalide.');
+    }
+    const firstName = String(body.first_name ?? '').trim() || null;
+    const lastName = String(body.last_name ?? '').trim() || null;
+    const companyName = String(body.company_name ?? '').trim() || null;
+    const displayName = String(
+      body.display_name
+      ?? (shareholderType === 'COMPANY'
+        ? companyName
+        : [firstName, lastName].filter(Boolean).join(' ')),
+    ).trim();
+    if (!displayName) {
+      throw new BadRequestException('Le nom affiché de l actionnaire est obligatoire.');
+    }
+    const ownershipPercentage = body.ownership_percentage === '' || body.ownership_percentage === undefined || body.ownership_percentage === null
+      ? null
+      : Number(body.ownership_percentage);
+    if (ownershipPercentage !== null && (!Number.isFinite(ownershipPercentage) || ownershipPercentage < 0 || ownershipPercentage > 100)) {
+      throw new BadRequestException('Le pourcentage de détention doit être compris entre 0 et 100.');
+    }
+    return {
+      shareholder_type: shareholderType,
+      display_name: displayName,
+      first_name: firstName,
+      last_name: lastName,
+      company_name: companyName,
+      phone: String(body.phone ?? '').trim() || null,
+      email: String(body.email ?? '').trim() || null,
+      identity_number: String(body.identity_number ?? '').trim() || null,
+      address: String(body.address ?? '').trim() || null,
+      ownership_percentage: ownershipPercentage,
+      notes: String(body.notes ?? '').trim() || null,
+      status,
+    };
+  }
+
+  private async shareholderMainCashBalances() {
+    const session = await this.db.query(
+      `SELECT id, opening_balance
+       FROM cash_sessions
+       WHERE organization_id = $1
+         AND status = 'OPEN'
+         AND deleted_at IS NULL
+       ORDER BY opened_at DESC
+       LIMIT 1`,
+      [this.context.organizationId()],
+    );
+    const openSession = session.rows[0];
+    const balances: Record<string, number> = { USD: 0, CDF: 0 };
+    if (!openSession) return balances;
+    const totals = await this.db.query(
+      `SELECT COALESCE(currency, 'USD') AS currency,
+              COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)::NUMERIC(14,2) AS balance
+       FROM cash_movements
+       WHERE organization_id = $1
+         AND cash_session_id = $2
+         AND deleted_at IS NULL
+         AND category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')
+       GROUP BY COALESCE(currency, 'USD')`,
+      [this.context.organizationId(), openSession.id],
+    );
+    balances.USD = Number(openSession.opening_balance ?? 0);
+    for (const row of totals.rows) {
+      const currency = String(row.currency ?? 'USD').toUpperCase();
+      balances[currency] = Number((balances[currency] ?? 0) + Number(row.balance ?? 0));
+    }
+    return balances;
+  }
+
+  private async shareholderGuaranteeCashBalances() {
+    await this.ensureGuaranteeCashSchema();
+    const totals = await this.db.query(
+      `SELECT currency,
+              COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)::NUMERIC(14,2) AS balance
+       FROM guarantee_cash_movements
+       WHERE organization_id = $1
+         AND deleted_at IS NULL
+       GROUP BY currency`,
+      [this.context.organizationId()],
+    );
+    const balances: Record<string, number> = { USD: 0, CDF: 0 };
+    for (const row of totals.rows) {
+      balances[String(row.currency ?? 'USD').toUpperCase()] = Number(row.balance ?? 0);
+    }
+    return balances;
+  }
+
+  private async nextShareholderPayoutBatchReference(client: PoolClient) {
+    const year = new Date().getFullYear();
+    const { rows } = await client.query(
+      `SELECT COALESCE(MAX((SUBSTRING(reference FROM $1))::INT), 0) + 1 AS value
+       FROM shareholder_payout_batches
+       WHERE organization_id = $2
+         AND reference LIKE $3`,
+      [`SPB-${year}-([0-9]+)`, this.context.organizationId(), `SPB-${year}-%`],
+    );
+    return `SPB-${year}-${String(rows[0]?.value ?? 1).padStart(4, '0')}`;
+  }
+
+  private async nextShareholderPayoutReceiptNumber(client: PoolClient) {
+    const year = new Date().getFullYear();
+    const { rows } = await client.query(
+      `SELECT COALESCE(MAX((SUBSTRING(receipt_number FROM $1))::INT), 0) + 1 AS value
+       FROM shareholder_payout_lines
+       WHERE organization_id = $2
+         AND receipt_number LIKE $3`,
+      [`SHR-${year}-([0-9]+)`, this.context.organizationId(), `SHR-${year}-%`],
+    );
+    return `SHR-${year}-${String(rows[0]?.value ?? 1).padStart(4, '0')}`;
+  }
+
+  private async createShareholderPayoutInTransaction(
+    client: PoolClient,
+    sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH',
+    body: Record<string, unknown>,
+  ) {
+    const payoutDate = String(body.payout_date ?? new Date().toISOString().slice(0, 10));
+    const currency = String(body.currency ?? 'USD').toUpperCase();
+    if (!['USD', 'CDF'].includes(currency)) {
+      throw new BadRequestException('Devise de lot invalide.');
+    }
+    const operationType = String(body.operation_type ?? '').toUpperCase();
+    if (!['SHAREHOLDER_REPAYMENT', 'SHAREHOLDER_CURRENT_ACCOUNT', 'DISTRIBUTION', 'ADVANCE', 'OTHER'].includes(operationType)) {
+      throw new BadRequestException('Type d opération invalide.');
+    }
+    const reason = String(body.reason ?? '').trim();
+    if (!reason) {
+      throw new BadRequestException('Le motif est obligatoire.');
+    }
+    const defaultPaymentMethod = String(body.default_payment_method ?? body.payment_method ?? 'CASH').toUpperCase();
+    if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(defaultPaymentMethod)) {
+      throw new BadRequestException('Mode de paiement par défaut invalide.');
+    }
+    const linesInput = Array.isArray(body.lines) ? body.lines : [];
+    if (!linesInput.length) {
+      throw new BadRequestException('Au moins une ligne actionnaire est obligatoire.');
+    }
+
+    const normalizedLines = linesInput.map((entry, index) => {
+      const row = typeof entry === 'object' && entry ? entry as Record<string, unknown> : {};
+      const shareholderId = Number(row.shareholder_id ?? 0);
+      const amount = Number(row.amount ?? 0);
+      const paymentMethod = String(row.payment_method ?? defaultPaymentMethod).toUpperCase();
+      if (!Number.isFinite(shareholderId) || shareholderId <= 0) {
+        throw new BadRequestException(`Actionnaire invalide à la ligne ${index + 1}.`);
+      }
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new BadRequestException(`Montant invalide à la ligne ${index + 1}.`);
+      }
+      if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethod)) {
+        throw new BadRequestException(`Mode de paiement invalide à la ligne ${index + 1}.`);
+      }
+      return {
+        shareholder_id: shareholderId,
+        amount: Number(amount.toFixed(2)),
+        payment_method: paymentMethod,
+        reference: String(row.reference ?? '').trim() || null,
+        notes: String(row.notes ?? '').trim() || null,
+      };
+    });
+
+    const duplicate = normalizedLines.find((line, index) => normalizedLines.findIndex((other) => other.shareholder_id === line.shareholder_id) !== index);
+    if (duplicate) {
+      throw new ConflictException('Le même actionnaire ne peut pas apparaître deux fois dans le même lot.');
+    }
+
+    const totalAmount = Number(normalizedLines.reduce((sum, line) => sum + line.amount, 0).toFixed(2));
+    const idempotencyKey = String(
+      body.idempotency_key
+      ?? [
+        'SHAREHOLDER_PAYOUT',
+        sourceRegister,
+        this.context.organizationId(),
+        payoutDate,
+        currency,
+        operationType,
+        totalAmount.toFixed(2),
+        normalizedLines.map((line) => `${line.shareholder_id}:${line.amount.toFixed(2)}`).join('|'),
+      ].join(':'),
+    );
+
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`shareholder-payout:${this.context.organizationId()}:${sourceRegister}:${idempotencyKey}`]);
+    const existingBatch = await client.query(
+      `SELECT id
+       FROM shareholder_payout_batches
+       WHERE organization_id = $1
+         AND idempotency_key = $2
+       LIMIT 1`,
+      [this.context.organizationId(), idempotencyKey],
+    );
+    if (existingBatch.rows[0]) {
+      return this.shareholderPayoutBatch(Number(existingBatch.rows[0].id));
+    }
+
+    const shareholderIds = normalizedLines.map((line) => line.shareholder_id);
+    const shareholderRows = await client.query(
+      `SELECT id, display_name, shareholder_type, status
+       FROM shareholders
+       WHERE organization_id = $1
+         AND deleted_at IS NULL
+         AND id = ANY($2::INT[])`,
+      [this.context.organizationId(), shareholderIds],
+    );
+    if (shareholderRows.rows.length !== shareholderIds.length) {
+      throw new BadRequestException('Un ou plusieurs actionnaires sont introuvables dans cette organisation.');
+    }
+    const shareholderMap = new Map(shareholderRows.rows.map((row) => [Number(row.id), row]));
+    for (const line of normalizedLines) {
+      const shareholder = shareholderMap.get(line.shareholder_id);
+      if (!shareholder) {
+        throw new BadRequestException('Actionnaire introuvable.');
+      }
+      if (String(shareholder.status) !== 'ACTIVE') {
+        throw new ConflictException(`L actionnaire ${shareholder.display_name} n est pas actif.`);
+      }
+    }
+
+    let availableBalance = 0;
+    let exchangeRateUsed: number | null = null;
+    let exchangeRateDate: string | null = null;
+    if (currency === 'CDF') {
+      const exchangeRate = await this.exchangeRate();
+      exchangeRateUsed = Number(body.exchange_rate_used ?? exchangeRate?.rate ?? 0) || null;
+      exchangeRateDate = String(body.exchange_rate_date ?? exchangeRate?.effectiveDate ?? '') || null;
+      if (!exchangeRateUsed || exchangeRateUsed <= 0) {
+        throw new BadRequestException('Taux de change requis pour une opération en CDF.');
+      }
+    }
+    if (sourceRegister === 'MAIN_CASH') {
+      const session = await this.openSession(client);
+      const totals = await client.query(
+        `SELECT COALESCE(currency, 'USD') AS currency,
+                COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)::NUMERIC(14,2) AS balance
+         FROM cash_movements
+         WHERE organization_id = $1
+           AND cash_session_id = $2
+           AND deleted_at IS NULL
+           AND category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')
+         GROUP BY COALESCE(currency, 'USD')`,
+        [this.context.organizationId(), session.id],
+      );
+      availableBalance = currency === 'USD' ? Number(session.opening_balance ?? 0) : 0;
+      for (const row of totals.rows) {
+        if (String(row.currency ?? 'USD').toUpperCase() === currency) {
+          availableBalance += Number(row.balance ?? 0);
+        }
+      }
+    } else {
+      await this.ensureGuaranteeCashSchema();
+      const totals = await client.query(
+        `SELECT currency,
+                COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)::NUMERIC(14,2) AS balance
+         FROM guarantee_cash_movements
+         WHERE organization_id = $1
+           AND deleted_at IS NULL
+         GROUP BY currency`,
+        [this.context.organizationId()],
+      );
+      for (const row of totals.rows) {
+        if (String(row.currency ?? 'USD').toUpperCase() === currency) {
+          availableBalance = Number(row.balance ?? 0);
+        }
+      }
+    }
+
+    if (totalAmount > Number(availableBalance.toFixed(2)) + 0.0001) {
+      throw new ConflictException('Le total du lot dépasse le solde disponible dans la devise choisie.');
+    }
+
+    const batchReference = String(body.reference ?? '').trim() || await this.nextShareholderPayoutBatchReference(client);
+    const batchInsert = await client.query(
+      `INSERT INTO shareholder_payout_batches
+        (organization_id, source_register, currency, payout_date, operation_type, reason, reference, notes,
+         total_amount, beneficiary_count, status, idempotency_key, created_by, created_at, validated_at)
+       VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8,
+         $9, $10, 'VALIDATED', $11, $12, NOW(), NOW())
+       RETURNING *`,
+      [
+        this.context.organizationId(),
+        sourceRegister,
+        currency,
+        payoutDate,
+        operationType,
+        reason,
+        batchReference,
+        String(body.notes ?? '').trim() || null,
+        totalAmount,
+        normalizedLines.length,
+        idempotencyKey,
+        this.context.userId() ?? null,
+      ],
+    );
+    const batch = requireRow(batchInsert.rows[0], 'Shareholder payout batch');
+
+    const createdLines: Array<Record<string, unknown>> = [];
+    for (const line of normalizedLines) {
+      const shareholder = shareholderMap.get(line.shareholder_id)!;
+      const receiptNumber = await this.nextShareholderPayoutReceiptNumber(client);
+      let cashMovementId: number | null = null;
+      let guaranteeCashMovementId: number | null = null;
+      if (sourceRegister === 'MAIN_CASH') {
+        const movement = await this.createCashMovementInTransaction(client, {
+          type: 'OUT',
+          category: 'SHAREHOLDER_PAYOUT',
+          label: `Remboursement actionnaire - ${shareholder.display_name}`,
+          amount: line.amount,
+          movement_date: payoutDate,
+          description: reason,
+          reference: line.reference ?? batchReference,
+          currency,
+          exchange_rate_used: exchangeRateUsed,
+          exchange_rate_date: exchangeRateDate,
+          equivalent_usd: currency === 'CDF' && exchangeRateUsed ? Number((line.amount / exchangeRateUsed).toFixed(2)) : line.amount,
+          supplier: shareholder.display_name,
+        });
+        cashMovementId = Number(movement.id);
+      } else {
+        const movement = await this.createGuaranteeCashMovementInTransaction(client, {
+          movement_type: 'SHAREHOLDER_PAYOUT',
+          type: 'OUT',
+          amount: line.amount,
+          currency,
+          equivalent_usd: currency === 'CDF' && exchangeRateUsed ? Number((line.amount / exchangeRateUsed).toFixed(2)) : line.amount,
+          movement_date: payoutDate,
+          reference: line.reference ?? batchReference,
+          reason,
+          notes: line.notes,
+          exchange_rate_used: exchangeRateUsed,
+          exchange_rate_date: exchangeRateDate,
+        });
+        guaranteeCashMovementId = Number(movement.id);
+      }
+
+      const insertedLine = await client.query(
+        `INSERT INTO shareholder_payout_lines
+          (organization_id, batch_id, shareholder_id, amount, currency, payment_method, reference, notes,
+           cash_movement_id, guarantee_cash_movement_id, receipt_number)
+         VALUES
+          ($1, $2, $3, $4, $5, $6, $7, $8,
+           $9, $10, $11)
+         RETURNING *`,
+        [
+          this.context.organizationId(),
+          batch.id,
+          line.shareholder_id,
+          line.amount,
+          currency,
+          line.payment_method,
+          line.reference,
+          line.notes,
+          cashMovementId,
+          guaranteeCashMovementId,
+          receiptNumber,
+        ],
+      );
+      createdLines.push({
+        ...insertedLine.rows[0],
+        shareholder_name: shareholder.display_name,
+        shareholder_type: shareholder.shareholder_type,
+      });
+    }
+
+    await client.query(
+      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+       VALUES ($1, $2, 'SHAREHOLDER_PAYOUT_VALIDATED', 'shareholder_payout_batches', $3, 'POST', $4, 201, $5::JSONB)`,
+      [
+        this.context.organizationId(),
+        this.context.userId() ?? null,
+        String(batch.id),
+        sourceRegister === 'MAIN_CASH' ? '/api/cash/shareholder-payouts' : '/api/guarantee-cash/shareholder-payouts',
+        JSON.stringify({
+          batch_id: batch.id,
+          source_register: sourceRegister,
+          currency,
+          total_amount: totalAmount,
+          beneficiary_count: normalizedLines.length,
+          operation_type: operationType,
+          reason,
+          lines: createdLines.map((line) => ({
+            shareholder_id: line.shareholder_id,
+            shareholder_name: line.shareholder_name,
+            amount: line.amount,
+            currency: line.currency,
+            receipt_number: line.receipt_number,
+            cash_movement_id: line.cash_movement_id,
+            guarantee_cash_movement_id: line.guarantee_cash_movement_id,
+          })),
+        }),
+      ],
+    );
+
+    return {
+      ...batch,
+      lines: createdLines,
+    };
   }
 
   private async nextTenantCreditRefundReceiptNumber(client: PoolClient) {
@@ -10777,6 +11562,9 @@ export class SaasService {
     }
     if (category === 'MAINTENANCE_EXPENSE') {
       return 'Ce mouvement est lié à une dépense de maintenance et ne peut pas être supprimé.';
+    }
+    if (category === 'SHAREHOLDER_PAYOUT') {
+      return 'Ce mouvement est lié à un remboursement actionnaire et ne peut pas être supprimé.';
     }
     if (['INVOICE_PAYMENT', 'PAYMENT_REFUND'].includes(category)) {
       return 'Ce mouvement de paiement est généré automatiquement et ne peut pas être supprimé.';

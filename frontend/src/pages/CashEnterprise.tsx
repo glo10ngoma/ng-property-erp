@@ -7,6 +7,7 @@ import { EmptyState, Modal, PageHeader, SuccessMessage } from '../components';
 import { useApiList } from '../hooks';
 import { Trash2 } from 'lucide-react';
 import { useCashExpenseCategories, type CashExpenseCategory } from '../modules/cash/hooks/useCashExpenseCategories';
+import { ShareholderPayoutModal } from './ShareholderPayoutModal';
 
 type CashMovement = {
   id: number;
@@ -31,6 +32,8 @@ type CashMovement = {
   payment_id?: number | null;
   invoice_id?: number | null;
   stock_purchase_id?: number | null;
+  shareholder_name?: string | null;
+  shareholder_batch_id?: number | null;
   is_locked?: boolean;
   locked_reason?: string | null;
 };
@@ -95,6 +98,7 @@ export function CashPage() {
   const [openSessionModal, setOpenSessionModal] = useState(false);
   const [closeSessionModal, setCloseSessionModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<CashMovement | null>(null);
+  const [shareholderPayoutOpen, setShareholderPayoutOpen] = useState(false);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
@@ -276,7 +280,7 @@ export function CashPage() {
       taux: movement.exchange_rate_used ?? '-',
       equivalent_usd: formatCashAmount(movement.equivalent_usd ?? movement.amount, 'USD'),
       facture: movement.invoice_number ?? '-',
-      locataire_ou_fournisseur: movement.tenant_name ?? movement.supplier ?? '-',
+      locataire_ou_fournisseur: movement.tenant_name ?? movement.supplier ?? movement.shareholder_name ?? '-',
       reference: movement.reference ?? '-',
       statut: movement.type === 'IN' ? 'Entree' : 'Depense',
     }));
@@ -353,6 +357,11 @@ export function CashPage() {
             <button type="button" className="secondary" onClick={() => setCloseSessionModal(true)} disabled={!openSession}>
               Fermer la caisse
             </button>
+            {can('shareholder_payouts.create') ? (
+              <button type="button" className="secondary" onClick={() => setShareholderPayoutOpen(true)} disabled={!openSession}>
+                Rembourser actionnaires
+              </button>
+            ) : null}
             <CashExpenseForm
               categories={expenseCategories.data}
               onSubmit={expense}
@@ -429,6 +438,18 @@ export function CashPage() {
           onConfirm={() => deleteMovement(deleteTarget)}
         />
       ) : null}
+      {shareholderPayoutOpen ? (
+        <ShareholderPayoutModal
+          endpoint="/cash/shareholder-payouts"
+          sourceRegister="MAIN_CASH"
+          onClose={() => setShareholderPayoutOpen(false)}
+          onSuccess={async () => {
+            await movements.reload();
+            await sessions.reload();
+            setSuccess('Remboursement actionnaires enregistré.');
+          }}
+        />
+      ) : null}
 
       <div className="table-wrap cash-table-wrap">
         <table>
@@ -467,7 +488,7 @@ export function CashPage() {
                 <td>{movement.exchange_rate_used ? movement.exchange_rate_used.toLocaleString('fr-FR') : '-'}</td>
                 <td className="right">{formatCashAmount(movement.equivalent_usd ?? movement.amount, 'USD')}</td>
                 <td>{movement.invoice_number ?? '-'}</td>
-                <td>{movement.tenant_name ?? movement.supplier ?? '-'}</td>
+                <td>{movement.tenant_name ?? movement.supplier ?? movement.shareholder_name ?? '-'}</td>
                 <td>{movement.reference ?? '-'}</td>
                 <td>
                   <span className={`badge ${movement.type === 'IN' ? 'paid' : 'unpaid'}`}>{movement.type === 'IN' ? 'Entree' : 'Depense'}</span>
@@ -1238,7 +1259,7 @@ function cashExportRow(movement: CashMovement) {
     taux: movement.exchange_rate_used ?? '-',
     equivalent_usd: formatCashAmount(movement.equivalent_usd ?? movement.amount, 'USD'),
     facture: movement.invoice_number ?? '-',
-    locataire_ou_fournisseur: movement.tenant_name ?? movement.supplier ?? '-',
+    locataire_ou_fournisseur: movement.tenant_name ?? movement.supplier ?? movement.shareholder_name ?? '-',
     reference: movement.reference ?? '-',
     piece_jointe: movement.attachment_file_name ?? '-',
   };
@@ -1258,6 +1279,7 @@ function cashCategoryLabel(value: string, categories?: Record<string, string>) {
       MAINTENANCE_EXPENSE: 'Depense maintenance',
       PAYMENT_REFUND: 'Remboursement paiement',
       STOCK_PURCHASE: 'Achat fournisseur',
+      SHAREHOLDER_PAYOUT: 'Actionnaires',
     } as Record<string, string>
   )[value] ?? value;
 }
@@ -1291,7 +1313,7 @@ function sortValue(movement: CashMovement, key: string) {
     case 'invoice_number':
       return movement.invoice_number ?? null;
     case 'counterparty':
-      return movement.tenant_name ?? movement.supplier ?? null;
+      return movement.tenant_name ?? movement.supplier ?? movement.shareholder_name ?? null;
     case 'reference':
       return movement.reference ?? null;
     case 'status':
