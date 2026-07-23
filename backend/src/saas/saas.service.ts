@@ -1864,6 +1864,10 @@ export class SaasService {
 
   async createCashMovement(body: Record<string, unknown>) {
     return this.db.transaction(async (client) => {
+      const sourceRegister = String(body.source_register ?? 'MAIN_CASH').trim().toUpperCase();
+      if (sourceRegister === 'BANK') {
+        return this.createBankExpenseInTransaction(client, body);
+      }
       if (body.workflow_required) {
         return this.createWorkflowInstanceInTransaction(client, {
           type: 'EXPENSE_APPROVAL',
@@ -7464,6 +7468,153 @@ export class SaasService {
       throw new ConflictException('La devise du compte bancaire doit correspondre a celle du crédit locataire.');
     }
     return account;
+  }
+
+  private async validateExpenseCategory(client: PoolClient, categoryCode: unknown) {
+    const code = String(categoryCode ?? '').trim();
+    if (!code) {
+      throw new BadRequestException('La catégorie de dépense est obligatoire.');
+    }
+    const { rows } = await client.query(
+      `SELECT id, code, name, status
+       FROM cash_expense_categories
+       WHERE organization_id = $1
+         AND code = $2
+         AND deleted_at IS NULL`,
+      [this.context.organizationId(), code],
+    );
+    const category = requireRow(rows[0], 'Cash expense category');
+    if (String(category.status).toUpperCase() !== 'ACTIVE') {
+      throw new ConflictException('La catégorie de dépense sélectionnée doit etre active.');
+    }
+    return category;
+  }
+
+  private async validateBankAccountForExpense(client: PoolClient, bankAccountId: number | undefined, currency: string) {
+    const accountId = Number(bankAccountId ?? 0);
+    if (!accountId) {
+      throw new BadRequestException('Un compte bancaire actif est requis pour une dépense bancaire.');
+    }
+    const { rows } = await client.query(
+      `SELECT ba.*,
+              COALESCE(tx.current_balance, 0)::NUMERIC(14,2) AS current_balance
+       FROM bank_accounts ba
+       LEFT JOIN (
+         SELECT bt.bank_account_id,
+                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'IN' THEN bt.amount ELSE -bt.amount END) AS current_balance
+         FROM bank_transactions bt
+         WHERE bt.organization_id = $1
+         GROUP BY bt.bank_account_id
+       ) tx ON tx.bank_account_id = ba.id
+       WHERE ba.id = $2
+         AND ba.organization_id = $1
+         AND ba.deleted_at IS NULL
+       FOR UPDATE`,
+      [this.context.organizationId(), accountId],
+    );
+    const account = rows[0];
+    if (!account) {
+      throw new NotFoundException('Compte bancaire introuvable dans cette organisation.');
+    }
+    if (String(account.status).toUpperCase() !== 'ACTIVE') {
+      throw new ConflictException('Le compte bancaire selectionne doit etre actif.');
+    }
+    if (String(account.currency).toUpperCase() !== String(currency).toUpperCase()) {
+      throw new ConflictException('La devise du compte bancaire doit correspondre a celle de la dépense.');
+    }
+    return account;
+  }
+
+  private async createBankExpenseInTransaction(client: PoolClient, body: Record<string, unknown>) {
+    const category = await this.validateExpenseCategory(client, body.category);
+    const currency = String(body.currency ?? '').trim().toUpperCase();
+    const amount = Number(body.amount ?? 0);
+    const movementDate = this.normalizeLeasePayloadDate(body.movement_date ?? this.localDateString(new Date()), 'movement_date', true);
+    if (!['USD', 'CDF'].includes(currency)) {
+      throw new BadRequestException('Devise bancaire invalide.');
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('Le montant de la dépense bancaire est invalide.');
+    }
+    const bankAccount = await this.validateBankAccountForExpense(client, Number(body.bank_account_id ?? 0), currency);
+    const transactionNumber = await this.nextBankTransactionNumber(client);
+    const normalizedReference = String(body.reference ?? '').trim() || null;
+    const supplierName = String(body.supplier ?? '').trim() || null;
+    const description = String(body.description ?? '').trim() || String(body.label ?? '').trim() || category.name;
+    const idempotencyKey = String(body.idempotency_key ?? [
+      'BANK_EXPENSE',
+      this.context.organizationId(),
+      bankAccount.id,
+      category.code,
+      movementDate,
+      currency,
+      amount.toFixed(2),
+      normalizedReference ?? supplierName ?? 'EXPENSE',
+    ].join(':'));
+    const { rows } = await client.query(
+      `INSERT INTO bank_transactions
+        (organization_id, bank_account_id, transaction_number, transaction_date, direction, transaction_type, amount, currency,
+         reference, description, counterparty_name, source_module, source_entity_type, source_entity_id, status, reversal_of_id,
+         idempotency_key, created_by, category, attachment_file_name, attachment_file_url)
+       VALUES
+        ($1, $2, $3, $4, 'OUT', 'BANK_EXPENSE', $5, $6,
+         $7, $8, $9, 'EXPENSES', 'EXPENSE', NULL, 'VALIDATED', NULL,
+         $10, $11, $12, $13, $14)
+       ON CONFLICT (organization_id, idempotency_key)
+       WHERE idempotency_key IS NOT NULL
+       DO NOTHING
+       RETURNING *`,
+      [
+        this.context.organizationId(),
+        Number(bankAccount.id),
+        transactionNumber,
+        movementDate,
+        amount,
+        String(currency).toUpperCase(),
+        normalizedReference,
+        description,
+        supplierName,
+        idempotencyKey,
+        this.context.userId() ?? 1,
+        category.code,
+        body.attachment_file_name ?? null,
+        body.attachment_file_url ?? null,
+      ],
+    );
+    let transaction = rows[0];
+    if (!transaction) {
+      const existing = await client.query(
+        `SELECT *
+         FROM bank_transactions
+         WHERE organization_id = $1
+           AND idempotency_key = $2
+         LIMIT 1`,
+        [this.context.organizationId(), idempotencyKey],
+      );
+      transaction = existing.rows[0];
+    }
+    transaction = requireRow(transaction, 'Bank transaction');
+    if (!transaction.source_entity_id) {
+      const updated = await client.query(
+        `UPDATE bank_transactions
+         SET source_entity_id = $2,
+             category = COALESCE($3, category),
+             attachment_file_name = COALESCE($4, attachment_file_name),
+             attachment_file_url = COALESCE($5, attachment_file_url)
+         WHERE id = $1 AND organization_id = $6
+         RETURNING *`,
+        [
+          transaction.id,
+          transaction.id,
+          category.code,
+          body.attachment_file_name ?? null,
+          body.attachment_file_url ?? null,
+          this.context.organizationId(),
+        ],
+      );
+      transaction = requireRow(updated.rows[0], 'Bank transaction');
+    }
+    return transaction;
   }
 
   private async bankGuaranteeTransactionType(client: PoolClient, transactionType: string) {

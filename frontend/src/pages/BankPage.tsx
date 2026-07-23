@@ -5,6 +5,8 @@ import { useNavigate, useParams, type NavigateFunction } from 'react-router-dom'
 import { api, money, shortDate } from '../api';
 import { useAuth } from '../auth';
 import { EmptyState, LoadingState, Modal, PageHeader, SuccessMessage } from '../components';
+import { ExpenseModal } from '../core/components/ExpenseModal';
+import { useCashExpenseCategories, type CashExpenseCategory } from '../modules/cash/hooks/useCashExpenseCategories';
 import { ShareholderPayoutModal } from './ShareholderPayoutModal';
 
 type BankDashboard = {
@@ -48,12 +50,15 @@ type BankTransaction = {
   transaction_number: string;
   transaction_date: string;
   direction: 'IN' | 'OUT';
-  transaction_type: 'OPENING_BALANCE' | 'MANUAL_ADJUSTMENT' | 'RENT_PAYMENT' | 'GUARANTEE_PAYMENT' | 'GUARANTEE_REFUND' | 'TENANT_CREDIT' | 'SHAREHOLDER_PAYOUT';
+  transaction_type: 'OPENING_BALANCE' | 'MANUAL_ADJUSTMENT' | 'RENT_PAYMENT' | 'GUARANTEE_PAYMENT' | 'GUARANTEE_REFUND' | 'TENANT_CREDIT' | 'SHAREHOLDER_PAYOUT' | 'BANK_EXPENSE';
   amount: number;
   currency: 'USD' | 'CDF';
   reference?: string | null;
   description?: string | null;
   counterparty_name?: string | null;
+  category?: string | null;
+  attachment_file_name?: string | null;
+  attachment_file_url?: string | null;
   source_module?: string | null;
   source_entity_type?: string | null;
   source_entity_id?: number | null;
@@ -117,6 +122,7 @@ const today = () => {
 export function BankPage() {
   const { can } = useAuth();
   const navigate = useNavigate();
+  const expenseCategories = useCashExpenseCategories();
   const [dashboard, setDashboard] = useState<BankDashboard | null>(null);
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
@@ -125,6 +131,8 @@ export function BankPage() {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [expenseOpen, setExpenseOpen] = useState(false);
+  const [expenseDefaultBankAccountId, setExpenseDefaultBankAccountId] = useState<number | null>(null);
   const [shareholderPayoutOpen, setShareholderPayoutOpen] = useState(false);
   const [shareholderPayoutBankAccountId, setShareholderPayoutBankAccountId] = useState<number | null>(null);
   const [transactionDetailOpen, setTransactionDetailOpen] = useState(false);
@@ -238,6 +246,11 @@ export function BankPage() {
     setShareholderPayoutOpen(true);
   };
 
+  const openExpense = (bankAccountId?: number | null) => {
+    setExpenseDefaultBankAccountId(bankAccountId ?? null);
+    setExpenseOpen(true);
+  };
+
   const openEdit = (account: BankAccount) => {
     setSelectedAccount(account);
     setForm({
@@ -286,6 +299,21 @@ export function BankPage() {
     }
   };
 
+  const submitExpense = async (payload: Record<string, unknown>) => {
+    setError('');
+    await api.post('/cash/expenses', payload);
+    setSuccess('Dépense bancaire enregistrée.');
+    await load();
+  };
+
+  const createExpenseCategory = async (payload: { code: string; name: string; description?: string | null; status?: string }) => {
+    setError('');
+    const response = await api.post<CashExpenseCategory>('/cash/expense-categories', payload);
+    await expenseCategories.reload();
+    setSuccess('Catégorie de dépense créée.');
+    return response.data;
+  };
+
   const openTransactionDetail = async (transactionId: number) => {
     try {
       const response = await api.get<BankTransaction>(`/bank-transactions/${transactionId}`);
@@ -332,6 +360,11 @@ export function BankPage() {
               <RefreshCcw size={16} />
               Actualiser
             </button>
+            {activeTab === 'accounts' && can('cash.create') ? (
+              <button type="button" className="secondary" onClick={() => openExpense()}>
+                Enregistrer une dépense
+              </button>
+            ) : null}
             {activeTab === 'accounts' && can('shareholder_payouts.from_bank') ? (
               <button type="button" className="secondary" onClick={() => openShareholderPayout()}>
                 Rembourser actionnaires
@@ -348,6 +381,7 @@ export function BankPage() {
       />
       <p className="page-subtitle">RÃ©fÃ©rentiel des comptes bancaires et registre des opÃ©rations par organisation.</p>
       <SuccessMessage message={success} />
+      {expenseCategories.error ? <div className="error-message">{expenseCategories.error}</div> : null}
       {error ? <div className="error-message">{error}</div> : null}
 
       <div className="mini-stats bank-kpis">
@@ -478,6 +512,7 @@ export function BankPage() {
                 <option value="GUARANTEE_REFUND">Remboursement de garantie</option>
                 <option value="TENANT_CREDIT">Crédit locataire</option>
                 <option value="SHAREHOLDER_PAYOUT">Remboursement actionnaire</option>
+                <option value="BANK_EXPENSE">Dépense bancaire</option>
               </select>
               <input value={filters.source_module} onChange={(event) => setFilters((current) => ({ ...current, source_module: event.target.value }))} placeholder="Origine" />
               <input value={filters.reference} onChange={(event) => setFilters((current) => ({ ...current, reference: event.target.value }))} placeholder="RÃ©fÃ©rence" />
@@ -500,6 +535,7 @@ export function BankPage() {
                     <th>Compte</th>
                     <th>Type</th>
                     <th>Origine</th>
+                    <th>Catégorie</th>
                     <th>Payeur / bÃ©nÃ©ficiaire</th>
                     <th className="right">EntrÃ©e</th>
                     <th className="right">Sortie</th>
@@ -518,6 +554,7 @@ export function BankPage() {
                       <td>{transaction.account_name || '-'}</td>
                       <td>{transactionTypeLabel(transaction.transaction_type, transaction.source_module, transaction.source_entity_type)}</td>
                       <td>{sourceModuleLabel(transaction.source_module)}</td>
+                      <td>{cashCategoryLabel(transaction.category)}</td>
                       <td>{transaction.counterparty_name || '-'}</td>
                       <td className="right">{transaction.direction === 'IN' ? formatBankMoney(transaction.amount, transaction.currency) : ''}</td>
                       <td className="right">{transaction.direction === 'OUT' ? formatBankMoney(transaction.amount, transaction.currency) : ''}</td>
@@ -642,6 +679,19 @@ export function BankPage() {
           onSuccess={load}
         />
       ) : null}
+      <ExpenseModal
+        open={expenseOpen}
+        sourceRegister="BANK"
+        categories={expenseCategories.data}
+        bankAccounts={accounts}
+        defaultBankAccountId={expenseDefaultBankAccountId}
+        onClose={() => {
+          setExpenseOpen(false);
+          setExpenseDefaultBankAccountId(null);
+        }}
+        onSubmit={submitExpense}
+        onCreateCategory={createExpenseCategory}
+      />
     </section>
   );
 }
@@ -649,13 +699,16 @@ export function BankAccountDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { can } = useAuth();
+  const expenseCategories = useCashExpenseCategories();
   const [account, setAccount] = useState<BankAccount | null>(null);
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<BankTransaction | null>(null);
   const [shareholderPayoutOpen, setShareholderPayoutOpen] = useState(false);
+  const [expenseOpen, setExpenseOpen] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -689,6 +742,21 @@ export function BankAccountDetailPage() {
     }
   };
 
+  const submitExpense = async (payload: Record<string, unknown>) => {
+    setError('');
+    await api.post('/cash/expenses', payload);
+    setSuccess('Dépense bancaire enregistrée.');
+    await load();
+  };
+
+  const createExpenseCategory = async (payload: { code: string; name: string; description?: string | null; status?: string }) => {
+    setError('');
+    const response = await api.post<CashExpenseCategory>('/cash/expense-categories', payload);
+    await expenseCategories.reload();
+    setSuccess('Catégorie de dépense créée.');
+    return response.data;
+  };
+
   if (loading) {
     return (
       <section>
@@ -718,6 +786,11 @@ export function BankAccountDetailPage() {
           <div className="page-header-actions">
             <button type="button" className="secondary" onClick={() => navigate('/bank')}>Retour</button>
             {can('bank_accounts.read') ? <button type="button" className="secondary" onClick={() => void load()}><RefreshCcw size={16} />Actualiser</button> : null}
+            {can('cash.create') ? (
+              <button type="button" className="secondary" onClick={() => setExpenseOpen(true)}>
+                Enregistrer une dépense
+              </button>
+            ) : null}
             {can('shareholder_payouts.from_bank') ? (
               <button type="button" className="secondary" onClick={() => setShareholderPayoutOpen(true)}>
                 Rembourser actionnaires
@@ -727,6 +800,8 @@ export function BankAccountDetailPage() {
         )}
       />
       {error ? <div className="error-message">{error}</div> : null}
+      <SuccessMessage message={success} />
+      {expenseCategories.error ? <div className="error-message">{expenseCategories.error}</div> : null}
 
       <div className="summary-band bank-account-summary">
         <div className="summary-item summary-item-wide"><span>Banque</span><strong>{account.bank_name}</strong></div>
@@ -753,6 +828,7 @@ export function BankAccountDetailPage() {
                 <th>NumÃ©ro</th>
                 <th>Type</th>
                 <th>Origine</th>
+                <th>Catégorie</th>
                 <th>RÃ©fÃ©rence</th>
                 <th className="right">EntrÃ©e</th>
                 <th className="right">Sortie</th>
@@ -767,6 +843,7 @@ export function BankAccountDetailPage() {
                   <td>{transaction.transaction_number}</td>
                   <td>{transactionTypeLabel(transaction.transaction_type, transaction.source_module, transaction.source_entity_type)}</td>
                   <td>{sourceModuleLabel(transaction.source_module)}</td>
+                  <td>{cashCategoryLabel(transaction.category)}</td>
                   <td>{transaction.reference || '-'}</td>
                   <td className="right">{transaction.direction === 'IN' ? formatBankMoney(transaction.amount, transaction.currency) : ''}</td>
                   <td className="right">{transaction.direction === 'OUT' ? formatBankMoney(transaction.amount, transaction.currency) : ''}</td>
@@ -798,6 +875,16 @@ export function BankAccountDetailPage() {
           onSuccess={load}
         />
       ) : null}
+      <ExpenseModal
+        open={expenseOpen}
+        sourceRegister="BANK"
+        categories={expenseCategories.data}
+        bankAccounts={account ? [account] : []}
+        defaultBankAccountId={account?.id ?? null}
+        onClose={() => setExpenseOpen(false)}
+        onSubmit={submitExpense}
+        onCreateCategory={createExpenseCategory}
+      />
     </section>
   );
 }
@@ -831,6 +918,7 @@ function TransactionDetailDrawer({ transaction, onClose, navigate }: { transacti
             <div className="compact-item"><span>RÃ©fÃ©rence</span><strong>{transaction.reference || '-'}</strong></div>
             <div className="compact-item"><span>Tiers</span><strong>{transaction.counterparty_name || '-'}</strong></div>
             <div className="compact-item"><span>Origine</span><strong>{sourceModuleLabel(transaction.source_module)}</strong></div>
+            <div className="compact-item"><span>Catégorie</span><strong>{cashCategoryLabel(transaction.category)}</strong></div>
             <div className="compact-item"><span>Type source</span><strong>{sourceEntityTypeLabel(transaction.source_entity_type, transaction.source_module)}</strong></div>
             <div className="compact-item"><span>Source entity id</span><strong>{transaction.source_entity_id ?? '-'}</strong></div>
             <div className="compact-item"><span>Bail source</span><strong>{transaction.source_lease_number ? `B-${String(transaction.source_lease_number).padStart(5, '0')}` : transaction.source_lease_id ?? '-'}</strong></div>
@@ -946,6 +1034,9 @@ function transactionTypeLabel(value?: string | null, sourceModule?: string | nul
   if (moduleValue === 'SHAREHOLDER_PAYOUTS' || entityValue === 'SHAREHOLDER_PAYOUT_LINE') {
     return 'Remboursement actionnaire';
   }
+  if (moduleValue === 'EXPENSES' || entityValue === 'EXPENSE') {
+    return 'Dépense bancaire';
+  }
   if (moduleValue === 'GUARANTEES') {
     if (entityValue === 'GUARANTEE_REFUND') {
       return 'Remboursement de garantie locative';
@@ -967,6 +1058,8 @@ function transactionTypeLabel(value?: string | null, sourceModule?: string | nul
       return 'Crédit locataire';
     case 'SHAREHOLDER_PAYOUT':
       return 'Remboursement actionnaire';
+    case 'BANK_EXPENSE':
+      return 'Dépense bancaire';
     default:
       return value || '-';
   }
@@ -982,6 +1075,8 @@ function sourceModuleLabel(value?: string | null) {
       return 'Crédits locataires';
     case 'SHAREHOLDER_PAYOUTS':
       return 'Actionnaires';
+    case 'EXPENSES':
+      return 'Dépenses';
     default:
       return value || '-';
   }
@@ -1005,7 +1100,29 @@ function sourceEntityTypeLabel(value?: string | null, sourceModule?: string | nu
   if (moduleValue === 'PAYMENTS' && entityValue === 'PAYMENT') {
     return 'Paiement';
   }
+  if (moduleValue === 'EXPENSES' || entityValue === 'EXPENSE') {
+    return 'Dépense';
+  }
   return value || '-';
+}
+
+function cashCategoryLabel(value?: string | null) {
+  const label = (
+    {
+      INVOICE_PAYMENT: 'Paiement facture',
+      SALARY_ADVANCE: 'Avance salaire',
+      OTHER_INCOME: 'Autre entree',
+      OTHER_EXPENSE: 'Autre dépense',
+      LEASE_GUARANTEE: 'Garantie locative',
+      LEASE_GUARANTEE_REFUND: 'Remboursement garantie',
+      SALARY_PAYMENT: 'Paiement salaire',
+      MAINTENANCE_EXPENSE: 'Depense maintenance',
+      PAYMENT_REFUND: 'Remboursement paiement',
+      STOCK_PURCHASE: 'Achat fournisseur',
+      SHAREHOLDER_PAYOUT: 'Actionnaires',
+    } as Record<string, string>
+  )[String(value ?? '')];
+  return label ?? String(value ?? '-');
 }
 
 function formatBankMoney(amount: number, currency: string) {

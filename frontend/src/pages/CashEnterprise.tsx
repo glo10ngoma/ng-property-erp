@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, includesText, shortDate } from '../api';
 import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, SuccessMessage } from '../components';
+import { ExpenseModal } from '../core/components/ExpenseModal';
 import { useApiList } from '../hooks';
 import { Trash2 } from 'lucide-react';
 import { useCashExpenseCategories, type CashExpenseCategory } from '../modules/cash/hooks/useCashExpenseCategories';
@@ -99,6 +100,7 @@ export function CashPage() {
   const [closeSessionModal, setCloseSessionModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<CashMovement | null>(null);
   const [shareholderPayoutOpen, setShareholderPayoutOpen] = useState(false);
+  const [expenseOpen, setExpenseOpen] = useState(false);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
@@ -362,12 +364,9 @@ export function CashPage() {
                 Rembourser actionnaires
               </button>
             ) : null}
-            <CashExpenseForm
-              categories={expenseCategories.data}
-              onSubmit={expense}
-              onCreateCategory={createExpenseCategory}
-              nextPieceNumber={nextPieceNumber}
-            />
+            <button type="button" className="secondary" onClick={() => setExpenseOpen(true)} disabled={Boolean(!openSession)}>
+              Enregistrer dépense
+            </button>
           </div>
         ) : null}
       </div>
@@ -450,6 +449,15 @@ export function CashPage() {
           }}
         />
       ) : null}
+      <ExpenseModal
+        open={expenseOpen}
+        sourceRegister="MAIN_CASH"
+        categories={expenseCategories.data}
+        nextPieceNumber={nextPieceNumber}
+        onClose={() => setExpenseOpen(false)}
+        onSubmit={expense}
+        onCreateCategory={createExpenseCategory}
+      />
 
       <div className="table-wrap cash-table-wrap">
         <table>
