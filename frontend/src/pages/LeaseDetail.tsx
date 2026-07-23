@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, money, shortDate, statusLabel } from '../api';
 import { EmptyState, Modal, PageHeader, StatusBadge, SuccessMessage } from '../components';
+import { useApiList } from '../hooks';
 import { useAuth } from '../core/auth/AuthContext';
 import { billingFrequencyLabel } from '../utils/billing-frequency';
 import { formatLeaseReference } from '../utils/lease-reference';
@@ -54,12 +55,21 @@ type ExchangeRate = {
   effectiveDate?: string;
 };
 
+type BankAccount = {
+  id: number;
+  bank_name: string;
+  account_name: string;
+  currency: 'USD' | 'CDF';
+  status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
+};
+
 export function LeaseDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const { can } = useAuth();
   const [lease, setLease] = useState<LeaseDetailData | null>(null);
+  const bankAccounts = useApiList<BankAccount>('/bank-accounts');
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -76,6 +86,7 @@ export function LeaseDetail() {
   const [guaranteePaymentCdfMethod, setGuaranteePaymentCdfMethod] = useState('CASH');
   const [guaranteePaymentCdfReference, setGuaranteePaymentCdfReference] = useState('');
   const [guaranteePaymentNotes, setGuaranteePaymentNotes] = useState('');
+  const [guaranteePaymentBankAccountId, setGuaranteePaymentBankAccountId] = useState('');
   const [guaranteePaymentBusy, setGuaranteePaymentBusy] = useState(false);
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [autoPreviewHandled, setAutoPreviewHandled] = useState(false);
@@ -120,6 +131,17 @@ export function LeaseDetail() {
           : Number(guaranteePaymentUsdAmount || 0) + guaranteeCdfEquivalentUsd
     ).toFixed(2),
   );
+  const guaranteePaymentMethod = guaranteePaymentCurrency === 'USD'
+    ? guaranteePaymentUsdMethod
+    : guaranteePaymentCurrency === 'CDF'
+      ? guaranteePaymentCdfMethod
+      : '';
+  const guaranteePaymentBankCurrency = guaranteePaymentCurrency === 'CDF' ? 'CDF' : 'USD';
+  const guaranteeBankAccounts = useMemo(
+    () => bankAccounts.data.filter((account) => account.status === 'ACTIVE' && account.currency === guaranteePaymentBankCurrency),
+    [bankAccounts.data, guaranteePaymentBankCurrency],
+  );
+  const guaranteeBankPaymentSelected = guaranteePaymentCurrency !== 'MIXED' && guaranteePaymentMethod === 'BANK';
   const guaranteePaymentValidation = guaranteePaymentValidationError({
     paymentCurrency: guaranteePaymentCurrency,
     usdAmount: guaranteePaymentUsdAmount,
@@ -127,6 +149,9 @@ export function LeaseDetail() {
     rate: guaranteeRate,
     totalEquivalentUsd: guaranteeTotalEquivalentUsd,
     remaining: guaranteeRemaining,
+    bankAccountId: guaranteePaymentBankAccountId,
+    bankAccountRequired: guaranteeBankPaymentSelected,
+    bankAccountAvailable: bankAccounts.loading || guaranteeBankAccounts.length > 0,
   });
 
   async function load() {
@@ -248,6 +273,7 @@ export function LeaseDetail() {
     setGuaranteePaymentCdfMethod('CASH');
     setGuaranteePaymentCdfReference('');
     setGuaranteePaymentNotes('');
+    setGuaranteePaymentBankAccountId('');
     setGuaranteePaymentOpen(true);
     setError('');
   }
@@ -261,6 +287,7 @@ export function LeaseDetail() {
     const amountUsd = guaranteePaymentCurrency === 'CDF' ? 0 : Number(guaranteePaymentUsdAmount || 0);
     const amountCdf = guaranteePaymentCurrency === 'USD' ? 0 : Number(guaranteePaymentCdfAmount || 0);
     const reference = guaranteePaymentReference(guaranteePaymentUsdReference, guaranteePaymentCdfReference);
+    const bankAccountRequired = guaranteeBankPaymentSelected;
     setGuaranteePaymentBusy(true);
     setError('');
     try {
@@ -275,6 +302,7 @@ export function LeaseDetail() {
         payment_method: amountUsd > 0 ? guaranteePaymentUsdMethod : guaranteePaymentCdfMethod,
         payment_method_usd: guaranteePaymentUsdMethod,
         payment_method_cdf: guaranteePaymentCdfMethod,
+        bank_account_id: bankAccountRequired ? Number(guaranteePaymentBankAccountId) : undefined,
         reference: reference || undefined,
         reference_usd: guaranteePaymentUsdReference.trim() || undefined,
         reference_cdf: guaranteePaymentCdfReference.trim() || undefined,
@@ -741,17 +769,24 @@ export function LeaseDetail() {
                 onChange={(event) => {
                   const next = event.target.value as 'USD' | 'CDF' | 'MIXED';
                   setGuaranteePaymentCurrency(next);
+                  setGuaranteePaymentBankAccountId('');
                   if (next === 'USD') {
                     setGuaranteePaymentUsdAmount(guaranteeRemaining.toFixed(2));
                     setGuaranteePaymentCdfAmount('');
+                    setGuaranteePaymentUsdMethod('CASH');
+                    setGuaranteePaymentCdfMethod('CASH');
                   }
                   if (next === 'CDF') {
                     setGuaranteePaymentUsdAmount('0');
                     setGuaranteePaymentCdfAmount(guaranteeRate > 0 ? String(Math.round(guaranteeRemaining * guaranteeRate)) : '');
+                    setGuaranteePaymentUsdMethod('CASH');
+                    setGuaranteePaymentCdfMethod('CASH');
                   }
                   if (next === 'MIXED') {
                     setGuaranteePaymentUsdAmount(guaranteeRemaining.toFixed(2));
                     setGuaranteePaymentCdfAmount('');
+                    setGuaranteePaymentUsdMethod('CASH');
+                    setGuaranteePaymentCdfMethod('CASH');
                   }
                 }}
               >
@@ -763,9 +798,13 @@ export function LeaseDetail() {
             <label>Date paiement<input type="date" required value={guaranteePaymentDate} onChange={(event) => setGuaranteePaymentDate(event.target.value)} /></label>
             <label>Montant USD<input type="number" min="0" step="0.01" value={guaranteePaymentCurrency === 'CDF' ? '0' : guaranteePaymentUsdAmount} onChange={(event) => setGuaranteePaymentUsdAmount(event.target.value)} disabled={guaranteePaymentCurrency === 'CDF'} /></label>
             <label>Mode paiement USD
-              <select value={guaranteePaymentUsdMethod} onChange={(event) => setGuaranteePaymentUsdMethod(event.target.value)} disabled={guaranteePaymentCurrency === 'CDF'}>
+              <select value={guaranteePaymentUsdMethod} onChange={(event) => {
+                const next = event.target.value;
+                setGuaranteePaymentUsdMethod(next);
+                if (next !== 'BANK') setGuaranteePaymentBankAccountId('');
+              }} disabled={guaranteePaymentCurrency === 'CDF'}>
                 <option value="CASH">Especes</option>
-                <option value="BANK">Banque</option>
+                <option value="BANK" disabled={guaranteePaymentCurrency === 'MIXED'}>Banque</option>
                 <option value="MOBILE_MONEY">Mobile Money</option>
               </select>
             </label>
@@ -774,13 +813,30 @@ export function LeaseDetail() {
             <label>Taux applique<input type="number" min="0" step="0.000001" value={guaranteePaymentRate} onChange={(event) => setGuaranteePaymentRate(event.target.value)} className={guaranteePaymentCurrency === 'USD' ? 'locked-field' : ''} readOnly={guaranteePaymentCurrency === 'USD'} /></label>
             <label>Equivalent USD<input value={guaranteeCdfEquivalentUsd.toFixed(2)} readOnly className="locked-field" /></label>
             <label>Mode paiement CDF
-              <select value={guaranteePaymentCdfMethod} onChange={(event) => setGuaranteePaymentCdfMethod(event.target.value)} disabled={guaranteePaymentCurrency === 'USD'}>
+              <select value={guaranteePaymentCdfMethod} onChange={(event) => {
+                const next = event.target.value;
+                setGuaranteePaymentCdfMethod(next);
+                if (next !== 'BANK') setGuaranteePaymentBankAccountId('');
+              }} disabled={guaranteePaymentCurrency === 'USD'}>
                 <option value="CASH">Especes</option>
-                <option value="BANK">Banque</option>
+                <option value="BANK" disabled={guaranteePaymentCurrency === 'MIXED'}>Banque</option>
                 <option value="MOBILE_MONEY">Mobile Money</option>
               </select>
             </label>
             <label>Reference CDF<input value={guaranteePaymentCdfReference} onChange={(event) => setGuaranteePaymentCdfReference(event.target.value)} placeholder="Reference facultative" disabled={guaranteePaymentCurrency === 'USD'} /></label>
+            {guaranteeBankPaymentSelected ? (
+              <label className="lease-field-full">
+                Compte bancaire
+                <select value={guaranteePaymentBankAccountId} onChange={(event) => setGuaranteePaymentBankAccountId(event.target.value)} required>
+                  <option value="">Selectionner un compte bancaire</option>
+                  {guaranteeBankAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.bank_name} - {account.account_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <label>Total equivalent USD<input value={guaranteeTotalEquivalentUsd.toFixed(2)} readOnly className="locked-field" /></label>
             <label>Observations<textarea rows={2} value={guaranteePaymentNotes} onChange={(event) => setGuaranteePaymentNotes(event.target.value)} placeholder="Observations" /></label>
           </div>
@@ -837,6 +893,9 @@ function guaranteePaymentValidationError({
   rate,
   totalEquivalentUsd,
   remaining,
+  bankAccountId,
+  bankAccountRequired,
+  bankAccountAvailable,
 }: {
   paymentCurrency: 'USD' | 'CDF' | 'MIXED';
   usdAmount: string;
@@ -844,12 +903,18 @@ function guaranteePaymentValidationError({
   rate: number;
   totalEquivalentUsd: number;
   remaining: number;
+  bankAccountId: string;
+  bankAccountRequired: boolean;
+  bankAccountAvailable: boolean;
 }) {
   const amountUsd = Number(usdAmount || 0);
   const amountCdf = Number(cdfAmount || 0);
   if (!Number.isFinite(amountUsd) || amountUsd < 0 || !Number.isFinite(amountCdf) || amountCdf < 0 || !Number.isFinite(totalEquivalentUsd)) return 'Montant invalide.';
   if (amountUsd <= 0 && amountCdf <= 0) return 'Le paiement doit contenir au moins un montant USD ou CDF.';
   if ((paymentCurrency === 'CDF' || paymentCurrency === 'MIXED' || amountCdf > 0) && rate <= 0) return 'Aucun taux de change disponible pour un paiement CDF.';
+  if (paymentCurrency === 'MIXED' && bankAccountRequired) return 'Le paiement mixte de garantie bancaire n est pas encore pris en charge.';
+  if (bankAccountRequired && !bankAccountId) return 'Un compte bancaire actif est requis pour un paiement de garantie par banque.';
+  if (bankAccountRequired && !bankAccountAvailable) return 'Aucun compte bancaire actif de la bonne devise n est disponible.';
   if (totalEquivalentUsd > remaining + 0.01) return `Le montant depasse le reste a payer (${money(remaining)} USD).`;
   return '';
 }

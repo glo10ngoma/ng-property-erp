@@ -47,7 +47,7 @@ type BankTransaction = {
   transaction_number: string;
   transaction_date: string;
   direction: 'IN' | 'OUT';
-  transaction_type: 'OPENING_BALANCE' | 'MANUAL_ADJUSTMENT' | 'RENT_PAYMENT';
+  transaction_type: 'OPENING_BALANCE' | 'MANUAL_ADJUSTMENT' | 'RENT_PAYMENT' | 'GUARANTEE_PAYMENT';
   amount: number;
   currency: 'USD' | 'CDF';
   reference?: string | null;
@@ -58,8 +58,13 @@ type BankTransaction = {
   source_entity_id?: number | null;
   source_payment_id?: number | null;
   source_payment_receipt_number?: string | null;
+  source_guarantee_id?: number | null;
+  source_lease_id?: number | null;
+  source_lease_number?: number | string | null;
   source_invoice_id?: number | null;
   source_invoice_number?: string | null;
+  source_unit_id?: number | null;
+  source_unit_number?: string | null;
   source_tenant_id?: number | null;
   source_tenant_name?: string | null;
   status: 'VALIDATED' | 'REVERSED';
@@ -448,6 +453,7 @@ export function BankPage() {
                 <option value="OPENING_BALANCE">Solde initial</option>
                 <option value="MANUAL_ADJUSTMENT">Ajustement manuel</option>
                 <option value="RENT_PAYMENT">Paiement de loyer</option>
+                <option value="GUARANTEE_PAYMENT">Paiement de garantie</option>
               </select>
               <input value={filters.source_module} onChange={(event) => setFilters((current) => ({ ...current, source_module: event.target.value }))} placeholder="Origine" />
               <input value={filters.reference} onChange={(event) => setFilters((current) => ({ ...current, reference: event.target.value }))} placeholder="Référence" />
@@ -780,6 +786,8 @@ function TransactionDetailDrawer({ transaction, onClose, navigate }: { transacti
             <div className="compact-item"><span>Origine</span><strong>{transaction.source_module || '-'}</strong></div>
             <div className="compact-item"><span>Source entity type</span><strong>{transaction.source_entity_type || '-'}</strong></div>
             <div className="compact-item"><span>Source entity id</span><strong>{transaction.source_entity_id ?? '-'}</strong></div>
+            <div className="compact-item"><span>Bail source</span><strong>{transaction.source_lease_number ? `B-${String(transaction.source_lease_number).padStart(5, '0')}` : transaction.source_lease_id ?? '-'}</strong></div>
+            <div className="compact-item"><span>Unité source</span><strong>{transaction.source_unit_number || transaction.source_unit_id || '-'}</strong></div>
             <div className="compact-item"><span>Utilisateur</span><strong>{transaction.created_by_name || '-'}</strong></div>
             <div className="compact-item"><span>Créée le</span><strong>{shortDate(transaction.created_at)}</strong></div>
             <div className="compact-item"><span>Numéro de compte</span><strong>{maskAccountNumber(transaction.account_number)}</strong></div>
@@ -795,6 +803,21 @@ function TransactionDetailDrawer({ transaction, onClose, navigate }: { transacti
                 {transaction.source_invoice_id ? (
                   <button type="button" className="secondary" onClick={() => navigate(`/invoices/${transaction.source_invoice_id}`)}>
                     Facture {transaction.source_invoice_number || `INV-${transaction.source_invoice_id}`}
+                  </button>
+                ) : null}
+                {transaction.source_guarantee_id && transaction.source_lease_id ? (
+                  <button type="button" className="secondary" onClick={() => navigate(`/leases/${transaction.source_lease_id}`)}>
+                    Garantie {transaction.source_lease_number ? `B-${String(transaction.source_lease_number).padStart(5, '0')}` : `#${transaction.source_guarantee_id}`}
+                  </button>
+                ) : null}
+                {transaction.source_lease_id ? (
+                  <button type="button" className="secondary" onClick={() => navigate(`/leases/${transaction.source_lease_id}`)}>
+                    Bail {transaction.source_lease_number ? `B-${String(transaction.source_lease_number).padStart(5, '0')}` : `#${transaction.source_lease_id}`}
+                  </button>
+                ) : null}
+                {transaction.source_unit_id ? (
+                  <button type="button" className="secondary" onClick={() => navigate(`/units/${transaction.source_unit_id}`)}>
+                    Unité {transaction.source_unit_number || `#${transaction.source_unit_id}`}
                   </button>
                 ) : null}
                 {transaction.source_tenant_id ? (
@@ -847,8 +870,13 @@ function accountStatusLabel(value?: string | null) {
 }
 
 function transactionTypeLabel(value?: string | null, sourceModule?: string | null, sourceEntityType?: string | null) {
-  if (String(sourceModule ?? '').toUpperCase() === 'PAYMENTS' && String(sourceEntityType ?? '').toUpperCase() === 'PAYMENT') {
+  const moduleValue = String(sourceModule ?? '').toUpperCase();
+  const entityValue = String(sourceEntityType ?? '').toUpperCase();
+  if (moduleValue === 'PAYMENTS' && entityValue === 'PAYMENT') {
     return 'Paiement de loyer';
+  }
+  if (moduleValue === 'GUARANTEES') {
+    return 'Paiement de garantie locative';
   }
   switch (String(value ?? '').toUpperCase()) {
     case 'OPENING_BALANCE':
@@ -857,6 +885,8 @@ function transactionTypeLabel(value?: string | null, sourceModule?: string | nul
       return 'Ajustement manuel';
     case 'RENT_PAYMENT':
       return 'Paiement de loyer';
+    case 'GUARANTEE_PAYMENT':
+      return 'Paiement de garantie locative';
     default:
       return value || '-';
   }

@@ -6459,8 +6459,13 @@ export class SaasService {
               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
               bp.id AS source_payment_id,
               bp.receipt_number AS source_payment_receipt_number,
+              bg.id AS source_guarantee_id,
+              bl.id AS source_lease_id,
+              bl.lease_number AS source_lease_number,
               bi.id AS source_invoice_id,
               bi.invoice_number AS source_invoice_number,
+              bu.id AS source_unit_id,
+              bu.number AS source_unit_number,
               ten.id AS source_tenant_id,
               CASE WHEN ten.tenant_type = 'COMPANY' THEN COALESCE(ten.company_name, '')
                    ELSE TRIM(CONCAT(COALESCE(ten.first_name, ''), ' ', COALESCE(ten.last_name, ''), ' ', COALESCE(ten.post_name, '')))
@@ -6469,12 +6474,14 @@ export class SaasService {
        JOIN bank_accounts ba ON ba.id = bt.bank_account_id AND ba.organization_id = bt.organization_id
        LEFT JOIN app_users u ON u.id = bt.created_by
        LEFT JOIN payments bp ON bp.id = bt.source_entity_id
-         AND bt.source_module = 'PAYMENTS'
-         AND bt.source_entity_type = 'PAYMENT'
+         AND bt.source_module IN ('PAYMENTS', 'GUARANTEES')
          AND bp.organization_id = bt.organization_id
          AND bp.deleted_at IS NULL
        LEFT JOIN invoices bi ON bi.id = bp.invoice_id AND bi.organization_id = bp.organization_id AND bi.deleted_at IS NULL
-       LEFT JOIN tenants ten ON ten.id = bi.tenant_id AND ten.organization_id = bi.organization_id AND ten.deleted_at IS NULL
+       LEFT JOIN lease_guarantees bg ON bg.id = bp.lease_guarantee_id AND bg.organization_id = bp.organization_id AND bg.deleted_at IS NULL
+       LEFT JOIN leases bl ON bl.id = COALESCE(bi.lease_id, bg.lease_id) AND bl.organization_id = bt.organization_id AND bl.deleted_at IS NULL
+       LEFT JOIN units bu ON bu.id = COALESCE(bi.unit_id, bl.unit_id) AND bu.organization_id = bt.organization_id AND bu.deleted_at IS NULL
+       LEFT JOIN tenants ten ON ten.id = COALESCE(bi.tenant_id, bl.tenant_id) AND ten.organization_id = bt.organization_id AND ten.deleted_at IS NULL
        WHERE ${clauses.join(' AND ')}
        ORDER BY bt.transaction_date DESC, bt.id DESC`,
       values,
@@ -6493,8 +6500,13 @@ export class SaasService {
               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
               bp.id AS source_payment_id,
               bp.receipt_number AS source_payment_receipt_number,
+              bg.id AS source_guarantee_id,
+              bl.id AS source_lease_id,
+              bl.lease_number AS source_lease_number,
               bi.id AS source_invoice_id,
               bi.invoice_number AS source_invoice_number,
+              bu.id AS source_unit_id,
+              bu.number AS source_unit_number,
               ten.id AS source_tenant_id,
               CASE WHEN ten.tenant_type = 'COMPANY' THEN COALESCE(ten.company_name, '')
                    ELSE TRIM(CONCAT(COALESCE(ten.first_name, ''), ' ', COALESCE(ten.last_name, ''), ' ', COALESCE(ten.post_name, '')))
@@ -6503,12 +6515,14 @@ export class SaasService {
        JOIN bank_accounts ba ON ba.id = bt.bank_account_id AND ba.organization_id = bt.organization_id
        LEFT JOIN app_users u ON u.id = bt.created_by
        LEFT JOIN payments bp ON bp.id = bt.source_entity_id
-         AND bt.source_module = 'PAYMENTS'
-         AND bt.source_entity_type = 'PAYMENT'
+         AND bt.source_module IN ('PAYMENTS', 'GUARANTEES')
          AND bp.organization_id = bt.organization_id
          AND bp.deleted_at IS NULL
        LEFT JOIN invoices bi ON bi.id = bp.invoice_id AND bi.organization_id = bp.organization_id AND bi.deleted_at IS NULL
-       LEFT JOIN tenants ten ON ten.id = bi.tenant_id AND ten.organization_id = bi.organization_id AND ten.deleted_at IS NULL
+       LEFT JOIN lease_guarantees bg ON bg.id = bp.lease_guarantee_id AND bg.organization_id = bp.organization_id AND bg.deleted_at IS NULL
+       LEFT JOIN leases bl ON bl.id = COALESCE(bi.lease_id, bg.lease_id) AND bl.organization_id = bt.organization_id AND bl.deleted_at IS NULL
+       LEFT JOIN units bu ON bu.id = COALESCE(bi.unit_id, bl.unit_id) AND bu.organization_id = bt.organization_id AND bu.deleted_at IS NULL
+       LEFT JOIN tenants ten ON ten.id = COALESCE(bi.tenant_id, bl.tenant_id) AND ten.organization_id = bt.organization_id AND ten.deleted_at IS NULL
        WHERE bt.organization_id = $1
          AND bt.id = $2`,
       [this.context.organizationId(), id],
@@ -6934,11 +6948,19 @@ export class SaasService {
   }
 
   async payLeaseGuarantee(id: number, body: Record<string, unknown>) {
-    await this.ensureGuaranteeCashSchema();
     return this.db.transaction(async (client) => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`lease-guarantee-payment-${this.context.organizationId()}-${id}`]);
       const lease = await client.query(
-        `SELECT * FROM leases WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+        `SELECT l.*,
+                CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                     ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+                END AS tenant_name,
+                u.number AS unit_number,
+                l.lease_number
+         FROM leases l
+         LEFT JOIN tenants t ON t.id = l.tenant_id AND t.organization_id = l.organization_id AND t.deleted_at IS NULL
+         LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = l.organization_id AND u.deleted_at IS NULL
+         WHERE l.id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL`,
         [id, this.context.organizationId()],
       );
       const row = requireRow(lease.rows[0], 'Lease');
@@ -6960,6 +6982,25 @@ export class SaasService {
       if ((paymentCurrency === 'CDF' || paymentCurrency === 'MIXED' || amountCdf > 0) && (!exchangeRateUsed || exchangeRateUsed <= 0)) {
         throw new BadRequestException('Un taux de change est requis pour un paiement de garantie en CDF.');
       }
+      const paymentMethodUsd = String(body.payment_method_usd ?? body.payment_method ?? 'CASH').toUpperCase();
+      const paymentMethodCdf = String(body.payment_method_cdf ?? body.payment_method ?? 'CASH').toUpperCase();
+      if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethodUsd) || !['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethodCdf)) {
+        throw new BadRequestException('Mode de paiement invalide.');
+      }
+      if (paymentCurrency === 'MIXED' && (paymentMethodUsd === 'BANK' || paymentMethodCdf === 'BANK')) {
+        throw new BadRequestException('Le paiement mixte de garantie bancaire n est pas encore pris en charge.');
+      }
+      const paymentMethod = amountUsd > 0 ? paymentMethodUsd : paymentMethodCdf;
+      const isBankPayment = paymentMethod === 'BANK';
+      const bankAccount = isBankPayment
+        ? await this.validateBankAccountForGuarantee(client, Number(body.bank_account_id ?? 0), paymentCurrency)
+        : null;
+      const bankGuaranteeTransactionType = isBankPayment
+        ? await this.bankGuaranteePaymentType(client)
+        : 'MANUAL_ADJUSTMENT';
+      if (!isBankPayment) {
+        await this.ensureGuaranteeCashSchema();
+      }
       const cdfEquivalentUsd = amountCdf > 0 && exchangeRateUsed ? Number((amountCdf / exchangeRateUsed).toFixed(2)) : 0;
       const amount = Number((amountUsd + cdfEquivalentUsd).toFixed(2));
       const guarantee = await this.leaseGuarantee(id);
@@ -6979,10 +7020,6 @@ export class SaasService {
       const receiptNumber = await this.nextPaymentReceiptNumber(client);
       const paymentDate = String(body.payment_date ?? new Date().toISOString().slice(0, 10));
       const normalizedReference = body.reference ? String(body.reference) : `GAR-${id}`;
-      const paymentMethod = String(body.payment_method ?? 'CASH').toUpperCase();
-      if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethod)) {
-        throw new BadRequestException('Mode de paiement invalide.');
-      }
       const idempotencyKey = [
         'GUARANTEE',
         this.context.organizationId(),
@@ -7013,7 +7050,7 @@ export class SaasService {
           paymentMethod,
           normalizedReference,
           body.notes ? String(body.notes) : 'Paiement garantie locative',
-          row.tenant_id ? `Locataire #${row.tenant_id}` : null,
+          row.tenant_name ?? (row.tenant_id ? `Locataire #${row.tenant_id}` : null),
           receiptNumber,
           paymentCurrency,
           amountUsd,
@@ -7030,7 +7067,7 @@ export class SaasService {
         throw new ConflictException('Ce paiement de garantie est deja en cours de traitement ou deja enregistre.');
       }
       const movements = [];
-      if (amountUsd > 0) {
+      if (amountUsd > 0 && !isBankPayment) {
         const movement = await this.createGuaranteeCashMovementInTransaction(client, {
           movement_type: 'GARANTY_PAYMENT_IN',
           type: 'IN',
@@ -7049,7 +7086,7 @@ export class SaasService {
         await this.auditGuaranteeCash(client, 'GARANTY_PAYMENT_IN', movement.id, { payment_id: paymentResult.rows[0].id, amount: amountUsd, currency: 'USD' });
         movements.push(movement);
       }
-      if (amountCdf > 0) {
+      if (amountCdf > 0 && !isBankPayment) {
         const movement = await this.createGuaranteeCashMovementInTransaction(client, {
           movement_type: 'GARANTY_PAYMENT_IN',
           type: 'IN',
@@ -7070,6 +7107,24 @@ export class SaasService {
         await this.auditGuaranteeCash(client, 'GARANTY_PAYMENT_IN', movement.id, { payment_id: paymentResult.rows[0].id, amount: amountCdf, currency: 'CDF' });
         movements.push(movement);
       }
+      let bankTransaction: Record<string, unknown> | null = null;
+      if (isBankPayment && bankAccount) {
+        bankTransaction = await this.createGuaranteeBankTransactionInTransaction(client, {
+          paymentId: Number(paymentResult.rows[0].id),
+          guaranteeId: Number(persistedGuarantee.id),
+          leaseId: id,
+          bankAccount,
+          amount: paymentCurrency === 'CDF' ? amountCdf : amountUsd,
+          currency: paymentCurrency === 'CDF' ? 'CDF' : 'USD',
+          receiptNumber: paymentResult.rows[0].receipt_number,
+          reference: normalizedReference,
+          createdBy: this.context.userId() ?? null,
+          transactionType: bankGuaranteeTransactionType,
+          tenantName: row.tenant_name ?? null,
+          leaseNumber: row.lease_number ?? null,
+          unitNumber: row.unit_number ?? null,
+        });
+      }
       await client.query(
         `UPDATE payments
          SET guarantee_cash_movement_id = $2
@@ -7081,6 +7136,7 @@ export class SaasService {
         payment_id: paymentResult.rows[0].id,
         receipt_number: paymentResult.rows[0].receipt_number,
         cash_movement_id: movements[0]?.id ?? null,
+        bank_transaction: bankTransaction,
         movements,
       };
     });
@@ -7129,6 +7185,97 @@ export class SaasService {
       [`RCPT-${year}-([0-9]+)`, `RCPT-${year}-%`, this.context.organizationId()],
     );
     return `RCPT-${year}-${String(rows[0].value).padStart(4, '0')}`;
+  }
+
+  private async validateBankAccountForGuarantee(client: PoolClient, bankAccountId: number | undefined, paymentCurrency: string) {
+    const accountId = Number(bankAccountId ?? 0);
+    if (!accountId) {
+      throw new BadRequestException('Un compte bancaire actif est requis pour un paiement de garantie par banque.');
+    }
+    const { rows } = await client.query(
+      `SELECT id, bank_name, account_name, currency, status
+       FROM bank_accounts
+       WHERE id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL`,
+      [accountId, this.context.organizationId()],
+    );
+    const account = requireRow(rows[0], 'Bank account');
+    if (String(account.status).toUpperCase() !== 'ACTIVE') {
+      throw new BadRequestException('Le compte bancaire selectionne doit etre actif.');
+    }
+    if (String(account.currency).toUpperCase() !== String(paymentCurrency).toUpperCase()) {
+      throw new BadRequestException('La devise du compte bancaire doit correspondre a celle de la garantie.');
+    }
+    return account;
+  }
+
+  private async bankGuaranteePaymentType(client: PoolClient) {
+    const { rows } = await client.query(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM pg_constraint c
+         JOIN pg_class t ON t.oid = c.conrelid
+         JOIN pg_namespace n ON n.oid = t.relnamespace
+         WHERE n.nspname = 'public'
+           AND t.relname = 'bank_transactions'
+           AND c.contype = 'c'
+           AND pg_get_constraintdef(c.oid) ILIKE '%GUARANTEE_PAYMENT%'
+       ) AS supported`,
+    );
+    return rows[0]?.supported ? 'GUARANTEE_PAYMENT' : 'MANUAL_ADJUSTMENT';
+  }
+
+  private async createGuaranteeBankTransactionInTransaction(
+    client: PoolClient,
+    payload: {
+      paymentId: number;
+      guaranteeId: number;
+      leaseId: number;
+      bankAccount: { id: number; bank_name?: string | null; account_name?: string | null; currency: string };
+      amount: number;
+      currency: string;
+      receiptNumber: string;
+      reference?: string | null;
+      createdBy: number | null;
+      transactionType: string;
+      tenantName?: string | null;
+      leaseNumber?: number | string | null;
+      unitNumber?: string | null;
+    },
+  ) {
+    const transactionNumber = await this.nextBankTransactionNumber(client);
+    const amount = Number(payload.amount ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('Le montant du mouvement bancaire est invalide.');
+    }
+    const description = 'Paiement de garantie locative';
+    const { rows } = await client.query(
+      `INSERT INTO bank_transactions
+        (organization_id, bank_account_id, transaction_number, transaction_date, direction, transaction_type, amount, currency,
+         reference, description, counterparty_name, source_module, source_entity_type, source_entity_id, status, reversal_of_id,
+         idempotency_key, created_by)
+       VALUES
+        ($1, $2, $3, CURRENT_DATE, 'IN', $4, $5, $6,
+         $7, $8, $9, 'GUARANTEES', 'GUARANTEE', $10, 'VALIDATED', NULL,
+         $11, $12)
+       RETURNING *`,
+      [
+        this.context.organizationId(),
+        payload.bankAccount.id,
+        transactionNumber,
+        payload.transactionType,
+        amount,
+        String(payload.currency).toUpperCase(),
+        String(payload.reference ?? '').trim() || payload.receiptNumber,
+        description,
+        payload.tenantName ?? null,
+        payload.paymentId,
+        `guarantee-payment:${this.context.organizationId()}:${payload.paymentId}`,
+        payload.createdBy,
+      ],
+    );
+    return rows[0];
   }
 
   async tenantCredits(filters: Record<string, unknown> = {}) {
