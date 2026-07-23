@@ -6442,10 +6442,16 @@ export class SaasService {
         OR LOWER(COALESCE(bt.description, '')) LIKE $${values.length}
         OR LOWER(COALESCE(bt.counterparty_name, '')) LIKE $${values.length}
         OR LOWER(COALESCE(bp.receipt_number, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(tcp.receipt_number, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(tcred.receipt_number, '')) LIKE $${values.length}
         OR LOWER(COALESCE(bi.invoice_number, '')) LIKE $${values.length}
         OR LOWER(COALESCE(ten.company_name, '')) LIKE $${values.length}
         OR LOWER(COALESCE(ten.first_name, '')) LIKE $${values.length}
         OR LOWER(COALESCE(ten.last_name, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(tten.company_name, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(tten.first_name, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(tten.last_name, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(tcred.reference, '')) LIKE $${values.length}
       )`);
     }
     const { rows } = await this.db.query(
@@ -6457,22 +6463,27 @@ export class SaasService {
               CASE WHEN bt.direction = 'IN' THEN bt.amount ELSE 0 END AS entry_amount,
               CASE WHEN bt.direction = 'OUT' THEN bt.amount ELSE 0 END AS exit_amount,
               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
-              bp.id AS source_payment_id,
-              bp.receipt_number AS source_payment_receipt_number,
+              COALESCE(bp.id, tcp.id) AS source_payment_id,
+              COALESCE(bp.receipt_number, tcp.receipt_number) AS source_payment_receipt_number,
               bg.id AS source_guarantee_id,
-              COALESCE(bl.id, rbl.id) AS source_lease_id,
-              COALESCE(bl.lease_number, rbl.lease_number) AS source_lease_number,
+              tcred.id AS source_tenant_credit_id,
+              tcred.receipt_number AS source_tenant_credit_receipt_number,
+              COALESCE(bl.id, rbl.id, tcl.id) AS source_lease_id,
+              COALESCE(bl.lease_number, rbl.lease_number, tcl.lease_number) AS source_lease_number,
               bi.id AS source_invoice_id,
               bi.invoice_number AS source_invoice_number,
-              COALESCE(bu.id, rbu.id) AS source_unit_id,
-              COALESCE(bu.number, rbu.number) AS source_unit_number,
-              COALESCE(ten.id, rten.id) AS source_tenant_id,
+              COALESCE(bu.id, rbu.id, tcu.id) AS source_unit_id,
+              COALESCE(bu.number, rbu.number, tcu.number) AS source_unit_number,
+              COALESCE(ten.id, rten.id, tten.id) AS source_tenant_id,
               COALESCE(
                 CASE WHEN ten.tenant_type = 'COMPANY' THEN COALESCE(ten.company_name, '')
                      ELSE TRIM(CONCAT(COALESCE(ten.first_name, ''), ' ', COALESCE(ten.last_name, ''), ' ', COALESCE(ten.post_name, '')))
                 END,
                 CASE WHEN rten.tenant_type = 'COMPANY' THEN COALESCE(rten.company_name, '')
                      ELSE TRIM(CONCAT(COALESCE(rten.first_name, ''), ' ', COALESCE(rten.last_name, ''), ' ', COALESCE(rten.post_name, '')))
+                END,
+                CASE WHEN tten.tenant_type = 'COMPANY' THEN COALESCE(tten.company_name, '')
+                     ELSE TRIM(CONCAT(COALESCE(tten.first_name, ''), ' ', COALESCE(tten.last_name, ''), ' ', COALESCE(tten.post_name, '')))
                 END
               ) AS source_tenant_name
        FROM bank_transactions bt
@@ -6482,6 +6493,14 @@ export class SaasService {
          AND bt.source_module IN ('PAYMENTS', 'GUARANTEES')
          AND bp.organization_id = bt.organization_id
          AND bp.deleted_at IS NULL
+       LEFT JOIN tenant_credits tcred ON tcred.id = bt.source_entity_id
+         AND bt.source_module = 'TENANT_CREDITS'
+         AND bt.source_entity_type = 'TENANT_CREDIT'
+         AND tcred.organization_id = bt.organization_id
+         AND tcred.deleted_at IS NULL
+       LEFT JOIN payments tcp ON tcp.id = tcred.source_payment_id
+         AND tcp.organization_id = tcred.organization_id
+         AND tcp.deleted_at IS NULL
        LEFT JOIN invoices bi ON bi.id = bp.invoice_id AND bi.organization_id = bp.organization_id AND bi.deleted_at IS NULL
        LEFT JOIN lease_guarantees bg ON bg.id = bp.lease_guarantee_id AND bg.organization_id = bp.organization_id AND bg.deleted_at IS NULL
        LEFT JOIN leases bl ON bl.id = COALESCE(bi.lease_id, bg.lease_id) AND bl.organization_id = bt.organization_id AND bl.deleted_at IS NULL
@@ -6494,6 +6513,9 @@ export class SaasService {
          AND rbl.deleted_at IS NULL
        LEFT JOIN units rbu ON rbu.id = rbl.unit_id AND rbu.organization_id = bt.organization_id AND rbu.deleted_at IS NULL
        LEFT JOIN tenants rten ON rten.id = rbl.tenant_id AND rten.organization_id = bt.organization_id AND rten.deleted_at IS NULL
+       LEFT JOIN leases tcl ON tcl.id = tcred.lease_id AND tcl.organization_id = bt.organization_id AND tcl.deleted_at IS NULL
+       LEFT JOIN units tcu ON tcu.id = tcl.unit_id AND tcu.organization_id = bt.organization_id AND tcu.deleted_at IS NULL
+       LEFT JOIN tenants tten ON tten.id = tcred.tenant_id AND tten.organization_id = bt.organization_id AND tten.deleted_at IS NULL
        WHERE ${clauses.join(' AND ')}
        ORDER BY bt.transaction_date DESC, bt.id DESC`,
       values,
@@ -6510,22 +6532,27 @@ export class SaasService {
               ba.account_number,
               ba.account_type,
               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
-              bp.id AS source_payment_id,
-              bp.receipt_number AS source_payment_receipt_number,
+              COALESCE(bp.id, tcp.id) AS source_payment_id,
+              COALESCE(bp.receipt_number, tcp.receipt_number) AS source_payment_receipt_number,
               bg.id AS source_guarantee_id,
-              COALESCE(bl.id, rbl.id) AS source_lease_id,
-              COALESCE(bl.lease_number, rbl.lease_number) AS source_lease_number,
+              tcred.id AS source_tenant_credit_id,
+              tcred.receipt_number AS source_tenant_credit_receipt_number,
+              COALESCE(bl.id, rbl.id, tcl.id) AS source_lease_id,
+              COALESCE(bl.lease_number, rbl.lease_number, tcl.lease_number) AS source_lease_number,
               bi.id AS source_invoice_id,
               bi.invoice_number AS source_invoice_number,
-              COALESCE(bu.id, rbu.id) AS source_unit_id,
-              COALESCE(bu.number, rbu.number) AS source_unit_number,
-              COALESCE(ten.id, rten.id) AS source_tenant_id,
+              COALESCE(bu.id, rbu.id, tcu.id) AS source_unit_id,
+              COALESCE(bu.number, rbu.number, tcu.number) AS source_unit_number,
+              COALESCE(ten.id, rten.id, tten.id) AS source_tenant_id,
               COALESCE(
                 CASE WHEN ten.tenant_type = 'COMPANY' THEN COALESCE(ten.company_name, '')
                      ELSE TRIM(CONCAT(COALESCE(ten.first_name, ''), ' ', COALESCE(ten.last_name, ''), ' ', COALESCE(ten.post_name, '')))
                 END,
                 CASE WHEN rten.tenant_type = 'COMPANY' THEN COALESCE(rten.company_name, '')
                      ELSE TRIM(CONCAT(COALESCE(rten.first_name, ''), ' ', COALESCE(rten.last_name, ''), ' ', COALESCE(rten.post_name, '')))
+                END,
+                CASE WHEN tten.tenant_type = 'COMPANY' THEN COALESCE(tten.company_name, '')
+                     ELSE TRIM(CONCAT(COALESCE(tten.first_name, ''), ' ', COALESCE(tten.last_name, ''), ' ', COALESCE(tten.post_name, '')))
                 END
               ) AS source_tenant_name
        FROM bank_transactions bt
@@ -6535,6 +6562,14 @@ export class SaasService {
          AND bt.source_module IN ('PAYMENTS', 'GUARANTEES')
          AND bp.organization_id = bt.organization_id
          AND bp.deleted_at IS NULL
+       LEFT JOIN tenant_credits tcred ON tcred.id = bt.source_entity_id
+         AND bt.source_module = 'TENANT_CREDITS'
+         AND bt.source_entity_type = 'TENANT_CREDIT'
+         AND tcred.organization_id = bt.organization_id
+         AND tcred.deleted_at IS NULL
+       LEFT JOIN payments tcp ON tcp.id = tcred.source_payment_id
+         AND tcp.organization_id = tcred.organization_id
+         AND tcp.deleted_at IS NULL
        LEFT JOIN invoices bi ON bi.id = bp.invoice_id AND bi.organization_id = bp.organization_id AND bi.deleted_at IS NULL
        LEFT JOIN lease_guarantees bg ON bg.id = bp.lease_guarantee_id AND bg.organization_id = bp.organization_id AND bg.deleted_at IS NULL
        LEFT JOIN leases bl ON bl.id = COALESCE(bi.lease_id, bg.lease_id) AND bl.organization_id = bt.organization_id AND bl.deleted_at IS NULL
@@ -6547,6 +6582,9 @@ export class SaasService {
          AND rbl.deleted_at IS NULL
        LEFT JOIN units rbu ON rbu.id = rbl.unit_id AND rbu.organization_id = bt.organization_id AND rbu.deleted_at IS NULL
        LEFT JOIN tenants rten ON rten.id = rbl.tenant_id AND rten.organization_id = bt.organization_id AND rten.deleted_at IS NULL
+       LEFT JOIN leases tcl ON tcl.id = tcred.lease_id AND tcl.organization_id = bt.organization_id AND tcl.deleted_at IS NULL
+       LEFT JOIN units tcu ON tcu.id = tcl.unit_id AND tcu.organization_id = bt.organization_id AND tcu.deleted_at IS NULL
+       LEFT JOIN tenants tten ON tten.id = tcred.tenant_id AND tten.organization_id = bt.organization_id AND tten.deleted_at IS NULL
        WHERE bt.organization_id = $1
          AND bt.id = $2`,
       [this.context.organizationId(), id],
@@ -7141,6 +7179,7 @@ export class SaasService {
           reference: normalizedReference,
           createdBy: this.context.userId() ?? null,
           transactionType: bankGuaranteeTransactionType,
+          sourceModule: 'GUARANTEES',
           direction: 'IN',
           sourceEntityType: 'GUARANTEE',
           sourceEntityId: Number(paymentResult.rows[0].id),
@@ -7271,6 +7310,7 @@ export class SaasService {
           reference: normalizedReference,
           createdBy: this.context.userId() ?? null,
           transactionType: bankGuaranteeTransactionType,
+          sourceModule: 'GUARANTEES',
           direction: 'OUT',
           sourceEntityType: 'GUARANTEE_REFUND',
           sourceEntityId: id,
@@ -7342,6 +7382,29 @@ export class SaasService {
     return account;
   }
 
+  private async validateBankAccountForTenantCredit(client: PoolClient, bankAccountId: number | undefined, paymentCurrency: string) {
+    const accountId = Number(bankAccountId ?? 0);
+    if (!accountId) {
+      throw new BadRequestException('Un compte bancaire actif est requis pour un crédit locataire par banque.');
+    }
+    const { rows } = await client.query(
+      `SELECT id, bank_name, account_name, currency, status
+       FROM bank_accounts
+       WHERE id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL`,
+      [accountId, this.context.organizationId()],
+    );
+    const account = requireRow(rows[0], 'Bank account');
+    if (String(account.status).toUpperCase() !== 'ACTIVE') {
+      throw new ConflictException('Le compte bancaire selectionne doit etre actif.');
+    }
+    if (String(account.currency).toUpperCase() !== String(paymentCurrency).toUpperCase()) {
+      throw new ConflictException('La devise du compte bancaire doit correspondre a celle du crédit locataire.');
+    }
+    return account;
+  }
+
   private async bankGuaranteeTransactionType(client: PoolClient, transactionType: string) {
     const { rows } = await client.query(
       `SELECT EXISTS (
@@ -7369,6 +7432,7 @@ export class SaasService {
       reference?: string | null;
       createdBy: number | null;
       transactionType: string;
+      sourceModule: string;
       direction: 'IN' | 'OUT';
       sourceEntityType: string;
       sourceEntityId: number;
@@ -7390,8 +7454,8 @@ export class SaasService {
          idempotency_key, created_by)
        VALUES
         ($1, $2, $3, CURRENT_DATE, $4, $5, $6, $7,
-         $8, $9, $10, 'GUARANTEES', $11, $12, 'VALIDATED', NULL,
-         $13, $14)
+         $8, $9, $10, $11, $12, $13, 'VALIDATED', NULL,
+         $14, $15)
        RETURNING *`,
       [
         this.context.organizationId(),
@@ -7404,9 +7468,10 @@ export class SaasService {
         String(payload.reference ?? '').trim() || payload.receiptNumber,
         payload.description,
         payload.tenantName ?? null,
+        payload.sourceModule,
         payload.sourceEntityType,
         payload.sourceEntityId,
-        `guarantee-${String(payload.direction).toLowerCase()}:${this.context.organizationId()}:${payload.transactionType}:${payload.sourceEntityId}:${payload.reference ?? payload.receiptNumber}`,
+        `${String(payload.sourceModule).toLowerCase()}-${String(payload.direction).toLowerCase()}:${this.context.organizationId()}:${payload.sourceModule}:${payload.transactionType}:${payload.sourceEntityType}:${payload.sourceEntityId}:${payload.reference ?? payload.receiptNumber}`,
         payload.createdBy,
       ],
     );
@@ -7560,7 +7625,7 @@ export class SaasService {
   }
 
   async tenantCreditFormData() {
-    const [tenants, leases] = await Promise.all([
+    const [tenants, leases, bankAccounts] = await Promise.all([
       this.db.query(
         `SELECT id,
                 CASE WHEN tenant_type = 'COMPANY' THEN COALESCE(company_name, first_name, '')
@@ -7581,10 +7646,20 @@ export class SaasService {
          ORDER BY b.name, u.number, l.id DESC`,
         [this.context.organizationId()],
       ),
+      this.db.query(
+        `SELECT id, bank_name, account_name, account_number, currency, status
+         FROM bank_accounts
+         WHERE organization_id = $1
+           AND deleted_at IS NULL
+           AND status = 'ACTIVE'
+         ORDER BY bank_name, account_name, id DESC`,
+        [this.context.organizationId()],
+      ),
     ]);
     return {
       tenants: tenants.rows,
       leases: leases.rows,
+      bankAccounts: bankAccounts.rows,
       paymentMethods: [
         { value: 'CASH', label: 'Espèces' },
         { value: 'BANK', label: 'Banque' },
@@ -7615,6 +7690,9 @@ export class SaasService {
       if (currency === 'CDF' && (!exchangeRateUsed || exchangeRateUsed <= 0)) {
         throw new BadRequestException('Un taux de change est requis pour un crédit locataire en CDF.');
       }
+      if (paymentMethod === 'BANK') {
+        await this.ensureBankSchema();
+      }
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`tenant-credit-${this.context.organizationId()}-${tenantId}-${paymentDate}-${amount}-${currency}`]);
       const tenant = await client.query(
         `SELECT id,
@@ -7635,6 +7713,9 @@ export class SaasService {
         );
         requireRow(lease.rows[0], 'Lease');
       }
+      const bankAccount = paymentMethod === 'BANK'
+        ? await this.validateBankAccountForTenantCredit(client, Number(body.bank_account_id ?? 0), currency)
+        : null;
       const amountUsd = currency === 'USD' ? amount : 0;
       const amountCdf = currency === 'CDF' ? amount : 0;
       const cdfEquivalentUsd = currency === 'CDF' && exchangeRateUsed ? Number((amount / exchangeRateUsed).toFixed(2)) : 0;
@@ -7704,27 +7785,50 @@ export class SaasService {
           this.context.userId() ?? 1,
         ],
       );
-      const movement = await this.createCashMovementInTransaction(client, {
-        type: 'IN',
-        category: 'TENANT_CREDIT',
-        amount,
-        movement_date: paymentDate,
-        payment_id: payment.rows[0].id,
-        tenant_id: tenantId,
-        description: 'Paiement anticipé locataire',
-        reference: normalizedReference,
-        currency,
-        exchange_rate_used: exchangeRateUsed,
-        exchange_rate_date: exchangeRateDate,
-        equivalent_usd: totalEquivalentUsd,
-      });
-      if (await this.columnExists('cash_movements', 'tenant_credit_id')) {
-        await client.query(
-          `UPDATE cash_movements
-           SET tenant_credit_id = $1
-           WHERE id = $2 AND organization_id = $3`,
-          [credit.rows[0].id, movement.id, this.context.organizationId()],
-        );
+      let movement: Record<string, unknown> | null = null;
+      let bankTransaction: Record<string, unknown> | null = null;
+      if (paymentMethod === 'BANK') {
+        const transactionType = await this.bankGuaranteeTransactionType(client, 'TENANT_CREDIT');
+        bankTransaction = await this.createGuaranteeBankTransactionInTransaction(client, {
+          bankAccount: bankAccount as { id: number; bank_name?: string | null; account_name?: string | null; currency: string },
+          amount,
+          currency,
+          receiptNumber,
+          reference: normalizedReference,
+          createdBy: this.context.userId() ?? null,
+          transactionType,
+          sourceModule: 'TENANT_CREDITS',
+          direction: 'IN',
+          sourceEntityType: 'TENANT_CREDIT',
+          sourceEntityId: Number(credit.rows[0].id),
+          description: 'Crédit locataire / Paiement anticipé locataire',
+          tenantName: tenantRow.name,
+          leaseNumber: leaseId ?? null,
+          unitNumber: null,
+        });
+      } else {
+        movement = await this.createCashMovementInTransaction(client, {
+          type: 'IN',
+          category: 'TENANT_CREDIT',
+          amount,
+          movement_date: paymentDate,
+          payment_id: payment.rows[0].id,
+          tenant_id: tenantId,
+          description: 'Paiement anticipé locataire',
+          reference: normalizedReference,
+          currency,
+          exchange_rate_used: exchangeRateUsed,
+          exchange_rate_date: exchangeRateDate,
+          equivalent_usd: totalEquivalentUsd,
+        });
+        if (await this.columnExists('cash_movements', 'tenant_credit_id')) {
+          await client.query(
+            `UPDATE cash_movements
+             SET tenant_credit_id = $1
+             WHERE id = $2 AND organization_id = $3`,
+            [credit.rows[0].id, movement?.id ?? null, this.context.organizationId()],
+          );
+        }
       }
       await client.query(
         `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
@@ -7736,7 +7840,14 @@ export class SaasService {
           JSON.stringify({ tenant_id: tenantId, lease_id: leaseId, source_payment_id: payment.rows[0].id, amount, currency }),
         ],
       );
-      return { ...credit.rows[0], receipt_number: payment.rows[0].receipt_number, source_payment_id: payment.rows[0].id, cash_movement_id: movement.id };
+      return {
+        ...credit.rows[0],
+        receipt_number: payment.rows[0].receipt_number,
+        source_payment_id: payment.rows[0].id,
+        cash_movement_id: movement?.id ?? null,
+        cash_movement: movement,
+        bank_transaction: bankTransaction,
+      };
     });
     void this.sendTenantCreditReceiptIfEnabled(credit.id).catch((error) => {
       this.logger.error(

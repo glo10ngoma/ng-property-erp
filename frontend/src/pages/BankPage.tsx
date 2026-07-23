@@ -47,7 +47,7 @@ type BankTransaction = {
   transaction_number: string;
   transaction_date: string;
   direction: 'IN' | 'OUT';
-  transaction_type: 'OPENING_BALANCE' | 'MANUAL_ADJUSTMENT' | 'RENT_PAYMENT' | 'GUARANTEE_PAYMENT' | 'GUARANTEE_REFUND';
+  transaction_type: 'OPENING_BALANCE' | 'MANUAL_ADJUSTMENT' | 'RENT_PAYMENT' | 'GUARANTEE_PAYMENT' | 'GUARANTEE_REFUND' | 'TENANT_CREDIT';
   amount: number;
   currency: 'USD' | 'CDF';
   reference?: string | null;
@@ -59,6 +59,8 @@ type BankTransaction = {
   source_payment_id?: number | null;
   source_payment_receipt_number?: string | null;
   source_guarantee_id?: number | null;
+  source_tenant_credit_id?: number | null;
+  source_tenant_credit_receipt_number?: string | null;
   source_lease_id?: number | null;
   source_lease_number?: number | string | null;
   source_invoice_id?: number | null;
@@ -455,6 +457,7 @@ export function BankPage() {
                 <option value="RENT_PAYMENT">Paiement de loyer</option>
                 <option value="GUARANTEE_PAYMENT">Paiement de garantie</option>
                 <option value="GUARANTEE_REFUND">Remboursement de garantie</option>
+                <option value="TENANT_CREDIT">Crédit locataire</option>
               </select>
               <input value={filters.source_module} onChange={(event) => setFilters((current) => ({ ...current, source_module: event.target.value }))} placeholder="Origine" />
               <input value={filters.reference} onChange={(event) => setFilters((current) => ({ ...current, reference: event.target.value }))} placeholder="RÃ©fÃ©rence" />
@@ -494,7 +497,7 @@ export function BankPage() {
                       <td>{transaction.bank_name || '-'}</td>
                       <td>{transaction.account_name || '-'}</td>
                       <td>{transactionTypeLabel(transaction.transaction_type, transaction.source_module, transaction.source_entity_type)}</td>
-                      <td>{transaction.source_module || '-'}</td>
+                      <td>{sourceModuleLabel(transaction.source_module)}</td>
                       <td>{transaction.counterparty_name || '-'}</td>
                       <td className="right">{transaction.direction === 'IN' ? formatBankMoney(transaction.amount, transaction.currency) : ''}</td>
                       <td className="right">{transaction.direction === 'OUT' ? formatBankMoney(transaction.amount, transaction.currency) : ''}</td>
@@ -613,7 +616,6 @@ export function BankPage() {
     </section>
   );
 }
-
 export function BankAccountDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -729,7 +731,7 @@ export function BankAccountDetailPage() {
                   <td>{shortDate(transaction.transaction_date)}</td>
                   <td>{transaction.transaction_number}</td>
                   <td>{transactionTypeLabel(transaction.transaction_type, transaction.source_module, transaction.source_entity_type)}</td>
-                  <td>{transaction.source_module || '-'}</td>
+                  <td>{sourceModuleLabel(transaction.source_module)}</td>
                   <td>{transaction.reference || '-'}</td>
                   <td className="right">{transaction.direction === 'IN' ? formatBankMoney(transaction.amount, transaction.currency) : ''}</td>
                   <td className="right">{transaction.direction === 'OUT' ? formatBankMoney(transaction.amount, transaction.currency) : ''}</td>
@@ -784,23 +786,26 @@ function TransactionDetailDrawer({ transaction, onClose, navigate }: { transacti
           <div className="bank-detail-grid">
             <div className="compact-item"><span>RÃ©fÃ©rence</span><strong>{transaction.reference || '-'}</strong></div>
             <div className="compact-item"><span>Tiers</span><strong>{transaction.counterparty_name || '-'}</strong></div>
-            <div className="compact-item"><span>Origine</span><strong>{transaction.source_module || '-'}</strong></div>
-            <div className="compact-item"><span>Source entity type</span><strong>{transaction.source_entity_type || '-'}</strong></div>
+            <div className="compact-item"><span>Origine</span><strong>{sourceModuleLabel(transaction.source_module)}</strong></div>
+            <div className="compact-item"><span>Type source</span><strong>{sourceEntityTypeLabel(transaction.source_entity_type, transaction.source_module)}</strong></div>
             <div className="compact-item"><span>Source entity id</span><strong>{transaction.source_entity_id ?? '-'}</strong></div>
             <div className="compact-item"><span>Bail source</span><strong>{transaction.source_lease_number ? `B-${String(transaction.source_lease_number).padStart(5, '0')}` : transaction.source_lease_id ?? '-'}</strong></div>
             <div className="compact-item"><span>UnitÃ© source</span><strong>{transaction.source_unit_number || transaction.source_unit_id || '-'}</strong></div>
             <div className="compact-item"><span>Utilisateur</span><strong>{transaction.created_by_name || '-'}</strong></div>
             <div className="compact-item"><span>CrÃ©Ã©e le</span><strong>{shortDate(transaction.created_at)}</strong></div>
             <div className="compact-item"><span>NumÃ©ro de compte</span><strong>{maskAccountNumber(transaction.account_number)}</strong></div>
-          </div>
-
-          {transaction.source_payment_id ? (
+          </div>          {transaction.source_payment_id ? (
             <div className="detail-section">
               <h4>Source documentaire</h4>
               <div className="row-actions">
                 <button type="button" className="secondary" onClick={() => navigate(`/payments/${transaction.source_payment_id}`)}>
-                  ReÃ§u {transaction.source_payment_receipt_number || `PAY-${transaction.source_payment_id}`}
+                  Reçu {transaction.source_payment_receipt_number || `PAY-${transaction.source_payment_id}`}
                 </button>
+                {transaction.source_tenant_credit_id ? (
+                  <button type="button" className="secondary" onClick={() => navigate(`/tenant-credits?credit_id=${transaction.source_tenant_credit_id}`)}>
+                    Crédit {transaction.source_tenant_credit_receipt_number || transaction.source_payment_receipt_number || `#${transaction.source_tenant_credit_id}`}
+                  </button>
+                ) : null}
                 {transaction.source_invoice_id ? (
                   <button type="button" className="secondary" onClick={() => navigate(`/invoices/${transaction.source_invoice_id}`)}>
                     Facture {transaction.source_invoice_number || `INV-${transaction.source_invoice_id}`}
@@ -818,7 +823,7 @@ function TransactionDetailDrawer({ transaction, onClose, navigate }: { transacti
                 ) : null}
                 {transaction.source_unit_id ? (
                   <button type="button" className="secondary" onClick={() => navigate(`/units/${transaction.source_unit_id}`)}>
-                    UnitÃ© {transaction.source_unit_number || `#${transaction.source_unit_id}`}
+                    Unité {transaction.source_unit_number || `#${transaction.source_unit_id}`}
                   </button>
                 ) : null}
                 {transaction.source_tenant_id ? (
@@ -876,6 +881,9 @@ function transactionTypeLabel(value?: string | null, sourceModule?: string | nul
   if (moduleValue === 'PAYMENTS' && entityValue === 'PAYMENT') {
     return 'Paiement de loyer';
   }
+  if (moduleValue === 'TENANT_CREDITS' || entityValue === 'TENANT_CREDIT') {
+    return 'Crédit locataire';
+  }
   if (moduleValue === 'GUARANTEES') {
     if (entityValue === 'GUARANTEE_REFUND') {
       return 'Remboursement de garantie locative';
@@ -893,9 +901,42 @@ function transactionTypeLabel(value?: string | null, sourceModule?: string | nul
       return 'Paiement de garantie locative';
     case 'GUARANTEE_REFUND':
       return 'Remboursement de garantie locative';
+    case 'TENANT_CREDIT':
+      return 'Crédit locataire';
     default:
       return value || '-';
   }
+}
+
+function sourceModuleLabel(value?: string | null) {
+  switch (String(value ?? '').toUpperCase()) {
+    case 'PAYMENTS':
+      return 'Paiements';
+    case 'GUARANTEES':
+      return 'Garanties';
+    case 'TENANT_CREDITS':
+      return 'Crédits locataires';
+    default:
+      return value || '-';
+  }
+}
+
+function sourceEntityTypeLabel(value?: string | null, sourceModule?: string | null) {
+  const moduleValue = String(sourceModule ?? '').toUpperCase();
+  const entityValue = String(value ?? '').toUpperCase();
+  if (moduleValue === 'TENANT_CREDITS' || entityValue === 'TENANT_CREDIT') {
+    return 'Crédit locataire';
+  }
+  if (moduleValue === 'GUARANTEES' && entityValue === 'GUARANTEE_REFUND') {
+    return 'Remboursement de garantie';
+  }
+  if (moduleValue === 'GUARANTEES' && entityValue === 'GUARANTEE_PAYMENT') {
+    return 'Paiement de garantie';
+  }
+  if (moduleValue === 'PAYMENTS' && entityValue === 'PAYMENT') {
+    return 'Paiement';
+  }
+  return value || '-';
 }
 
 function formatBankMoney(amount: number, currency: string) {

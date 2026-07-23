@@ -65,6 +65,7 @@ type TenantCredit = {
 type FormDataPayload = {
   tenants: Array<{ id: number; name: string; tenant_number?: string }>;
   leases: Array<{ id: number; tenant_id: number; lease_number?: number; unit_number?: string; building_name?: string; status: string }>;
+  bankAccounts?: Array<{ id: number; bank_name: string; account_name: string; account_number?: string | null; currency: 'USD' | 'CDF'; status: string }>;
   paymentMethods?: Array<{ value: string; label: string }>;
   currencies?: string[];
 };
@@ -96,7 +97,7 @@ export function TenantCredits() {
   const [searchParams] = useSearchParams();
   const { can } = useAuth();
   const [credits, setCredits] = useState<TenantCredit[]>([]);
-  const [formData, setFormData] = useState<FormDataPayload>({ tenants: [], leases: [] });
+  const [formData, setFormData] = useState<FormDataPayload>({ tenants: [], leases: [], bankAccounts: [] });
   const [loading, setLoading] = useState(true);
   const [formDataLoading, setFormDataLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -128,6 +129,7 @@ export function TenantCredits() {
     currency: 'USD',
     amount: '',
     payment_method: 'CASH',
+    bank_account_id: '',
     exchange_rate_used: '',
     reference: '',
     notes: '',
@@ -191,7 +193,7 @@ export function TenantCredits() {
       setFormData(response.data);
     } catch (loadError: any) {
       setFormDataError(resolveFormDataError(loadError));
-      setFormData({ tenants: [], leases: [], paymentMethods: [], currencies: ['USD', 'CDF'] });
+      setFormData({ tenants: [], leases: [], bankAccounts: [], paymentMethods: [], currencies: ['USD', 'CDF'] });
     } finally {
       setFormDataLoading(false);
     }
@@ -201,6 +203,12 @@ export function TenantCredits() {
     void loadCredits();
     void loadFormData();
   }, []);
+
+  useEffect(() => {
+    const creditId = Number(searchParams.get('credit_id') ?? 0);
+    if (!creditId) return;
+    void openDetail(creditId);
+  }, [searchParams]);
 
   async function sendCreditEmail(payload: { recipient: string; cc: string; subject: string; message: string }) {
     if (!selectedCredit) return;
@@ -238,13 +246,19 @@ export function TenantCredits() {
       ];
 
   const currencies = formData.currencies?.length ? formData.currencies : ['USD', 'CDF'];
+  const bankAccountsForCurrency = useMemo(
+    () => (formData.bankAccounts ?? []).filter((account) => account.status === 'ACTIVE' && account.currency === form.currency),
+    [form.currency, formData.bankAccounts],
+  );
   const tenantSelectDisabled = formDataLoading || !!formDataError || formData.tenants.length === 0;
   const leaseSelectDisabled = !form.tenant_id || formDataLoading || !!formDataError;
+  const bankAccountSelectDisabled = formDataLoading || !!formDataError || bankAccountsForCurrency.length === 0;
   const canSubmitCredit = Boolean(
     form.tenant_id
       && form.lease_id
       && Number(form.amount) > 0
       && (form.currency === 'USD' || Number(form.exchange_rate_used) > 0)
+      && (form.payment_method !== 'BANK' || form.bank_account_id)
       && !submitting
       && !formDataLoading
       && !formDataError,
@@ -330,6 +344,8 @@ export function TenantCredits() {
       ...current,
       [key]: value,
       ...(key === 'tenant_id' ? { lease_id: '' } : {}),
+      ...(key === 'payment_method' && value !== 'BANK' ? { bank_account_id: '' } : {}),
+      ...(key === 'currency' ? { bank_account_id: '' } : {}),
     }));
   };
 
@@ -379,6 +395,7 @@ export function TenantCredits() {
         currency: form.currency,
         amount: Number(form.amount),
         payment_method: form.payment_method,
+        bank_account_id: form.payment_method === 'BANK' ? Number(form.bank_account_id) : undefined,
         exchange_rate_used: form.currency === 'CDF' ? Number(form.exchange_rate_used) : null,
         reference: form.reference || null,
         notes: form.notes || null,
@@ -391,12 +408,13 @@ export function TenantCredits() {
         lease_id: '',
         payment_date: today(),
         currency: 'USD',
-        amount: '',
-        payment_method: 'CASH',
-        exchange_rate_used: '',
-        reference: '',
-        notes: '',
-      });
+      amount: '',
+      payment_method: 'CASH',
+      bank_account_id: '',
+      exchange_rate_used: '',
+      reference: '',
+      notes: '',
+    });
       await loadCredits();
     } catch (submitError: any) {
       setError(submitError?.response?.data?.message ?? 'Impossible d’enregistrer le crédit locataire.');
@@ -699,6 +717,31 @@ export function TenantCredits() {
                   </select>
                   <small>Mode de paiement utilisé.</small>
                 </label>
+                {form.payment_method === 'BANK' ? (
+                  <label className="tenant-credit-drawer-wide">
+                    <span>Compte bancaire *</span>
+                    <select
+                      required
+                      value={form.bank_account_id}
+                      disabled={bankAccountSelectDisabled}
+                      onChange={(event) => updateForm('bank_account_id', event.target.value)}
+                    >
+                      {!bankAccountsForCurrency.length ? (
+                        <option value="">Aucun compte bancaire actif disponible</option>
+                      ) : (
+                        <>
+                          <option value="">Sélectionner un compte bancaire</option>
+                          {bankAccountsForCurrency.map((account) => (
+                            <option key={account.id} value={account.id}>
+                              {account.bank_name} - {account.account_name}{account.account_number ? ` (${account.account_number})` : ''}
+                            </option>
+                          ))}
+                        </>
+                      )}
+                    </select>
+                    <small>{!bankAccountsForCurrency.length ? 'Aucun compte bancaire actif de la bonne devise n’est disponible.' : 'Compte bancaire actif de la même devise et de la même organisation.'}</small>
+                  </label>
+                ) : null}
                 {form.currency === 'CDF' && (
                   <>
                     <label>
