@@ -45,6 +45,7 @@ import { ShareholderPayoutReceiptPage } from '../pages/ShareholderPayoutReceiptP
 import { ShareholdersPage } from '../pages/ShareholdersPage';
 import { TenantCreditRefundDetail } from '../pages/TenantCreditRefundDetail';
 import { TenantCredits } from '../pages/TenantCredits';
+import { TreasuryTransferDetailPage } from '../pages/TreasuryTransfers';
 import { ProfilePage } from '../pages/ProfilePage';
 import { SelectOrganization } from '../pages/SelectOrganization';
 import { BuildingStatementPage, TenantStatementPage, UnitStatementPage } from '../pages/StatementPage';
@@ -117,6 +118,7 @@ export function AppRouter() {
           <Route path="/payments/:id" element={guarded('payments.read', <PaymentDetail />)} />
           <Route path="/bank" element={guarded('bank_accounts.read', <BankPage />)} />
           <Route path="/bank/accounts/:id" element={guarded('bank_accounts.read', <BankAccountDetailPage />)} />
+          <Route path="/treasury-transfers/:id" element={guarded('treasury_transfers.read', <TreasuryTransferDetailPage />)} />
           <Route path="/tenant-credits" element={guarded('payments.read', <TenantCredits />)} />
           <Route path="/tenant-credits/refunds/:id" element={guarded('payments.read', <TenantCreditRefundDetail />)} />
           <Route path="/shareholders" element={guarded('shareholders.read', <ShareholdersPage />)} />

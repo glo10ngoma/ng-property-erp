@@ -586,6 +586,16 @@ export class CashController {
     return this.service.createShareholderPayout('MAIN_CASH', body);
   }
 
+  @Get('treasury-transfers/form-data')
+  treasuryTransferFormData() {
+    return this.service.treasuryTransferFormData('MAIN_CASH');
+  }
+
+  @Post('treasury-transfers')
+  createTreasuryTransfer(@Body() body: Record<string, unknown>) {
+    return this.service.createTreasuryTransfer('MAIN_CASH', body);
+  }
+
   @Get('report')
   report() {
     return this.service.cashReport();
@@ -707,6 +717,16 @@ export class BankTransactionsController {
   }
 }
 
+@Controller('treasury-transfers')
+export class TreasuryTransfersController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get(':id')
+  transfer(@Param('id', ParseIntPipe) id: number) {
+    return this.service.treasuryTransfer(id);
+  }
+}
+
 @Controller('bank')
 export class BankShareholderPayoutsController {
   constructor(private readonly service: SaasService) {}
@@ -719,6 +739,16 @@ export class BankShareholderPayoutsController {
   @Post('shareholder-payouts')
   createShareholderPayout(@Body() body: Record<string, unknown>) {
     return this.service.createShareholderPayout('BANK', body);
+  }
+
+  @Get('treasury-transfers/form-data')
+  treasuryTransferFormData() {
+    return this.service.treasuryTransferFormData('BANK');
+  }
+
+  @Post('treasury-transfers')
+  createTreasuryTransfer(@Body() body: Record<string, unknown>) {
+    return this.service.createTreasuryTransfer('BANK', body);
   }
 }
 

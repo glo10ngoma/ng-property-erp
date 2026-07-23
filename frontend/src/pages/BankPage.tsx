@@ -8,6 +8,7 @@ import { EmptyState, LoadingState, Modal, PageHeader, SuccessMessage } from '../
 import { ExpenseModal } from '../core/components/ExpenseModal';
 import { useCashExpenseCategories, type CashExpenseCategory } from '../modules/cash/hooks/useCashExpenseCategories';
 import { ShareholderPayoutModal } from './ShareholderPayoutModal';
+import { TreasuryTransferModal, type TreasuryTransferPreset } from './TreasuryTransfers';
 
 type BankDashboard = {
   period: {
@@ -50,7 +51,17 @@ type BankTransaction = {
   transaction_number: string;
   transaction_date: string;
   direction: 'IN' | 'OUT';
-  transaction_type: 'OPENING_BALANCE' | 'MANUAL_ADJUSTMENT' | 'RENT_PAYMENT' | 'GUARANTEE_PAYMENT' | 'GUARANTEE_REFUND' | 'TENANT_CREDIT' | 'SHAREHOLDER_PAYOUT' | 'BANK_EXPENSE';
+  transaction_type:
+    | 'OPENING_BALANCE'
+    | 'MANUAL_ADJUSTMENT'
+    | 'RENT_PAYMENT'
+    | 'GUARANTEE_PAYMENT'
+    | 'GUARANTEE_REFUND'
+    | 'TENANT_CREDIT'
+    | 'SHAREHOLDER_PAYOUT'
+    | 'BANK_EXPENSE'
+    | 'TRANSFER_IN'
+    | 'TRANSFER_OUT';
   amount: number;
   currency: 'USD' | 'CDF';
   reference?: string | null;
@@ -71,6 +82,8 @@ type BankTransaction = {
   source_lease_number?: number | string | null;
   source_invoice_id?: number | null;
   source_invoice_number?: string | null;
+  source_treasury_transfer_id?: number | null;
+  source_treasury_transfer_number?: string | null;
   source_unit_id?: number | null;
   source_unit_number?: string | null;
   source_tenant_id?: number | null;
@@ -135,6 +148,7 @@ export function BankPage() {
   const [expenseDefaultBankAccountId, setExpenseDefaultBankAccountId] = useState<number | null>(null);
   const [shareholderPayoutOpen, setShareholderPayoutOpen] = useState(false);
   const [shareholderPayoutBankAccountId, setShareholderPayoutBankAccountId] = useState<number | null>(null);
+  const [treasuryTransferPreset, setTreasuryTransferPreset] = useState<TreasuryTransferPreset | null>(null);
   const [transactionDetailOpen, setTransactionDetailOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'accounts' | 'transactions'>('accounts');
   const [selectedAccount, setSelectedAccount] = useState<BankAccount | null>(null);
@@ -251,6 +265,10 @@ export function BankPage() {
     setExpenseOpen(true);
   };
 
+  const openTreasuryTransfer = (preset?: TreasuryTransferPreset | null) => {
+    setTreasuryTransferPreset(preset ?? {});
+  };
+
   const openEdit = (account: BankAccount) => {
     setSelectedAccount(account);
     setForm({
@@ -363,6 +381,21 @@ export function BankPage() {
             {activeTab === 'accounts' && can('cash.create') ? (
               <button type="button" className="secondary" onClick={() => openExpense()}>
                 Enregistrer une dépense
+              </button>
+            ) : null}
+            {activeTab === 'accounts' && can('treasury_transfers.from_cash') ? (
+              <button type="button" className="secondary" onClick={() => openTreasuryTransfer({ defaultTransferType: 'CASH_TO_BANK' })}>
+                Dépôt en banque
+              </button>
+            ) : null}
+            {activeTab === 'accounts' && can('treasury_transfers.from_bank') ? (
+              <button type="button" className="secondary" onClick={() => openTreasuryTransfer({ defaultTransferType: 'BANK_TO_CASH' })}>
+                Retrait vers caisse
+              </button>
+            ) : null}
+            {activeTab === 'accounts' && can('treasury_transfers.bank_to_bank') ? (
+              <button type="button" className="secondary" onClick={() => openTreasuryTransfer({ defaultTransferType: 'BANK_TO_BANK' })}>
+                Virement entre comptes
               </button>
             ) : null}
             {activeTab === 'accounts' && can('shareholder_payouts.from_bank') ? (
@@ -513,6 +546,8 @@ export function BankPage() {
                 <option value="TENANT_CREDIT">Crédit locataire</option>
                 <option value="SHAREHOLDER_PAYOUT">Remboursement actionnaire</option>
                 <option value="BANK_EXPENSE">Dépense bancaire</option>
+                <option value="TRANSFER_IN">Transfert entrant</option>
+                <option value="TRANSFER_OUT">Transfert sortant</option>
               </select>
               <input value={filters.source_module} onChange={(event) => setFilters((current) => ({ ...current, source_module: event.target.value }))} placeholder="Origine" />
               <input value={filters.reference} onChange={(event) => setFilters((current) => ({ ...current, reference: event.target.value }))} placeholder="Référence" />
@@ -679,6 +714,19 @@ export function BankPage() {
           onSuccess={load}
         />
       ) : null}
+      {treasuryTransferPreset ? (
+        <TreasuryTransferModal
+          endpoint="/bank/treasury-transfers"
+          formDataEndpoint="/bank/treasury-transfers/form-data"
+          sourceRegister="BANK"
+          preset={treasuryTransferPreset}
+          onClose={() => setTreasuryTransferPreset(null)}
+          onSuccess={async () => {
+            setSuccess('Transfert interne validé.');
+            await load();
+          }}
+        />
+      ) : null}
       <ExpenseModal
         open={expenseOpen}
         sourceRegister="BANK"
@@ -709,6 +757,7 @@ export function BankAccountDetailPage() {
   const [selectedTransaction, setSelectedTransaction] = useState<BankTransaction | null>(null);
   const [shareholderPayoutOpen, setShareholderPayoutOpen] = useState(false);
   const [expenseOpen, setExpenseOpen] = useState(false);
+  const [treasuryTransferPreset, setTreasuryTransferPreset] = useState<TreasuryTransferPreset | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -789,6 +838,33 @@ export function BankAccountDetailPage() {
             {can('cash.create') ? (
               <button type="button" className="secondary" onClick={() => setExpenseOpen(true)}>
                 Enregistrer une dépense
+              </button>
+            ) : null}
+            {can('treasury_transfers.from_cash') ? (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setTreasuryTransferPreset({ defaultTransferType: 'CASH_TO_BANK', defaultDestinationBankAccountId: account.id })}
+              >
+                Dépôt en banque
+              </button>
+            ) : null}
+            {can('treasury_transfers.from_bank') ? (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setTreasuryTransferPreset({ defaultTransferType: 'BANK_TO_CASH', defaultSourceBankAccountId: account.id })}
+              >
+                Retrait vers caisse
+              </button>
+            ) : null}
+            {can('treasury_transfers.bank_to_bank') ? (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setTreasuryTransferPreset({ defaultTransferType: 'BANK_TO_BANK', defaultSourceBankAccountId: account.id })}
+              >
+                Virement entre comptes
               </button>
             ) : null}
             {can('shareholder_payouts.from_bank') ? (
@@ -875,6 +951,19 @@ export function BankAccountDetailPage() {
           onSuccess={load}
         />
       ) : null}
+      {treasuryTransferPreset ? (
+        <TreasuryTransferModal
+          endpoint="/bank/treasury-transfers"
+          formDataEndpoint="/bank/treasury-transfers/form-data"
+          sourceRegister="BANK"
+          preset={treasuryTransferPreset}
+          onClose={() => setTreasuryTransferPreset(null)}
+          onSuccess={async () => {
+            setSuccess('Transfert interne validé.');
+            await load();
+          }}
+        />
+      ) : null}
       <ExpenseModal
         open={expenseOpen}
         sourceRegister="BANK"
@@ -927,7 +1016,7 @@ function TransactionDetailDrawer({ transaction, onClose, navigate }: { transacti
             <div className="compact-item"><span>Créée le</span><strong>{shortDate(transaction.created_at)}</strong></div>
             <div className="compact-item"><span>Numéro de compte</span><strong>{maskAccountNumber(transaction.account_number)}</strong></div>
           </div>
-          {transaction.source_payment_id || transaction.source_shareholder_payout_line_id ? (
+          {transaction.source_payment_id || transaction.source_shareholder_payout_line_id || transaction.source_treasury_transfer_id ? (
             <div className="detail-section">
               <h4>Source documentaire</h4>
               <div className="row-actions">
@@ -956,6 +1045,11 @@ function TransactionDetailDrawer({ transaction, onClose, navigate }: { transacti
                 {transaction.source_invoice_id ? (
                   <button type="button" className="secondary" onClick={() => navigate(`/invoices/${transaction.source_invoice_id}`)}>
                     Facture {transaction.source_invoice_number || `INV-${transaction.source_invoice_id}`}
+                  </button>
+                ) : null}
+                {transaction.source_treasury_transfer_id ? (
+                  <button type="button" className="secondary" onClick={() => navigate(`/treasury-transfers/${transaction.source_treasury_transfer_id}`)}>
+                    Transfert {transaction.source_treasury_transfer_number || `#${transaction.source_treasury_transfer_id}`}
                   </button>
                 ) : null}
                 {transaction.source_guarantee_id && transaction.source_lease_id ? (
@@ -1037,6 +1131,15 @@ function transactionTypeLabel(value?: string | null, sourceModule?: string | nul
   if (moduleValue === 'EXPENSES' || entityValue === 'EXPENSE') {
     return 'Dépense bancaire';
   }
+  if (moduleValue === 'TREASURY_TRANSFERS' || entityValue === 'TREASURY_TRANSFER') {
+    if (String(value ?? '').toUpperCase() === 'TRANSFER_OUT') {
+      return 'Transfert sortant';
+    }
+    if (String(value ?? '').toUpperCase() === 'TRANSFER_IN') {
+      return 'Transfert entrant';
+    }
+    return 'Transfert interne';
+  }
   if (moduleValue === 'GUARANTEES') {
     if (entityValue === 'GUARANTEE_REFUND') {
       return 'Remboursement de garantie locative';
@@ -1060,6 +1163,10 @@ function transactionTypeLabel(value?: string | null, sourceModule?: string | nul
       return 'Remboursement actionnaire';
     case 'BANK_EXPENSE':
       return 'Dépense bancaire';
+    case 'TRANSFER_IN':
+      return 'Transfert entrant';
+    case 'TRANSFER_OUT':
+      return 'Transfert sortant';
     default:
       return value || '-';
   }
@@ -1077,6 +1184,8 @@ function sourceModuleLabel(value?: string | null) {
       return 'Actionnaires';
     case 'EXPENSES':
       return 'Dépenses';
+    case 'TREASURY_TRANSFERS':
+      return 'Tr\u00e9sorerie interne';
     default:
       return value || '-';
   }
@@ -1103,6 +1212,9 @@ function sourceEntityTypeLabel(value?: string | null, sourceModule?: string | nu
   if (moduleValue === 'EXPENSES' || entityValue === 'EXPENSE') {
     return 'Dépense';
   }
+  if (moduleValue === 'TREASURY_TRANSFERS' || entityValue === 'TREASURY_TRANSFER') {
+    return 'Transfert interne';
+  }
   return value || '-';
 }
 
@@ -1120,6 +1232,8 @@ function cashCategoryLabel(value?: string | null) {
       PAYMENT_REFUND: 'Remboursement paiement',
       STOCK_PURCHASE: 'Achat fournisseur',
       SHAREHOLDER_PAYOUT: 'Actionnaires',
+      BANK_DEPOSIT: 'D\u00e9p\u00f4t en banque',
+      BANK_WITHDRAWAL: 'Retrait bancaire re\u00e7u',
     } as Record<string, string>
   )[String(value ?? '')];
   return label ?? String(value ?? '-');

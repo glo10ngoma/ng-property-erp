@@ -1953,6 +1953,7 @@ export class SaasService {
 
   async cashMovements() {
     const hasShareholderSchema = await this.hasShareholderPayoutSchema();
+    const supportsStockPurchaseId = await this.columnExists('cash_movements', 'stock_purchase_id');
     const shareholderSelect = hasShareholderSchema
       ? `,
              spl.batch_id AS shareholder_batch_id,
@@ -1975,16 +1976,18 @@ export class SaasService {
              CASE
                WHEN cm.payment_id IS NOT NULL THEN TRUE
                WHEN cm.invoice_id IS NOT NULL THEN TRUE
-               WHEN cm.stock_purchase_id IS NOT NULL THEN TRUE
-               WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND', 'TENANT_CREDIT_REFUND', 'SHAREHOLDER_PAYOUT') THEN TRUE
+               ${supportsStockPurchaseId ? `WHEN cm.stock_purchase_id IS NOT NULL THEN TRUE` : ''}
+               WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND', 'TENANT_CREDIT_REFUND', 'SHAREHOLDER_PAYOUT', 'BANK_DEPOSIT', 'BANK_WITHDRAWAL') THEN TRUE
                ELSE FALSE
              END AS is_locked,
              CASE
                WHEN cm.payment_id IS NOT NULL THEN 'Ce mouvement est lié à un paiement.'
                WHEN cm.invoice_id IS NOT NULL THEN 'Ce mouvement est lié à une facture.'
-               WHEN cm.stock_purchase_id IS NOT NULL THEN 'Ce mouvement est lié à un achat fournisseur.'
+               ${supportsStockPurchaseId ? `WHEN cm.stock_purchase_id IS NOT NULL THEN 'Ce mouvement est lié à un achat fournisseur.'` : ''}
                WHEN cm.category = 'TENANT_CREDIT_REFUND' THEN 'Ce mouvement est lié à un remboursement de crédit locataire.'
                WHEN cm.category = 'SHAREHOLDER_PAYOUT' THEN 'Ce mouvement est lié à un remboursement actionnaire.'
+               WHEN cm.category = 'BANK_DEPOSIT' THEN 'Ce mouvement est généré automatiquement par un dépôt en banque.'
+               WHEN cm.category = 'BANK_WITHDRAWAL' THEN 'Ce mouvement est généré automatiquement par un retrait bancaire.'
                WHEN cm.category IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND') THEN 'Ce mouvement est généré automatiquement pour une garantie.'
                WHEN cm.category IN ('SALARY_ADVANCE', 'SALARY_PAYMENT') THEN 'Ce mouvement est généré automatiquement pour la paie.'
                WHEN cm.category = 'MAINTENANCE_EXPENSE' THEN 'Ce mouvement est lié à une dépense de maintenance.'
@@ -2008,6 +2011,7 @@ export class SaasService {
 
   async cashMovementDetail(id: number) {
     const hasShareholderSchema = await this.hasShareholderPayoutSchema();
+    const supportsStockPurchaseId = await this.columnExists('cash_movements', 'stock_purchase_id');
     const shareholderSelect = hasShareholderSchema
       ? `,
               spl.batch_id AS shareholder_batch_id,
@@ -2034,15 +2038,17 @@ export class SaasService {
               CASE
                 WHEN cm.payment_id IS NOT NULL THEN TRUE
                 WHEN cm.invoice_id IS NOT NULL THEN TRUE
-                WHEN cm.stock_purchase_id IS NOT NULL THEN TRUE
-                WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND', 'SHAREHOLDER_PAYOUT') THEN TRUE
+                ${supportsStockPurchaseId ? `WHEN cm.stock_purchase_id IS NOT NULL THEN TRUE` : ''}
+                WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND', 'SHAREHOLDER_PAYOUT', 'BANK_DEPOSIT', 'BANK_WITHDRAWAL') THEN TRUE
                 ELSE FALSE
               END AS is_locked,
               CASE
                 WHEN cm.payment_id IS NOT NULL THEN 'Ce mouvement est lié à un paiement.'
                 WHEN cm.invoice_id IS NOT NULL THEN 'Ce mouvement est lié à une facture.'
-                WHEN cm.stock_purchase_id IS NOT NULL THEN 'Ce mouvement est lié à un achat fournisseur.'
+                ${supportsStockPurchaseId ? `WHEN cm.stock_purchase_id IS NOT NULL THEN 'Ce mouvement est lié à un achat fournisseur.'` : ''}
                 WHEN cm.category = 'SHAREHOLDER_PAYOUT' THEN 'Ce mouvement est lié à un remboursement actionnaire.'
+                WHEN cm.category = 'BANK_DEPOSIT' THEN 'Ce mouvement est généré automatiquement par un dépôt en banque.'
+                WHEN cm.category = 'BANK_WITHDRAWAL' THEN 'Ce mouvement est généré automatiquement par un retrait bancaire.'
                 WHEN cm.category IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND') THEN 'Ce mouvement est généré automatiquement pour une garantie.'
                 WHEN cm.category IN ('SALARY_ADVANCE', 'SALARY_PAYMENT') THEN 'Ce mouvement est généré automatiquement pour la paie.'
                 WHEN cm.category = 'MAINTENANCE_EXPENSE' THEN 'Ce mouvement est lié à une dépense de maintenance.'
@@ -6395,6 +6401,21 @@ export class SaasService {
 
   async bankTransactions(filters: Record<string, unknown> = {}) {
     await this.ensureBankSchema();
+    const hasTreasuryTransfers = await this.tableExists('treasury_transfers');
+    const treasurySelect = hasTreasuryTransfers
+      ? `,
+              tt.id AS source_treasury_transfer_id,
+              tt.transfer_number AS source_treasury_transfer_number,`
+      : `,
+              NULL::INT AS source_treasury_transfer_id,
+              NULL::VARCHAR AS source_treasury_transfer_number,`;
+    const treasuryJoin = hasTreasuryTransfers
+      ? `
+       LEFT JOIN treasury_transfers tt ON tt.id = bt.source_entity_id
+         AND bt.source_module = 'TREASURY_TRANSFERS'
+         AND bt.source_entity_type = 'TREASURY_TRANSFER'
+         AND tt.organization_id = bt.organization_id`
+      : '';
     const values: unknown[] = [this.context.organizationId()];
     const clauses = ['bt.organization_id = $1'];
     if (filters.bank_account_id) {
@@ -6484,7 +6505,8 @@ export class SaasService {
               COALESCE(bl.id, rbl.id, tcl.id) AS source_lease_id,
               COALESCE(bl.lease_number, rbl.lease_number, tcl.lease_number) AS source_lease_number,
               bi.id AS source_invoice_id,
-              bi.invoice_number AS source_invoice_number,
+              bi.invoice_number AS source_invoice_number
+              ${treasurySelect}
               COALESCE(bu.id, rbu.id, tcu.id) AS source_unit_id,
               COALESCE(bu.number, rbu.number, tcu.number) AS source_unit_number,
               COALESCE(ten.id, rten.id, tten.id) AS source_tenant_id,
@@ -6535,6 +6557,7 @@ export class SaasService {
        LEFT JOIN leases tcl ON tcl.id = tcred.lease_id AND tcl.organization_id = bt.organization_id AND tcl.deleted_at IS NULL
        LEFT JOIN units tcu ON tcu.id = tcl.unit_id AND tcu.organization_id = bt.organization_id AND tcu.deleted_at IS NULL
        LEFT JOIN tenants tten ON tten.id = tcred.tenant_id AND tten.organization_id = bt.organization_id AND tten.deleted_at IS NULL
+       ${treasuryJoin}
        WHERE ${clauses.join(' AND ')}
        ORDER BY bt.transaction_date DESC, bt.id DESC`,
       values,
@@ -6544,6 +6567,21 @@ export class SaasService {
 
   async bankTransaction(id: number) {
     await this.ensureBankSchema();
+    const hasTreasuryTransfers = await this.tableExists('treasury_transfers');
+    const treasurySelect = hasTreasuryTransfers
+      ? `,
+              tt.id AS source_treasury_transfer_id,
+              tt.transfer_number AS source_treasury_transfer_number,`
+      : `,
+              NULL::INT AS source_treasury_transfer_id,
+              NULL::VARCHAR AS source_treasury_transfer_number,`;
+    const treasuryJoin = hasTreasuryTransfers
+      ? `
+       LEFT JOIN treasury_transfers tt ON tt.id = bt.source_entity_id
+         AND bt.source_module = 'TREASURY_TRANSFERS'
+         AND bt.source_entity_type = 'TREASURY_TRANSFER'
+         AND tt.organization_id = bt.organization_id`
+      : '';
     const { rows } = await this.db.query(
       `SELECT bt.*,
               ba.bank_name,
@@ -6565,7 +6603,8 @@ export class SaasService {
               COALESCE(bl.id, rbl.id, tcl.id) AS source_lease_id,
               COALESCE(bl.lease_number, rbl.lease_number, tcl.lease_number) AS source_lease_number,
               bi.id AS source_invoice_id,
-              bi.invoice_number AS source_invoice_number,
+              bi.invoice_number AS source_invoice_number
+              ${treasurySelect}
               COALESCE(bu.id, rbu.id, tcu.id) AS source_unit_id,
               COALESCE(bu.number, rbu.number, tcu.number) AS source_unit_number,
               COALESCE(ten.id, rten.id, tten.id) AS source_tenant_id,
@@ -6616,6 +6655,7 @@ export class SaasService {
        LEFT JOIN leases tcl ON tcl.id = tcred.lease_id AND tcl.organization_id = bt.organization_id AND tcl.deleted_at IS NULL
        LEFT JOIN units tcu ON tcu.id = tcl.unit_id AND tcu.organization_id = bt.organization_id AND tcu.deleted_at IS NULL
        LEFT JOIN tenants tten ON tten.id = tcred.tenant_id AND tten.organization_id = bt.organization_id AND tten.deleted_at IS NULL
+       ${treasuryJoin}
        WHERE bt.organization_id = $1
          AND bt.id = $2`,
       [this.context.organizationId(), id],
@@ -6623,9 +6663,122 @@ export class SaasService {
     return requireRow(rows[0], 'Bank transaction');
   }
 
+  async treasuryTransferFormData(sourceRegister: 'MAIN_CASH' | 'BANK') {
+    await this.ensureBankSchema();
+    await this.ensureTreasuryTransferSchema();
+    const [bankAccounts, cashBalances, cashSessionResult] = await Promise.all([
+      this.shareholderBankAccounts(),
+      this.treasuryCashBalances(),
+      this.db.query(
+        `SELECT id, status, opened_at, opening_balance
+         FROM cash_sessions
+         WHERE organization_id = $1
+           AND status = 'OPEN'
+           AND deleted_at IS NULL
+         ORDER BY opened_at DESC
+         LIMIT 1`,
+        [this.context.organizationId()],
+      ),
+    ]);
+    const transferTypes: Array<{ value: string; label: string }> = [];
+    if (this.hasPermission('treasury_transfers.from_cash')) {
+      transferTypes.push({ value: 'CASH_TO_BANK', label: 'Dépôt en banque' });
+    }
+    if (this.hasPermission('treasury_transfers.from_bank')) {
+      transferTypes.push({ value: 'BANK_TO_CASH', label: 'Retrait bancaire vers caisse' });
+    }
+    if (sourceRegister === 'BANK' && this.hasPermission('treasury_transfers.bank_to_bank')) {
+      transferTypes.push({ value: 'BANK_TO_BANK', label: 'Virement entre comptes' });
+    }
+    return {
+      source_register: sourceRegister,
+      transfer_types: transferTypes,
+      payment_methods: [
+        { value: 'BANK_TRANSFER', label: 'Virement bancaire' },
+        { value: 'CASH', label: 'Espèces' },
+        { value: 'CHEQUE', label: 'Chèque' },
+        { value: 'OTHER', label: 'Autre' },
+      ],
+      cash_session: cashSessionResult.rows[0] ?? null,
+      cash_balances: cashBalances,
+      bank_accounts: bankAccounts,
+    };
+  }
+
+  async createTreasuryTransfer(sourceRegister: 'MAIN_CASH' | 'BANK', body: Record<string, unknown>) {
+    await this.ensureBankSchema();
+    await this.ensureTreasuryTransferSchema();
+    const payload = this.normalizeTreasuryTransferPayload(sourceRegister, body);
+    this.assertTreasuryTransferPermission(payload.transferType);
+    return this.db.transaction(async (client) => this.createTreasuryTransferInTransaction(client, sourceRegister, payload));
+  }
+
+  async treasuryTransfer(id: number) {
+    return this.treasuryTransferByExecutor(this.db, id);
+  }
+
+  private async treasuryTransferByExecutor(
+    executor: Pick<DatabaseService, 'query'> | PoolClient,
+    id: number,
+  ) {
+    await this.ensureTreasuryTransferSchema();
+    const runner = executor as { query: <T = any>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> };
+    const { rows } = await runner.query(
+      `SELECT tt.*,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
+              src_ba.bank_name AS source_bank_name,
+              src_ba.account_name AS source_bank_account_name,
+              src_ba.account_number AS source_bank_account_number,
+              dst_ba.bank_name AS destination_bank_name,
+              dst_ba.account_name AS destination_bank_account_name,
+              dst_ba.account_number AS destination_bank_account_number,
+              src_cm.piece_number AS source_cash_piece_number,
+              src_cm.movement_date AS source_cash_movement_date,
+              dst_cm.piece_number AS destination_cash_piece_number,
+              dst_cm.movement_date AS destination_cash_movement_date,
+              src_bt.transaction_number AS source_bank_transaction_number,
+              src_bt.transaction_date AS source_bank_transaction_date,
+              dst_bt.transaction_number AS destination_bank_transaction_number,
+              dst_bt.transaction_date AS destination_bank_transaction_date
+       FROM treasury_transfers tt
+       LEFT JOIN app_users u ON u.id = tt.created_by
+       LEFT JOIN bank_accounts src_ba ON src_ba.id = tt.source_bank_account_id AND src_ba.organization_id = tt.organization_id
+       LEFT JOIN bank_accounts dst_ba ON dst_ba.id = tt.destination_bank_account_id AND dst_ba.organization_id = tt.organization_id
+       LEFT JOIN cash_movements src_cm ON src_cm.id = tt.source_cash_movement_id AND src_cm.organization_id = tt.organization_id AND src_cm.deleted_at IS NULL
+       LEFT JOIN cash_movements dst_cm ON dst_cm.id = tt.destination_cash_movement_id AND dst_cm.organization_id = tt.organization_id AND dst_cm.deleted_at IS NULL
+       LEFT JOIN bank_transactions src_bt ON src_bt.id = tt.source_bank_transaction_id AND src_bt.organization_id = tt.organization_id
+       LEFT JOIN bank_transactions dst_bt ON dst_bt.id = tt.destination_bank_transaction_id AND dst_bt.organization_id = tt.organization_id
+       WHERE tt.organization_id = $1
+         AND tt.id = $2`,
+      [this.context.organizationId(), id],
+    );
+    const transfer = requireRow(rows[0], 'Treasury transfer');
+    return {
+      ...transfer,
+      source_label: this.treasurySupportLabel({
+        supportType: String(transfer.source_type),
+        bankName: transfer.source_bank_name,
+        accountName: transfer.source_bank_account_name,
+      }),
+      destination_label: this.treasurySupportLabel({
+        supportType: String(transfer.destination_type),
+        bankName: transfer.destination_bank_name,
+        accountName: transfer.destination_bank_account_name,
+      }),
+    };
+  }
+
   private async ensureBankSchema() {
     if (!(await this.tableExists('bank_accounts')) || !(await this.tableExists('bank_transactions'))) {
       throw new BadRequestException('Le module Banque n’est pas encore configuré.');
+    }
+  }
+
+  private async ensureTreasuryTransferSchema() {
+    if (!(await this.tableExists('treasury_transfers'))) {
+      throw new ServiceUnavailableException(
+        'Le module des transferts internes n’est pas disponible. Appliquez la migration 20260723_bank_treasury_transfers.sql.',
+      );
     }
   }
 
@@ -6718,6 +6871,74 @@ export class SaasService {
     return payload;
   }
 
+  private normalizeTreasuryTransferPayload(sourceRegister: 'MAIN_CASH' | 'BANK', body: Record<string, unknown>) {
+    const transferType = String(body.transfer_type ?? '').trim().toUpperCase();
+    if (!['CASH_TO_BANK', 'BANK_TO_CASH', 'BANK_TO_BANK'].includes(transferType)) {
+      throw new BadRequestException('Type de transfert interne invalide.');
+    }
+    if (sourceRegister === 'MAIN_CASH' && transferType === 'BANK_TO_BANK') {
+      throw new BadRequestException('Ce type de transfert doit être initié depuis la page Banque.');
+    }
+    const transferDate = this.normalizeLeasePayloadDate(body.transfer_date ?? this.localDateString(new Date()), 'transfer_date', true);
+    if (!transferDate) {
+      throw new BadRequestException('La date du transfert est obligatoire.');
+    }
+    const currency = String(body.currency ?? '').trim().toUpperCase();
+    if (!['USD', 'CDF'].includes(currency)) {
+      throw new BadRequestException('Devise de transfert invalide.');
+    }
+    const amount = Number(body.amount ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('Le montant du transfert est invalide.');
+    }
+    const paymentMethod = String(
+      body.payment_method
+      ?? (transferType === 'BANK_TO_CASH' ? 'CASH' : 'BANK_TRANSFER'),
+    ).trim().toUpperCase();
+    if (!['BANK_TRANSFER', 'CASH', 'CHEQUE', 'OTHER'].includes(paymentMethod)) {
+      throw new BadRequestException('Mode de transfert invalide.');
+    }
+    const sourceBankAccountId = this.normalizeNullablePositiveInt(body.source_bank_account_id);
+    const destinationBankAccountId = this.normalizeNullablePositiveInt(body.destination_bank_account_id);
+    if (transferType === 'CASH_TO_BANK' && !destinationBankAccountId) {
+      throw new BadRequestException('Le compte bancaire de destination est obligatoire.');
+    }
+    if (transferType === 'BANK_TO_CASH' && !sourceBankAccountId) {
+      throw new BadRequestException('Le compte bancaire source est obligatoire.');
+    }
+    if (transferType === 'BANK_TO_BANK') {
+      if (!sourceBankAccountId || !destinationBankAccountId) {
+        throw new BadRequestException('Les comptes bancaires source et destination sont obligatoires.');
+      }
+      if (sourceBankAccountId === destinationBankAccountId) {
+        throw new BadRequestException('Le compte source et le compte destination doivent être différents.');
+      }
+    }
+    return {
+      transferType: transferType as 'CASH_TO_BANK' | 'BANK_TO_CASH' | 'BANK_TO_BANK',
+      transferDate,
+      currency,
+      amount: Number(amount.toFixed(2)),
+      paymentMethod,
+      sourceBankAccountId,
+      destinationBankAccountId,
+      reference: String(body.reference ?? '').trim() || null,
+      description: String(body.description ?? body.reason ?? '').trim() || null,
+      notes: String(body.notes ?? '').trim() || null,
+      idempotencyKey: String(
+        body.idempotency_key
+        ?? body.client_request_id
+        ?? [
+          'TREASURY_TRANSFER',
+          this.context.organizationId(),
+          this.context.userId() ?? 'anon',
+          transferType,
+          Date.now(),
+        ].join(':'),
+      ),
+    };
+  }
+
   private async nextBankTransactionNumber(client: PoolClient) {
     const year = new Date().getFullYear();
     const { rows } = await client.query(
@@ -6730,11 +6951,33 @@ export class SaasService {
     return `BTR-${year}-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
   }
 
+  private async nextTreasuryTransferNumber(client: PoolClient) {
+    const year = new Date().getFullYear();
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`treasury-transfer-number-${this.context.organizationId()}`]);
+    const { rows } = await client.query(
+      `SELECT COALESCE(MAX((SUBSTRING(transfer_number FROM $1))::INT), 0) + 1 AS value
+       FROM treasury_transfers
+       WHERE organization_id = $2
+         AND transfer_number LIKE $3`,
+      [`TRF-${year}-([0-9]+)`, this.context.organizationId(), `TRF-${year}-%`],
+    );
+    return `TRF-${year}-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
+  }
+
   private localDateString(value: Date) {
     const year = value.getFullYear();
     const month = String(value.getMonth() + 1).padStart(2, '0');
     const day = String(value.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  private normalizeNullablePositiveInt(value: unknown) {
+    if (value === undefined || value === null || value === '') return null;
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new BadRequestException('Identifiant de transfert interne invalide.');
+    }
+    return parsed;
   }
 
   async shareholders(filters: Record<string, unknown> = {}) {
@@ -8427,6 +8670,502 @@ export class SaasService {
       balances[currency] = Number((balances[currency] ?? 0) + Number(account.current_balance ?? 0));
     }
     return balances;
+  }
+
+  private assertTreasuryTransferPermission(transferType: 'CASH_TO_BANK' | 'BANK_TO_CASH' | 'BANK_TO_BANK') {
+    if (!this.hasPermission('treasury_transfers.create')) {
+      throw new ForbiddenException('Permission requise pour créer un transfert interne.');
+    }
+    if (transferType === 'CASH_TO_BANK' && !this.hasPermission('treasury_transfers.from_cash')) {
+      throw new ForbiddenException('Permission requise pour déposer la caisse en banque.');
+    }
+    if (transferType === 'BANK_TO_CASH' && !this.hasPermission('treasury_transfers.from_bank')) {
+      throw new ForbiddenException('Permission requise pour retirer un compte bancaire vers la caisse.');
+    }
+    if (transferType === 'BANK_TO_BANK' && !this.hasPermission('treasury_transfers.bank_to_bank')) {
+      throw new ForbiddenException('Permission requise pour virer entre comptes bancaires.');
+    }
+  }
+
+  private async treasuryCashBalances() {
+    const session = await this.db.query(
+      `SELECT id, opening_balance
+       FROM cash_sessions
+       WHERE organization_id = $1
+         AND status = 'OPEN'
+         AND deleted_at IS NULL
+       ORDER BY opened_at DESC
+       LIMIT 1`,
+      [this.context.organizationId()],
+    );
+    const openSession = session.rows[0];
+    const balances: Record<string, number> = { USD: 0, CDF: 0 };
+    if (!openSession) return balances;
+    const supportsCurrency = await this.columnExists('cash_movements', 'currency');
+    const totals = await this.db.query(
+      supportsCurrency
+        ? `SELECT COALESCE(currency, 'USD') AS currency,
+                  COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)::NUMERIC(14,2) AS balance
+           FROM cash_movements
+           WHERE organization_id = $1
+             AND cash_session_id = $2
+             AND deleted_at IS NULL
+             AND category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')
+           GROUP BY COALESCE(currency, 'USD')`
+        : `SELECT 'USD' AS currency,
+                  COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)::NUMERIC(14,2) AS balance
+           FROM cash_movements
+           WHERE organization_id = $1
+             AND cash_session_id = $2
+             AND deleted_at IS NULL
+             AND category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')`,
+      [this.context.organizationId(), openSession.id],
+    );
+    balances.USD = Number(openSession.opening_balance ?? 0);
+    for (const row of totals.rows) {
+      const currency = String(row.currency ?? 'USD').toUpperCase();
+      balances[currency] = Number((balances[currency] ?? 0) + Number(row.balance ?? 0));
+    }
+    return balances;
+  }
+
+  private async openCashSessionForTreasury(client: PoolClient) {
+    const { rows } = await client.query(
+      `SELECT id, status, opened_at, opening_balance
+       FROM cash_sessions
+       WHERE organization_id = $1
+         AND status = 'OPEN'
+         AND deleted_at IS NULL
+       ORDER BY opened_at DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [this.context.organizationId()],
+    );
+    return requireRow(rows[0], 'Cash session');
+  }
+
+  private async treasuryCashBalanceForCurrency(client: PoolClient, sessionId: number, currency: string, openingBalance: number) {
+    const normalizedCurrency = String(currency ?? 'USD').toUpperCase();
+    const { rows } = await client.query(
+      `SELECT COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)::NUMERIC(14,2) AS balance
+       FROM cash_movements
+       WHERE organization_id = $1
+         AND cash_session_id = $2
+         AND deleted_at IS NULL
+         AND category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')`,
+      [this.context.organizationId(), sessionId],
+    );
+    const base = normalizedCurrency === 'USD' ? Number(openingBalance ?? 0) : 0;
+    return Number((base + Number(rows[0]?.balance ?? 0)).toFixed(2));
+  }
+
+  private async validateBankAccountForTreasuryTransfer(
+    client: PoolClient,
+    bankAccountId: number | null,
+    currency: string,
+    options: { role: 'source' | 'destination'; forUpdate?: boolean },
+  ) {
+    const accountId = Number(bankAccountId ?? 0);
+    if (!accountId) {
+      throw new BadRequestException(
+        options.role === 'source'
+          ? 'Le compte bancaire source est obligatoire.'
+          : 'Le compte bancaire de destination est obligatoire.',
+      );
+    }
+    if (options.forUpdate) {
+      await client.query(
+        `SELECT id
+         FROM bank_accounts
+         WHERE id = $2
+           AND organization_id = $1
+           AND deleted_at IS NULL
+         FOR UPDATE`,
+        [this.context.organizationId(), accountId],
+      );
+    }
+    const { rows } = await client.query(
+      `SELECT ba.*,
+              COALESCE(tx.current_balance, 0)::NUMERIC(14,2) AS current_balance
+       FROM bank_accounts ba
+       LEFT JOIN (
+         SELECT bt.bank_account_id,
+                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'IN' THEN bt.amount ELSE -bt.amount END) AS current_balance
+         FROM bank_transactions bt
+         WHERE bt.organization_id = $1
+         GROUP BY bt.bank_account_id
+       ) tx ON tx.bank_account_id = ba.id
+       WHERE ba.id = $2
+         AND ba.organization_id = $1
+         AND ba.deleted_at IS NULL
+       `,
+      [this.context.organizationId(), accountId],
+    );
+    const account = requireRow(rows[0], 'Bank account');
+    if (String(account.status).toUpperCase() !== 'ACTIVE') {
+      throw new ConflictException('Le compte bancaire sélectionné doit être actif.');
+    }
+    if (String(account.currency).toUpperCase() !== String(currency).toUpperCase()) {
+      throw new ConflictException('La devise du compte bancaire doit correspondre à celle du transfert.');
+    }
+    return account;
+  }
+
+  private async assertBankTransactionTypeSupported(client: PoolClient, transactionType: string) {
+    const { rows } = await client.query(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM pg_constraint c
+         JOIN pg_class t ON t.oid = c.conrelid
+         JOIN pg_namespace n ON n.oid = t.relnamespace
+         WHERE n.nspname = 'public'
+           AND t.relname = 'bank_transactions'
+           AND c.contype = 'c'
+           AND pg_get_constraintdef(c.oid) ILIKE '%' || $1 || '%'
+       ) AS supported`,
+      [transactionType],
+    );
+    if (!rows[0]?.supported) {
+      throw new ServiceUnavailableException(
+        'La migration 20260723_bank_treasury_transfers.sql doit être appliquée pour activer les transferts internes.',
+      );
+    }
+  }
+
+  private async createTreasuryBankTransactionInTransaction(
+    client: PoolClient,
+    payload: {
+      transferId: number;
+      transferNumber: string;
+      transferDate: string;
+      direction: 'IN' | 'OUT';
+      bankAccount: Record<string, unknown>;
+      amount: number;
+      currency: string;
+      reference?: string | null;
+      description: string;
+      counterpartyName: string;
+      idempotencyKey: string;
+    },
+  ) {
+    const transactionType = payload.direction === 'IN' ? 'TRANSFER_IN' : 'TRANSFER_OUT';
+    await this.assertBankTransactionTypeSupported(client, transactionType);
+    const transactionNumber = await this.nextBankTransactionNumber(client);
+    const { rows } = await client.query(
+      `INSERT INTO bank_transactions
+        (organization_id, bank_account_id, transaction_number, transaction_date, direction, transaction_type, amount, currency,
+         reference, description, counterparty_name, source_module, source_entity_type, source_entity_id, status, reversal_of_id,
+         idempotency_key, created_by)
+       VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8,
+         $9, $10, $11, 'TREASURY_TRANSFERS', 'TREASURY_TRANSFER', $12, 'VALIDATED', NULL,
+         $13, $14)
+       RETURNING *`,
+      [
+        this.context.organizationId(),
+        Number(payload.bankAccount.id),
+        transactionNumber,
+        payload.transferDate,
+        payload.direction,
+        transactionType,
+        payload.amount,
+        payload.currency,
+        payload.reference ?? payload.transferNumber,
+        payload.description,
+        payload.counterpartyName,
+        payload.transferId,
+        payload.idempotencyKey,
+        this.context.userId() ?? null,
+      ],
+    );
+    return requireRow(rows[0], 'Bank transaction');
+  }
+
+  private async createTreasuryTransferInTransaction(
+    client: PoolClient,
+    sourceRegister: 'MAIN_CASH' | 'BANK',
+    payload: {
+      transferType: 'CASH_TO_BANK' | 'BANK_TO_CASH' | 'BANK_TO_BANK';
+      transferDate: string;
+      currency: string;
+      amount: number;
+      paymentMethod: string;
+      sourceBankAccountId: number | null;
+      destinationBankAccountId: number | null;
+      reference: string | null;
+      description: string | null;
+      notes: string | null;
+      idempotencyKey: string;
+    },
+  ) {
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`treasury-transfer:${this.context.organizationId()}:${payload.idempotencyKey}`]);
+    const existing = await client.query(
+      `SELECT id
+       FROM treasury_transfers
+       WHERE organization_id = $1
+         AND idempotency_key = $2
+       LIMIT 1`,
+      [this.context.organizationId(), payload.idempotencyKey],
+    );
+    if (existing.rows[0]?.id) {
+      return this.treasuryTransfer(Number(existing.rows[0].id));
+    }
+
+    const transferNumber = await this.nextTreasuryTransferNumber(client);
+    const description = payload.description
+      || (
+        payload.transferType === 'CASH_TO_BANK'
+          ? 'Dépôt de caisse en banque'
+          : payload.transferType === 'BANK_TO_CASH'
+            ? 'Retrait bancaire vers caisse'
+            : 'Virement entre comptes bancaires'
+      );
+
+    let sourceType: 'MAIN_CASH' | 'BANK' = payload.transferType === 'CASH_TO_BANK' ? 'MAIN_CASH' : 'BANK';
+    let destinationType: 'MAIN_CASH' | 'BANK' = payload.transferType === 'BANK_TO_CASH' ? 'MAIN_CASH' : 'BANK';
+    let sourceCashSession: Record<string, unknown> | null = null;
+    let destinationCashSession: Record<string, unknown> | null = null;
+    let sourceBankAccount: Record<string, unknown> | null = null;
+    let destinationBankAccount: Record<string, unknown> | null = null;
+
+    if (payload.transferType === 'CASH_TO_BANK') {
+      sourceCashSession = await this.openCashSessionForTreasury(client);
+      const sourceCashSessionRow = sourceCashSession as Record<string, unknown>;
+      const cashBalance = await this.treasuryCashBalanceForCurrency(
+        client,
+        Number(sourceCashSessionRow.id),
+        payload.currency,
+        Number(sourceCashSessionRow.opening_balance ?? 0),
+      );
+      if (payload.amount > cashBalance + 0.0001) {
+        throw new ConflictException('Le solde de caisse est insuffisant pour ce dépôt en banque.');
+      }
+      destinationBankAccount = await this.validateBankAccountForTreasuryTransfer(client, payload.destinationBankAccountId, payload.currency, { role: 'destination' });
+    } else if (payload.transferType === 'BANK_TO_CASH') {
+      sourceBankAccount = await this.validateBankAccountForTreasuryTransfer(client, payload.sourceBankAccountId, payload.currency, { role: 'source', forUpdate: true });
+      const sourceBankAccountRow = sourceBankAccount as Record<string, unknown>;
+      if (payload.amount > Number(sourceBankAccountRow.current_balance ?? 0) + 0.0001) {
+        throw new ConflictException('Le solde bancaire est insuffisant pour ce retrait vers la caisse.');
+      }
+      destinationCashSession = await this.openCashSessionForTreasury(client);
+    } else {
+      sourceBankAccount = await this.validateBankAccountForTreasuryTransfer(client, payload.sourceBankAccountId, payload.currency, { role: 'source', forUpdate: true });
+      destinationBankAccount = await this.validateBankAccountForTreasuryTransfer(client, payload.destinationBankAccountId, payload.currency, { role: 'destination', forUpdate: true });
+      const sourceBankAccountRow = sourceBankAccount as Record<string, unknown>;
+      const destinationBankAccountRow = destinationBankAccount as Record<string, unknown>;
+      if (Number(sourceBankAccountRow.id) === Number(destinationBankAccountRow.id)) {
+        throw new BadRequestException('Le compte source et le compte destination doivent être différents.');
+      }
+      if (payload.amount > Number(sourceBankAccountRow.current_balance ?? 0) + 0.0001) {
+        throw new ConflictException('Le solde bancaire du compte source est insuffisant pour ce virement.');
+      }
+    }
+
+    const inserted = await client.query(
+      `INSERT INTO treasury_transfers
+        (organization_id, transfer_number, transfer_type, transfer_date, currency, amount,
+         source_type, source_cash_session_id, source_bank_account_id,
+         destination_type, destination_cash_session_id, destination_bank_account_id,
+         payment_method, reference, description, notes, status, idempotency_key,
+         created_by, created_at, updated_at, validated_at)
+       VALUES
+        ($1, $2, $3, $4, $5, $6,
+         $7, $8, $9,
+         $10, $11, $12,
+         $13, $14, $15, $16, 'VALIDATED', $17,
+         $18, NOW(), NOW(), NOW())
+       RETURNING *`,
+      [
+        this.context.organizationId(),
+        transferNumber,
+        payload.transferType,
+        payload.transferDate,
+        payload.currency,
+        payload.amount,
+        sourceType,
+        sourceCashSession ? Number(sourceCashSession.id) : null,
+        sourceBankAccount ? Number(sourceBankAccount.id) : null,
+        destinationType,
+        destinationCashSession ? Number(destinationCashSession.id) : null,
+        destinationBankAccount ? Number(destinationBankAccount.id) : null,
+        payload.paymentMethod,
+        payload.reference,
+        description,
+        payload.notes,
+        payload.idempotencyKey,
+        this.context.userId() ?? null,
+      ],
+    );
+    const transfer = requireRow(inserted.rows[0], 'Treasury transfer');
+
+    let sourceCashMovementId: number | null = null;
+    let sourceBankTransactionId: number | null = null;
+    let destinationCashMovementId: number | null = null;
+    let destinationBankTransactionId: number | null = null;
+
+    if (payload.transferType === 'CASH_TO_BANK') {
+      const sourceLabel = this.treasurySupportLabel({ supportType: 'MAIN_CASH' });
+      const destinationLabel = this.treasurySupportLabel({
+        supportType: 'BANK',
+        bankName: destinationBankAccount?.bank_name,
+        accountName: destinationBankAccount?.account_name,
+      });
+      const cashMovement = await this.createCashMovementInTransaction(client, {
+        type: 'OUT',
+        category: 'BANK_DEPOSIT',
+        label: 'Dépôt en banque',
+        amount: payload.amount,
+        movement_date: payload.transferDate,
+        description,
+        reference: payload.reference ?? transfer.transfer_number,
+        currency: payload.currency,
+        supplier: destinationLabel,
+        treasury_transfer_id: transfer.id,
+      });
+      sourceCashMovementId = Number(cashMovement.id);
+      const bankTransaction = await this.createTreasuryBankTransactionInTransaction(client, {
+        transferId: Number(transfer.id),
+        transferNumber: String(transfer.transfer_number),
+        transferDate: payload.transferDate,
+        direction: 'IN',
+        bankAccount: destinationBankAccount as Record<string, unknown>,
+        amount: payload.amount,
+        currency: payload.currency,
+        reference: payload.reference,
+        description: 'Dépôt de caisse en banque',
+        counterpartyName: sourceLabel,
+        idempotencyKey: `${payload.idempotencyKey}:bank-in`,
+      });
+      destinationBankTransactionId = Number(bankTransaction.id);
+    } else if (payload.transferType === 'BANK_TO_CASH') {
+      const sourceLabel = this.treasurySupportLabel({
+        supportType: 'BANK',
+        bankName: sourceBankAccount?.bank_name,
+        accountName: sourceBankAccount?.account_name,
+      });
+      const destinationLabel = this.treasurySupportLabel({ supportType: 'MAIN_CASH' });
+      const bankTransaction = await this.createTreasuryBankTransactionInTransaction(client, {
+        transferId: Number(transfer.id),
+        transferNumber: String(transfer.transfer_number),
+        transferDate: payload.transferDate,
+        direction: 'OUT',
+        bankAccount: sourceBankAccount as Record<string, unknown>,
+        amount: payload.amount,
+        currency: payload.currency,
+        reference: payload.reference,
+        description: 'Retrait bancaire vers caisse',
+        counterpartyName: destinationLabel,
+        idempotencyKey: `${payload.idempotencyKey}:bank-out`,
+      });
+      sourceBankTransactionId = Number(bankTransaction.id);
+      const cashMovement = await this.createCashMovementInTransaction(client, {
+        type: 'IN',
+        category: 'BANK_WITHDRAWAL',
+        label: 'Retrait bancaire reçu',
+        amount: payload.amount,
+        movement_date: payload.transferDate,
+        description,
+        reference: payload.reference ?? transfer.transfer_number,
+        currency: payload.currency,
+        supplier: sourceLabel,
+        treasury_transfer_id: transfer.id,
+      });
+      destinationCashMovementId = Number(cashMovement.id);
+    } else {
+      const sourceLabel = this.treasurySupportLabel({
+        supportType: 'BANK',
+        bankName: sourceBankAccount?.bank_name,
+        accountName: sourceBankAccount?.account_name,
+      });
+      const destinationLabel = this.treasurySupportLabel({
+        supportType: 'BANK',
+        bankName: destinationBankAccount?.bank_name,
+        accountName: destinationBankAccount?.account_name,
+      });
+      const sourceTransaction = await this.createTreasuryBankTransactionInTransaction(client, {
+        transferId: Number(transfer.id),
+        transferNumber: String(transfer.transfer_number),
+        transferDate: payload.transferDate,
+        direction: 'OUT',
+        bankAccount: sourceBankAccount as Record<string, unknown>,
+        amount: payload.amount,
+        currency: payload.currency,
+        reference: payload.reference,
+        description: 'Virement entre comptes bancaires',
+        counterpartyName: destinationLabel,
+        idempotencyKey: `${payload.idempotencyKey}:source`,
+      });
+      sourceBankTransactionId = Number(sourceTransaction.id);
+      const destinationTransaction = await this.createTreasuryBankTransactionInTransaction(client, {
+        transferId: Number(transfer.id),
+        transferNumber: String(transfer.transfer_number),
+        transferDate: payload.transferDate,
+        direction: 'IN',
+        bankAccount: destinationBankAccount as Record<string, unknown>,
+        amount: payload.amount,
+        currency: payload.currency,
+        reference: payload.reference,
+        description: 'Virement entre comptes bancaires',
+        counterpartyName: sourceLabel,
+        idempotencyKey: `${payload.idempotencyKey}:destination`,
+      });
+      destinationBankTransactionId = Number(destinationTransaction.id);
+    }
+
+    await client.query(
+      `UPDATE treasury_transfers
+       SET source_cash_movement_id = $2,
+           source_bank_transaction_id = $3,
+           destination_cash_movement_id = $4,
+           destination_bank_transaction_id = $5,
+           updated_at = NOW()
+       WHERE id = $1
+         AND organization_id = $6`,
+      [
+        transfer.id,
+        sourceCashMovementId,
+        sourceBankTransactionId,
+        destinationCashMovementId,
+        destinationBankTransactionId,
+        this.context.organizationId(),
+      ],
+    );
+
+    await client.query(
+      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+       VALUES ($1, $2, 'TREASURY_TRANSFER_VALIDATED', 'treasury_transfers', $3, 'POST', $4, 201, $5::JSONB)`,
+      [
+        this.context.organizationId(),
+        this.context.userId() ?? null,
+        String(transfer.id),
+        sourceRegister === 'MAIN_CASH' ? '/api/cash/treasury-transfers' : '/api/bank/treasury-transfers',
+        JSON.stringify({
+          transfer_id: transfer.id,
+          transfer_number: transfer.transfer_number,
+          transfer_type: transfer.transfer_type,
+          transfer_date: transfer.transfer_date,
+          amount: payload.amount,
+          currency: payload.currency,
+          source_type: sourceType,
+          destination_type: destinationType,
+          source_cash_movement_id: sourceCashMovementId,
+          source_bank_transaction_id: sourceBankTransactionId,
+          destination_cash_movement_id: destinationCashMovementId,
+          destination_bank_transaction_id: destinationBankTransactionId,
+        }),
+      ],
+    );
+
+    return this.treasuryTransferByExecutor(client, Number(transfer.id));
+  }
+
+  private treasurySupportLabel(payload: { supportType: string; bankName?: unknown; accountName?: unknown }) {
+    if (String(payload.supportType).toUpperCase() === 'MAIN_CASH') {
+      return 'Caisse principale';
+    }
+    const bankName = String(payload.bankName ?? '').trim();
+    const accountName = String(payload.accountName ?? '').trim();
+    return [bankName, accountName].filter(Boolean).join(' - ') || 'Compte bancaire';
   }
 
   private async validateBankAccountForShareholderPayout(client: PoolClient, bankAccountId: number | undefined, currency: string) {
@@ -12627,42 +13366,103 @@ export class SaasService {
     const exchangeRateUsed = Number(body.exchange_rate_used ?? 0) || null;
     const amount = Number(body.amount ?? 0);
     const equivalentUsd = Number(body.equivalent_usd ?? (currency === 'CDF' && exchangeRateUsed ? amount / exchangeRateUsed : amount));
+    const supportsPieceNumber = await this.columnExists('cash_movements', 'piece_number');
+    const supportsStockPurchaseId = await this.columnExists('cash_movements', 'stock_purchase_id');
+    const supportsCurrencyFields = await this.columnExists('cash_movements', 'currency')
+      || await this.columnExists('cash_movements', 'exchange_rate_used')
+      || await this.columnExists('cash_movements', 'exchange_rate_date')
+      || await this.columnExists('cash_movements', 'equivalent_usd');
+    const insertColumns = [
+      'cash_session_id',
+      'type',
+      'label',
+      'category',
+      'amount',
+      'movement_date',
+      'payment_id',
+      'invoice_id',
+      'tenant_id',
+      'employee_id',
+      'supplier',
+      'description',
+      'reference',
+      'attachment_file_name',
+      'attachment_file_url',
+      'created_by',
+      'organization_id',
+    ];
+    if (supportsPieceNumber) {
+      insertColumns.splice(1, 0, 'piece_number');
+    }
+    if (supportsStockPurchaseId) {
+      insertColumns.splice(insertColumns.indexOf('created_by'), 0, 'stock_purchase_id');
+    }
+    const insertValues: unknown[] = [
+      session.id,
+      type,
+      String(body.label ?? body.description ?? body.category ?? 'Mouvement de caisse'),
+      category,
+      Number(body.amount ?? 0),
+      body.movement_date ?? new Date().toISOString().slice(0, 10),
+      body.payment_id ?? null,
+      body.invoice_id ?? null,
+      body.tenant_id ?? null,
+      body.employee_id ?? null,
+      body.supplier ?? null,
+      body.description ?? null,
+      body.reference ?? null,
+      body.attachment_file_name ?? null,
+      body.attachment_file_url ?? null,
+      this.context.userId() ?? body.created_by ?? 1,
+      this.context.organizationId(),
+    ];
+    if (supportsPieceNumber) {
+      insertValues.splice(1, 0, pieceNumber);
+    }
+    if (supportsStockPurchaseId) {
+      insertValues.splice(insertValues.length - 2, 0, body.stock_purchase_id ?? null);
+    }
+    if ((body.treasury_transfer_id ?? null) !== null && await this.columnExists('cash_movements', 'treasury_transfer_id')) {
+      insertColumns.push('treasury_transfer_id');
+      insertValues.push(Number(body.treasury_transfer_id ?? 0) || null);
+    }
+    const placeholders = insertValues.map((_, index) => `$${index + 1}`);
     const { rows } = await client.query(
       `INSERT INTO cash_movements
-       (cash_session_id, piece_number, type, label, category, amount, movement_date, payment_id, invoice_id, tenant_id, employee_id, supplier, description, reference, attachment_file_name, attachment_file_url, stock_purchase_id, created_by, organization_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+       (${insertColumns.join(', ')})
+       VALUES (${placeholders.join(', ')})
        RETURNING *`,
-      [
-        session.id,
-        pieceNumber,
-        type,
-        String(body.label ?? body.description ?? body.category ?? 'Mouvement de caisse'),
-        category,
-        Number(body.amount ?? 0),
-        body.movement_date ?? new Date().toISOString().slice(0, 10),
-        body.payment_id ?? null,
-        body.invoice_id ?? null,
-        body.tenant_id ?? null,
-        body.employee_id ?? null,
-        body.supplier ?? null,
-        body.description ?? null,
-        body.reference ?? null,
-        body.attachment_file_name ?? null,
-        body.attachment_file_url ?? null,
-        body.stock_purchase_id ?? null,
-        this.context.userId() ?? body.created_by ?? 1,
-        this.context.organizationId(),
-      ],
+      insertValues,
     );
-    await client.query(
-      `UPDATE cash_movements
-       SET currency = $2,
-           exchange_rate_used = $3,
-           exchange_rate_date = $4,
-           equivalent_usd = $5
-       WHERE id = $1 AND organization_id = $6`,
-      [rows[0].id, currency, exchangeRateUsed, body.exchange_rate_date ?? null, equivalentUsd, this.context.organizationId()],
-    );
+    if (supportsCurrencyFields) {
+      const updateSets: string[] = [];
+      const updateValues: unknown[] = [rows[0].id];
+      if (await this.columnExists('cash_movements', 'currency')) {
+        updateValues.push(currency);
+        updateSets.push(`currency = $${updateValues.length}`);
+      }
+      if (await this.columnExists('cash_movements', 'exchange_rate_used')) {
+        updateValues.push(exchangeRateUsed);
+        updateSets.push(`exchange_rate_used = $${updateValues.length}`);
+      }
+      if (await this.columnExists('cash_movements', 'exchange_rate_date')) {
+        updateValues.push(body.exchange_rate_date ?? null);
+        updateSets.push(`exchange_rate_date = $${updateValues.length}`);
+      }
+      if (await this.columnExists('cash_movements', 'equivalent_usd')) {
+        updateValues.push(equivalentUsd);
+        updateSets.push(`equivalent_usd = $${updateValues.length}`);
+      }
+      if (updateSets.length > 0) {
+        updateValues.push(this.context.organizationId());
+        await client.query(
+          `UPDATE cash_movements
+           SET ${updateSets.join(', ')}
+           WHERE id = $1 AND organization_id = $${updateValues.length}`,
+          updateValues,
+        );
+      }
+    }
     const refreshed = await client.query(
       `SELECT *
        FROM cash_movements
@@ -12945,6 +13745,12 @@ export class SaasService {
     }
     if (category === 'SHAREHOLDER_PAYOUT') {
       return 'Ce mouvement est lié à un remboursement actionnaire et ne peut pas être supprimé.';
+    }
+    if (category === 'BANK_DEPOSIT') {
+      return 'Ce mouvement est lié à un dépôt en banque et ne peut pas être supprimé.';
+    }
+    if (category === 'BANK_WITHDRAWAL') {
+      return 'Ce mouvement est lié à un retrait bancaire et ne peut pas être supprimé.';
     }
     if (['INVOICE_PAYMENT', 'PAYMENT_REFUND'].includes(category)) {
       return 'Ce mouvement de paiement est généré automatiquement et ne peut pas être supprimé.';

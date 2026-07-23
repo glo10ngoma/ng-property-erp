@@ -373,6 +373,18 @@ textarea { min-height: 72px; resize: vertical; }
 .shareholder-payout-source { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid #dce5eb; border-radius: 8px; background: #f8fafb; }
 .shareholder-payout-source strong { color: #203845; }
 .shareholder-payout-warning { border: 1px solid #f1c27d; background: #fff8e7; color: #7b4f16; border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+.treasury-transfer-modal { width: min(1040px, calc(100vw - 40px)); }
+.treasury-transfer-form { display: grid; gap: 14px; }
+.treasury-transfer-source { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid #dce5eb; border-radius: 8px; background: #f8fafb; }
+.treasury-transfer-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 10px; }
+.treasury-transfer-grid label { display: grid; gap: 6px; }
+.treasury-transfer-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.treasury-transfer-summary > div { padding: 12px; border: 1px solid #dce5eb; border-radius: 8px; background: white; }
+.treasury-transfer-summary span { display: block; margin-bottom: 4px; color: #607381; font-size: 12px; }
+.treasury-transfer-detail-summary,
+.treasury-transfer-meta { margin-bottom: 12px; }
+.treasury-transfer-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.treasury-transfer-linked-actions { flex-wrap: wrap; }
 .shareholder-payout-grid { display: grid; grid-template-columns: repeat(4, minmax(170px, 1fr)); gap: 10px; }
 .shareholder-payout-lines-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .shareholder-payout-lines { display: grid; gap: 8px; }
@@ -677,6 +689,9 @@ textarea { min-height: 72px; resize: vertical; }
   .bank-toolbar-actions { grid-column: 1 / -1; justify-content: stretch; }
   .bank-toolbar-actions button { flex: 1 1 0; }
   .bank-account-form-grid, .bank-detail-grid { grid-template-columns: 1fr; }
+  .treasury-transfer-grid,
+  .treasury-transfer-summary,
+  .treasury-transfer-detail-grid { grid-template-columns: 1fr; }
   .tenant-credit-toolbar-actions { width: 100%; margin-left: 0; }
   .tenant-credit-toolbar-actions button { flex: 1 1 160px; }
   .tenant-credit-drawer-backdrop { padding: 0; }

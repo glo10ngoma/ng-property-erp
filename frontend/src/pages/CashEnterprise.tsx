@@ -9,6 +9,7 @@ import { useApiList } from '../hooks';
 import { Trash2 } from 'lucide-react';
 import { useCashExpenseCategories, type CashExpenseCategory } from '../modules/cash/hooks/useCashExpenseCategories';
 import { ShareholderPayoutModal } from './ShareholderPayoutModal';
+import { TreasuryTransferModal, type TreasuryTransferPreset } from './TreasuryTransfers';
 
 type CashMovement = {
   id: number;
@@ -35,6 +36,7 @@ type CashMovement = {
   stock_purchase_id?: number | null;
   shareholder_name?: string | null;
   shareholder_batch_id?: number | null;
+  treasury_transfer_id?: number | null;
   is_locked?: boolean;
   locked_reason?: string | null;
 };
@@ -101,6 +103,7 @@ export function CashPage() {
   const [deleteTarget, setDeleteTarget] = useState<CashMovement | null>(null);
   const [shareholderPayoutOpen, setShareholderPayoutOpen] = useState(false);
   const [expenseOpen, setExpenseOpen] = useState(false);
+  const [treasuryTransferPreset, setTreasuryTransferPreset] = useState<TreasuryTransferPreset | null>(null);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
@@ -364,6 +367,26 @@ export function CashPage() {
                 Rembourser actionnaires
               </button>
             ) : null}
+            {can('treasury_transfers.from_cash') ? (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setTreasuryTransferPreset({ defaultTransferType: 'CASH_TO_BANK' })}
+                disabled={!openSession}
+              >
+                {'D\u00e9poser en banque'}
+              </button>
+            ) : null}
+            {can('treasury_transfers.from_bank') ? (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setTreasuryTransferPreset({ defaultTransferType: 'BANK_TO_CASH' })}
+                disabled={!openSession}
+              >
+                Recevoir un retrait bancaire
+              </button>
+            ) : null}
             <button type="button" className="secondary" onClick={() => setExpenseOpen(true)} disabled={Boolean(!openSession)}>
               Enregistrer dépense
             </button>
@@ -446,6 +469,20 @@ export function CashPage() {
             await movements.reload();
             await sessions.reload();
             setSuccess('Remboursement actionnaires enregistré.');
+          }}
+        />
+      ) : null}
+      {treasuryTransferPreset ? (
+        <TreasuryTransferModal
+          endpoint="/cash/treasury-transfers"
+          formDataEndpoint="/cash/treasury-transfers/form-data"
+          sourceRegister="MAIN_CASH"
+          preset={treasuryTransferPreset}
+          onClose={() => setTreasuryTransferPreset(null)}
+          onSuccess={async () => {
+            await movements.reload();
+            await sessions.reload();
+            setSuccess('Transfert interne valid\u00e9.');
           }}
         />
       ) : null}
@@ -810,6 +847,11 @@ export function CashDetailPage() {
             <FileSpreadsheet size={16} />
             Exporter Excel
           </button>
+          {movement.treasury_transfer_id ? (
+            <button className="secondary" onClick={() => navigate(`/treasury-transfers/${movement.treasury_transfer_id}`)}>
+              Voir le transfert interne
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -1288,6 +1330,8 @@ function cashCategoryLabel(value: string, categories?: Record<string, string>) {
       PAYMENT_REFUND: 'Remboursement paiement',
       STOCK_PURCHASE: 'Achat fournisseur',
       SHAREHOLDER_PAYOUT: 'Actionnaires',
+      BANK_DEPOSIT: 'D\u00e9p\u00f4t en banque',
+      BANK_WITHDRAWAL: 'Retrait bancaire re\u00e7u',
     } as Record<string, string>
   )[value] ?? value;
 }
