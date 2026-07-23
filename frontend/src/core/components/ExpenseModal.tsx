@@ -184,11 +184,11 @@ export function ExpenseModal({
               </label>
             ) : null}
             <label>
-              Libelle *
+              Libellé *
               <input
                 name="label"
                 required
-                placeholder="Libelle"
+                placeholder="Libellé"
                 value={formState.label}
                 onChange={(event) => setFormState((current) => ({ ...current, label: event.target.value }))}
               />

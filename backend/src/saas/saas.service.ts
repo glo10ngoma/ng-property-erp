@@ -6446,10 +6446,9 @@ export class SaasService {
         OR LOWER(COALESCE(bt.reference, '')) LIKE $${values.length}
         OR LOWER(COALESCE(bt.description, '')) LIKE $${values.length}
         OR LOWER(COALESCE(bt.counterparty_name, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(bp.receipt_number, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(tcp.receipt_number, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(tcred.receipt_number, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(splr.receipt_number, '')) LIKE $${values.length}
+          OR LOWER(COALESCE(bp.receipt_number, '')) LIKE $${values.length}
+          OR LOWER(COALESCE(tcp.receipt_number, '')) LIKE $${values.length}
+          OR LOWER(COALESCE(splr.receipt_number, '')) LIKE $${values.length}
         OR LOWER(COALESCE(spb.reference, '')) LIKE $${values.length}
         OR LOWER(COALESCE(sh.display_name, '')) LIKE $${values.length}
         OR LOWER(COALESCE(bi.invoice_number, '')) LIKE $${values.length}
@@ -6475,7 +6474,7 @@ export class SaasService {
               COALESCE(bp.receipt_number, tcp.receipt_number) AS source_payment_receipt_number,
               bg.id AS source_guarantee_id,
               tcred.id AS source_tenant_credit_id,
-              tcred.receipt_number AS source_tenant_credit_receipt_number,
+              COALESCE(tcp.receipt_number, bp.receipt_number) AS source_tenant_credit_receipt_number,
               splr.id AS source_shareholder_payout_line_id,
               splr.receipt_number AS source_shareholder_payout_receipt_number,
               spb.id AS source_shareholder_payout_batch_id,
@@ -6556,7 +6555,7 @@ export class SaasService {
               COALESCE(bp.receipt_number, tcp.receipt_number) AS source_payment_receipt_number,
               bg.id AS source_guarantee_id,
               tcred.id AS source_tenant_credit_id,
-              tcred.receipt_number AS source_tenant_credit_receipt_number,
+              COALESCE(tcp.receipt_number, bp.receipt_number) AS source_tenant_credit_receipt_number,
               splr.id AS source_shareholder_payout_line_id,
               splr.receipt_number AS source_shareholder_payout_receipt_number,
               spb.id AS source_shareholder_payout_batch_id,
