@@ -707,6 +707,21 @@ export class BankTransactionsController {
   }
 }
 
+@Controller('bank')
+export class BankShareholderPayoutsController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get('shareholder-payouts/form-data')
+  shareholderPayoutFormData() {
+    return this.service.shareholderPayoutFormData('BANK');
+  }
+
+  @Post('shareholder-payouts')
+  createShareholderPayout(@Body() body: Record<string, unknown>) {
+    return this.service.createShareholderPayout('BANK', body);
+  }
+}
+
 @Controller('shareholder-payouts')
 export class ShareholderPayoutsController {
   constructor(private readonly service: SaasService) {}

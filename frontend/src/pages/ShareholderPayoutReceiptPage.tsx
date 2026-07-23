@@ -14,13 +14,21 @@ type ShareholderPayoutReceiptData = {
   reference?: string | null;
   notes?: string | null;
   batch_reference?: string | null;
-  source_register: 'MAIN_CASH' | 'GUARANTEE_CASH';
+  source_register: 'MAIN_CASH' | 'GUARANTEE_CASH' | 'BANK';
   operation_type: string;
   reason: string;
   payout_date: string;
   organization_name?: string;
   created_by_name?: string | null;
   cash_piece_number?: string | null;
+  bank_account_id?: number | null;
+  bank_name?: string | null;
+  bank_account_name?: string | null;
+  bank_account_number?: string | null;
+  bank_account_currency?: string | null;
+  bank_transaction_id?: number | null;
+  bank_transaction_number?: string | null;
+  bank_reference?: string | null;
 };
 
 export function ShareholderPayoutReceiptPage() {
@@ -75,7 +83,14 @@ export function ShareholderPayoutReceiptPage() {
             <span>Actionnaire</span>
             <strong>{receipt.shareholder_name}</strong>
             <p>Type : {receipt.shareholder_type === 'COMPANY' ? 'Société' : 'Individuel'}</p>
-            <p>Source des fonds : {receipt.source_register === 'MAIN_CASH' ? 'Caisse principale' : 'Caisse garanties locatives'}</p>
+            <p>Source des fonds : {receipt.source_register === 'MAIN_CASH' ? 'Caisse principale' : receipt.source_register === 'GUARANTEE_CASH' ? 'Caisse garanties locatives' : 'Banque'}</p>
+            {receipt.source_register === 'BANK' ? (
+              <>
+                <p>Banque : {receipt.bank_name ?? '-'}</p>
+                <p>Compte : {receipt.bank_account_name ?? '-'}</p>
+                <p>Numéro de compte : {receipt.bank_account_number ?? '-'}</p>
+              </>
+            ) : null}
           </div>
           <div>
             <span>Lot</span>

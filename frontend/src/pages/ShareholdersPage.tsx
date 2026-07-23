@@ -26,7 +26,7 @@ type ShareholderHistoryRow = {
   batch_id: number;
   batch_reference?: string | null;
   payout_date: string;
-  source_register: 'MAIN_CASH' | 'GUARANTEE_CASH';
+  source_register: 'MAIN_CASH' | 'GUARANTEE_CASH' | 'BANK';
   operation_type: string;
   amount: number;
   currency: string;
@@ -311,7 +311,7 @@ export function ShareholdersPage() {
                 {history.map((row) => (
                   <tr key={row.id}>
                     <td>{shortDate(row.payout_date)}</td>
-                    <td>{row.source_register === 'MAIN_CASH' ? 'Caisse principale' : 'Caisse garanties locatives'}</td>
+                    <td>{row.source_register === 'MAIN_CASH' ? 'Caisse principale' : row.source_register === 'GUARANTEE_CASH' ? 'Caisse garanties locatives' : 'Banque'}</td>
                     <td>{row.operation_type}</td>
                     <td className="right">{money(row.amount)} {row.currency}</td>
                     <td><button type="button" className="link-button" onClick={() => window.open(`/shareholder-payout-lines/${row.id}/receipt`, '_blank', 'noopener')}>{row.receipt_number}</button></td>

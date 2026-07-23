@@ -1,6 +1,7 @@
 ﻿import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { ForbiddenException, forwardRef, HttpException, Inject, InternalServerErrorException, Logger } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { RequestContext } from '../auth/request-context';
 import { hashPassword } from '../auth/password';
@@ -6444,6 +6445,9 @@ export class SaasService {
         OR LOWER(COALESCE(bp.receipt_number, '')) LIKE $${values.length}
         OR LOWER(COALESCE(tcp.receipt_number, '')) LIKE $${values.length}
         OR LOWER(COALESCE(tcred.receipt_number, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(splr.receipt_number, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(spb.reference, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(sh.display_name, '')) LIKE $${values.length}
         OR LOWER(COALESCE(bi.invoice_number, '')) LIKE $${values.length}
         OR LOWER(COALESCE(ten.company_name, '')) LIKE $${values.length}
         OR LOWER(COALESCE(ten.first_name, '')) LIKE $${values.length}
@@ -6468,6 +6472,12 @@ export class SaasService {
               bg.id AS source_guarantee_id,
               tcred.id AS source_tenant_credit_id,
               tcred.receipt_number AS source_tenant_credit_receipt_number,
+              splr.id AS source_shareholder_payout_line_id,
+              splr.receipt_number AS source_shareholder_payout_receipt_number,
+              spb.id AS source_shareholder_payout_batch_id,
+              spb.reference AS source_shareholder_payout_batch_reference,
+              sh.id AS source_shareholder_id,
+              sh.display_name AS source_shareholder_name,
               COALESCE(bl.id, rbl.id, tcl.id) AS source_lease_id,
               COALESCE(bl.lease_number, rbl.lease_number, tcl.lease_number) AS source_lease_number,
               bi.id AS source_invoice_id,
@@ -6498,6 +6508,12 @@ export class SaasService {
          AND bt.source_entity_type = 'TENANT_CREDIT'
          AND tcred.organization_id = bt.organization_id
          AND tcred.deleted_at IS NULL
+       LEFT JOIN shareholder_payout_lines splr ON splr.id = bt.source_entity_id
+         AND bt.source_module = 'SHAREHOLDER_PAYOUTS'
+         AND bt.source_entity_type = 'SHAREHOLDER_PAYOUT_LINE'
+         AND splr.organization_id = bt.organization_id
+       LEFT JOIN shareholder_payout_batches spb ON spb.id = splr.batch_id AND spb.organization_id = splr.organization_id
+       LEFT JOIN shareholders sh ON sh.id = splr.shareholder_id AND sh.organization_id = splr.organization_id
        LEFT JOIN payments tcp ON tcp.id = tcred.source_payment_id
          AND tcp.organization_id = tcred.organization_id
          AND tcp.deleted_at IS NULL
@@ -6537,6 +6553,12 @@ export class SaasService {
               bg.id AS source_guarantee_id,
               tcred.id AS source_tenant_credit_id,
               tcred.receipt_number AS source_tenant_credit_receipt_number,
+              splr.id AS source_shareholder_payout_line_id,
+              splr.receipt_number AS source_shareholder_payout_receipt_number,
+              spb.id AS source_shareholder_payout_batch_id,
+              spb.reference AS source_shareholder_payout_batch_reference,
+              sh.id AS source_shareholder_id,
+              sh.display_name AS source_shareholder_name,
               COALESCE(bl.id, rbl.id, tcl.id) AS source_lease_id,
               COALESCE(bl.lease_number, rbl.lease_number, tcl.lease_number) AS source_lease_number,
               bi.id AS source_invoice_id,
@@ -6567,6 +6589,12 @@ export class SaasService {
          AND bt.source_entity_type = 'TENANT_CREDIT'
          AND tcred.organization_id = bt.organization_id
          AND tcred.deleted_at IS NULL
+       LEFT JOIN shareholder_payout_lines splr ON splr.id = bt.source_entity_id
+         AND bt.source_module = 'SHAREHOLDER_PAYOUTS'
+         AND bt.source_entity_type = 'SHAREHOLDER_PAYOUT_LINE'
+         AND splr.organization_id = bt.organization_id
+       LEFT JOIN shareholder_payout_batches spb ON spb.id = splr.batch_id AND spb.organization_id = splr.organization_id
+       LEFT JOIN shareholders sh ON sh.id = splr.shareholder_id AND sh.organization_id = splr.organization_id
        LEFT JOIN payments tcp ON tcp.id = tcred.source_payment_id
          AND tcp.organization_id = tcred.organization_id
          AND tcp.deleted_at IS NULL
@@ -6911,25 +6939,34 @@ export class SaasService {
     return shareholder;
   }
 
-  async shareholderPayoutFormData(sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH') {
+  async shareholderPayoutFormData(sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH' | 'BANK') {
     await this.ensureShareholderSchema();
     this.assertShareholderPayoutPermission(sourceRegister);
+    if (sourceRegister === 'BANK') {
+      await this.ensureBankSchema();
+    }
     const shareholders = await this.db.query(
       `SELECT id, display_name, shareholder_type, phone, email
        FROM shareholders
        WHERE organization_id = $1
          AND deleted_at IS NULL
          AND status = 'ACTIVE'
-       ORDER BY display_name`,
+      ORDER BY display_name`,
       [this.context.organizationId()],
     );
+    const bankAccounts = sourceRegister === 'BANK'
+      ? await this.shareholderBankAccounts()
+      : [];
     const balances = sourceRegister === 'MAIN_CASH'
       ? await this.shareholderMainCashBalances()
-      : await this.shareholderGuaranteeCashBalances();
+      : sourceRegister === 'GUARANTEE_CASH'
+        ? await this.shareholderGuaranteeCashBalances()
+        : this.shareholderBankBalances(bankAccounts);
     return {
       source_register: sourceRegister,
       shareholders: shareholders.rows,
       balances,
+      bank_accounts: bankAccounts,
       payment_methods: [
         { value: 'CASH', label: 'Espèces' },
         { value: 'BANK', label: 'Banque' },
@@ -6945,7 +6982,7 @@ export class SaasService {
     };
   }
 
-  async createShareholderPayout(sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH', body: Record<string, unknown>) {
+  async createShareholderPayout(sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH' | 'BANK', body: Record<string, unknown>) {
     await this.ensureShareholderSchema();
     this.assertShareholderPayoutPermission(sourceRegister);
     return this.db.transaction(async (client) => this.createShareholderPayoutInTransaction(client, sourceRegister, body));
@@ -6956,10 +6993,15 @@ export class SaasService {
     const { rows } = await this.db.query(
       `SELECT spb.*,
               o.name AS organization_name,
+              ba.bank_name,
+              ba.account_name AS bank_account_name,
+              ba.account_number AS bank_account_number,
+              ba.currency AS bank_account_currency,
               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name
        FROM shareholder_payout_batches spb
        JOIN organizations o ON o.id = spb.organization_id
        LEFT JOIN app_users u ON u.id = spb.created_by
+       LEFT JOIN bank_accounts ba ON ba.id = spb.bank_account_id AND ba.organization_id = spb.organization_id AND ba.deleted_at IS NULL
        WHERE spb.organization_id = $1
          AND spb.id = $2`,
       [this.context.organizationId(), id],
@@ -6969,10 +7011,19 @@ export class SaasService {
       `SELECT spl.*,
               s.display_name AS shareholder_name,
               s.shareholder_type,
-              cm.piece_number AS cash_piece_number
+              cm.piece_number AS cash_piece_number,
+              bt.id AS bank_transaction_id,
+              bt.transaction_number AS bank_transaction_number,
+              bt.reference AS bank_reference,
+              bt.bank_account_id,
+              ba.bank_name,
+              ba.account_name AS bank_account_name,
+              ba.account_number AS bank_account_number
        FROM shareholder_payout_lines spl
        JOIN shareholders s ON s.id = spl.shareholder_id AND s.organization_id = spl.organization_id
        LEFT JOIN cash_movements cm ON cm.id = spl.cash_movement_id AND cm.organization_id = spl.organization_id
+       LEFT JOIN bank_transactions bt ON bt.id = spl.bank_transaction_id AND bt.organization_id = spl.organization_id
+       LEFT JOIN bank_accounts ba ON ba.id = bt.bank_account_id AND ba.organization_id = bt.organization_id
        WHERE spl.organization_id = $1
          AND spl.batch_id = $2
        ORDER BY s.display_name, spl.id`,
@@ -6991,17 +7042,27 @@ export class SaasService {
               spb.reason,
               spb.notes AS batch_notes,
               spb.payout_date,
+              spb.bank_account_id,
               o.name AS organization_name,
+              ba.bank_name,
+              ba.account_name AS bank_account_name,
+              ba.account_number AS bank_account_number,
+              ba.currency AS bank_account_currency,
               s.display_name AS shareholder_name,
               s.shareholder_type,
               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
-              cm.piece_number AS cash_piece_number
+              cm.piece_number AS cash_piece_number,
+              bt.id AS bank_transaction_id,
+              bt.transaction_number AS bank_transaction_number,
+              bt.reference AS bank_reference
        FROM shareholder_payout_lines spl
        JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
        JOIN organizations o ON o.id = spl.organization_id
        JOIN shareholders s ON s.id = spl.shareholder_id AND s.organization_id = spl.organization_id
        LEFT JOIN app_users u ON u.id = spb.created_by
        LEFT JOIN cash_movements cm ON cm.id = spl.cash_movement_id AND cm.organization_id = spl.organization_id
+       LEFT JOIN bank_transactions bt ON bt.id = spl.bank_transaction_id AND bt.organization_id = spl.organization_id
+       LEFT JOIN bank_accounts ba ON ba.id = bt.bank_account_id AND ba.organization_id = bt.organization_id
        WHERE spl.organization_id = $1
          AND spl.id = $2`,
       [this.context.organizationId(), id],
@@ -8120,16 +8181,94 @@ export class SaasService {
       && (await this.tableExists('shareholder_payout_lines'));
   }
 
-  private assertShareholderPayoutPermission(sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH') {
+  private assertShareholderPayoutPermission(sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH' | 'BANK') {
     if (sourceRegister === 'GUARANTEE_CASH') {
       if (!this.hasPermission('shareholder_payouts.from_guarantee_cash')) {
         throw new ForbiddenException('Permission requise pour utiliser la caisse des garanties locatives.');
       }
       return;
     }
+    if (sourceRegister === 'BANK') {
+      if (!this.hasPermission('shareholder_payouts.from_bank')) {
+        throw new ForbiddenException('Permission requise pour utiliser la banque comme source de remboursement actionnaire.');
+      }
+      return;
+    }
     if (!this.hasPermission('shareholder_payouts.create')) {
       throw new ForbiddenException('Permission requise pour valider un remboursement actionnaire.');
     }
+  }
+
+  private async shareholderBankAccounts() {
+    await this.ensureBankSchema();
+    const { rows } = await this.db.query(
+      `SELECT ba.*,
+              COALESCE(tx.total_in, 0)::NUMERIC(14,2) AS total_in,
+              COALESCE(tx.total_out, 0)::NUMERIC(14,2) AS total_out,
+              COALESCE(tx.current_balance, 0)::NUMERIC(14,2) AS current_balance,
+              COALESCE(tx.transaction_count, 0)::INT AS transaction_count
+       FROM bank_accounts ba
+       LEFT JOIN (
+         SELECT bt.bank_account_id,
+                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'IN' THEN bt.amount ELSE 0 END) AS total_in,
+                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'OUT' THEN bt.amount ELSE 0 END) AS total_out,
+                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'IN' THEN bt.amount ELSE -bt.amount END) AS current_balance,
+                COUNT(*) FILTER (WHERE bt.status = 'VALIDATED') AS transaction_count
+         FROM bank_transactions bt
+         WHERE bt.organization_id = $1
+         GROUP BY bt.bank_account_id
+       ) tx ON tx.bank_account_id = ba.id
+       WHERE ba.organization_id = $1
+         AND ba.deleted_at IS NULL
+         AND ba.status = 'ACTIVE'
+       ORDER BY ba.bank_name ASC, ba.account_name ASC, ba.id DESC`,
+      [this.context.organizationId()],
+    );
+    return rows;
+  }
+
+  private shareholderBankBalances(bankAccounts: Array<Record<string, unknown>>) {
+    const balances: Record<string, number> = { USD: 0, CDF: 0 };
+    for (const account of bankAccounts) {
+      const currency = String(account.currency ?? 'USD').toUpperCase();
+      balances[currency] = Number((balances[currency] ?? 0) + Number(account.current_balance ?? 0));
+    }
+    return balances;
+  }
+
+  private async validateBankAccountForShareholderPayout(client: PoolClient, bankAccountId: number | undefined, currency: string) {
+    const accountId = Number(bankAccountId ?? 0);
+    if (!accountId) {
+      throw new BadRequestException('Un compte bancaire est requis pour un remboursement actionnaire par banque.');
+    }
+    const { rows } = await client.query(
+      `SELECT ba.*,
+              COALESCE(tx.current_balance, 0)::NUMERIC(14,2) AS current_balance
+       FROM bank_accounts ba
+       LEFT JOIN (
+         SELECT bt.bank_account_id,
+                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'IN' THEN bt.amount ELSE -bt.amount END) AS current_balance
+         FROM bank_transactions bt
+         WHERE bt.organization_id = $1
+         GROUP BY bt.bank_account_id
+       ) tx ON tx.bank_account_id = ba.id
+       WHERE ba.id = $2
+         AND ba.organization_id = $1
+         AND ba.deleted_at IS NULL
+       FOR UPDATE`,
+      [this.context.organizationId(), accountId],
+    );
+    const account = rows[0];
+    if (!account) {
+      throw new NotFoundException('Compte bancaire introuvable dans cette organisation.');
+    }
+    if (String(account.status).toUpperCase() !== 'ACTIVE') {
+      throw new ConflictException('Le compte bancaire selectionne doit etre actif.');
+    }
+    if (String(account.currency).toUpperCase() !== String(currency).toUpperCase()) {
+      throw new ConflictException('La devise du compte bancaire doit correspondre a celle du lot actionnaire.');
+    }
+    return account;
   }
 
   private normalizeShareholderPayload(body: Record<string, unknown>) {
@@ -8250,9 +8389,16 @@ export class SaasService {
     return `SHR-${year}-${String(rows[0]?.value ?? 1).padStart(4, '0')}`;
   }
 
+  private async nextShareholderPayoutLineId(client: PoolClient) {
+    const { rows } = await client.query(
+      `SELECT nextval(pg_get_serial_sequence('shareholder_payout_lines', 'id')) AS value`,
+    );
+    return Number(rows[0]?.value ?? 0);
+  }
+
   private async createShareholderPayoutInTransaction(
     client: PoolClient,
-    sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH',
+    sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH' | 'BANK',
     body: Record<string, unknown>,
   ) {
     const payoutDate = String(body.payout_date ?? new Date().toISOString().slice(0, 10));
@@ -8268,7 +8414,9 @@ export class SaasService {
     if (!reason) {
       throw new BadRequestException('Le motif est obligatoire.');
     }
-    const defaultPaymentMethod = String(body.default_payment_method ?? body.payment_method ?? 'CASH').toUpperCase();
+    const defaultPaymentMethod = sourceRegister === 'BANK'
+      ? 'BANK'
+      : String(body.default_payment_method ?? body.payment_method ?? 'CASH').toUpperCase();
     if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(defaultPaymentMethod)) {
       throw new BadRequestException('Mode de paiement par défaut invalide.');
     }
@@ -8281,7 +8429,9 @@ export class SaasService {
       const row = typeof entry === 'object' && entry ? entry as Record<string, unknown> : {};
       const shareholderId = Number(row.shareholder_id ?? 0);
       const amount = Number(row.amount ?? 0);
-      const paymentMethod = String(row.payment_method ?? defaultPaymentMethod).toUpperCase();
+      const paymentMethod = sourceRegister === 'BANK'
+        ? 'BANK'
+        : String(row.payment_method ?? defaultPaymentMethod).toUpperCase();
       if (!Number.isFinite(shareholderId) || shareholderId <= 0) {
         throw new BadRequestException(`Actionnaire invalide à la ligne ${index + 1}.`);
       }
@@ -8357,6 +8507,12 @@ export class SaasService {
     }
 
     let availableBalance = 0;
+    if (sourceRegister === 'BANK') {
+      await this.ensureBankSchema();
+    }
+    const bankAccount = sourceRegister === 'BANK'
+      ? await this.validateBankAccountForShareholderPayout(client, Number(body.bank_account_id ?? 0), currency)
+      : null;
     let exchangeRateUsed: number | null = null;
     let exchangeRateDate: string | null = null;
     if (currency === 'CDF') {
@@ -8386,7 +8542,7 @@ export class SaasService {
           availableBalance += Number(row.balance ?? 0);
         }
       }
-    } else {
+    } else if (sourceRegister === 'GUARANTEE_CASH') {
       await this.ensureGuaranteeCashSchema();
       const totals = await client.query(
         `SELECT currency,
@@ -8402,6 +8558,8 @@ export class SaasService {
           availableBalance = Number(row.balance ?? 0);
         }
       }
+    } else {
+      availableBalance = Number(bankAccount?.current_balance ?? 0);
     }
 
     if (totalAmount > Number(availableBalance.toFixed(2)) + 0.0001) {
@@ -8411,11 +8569,11 @@ export class SaasService {
     const batchReference = String(body.reference ?? '').trim() || await this.nextShareholderPayoutBatchReference(client);
     const batchInsert = await client.query(
       `INSERT INTO shareholder_payout_batches
-        (organization_id, source_register, currency, payout_date, operation_type, reason, reference, notes,
+        (organization_id, source_register, currency, payout_date, operation_type, reason, reference, notes, bank_account_id,
          total_amount, beneficiary_count, status, idempotency_key, created_by, created_at, validated_at)
        VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8,
-         $9, $10, 'VALIDATED', $11, $12, NOW(), NOW())
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+         $10, $11, 'VALIDATED', $12, $13, NOW(), NOW())
        RETURNING *`,
       [
         this.context.organizationId(),
@@ -8426,6 +8584,7 @@ export class SaasService {
         reason,
         batchReference,
         String(body.notes ?? '').trim() || null,
+        bankAccount ? Number(bankAccount.id) : null,
         totalAmount,
         normalizedLines.length,
         idempotencyKey,
@@ -8440,6 +8599,7 @@ export class SaasService {
       const receiptNumber = await this.nextShareholderPayoutReceiptNumber(client);
       let cashMovementId: number | null = null;
       let guaranteeCashMovementId: number | null = null;
+      let bankTransactionId: number | null = null;
       if (sourceRegister === 'MAIN_CASH') {
         const movement = await this.createCashMovementInTransaction(client, {
           type: 'OUT',
@@ -8456,7 +8616,7 @@ export class SaasService {
           supplier: shareholder.display_name,
         });
         cashMovementId = Number(movement.id);
-      } else {
+      } else if (sourceRegister === 'GUARANTEE_CASH') {
         const movement = await this.createGuaranteeCashMovementInTransaction(client, {
           movement_type: 'SHAREHOLDER_PAYOUT',
           type: 'OUT',
@@ -8471,15 +8631,67 @@ export class SaasService {
           exchange_rate_date: exchangeRateDate,
         });
         guaranteeCashMovementId = Number(movement.id);
+      } else {
+        const lineId = await this.nextShareholderPayoutLineId(client);
+        const transactionType = await this.bankGuaranteeTransactionType(client, 'SHAREHOLDER_PAYOUT');
+        const bankTransaction = await this.createGuaranteeBankTransactionInTransaction(client, {
+          bankAccount: bankAccount as { id: number; bank_name?: string | null; account_name?: string | null; currency: string },
+          amount: line.amount,
+          currency,
+          receiptNumber,
+          reference: line.reference ?? batchReference,
+          createdBy: this.context.userId() ?? null,
+          transactionType,
+          sourceModule: 'SHAREHOLDER_PAYOUTS',
+          direction: 'OUT',
+          sourceEntityType: 'SHAREHOLDER_PAYOUT_LINE',
+          sourceEntityId: lineId,
+          description: 'Remboursement actionnaire',
+          tenantName: shareholder.display_name,
+          leaseNumber: null,
+          unitNumber: null,
+        });
+        bankTransactionId = Number((bankTransaction as Record<string, unknown>).id ?? 0);
+        const insertedLine = await client.query(
+          `INSERT INTO shareholder_payout_lines
+            (id, organization_id, batch_id, shareholder_id, amount, currency, payment_method, reference, notes,
+             cash_movement_id, guarantee_cash_movement_id, bank_transaction_id, receipt_number)
+           VALUES
+            ($1, $2, $3, $4, $5, $6, $7, $8,
+             $9, $10, $11, $12, $13)
+           RETURNING *`,
+          [
+            lineId,
+            this.context.organizationId(),
+            batch.id,
+            line.shareholder_id,
+            line.amount,
+            currency,
+            'BANK',
+            line.reference,
+            line.notes,
+            null,
+            null,
+            bankTransactionId,
+            receiptNumber,
+          ],
+        );
+        createdLines.push({
+          ...insertedLine.rows[0],
+          shareholder_name: shareholder.display_name,
+          shareholder_type: shareholder.shareholder_type,
+          bank_transaction_id: bankTransactionId,
+        });
+        continue;
       }
 
       const insertedLine = await client.query(
         `INSERT INTO shareholder_payout_lines
           (organization_id, batch_id, shareholder_id, amount, currency, payment_method, reference, notes,
-           cash_movement_id, guarantee_cash_movement_id, receipt_number)
+           cash_movement_id, guarantee_cash_movement_id, bank_transaction_id, receipt_number)
          VALUES
           ($1, $2, $3, $4, $5, $6, $7, $8,
-           $9, $10, $11)
+           $9, $10, $11, $12)
          RETURNING *`,
         [
           this.context.organizationId(),
@@ -8492,6 +8704,7 @@ export class SaasService {
           line.notes,
           cashMovementId,
           guaranteeCashMovementId,
+          null,
           receiptNumber,
         ],
       );

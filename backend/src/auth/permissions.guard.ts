@@ -118,6 +118,9 @@ export class PermissionsGuard implements CanActivate {
     if (/^\/api\/bank-transactions/.test(path)) {
       return 'bank_transactions.read';
     }
+    if (/^\/api\/bank\/shareholder-payouts\/form-data$/.test(path) || /^\/api\/bank\/shareholder-payouts$/.test(path)) {
+      return 'shareholder_payouts.from_bank';
+    }
     if (/^\/api\/bank-accounts/.test(path)) {
       if (method === 'GET') return 'bank_accounts.read';
       if (method === 'POST') return 'bank_accounts.create';

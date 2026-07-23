@@ -39,6 +39,7 @@ const editorPermissions = [
   'shareholder_payouts.receipt',
   'shareholder_payouts.export',
   'shareholder_payouts.from_guarantee_cash',
+  'shareholder_payouts.from_bank',
   'tenant_credits.refund',
   'tenant_credits.cancel',
   'cash.read',

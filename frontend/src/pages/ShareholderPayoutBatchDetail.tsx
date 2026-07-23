@@ -18,13 +18,18 @@ type ShareholderPayoutLine = {
 type ShareholderPayoutBatchDetailData = {
   id: number;
   organization_name?: string;
-  source_register: 'MAIN_CASH' | 'GUARANTEE_CASH';
+  source_register: 'MAIN_CASH' | 'GUARANTEE_CASH' | 'BANK';
   currency: 'USD' | 'CDF';
   payout_date: string;
   operation_type: string;
   reason: string;
   reference?: string | null;
   notes?: string | null;
+  bank_account_id?: number | null;
+  bank_name?: string | null;
+  bank_account_name?: string | null;
+  bank_account_number?: string | null;
+  bank_account_currency?: string | null;
   total_amount: number;
   beneficiary_count: number;
   created_by_name?: string | null;
@@ -73,7 +78,14 @@ export function ShareholderPayoutBatchDetail() {
           <div className="invoice-meta">
             <strong>{batch.reference ?? `Lot #${batch.id}`}</strong>
             <span>Date : {shortDate(batch.payout_date)}</span>
-            <span>Source : {batch.source_register === 'MAIN_CASH' ? 'Caisse principale' : 'Caisse garanties locatives'}</span>
+            <span>Source : {batch.source_register === 'MAIN_CASH' ? 'Caisse principale' : batch.source_register === 'GUARANTEE_CASH' ? 'Caisse garanties locatives' : 'Banque'}</span>
+            {batch.source_register === 'BANK' ? (
+              <>
+                <span>Banque : {batch.bank_name ?? '-'}</span>
+                <span>Compte : {batch.bank_account_name ?? '-'}</span>
+                <span>Numéro : {batch.bank_account_number ?? '-'}</span>
+              </>
+            ) : null}
             <span>Utilisateur : {batch.created_by_name ?? '-'}</span>
           </div>
         </header>

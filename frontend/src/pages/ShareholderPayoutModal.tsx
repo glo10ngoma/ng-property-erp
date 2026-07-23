@@ -12,9 +12,18 @@ type ShareholderOption = {
 };
 
 type ShareholderPayoutFormData = {
-  source_register: 'MAIN_CASH' | 'GUARANTEE_CASH';
+  source_register: 'MAIN_CASH' | 'GUARANTEE_CASH' | 'BANK';
   shareholders: ShareholderOption[];
   balances: Record<string, number>;
+  bank_accounts?: Array<{
+    id: number;
+    bank_name: string;
+    account_name: string;
+    account_number?: string | null;
+    currency: 'USD' | 'CDF';
+    status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
+    current_balance?: number | null;
+  }>;
   payment_methods: Array<{ value: string; label: string }>;
   operation_types: Array<{ value: string; label: string }>;
 };
@@ -31,7 +40,7 @@ type ShareholderPayoutResultLine = {
 type ShareholderPayoutResult = {
   id: number;
   reference?: string | null;
-  source_register: 'MAIN_CASH' | 'GUARANTEE_CASH';
+  source_register: 'MAIN_CASH' | 'GUARANTEE_CASH' | 'BANK';
   currency: 'USD' | 'CDF';
   total_amount: number;
   beneficiary_count: number;
@@ -51,11 +60,13 @@ const today = () => new Date().toISOString().slice(0, 10);
 export function ShareholderPayoutModal({
   endpoint,
   sourceRegister,
+  defaultBankAccountId,
   onClose,
   onSuccess,
 }: {
-  endpoint: '/cash/shareholder-payouts' | '/guarantee-cash/shareholder-payouts';
-  sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH';
+  endpoint: '/cash/shareholder-payouts' | '/guarantee-cash/shareholder-payouts' | '/bank/shareholder-payouts';
+  sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH' | 'BANK';
+  defaultBankAccountId?: number | null;
   onClose: () => void;
   onSuccess?: () => Promise<void> | void;
 }) {
@@ -70,11 +81,12 @@ export function ShareholderPayoutModal({
     operation_type: 'SHAREHOLDER_REPAYMENT',
     reason: '',
     reference: '',
-    default_payment_method: 'CASH',
+    default_payment_method: sourceRegister === 'BANK' ? 'BANK' : 'CASH',
     notes: '',
+    bank_account_id: '',
   });
   const [lines, setLines] = useState<PayoutLineState[]>([
-    { shareholder_id: '', amount: '', payment_method: 'CASH', reference: '', notes: '' },
+    { shareholder_id: '', amount: '', payment_method: sourceRegister === 'BANK' ? 'BANK' : 'CASH', reference: '', notes: '' },
   ]);
 
   useEffect(() => {
@@ -84,16 +96,24 @@ export function ShareholderPayoutModal({
       try {
         const response = await api.get<ShareholderPayoutFormData>(`${endpoint}/form-data`);
         setFormData(response.data);
+        const bankAccounts = response.data.bank_accounts ?? [];
+        const initialBankAccount = sourceRegister === 'BANK'
+          ? bankAccounts.find((account) => Number(account.id) === Number(defaultBankAccountId ?? 0))
+            ?? bankAccounts.find((account) => account.currency === 'USD' && account.status === 'ACTIVE')
+            ?? bankAccounts.find((account) => account.status === 'ACTIVE')
+            ?? bankAccounts[0]
+          : null;
         setForm((current) => ({
           ...current,
-          currency: response.data.balances.CDF > 0 && response.data.balances.USD <= 0 ? 'CDF' : current.currency,
-          default_payment_method: response.data.payment_methods[0]?.value ?? current.default_payment_method,
+          currency: initialBankAccount ? initialBankAccount.currency : (response.data.balances.CDF > 0 && response.data.balances.USD <= 0 ? 'CDF' : current.currency),
+          default_payment_method: sourceRegister === 'BANK' ? 'BANK' : response.data.payment_methods[0]?.value ?? current.default_payment_method,
           operation_type: response.data.operation_types[0]?.value ?? current.operation_type,
+          bank_account_id: initialBankAccount ? String(initialBankAccount.id) : current.bank_account_id,
         }));
         setLines((current) =>
           current.map((line) => ({
             ...line,
-            payment_method: response.data.payment_methods[0]?.value ?? line.payment_method,
+            payment_method: sourceRegister === 'BANK' ? 'BANK' : response.data.payment_methods[0]?.value ?? line.payment_method,
           })),
         );
       } catch (loadError: any) {
@@ -103,7 +123,7 @@ export function ShareholderPayoutModal({
       }
     };
     void load();
-  }, [endpoint]);
+  }, [endpoint, sourceRegister, defaultBankAccountId]);
 
   const totalAmount = useMemo(
     () => Number(lines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0).toFixed(2)),
@@ -115,11 +135,44 @@ export function ShareholderPayoutModal({
     [lines],
   );
 
-  const availableBalance = Number(formData?.balances?.[form.currency] ?? 0);
+  const bankAccounts = formData?.bank_accounts ?? [];
+  const bankAccountsForCurrency = useMemo(
+    () => bankAccounts.filter((account) => account.status === 'ACTIVE' && account.currency === form.currency),
+    [bankAccounts, form.currency],
+  );
+  const selectedBankAccount = useMemo(
+    () => bankAccountsForCurrency.find((account) => String(account.id) === String(form.bank_account_id)) ?? null,
+    [bankAccountsForCurrency, form.bank_account_id],
+  );
+  const bankAvailableBalance = Number(selectedBankAccount?.current_balance ?? 0);
+  const availableBalance = sourceRegister === 'BANK'
+    ? bankAvailableBalance
+    : Number(formData?.balances?.[form.currency] ?? 0);
   const estimatedBalance = Number((availableBalance - totalAmount).toFixed(2));
   const shareholders = formData?.shareholders ?? [];
   const paymentMethods = formData?.payment_methods ?? [];
+  const paymentMethodOptions = sourceRegister === 'BANK'
+    ? [{ value: 'BANK', label: 'Banque' }]
+    : paymentMethods;
   const operationTypes = formData?.operation_types ?? [];
+
+  useEffect(() => {
+    if (sourceRegister !== 'BANK' || !formData?.bank_accounts?.length) return;
+    setForm((current) => {
+      const accountsForCurrency = formData.bank_accounts?.filter(
+        (account) => account.status === 'ACTIVE' && account.currency === current.currency,
+      ) ?? [];
+      const currentSelected = accountsForCurrency.find((account) => String(account.id) === String(current.bank_account_id));
+      if (currentSelected) {
+        return current;
+      }
+      const fallback = accountsForCurrency[0];
+      if (!fallback) {
+        return current.bank_account_id ? { ...current, bank_account_id: '' } : current;
+      }
+      return { ...current, bank_account_id: String(fallback.id) };
+    });
+  }, [sourceRegister, form.currency, formData]);
 
   function updateLine(index: number, patch: Partial<PayoutLineState>) {
     setLines((current) => current.map((line, currentIndex) => (currentIndex === index ? { ...line, ...patch } : line)));
@@ -145,6 +198,7 @@ export function ShareholderPayoutModal({
         reference: form.reference || null,
         default_payment_method: form.default_payment_method,
         notes: form.notes || null,
+        bank_account_id: sourceRegister === 'BANK' ? Number(form.bank_account_id) : null,
         lines: lines.map((line) => ({
           shareholder_id: Number(line.shareholder_id),
           amount: Number(line.amount),
@@ -181,7 +235,7 @@ export function ShareholderPayoutModal({
         >
           <div className="shareholder-payout-source">
             <strong>Source des fonds</strong>
-            <span>{sourceRegister === 'MAIN_CASH' ? 'Caisse principale' : 'Caisse garanties locatives'}</span>
+            <span>{sourceRegister === 'MAIN_CASH' ? 'Caisse principale' : sourceRegister === 'GUARANTEE_CASH' ? 'Caisse garanties locatives' : 'Banque'}</span>
           </div>
           {sourceRegister === 'GUARANTEE_CASH' ? (
             <div className="shareholder-payout-warning">
@@ -208,10 +262,27 @@ export function ShareholderPayoutModal({
             </label>
             <label>
               Mode par défaut
-              <select value={form.default_payment_method} onChange={(event) => setForm({ ...form, default_payment_method: event.target.value })}>
-                {paymentMethods.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              <select value={form.default_payment_method} onChange={(event) => setForm({ ...form, default_payment_method: event.target.value })} disabled={sourceRegister === 'BANK'}>
+                {paymentMethodOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
               </select>
             </label>
+            {sourceRegister === 'BANK' ? (
+              <label className="form-field-full">
+                Compte bancaire
+                <select
+                  value={form.bank_account_id}
+                  onChange={(event) => setForm((current) => ({ ...current, bank_account_id: event.target.value }))}
+                  required
+                >
+                  <option value="">Sélectionner un compte bancaire</option>
+                  {bankAccountsForCurrency.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.bank_name} - {account.account_name} ({account.currency})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <label className="form-field-full">
               Motif obligatoire
               <input value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} required />
@@ -250,8 +321,8 @@ export function ShareholderPayoutModal({
                 </label>
                 <label className="shareholder-payout-line-field shareholder-payout-line-method">
                   Mode
-                  <select value={line.payment_method} onChange={(event) => updateLine(index, { payment_method: event.target.value })}>
-                    {paymentMethods.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                  <select value={line.payment_method} onChange={(event) => updateLine(index, { payment_method: event.target.value })} disabled={sourceRegister === 'BANK'}>
+                    {paymentMethodOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                   </select>
                 </label>
                 <label className="shareholder-payout-line-field shareholder-payout-line-reference">
@@ -280,7 +351,7 @@ export function ShareholderPayoutModal({
 
           <div className="modal-footer-sticky">
             <button type="button" className="secondary" onClick={onClose} disabled={submitting}>Annuler</button>
-            <button type="submit" disabled={submitting || loading}>{submitting ? 'Validation...' : 'Valider le lot'}</button>
+            <button type="submit" disabled={submitting || loading || (sourceRegister === 'BANK' && (!form.bank_account_id || !selectedBankAccount))}>{submitting ? 'Validation...' : 'Valider le lot'}</button>
           </div>
         </form>
       ) : null}
@@ -290,7 +361,7 @@ export function ShareholderPayoutModal({
           <div className="success-message">Opération validée.</div>
           <div className="shareholder-payout-summary">
             <div><span>Référence du lot</span><strong>{result.reference ?? `Lot #${result.id}`}</strong></div>
-            <div><span>Source</span><strong>{result.source_register === 'MAIN_CASH' ? 'Caisse principale' : 'Caisse garanties locatives'}</strong></div>
+            <div><span>Source</span><strong>{result.source_register === 'MAIN_CASH' ? 'Caisse principale' : result.source_register === 'GUARANTEE_CASH' ? 'Caisse garanties locatives' : 'Banque'}</strong></div>
             <div><span>Devise</span><strong>{result.currency}</strong></div>
             <div><span>Total</span><strong>{money(result.total_amount)} {result.currency}</strong></div>
             <div><span>Bénéficiaires</span><strong>{result.beneficiary_count}</strong></div>
