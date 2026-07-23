@@ -7530,6 +7530,10 @@ export class SaasService {
     const currency = String(body.currency ?? '').trim().toUpperCase();
     const amount = Number(body.amount ?? 0);
     const movementDate = this.normalizeLeasePayloadDate(body.movement_date ?? this.localDateString(new Date()), 'movement_date', true);
+    const transactionType = await this.bankGuaranteeTransactionType(client, 'BANK_EXPENSE');
+    const supportsCategory = await this.columnExists('bank_transactions', 'category');
+    const supportsAttachmentName = await this.columnExists('bank_transactions', 'attachment_file_name');
+    const supportsAttachmentUrl = await this.columnExists('bank_transactions', 'attachment_file_url');
     if (!['USD', 'CDF'].includes(currency)) {
       throw new BadRequestException('Devise bancaire invalide.');
     }
@@ -7551,35 +7555,69 @@ export class SaasService {
       amount.toFixed(2),
       normalizedReference ?? supplierName ?? 'EXPENSE',
     ].join(':'));
+    const insertColumns = [
+      'organization_id',
+      'bank_account_id',
+      'transaction_number',
+      'transaction_date',
+      'direction',
+      'transaction_type',
+      'amount',
+      'currency',
+      'reference',
+      'description',
+      'counterparty_name',
+      'source_module',
+      'source_entity_type',
+      'source_entity_id',
+      'status',
+      'reversal_of_id',
+      'idempotency_key',
+      'created_by',
+    ];
+    const insertValues: unknown[] = [
+      this.context.organizationId(),
+      Number(bankAccount.id),
+      transactionNumber,
+      movementDate,
+      'OUT',
+      transactionType,
+      amount,
+      String(currency).toUpperCase(),
+      normalizedReference,
+      description,
+      supplierName,
+      'EXPENSES',
+      'EXPENSE',
+      null,
+      'VALIDATED',
+      null,
+      idempotencyKey,
+      this.context.userId() ?? 1,
+    ];
+    if (supportsCategory) {
+      insertColumns.push('category');
+      insertValues.push(category.code);
+    }
+    if (supportsAttachmentName) {
+      insertColumns.push('attachment_file_name');
+      insertValues.push(body.attachment_file_name ?? null);
+    }
+    if (supportsAttachmentUrl) {
+      insertColumns.push('attachment_file_url');
+      insertValues.push(body.attachment_file_url ?? null);
+    }
+    const insertPlaceholders = insertValues.map((_, index) => `$${index + 1}`);
     const { rows } = await client.query(
       `INSERT INTO bank_transactions
-        (organization_id, bank_account_id, transaction_number, transaction_date, direction, transaction_type, amount, currency,
-         reference, description, counterparty_name, source_module, source_entity_type, source_entity_id, status, reversal_of_id,
-         idempotency_key, created_by, category, attachment_file_name, attachment_file_url)
+        (${insertColumns.join(', ')})
        VALUES
-        ($1, $2, $3, $4, 'OUT', 'BANK_EXPENSE', $5, $6,
-         $7, $8, $9, 'EXPENSES', 'EXPENSE', NULL, 'VALIDATED', NULL,
-         $10, $11, $12, $13, $14)
+        (${insertPlaceholders.join(', ')})
        ON CONFLICT (organization_id, idempotency_key)
        WHERE idempotency_key IS NOT NULL
        DO NOTHING
        RETURNING *`,
-      [
-        this.context.organizationId(),
-        Number(bankAccount.id),
-        transactionNumber,
-        movementDate,
-        amount,
-        String(currency).toUpperCase(),
-        normalizedReference,
-        description,
-        supplierName,
-        idempotencyKey,
-        this.context.userId() ?? 1,
-        category.code,
-        body.attachment_file_name ?? null,
-        body.attachment_file_url ?? null,
-      ],
+      insertValues,
     );
     let transaction = rows[0];
     if (!transaction) {
@@ -7595,22 +7633,27 @@ export class SaasService {
     }
     transaction = requireRow(transaction, 'Bank transaction');
     if (!transaction.source_entity_id) {
+      const updateValues: unknown[] = [transaction.id, transaction.id];
+      const updateSet: string[] = ['source_entity_id = $2'];
+      if (supportsCategory) {
+        updateValues.push(category.code);
+        updateSet.push(`category = COALESCE($${updateValues.length}, category)`);
+      }
+      if (supportsAttachmentName) {
+        updateValues.push(body.attachment_file_name ?? null);
+        updateSet.push(`attachment_file_name = COALESCE($${updateValues.length}, attachment_file_name)`);
+      }
+      if (supportsAttachmentUrl) {
+        updateValues.push(body.attachment_file_url ?? null);
+        updateSet.push(`attachment_file_url = COALESCE($${updateValues.length}, attachment_file_url)`);
+      }
+      updateValues.push(this.context.organizationId());
       const updated = await client.query(
         `UPDATE bank_transactions
-         SET source_entity_id = $2,
-             category = COALESCE($3, category),
-             attachment_file_name = COALESCE($4, attachment_file_name),
-             attachment_file_url = COALESCE($5, attachment_file_url)
-         WHERE id = $1 AND organization_id = $6
+         SET ${updateSet.join(', ')}
+         WHERE id = $1 AND organization_id = $${updateValues.length}
          RETURNING *`,
-        [
-          transaction.id,
-          transaction.id,
-          category.code,
-          body.attachment_file_name ?? null,
-          body.attachment_file_url ?? null,
-          this.context.organizationId(),
-        ],
+        updateValues,
       );
       transaction = requireRow(updated.rows[0], 'Bank transaction');
     }

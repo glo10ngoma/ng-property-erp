@@ -293,7 +293,7 @@ export function BankPage() {
       setForm(defaultForm());
       await load();
     } catch (submitError: any) {
-      setError(apiErrorMessage(submitError, 'Impossible dâ€™enregistrer le compte bancaire.'));
+      setError(apiErrorMessage(submitError, 'Impossible dÃ¢â‚¬â„¢enregistrer le compte bancaire.'));
     } finally {
       setSubmitting(false);
     }
@@ -302,7 +302,7 @@ export function BankPage() {
   const submitExpense = async (payload: Record<string, unknown>) => {
     setError('');
     await api.post('/cash/expenses', payload);
-    setSuccess('Dépense bancaire enregistrée.');
+    setSuccess('DÃ©pense bancaire enregistrÃ©e.');
     await load();
   };
 
@@ -310,7 +310,7 @@ export function BankPage() {
     setError('');
     const response = await api.post<CashExpenseCategory>('/cash/expense-categories', payload);
     await expenseCategories.reload();
-    setSuccess('Catégorie de dépense créée.');
+    setSuccess('CatÃ©gorie de dÃ©pense crÃ©Ã©e.');
     return response.data;
   };
 
@@ -362,7 +362,7 @@ export function BankPage() {
             </button>
             {activeTab === 'accounts' && can('cash.create') ? (
               <button type="button" className="secondary" onClick={() => openExpense()}>
-                Enregistrer une dépense
+                Enregistrer une dÃ©pense
               </button>
             ) : null}
             {activeTab === 'accounts' && can('shareholder_payouts.from_bank') ? (
@@ -510,9 +510,9 @@ export function BankPage() {
                 <option value="RENT_PAYMENT">Paiement de loyer</option>
                 <option value="GUARANTEE_PAYMENT">Paiement de garantie</option>
                 <option value="GUARANTEE_REFUND">Remboursement de garantie</option>
-                <option value="TENANT_CREDIT">Crédit locataire</option>
+                <option value="TENANT_CREDIT">CrÃ©dit locataire</option>
                 <option value="SHAREHOLDER_PAYOUT">Remboursement actionnaire</option>
-                <option value="BANK_EXPENSE">Dépense bancaire</option>
+                <option value="BANK_EXPENSE">DÃ©pense bancaire</option>
               </select>
               <input value={filters.source_module} onChange={(event) => setFilters((current) => ({ ...current, source_module: event.target.value }))} placeholder="Origine" />
               <input value={filters.reference} onChange={(event) => setFilters((current) => ({ ...current, reference: event.target.value }))} placeholder="RÃ©fÃ©rence" />
@@ -535,7 +535,7 @@ export function BankPage() {
                     <th>Compte</th>
                     <th>Type</th>
                     <th>Origine</th>
-                    <th>Catégorie</th>
+                    <th>CatÃ©gorie</th>
                     <th>Payeur / bÃ©nÃ©ficiaire</th>
                     <th className="right">EntrÃ©e</th>
                     <th className="right">Sortie</th>
@@ -577,9 +577,9 @@ export function BankPage() {
             {transactions.length ? (
               <div className="tenant-credit-pagination bank-pagination">
                 <div className="tenant-credit-pagination-controls">
-                  <button type="button" className="icon-btn" onClick={() => setTransactionsPage((current) => Math.max(current - 1, 1))} disabled={transactionsPage === 1}>â€¹</button>
+                  <button type="button" className="icon-btn" onClick={() => setTransactionsPage((current) => Math.max(current - 1, 1))} disabled={transactionsPage === 1}>Ã¢â‚¬Â¹</button>
                   <strong>Page {transactionsPage} / {totalTransactionPages}</strong>
-                  <button type="button" className="icon-btn" onClick={() => setTransactionsPage((current) => Math.min(current + 1, totalTransactionPages))} disabled={transactionsPage >= totalTransactionPages}>â€º</button>
+                  <button type="button" className="icon-btn" onClick={() => setTransactionsPage((current) => Math.min(current + 1, totalTransactionPages))} disabled={transactionsPage >= totalTransactionPages}>Ã¢â‚¬Âº</button>
                 </div>
               </div>
             ) : null}
@@ -745,7 +745,7 @@ export function BankAccountDetailPage() {
   const submitExpense = async (payload: Record<string, unknown>) => {
     setError('');
     await api.post('/cash/expenses', payload);
-    setSuccess('Dépense bancaire enregistrée.');
+    setSuccess('DÃ©pense bancaire enregistrÃ©e.');
     await load();
   };
 
@@ -753,7 +753,7 @@ export function BankAccountDetailPage() {
     setError('');
     const response = await api.post<CashExpenseCategory>('/cash/expense-categories', payload);
     await expenseCategories.reload();
-    setSuccess('Catégorie de dépense créée.');
+    setSuccess('CatÃ©gorie de dÃ©pense crÃ©Ã©e.');
     return response.data;
   };
 
@@ -788,7 +788,7 @@ export function BankAccountDetailPage() {
             {can('bank_accounts.read') ? <button type="button" className="secondary" onClick={() => void load()}><RefreshCcw size={16} />Actualiser</button> : null}
             {can('cash.create') ? (
               <button type="button" className="secondary" onClick={() => setExpenseOpen(true)}>
-                Enregistrer une dépense
+                Enregistrer une dÃ©pense
               </button>
             ) : null}
             {can('shareholder_payouts.from_bank') ? (
@@ -828,7 +828,7 @@ export function BankAccountDetailPage() {
                 <th>NumÃ©ro</th>
                 <th>Type</th>
                 <th>Origine</th>
-                <th>Catégorie</th>
+                <th>CatÃ©gorie</th>
                 <th>RÃ©fÃ©rence</th>
                 <th className="right">EntrÃ©e</th>
                 <th className="right">Sortie</th>
@@ -918,7 +918,7 @@ function TransactionDetailDrawer({ transaction, onClose, navigate }: { transacti
             <div className="compact-item"><span>RÃ©fÃ©rence</span><strong>{transaction.reference || '-'}</strong></div>
             <div className="compact-item"><span>Tiers</span><strong>{transaction.counterparty_name || '-'}</strong></div>
             <div className="compact-item"><span>Origine</span><strong>{sourceModuleLabel(transaction.source_module)}</strong></div>
-            <div className="compact-item"><span>Catégorie</span><strong>{cashCategoryLabel(transaction.category)}</strong></div>
+            <div className="compact-item"><span>CatÃ©gorie</span><strong>{cashCategoryLabel(transaction.category)}</strong></div>
             <div className="compact-item"><span>Type source</span><strong>{sourceEntityTypeLabel(transaction.source_entity_type, transaction.source_module)}</strong></div>
             <div className="compact-item"><span>Source entity id</span><strong>{transaction.source_entity_id ?? '-'}</strong></div>
             <div className="compact-item"><span>Bail source</span><strong>{transaction.source_lease_number ? `B-${String(transaction.source_lease_number).padStart(5, '0')}` : transaction.source_lease_id ?? '-'}</strong></div>
@@ -933,18 +933,18 @@ function TransactionDetailDrawer({ transaction, onClose, navigate }: { transacti
               <div className="row-actions">
                 {transaction.source_payment_id ? (
                   <button type="button" className="secondary" onClick={() => navigate(`/payments/${transaction.source_payment_id}`)}>
-                    Reçu {transaction.source_payment_receipt_number || `PAY-${transaction.source_payment_id}`}
+                    ReÃ§u {transaction.source_payment_receipt_number || `PAY-${transaction.source_payment_id}`}
                   </button>
                 ) : null}
                 {transaction.source_tenant_credit_id ? (
                   <button type="button" className="secondary" onClick={() => navigate(`/tenant-credits?credit_id=${transaction.source_tenant_credit_id}`)}>
-                    Crédit {transaction.source_tenant_credit_receipt_number || transaction.source_payment_receipt_number || `#${transaction.source_tenant_credit_id}`}
+                    CrÃ©dit {transaction.source_tenant_credit_receipt_number || transaction.source_payment_receipt_number || `#${transaction.source_tenant_credit_id}`}
                   </button>
                 ) : null}
                 {transaction.source_shareholder_payout_line_id ? (
                   <>
                     <button type="button" className="secondary" onClick={() => navigate(`/shareholder-payout-lines/${transaction.source_shareholder_payout_line_id}/receipt`)}>
-                      Reçu {transaction.source_shareholder_payout_receipt_number || `SHR-${transaction.source_shareholder_payout_line_id}`}
+                      ReÃ§u {transaction.source_shareholder_payout_receipt_number || `SHR-${transaction.source_shareholder_payout_line_id}`}
                     </button>
                     {transaction.source_shareholder_payout_batch_id ? (
                       <button type="button" className="secondary" onClick={() => navigate(`/shareholder-payouts/${transaction.source_shareholder_payout_batch_id}`)}>
@@ -970,7 +970,7 @@ function TransactionDetailDrawer({ transaction, onClose, navigate }: { transacti
                 ) : null}
                 {transaction.source_unit_id ? (
                   <button type="button" className="secondary" onClick={() => navigate(`/units/${transaction.source_unit_id}`)}>
-                    Unité {transaction.source_unit_number || `#${transaction.source_unit_id}`}
+                    UnitÃ© {transaction.source_unit_number || `#${transaction.source_unit_id}`}
                   </button>
                 ) : null}
                 {transaction.source_tenant_id ? (
@@ -1029,13 +1029,13 @@ function transactionTypeLabel(value?: string | null, sourceModule?: string | nul
     return 'Paiement de loyer';
   }
   if (moduleValue === 'TENANT_CREDITS' || entityValue === 'TENANT_CREDIT') {
-    return 'Crédit locataire';
+    return 'CrÃ©dit locataire';
   }
   if (moduleValue === 'SHAREHOLDER_PAYOUTS' || entityValue === 'SHAREHOLDER_PAYOUT_LINE') {
     return 'Remboursement actionnaire';
   }
   if (moduleValue === 'EXPENSES' || entityValue === 'EXPENSE') {
-    return 'Dépense bancaire';
+    return 'DÃ©pense bancaire';
   }
   if (moduleValue === 'GUARANTEES') {
     if (entityValue === 'GUARANTEE_REFUND') {
@@ -1055,11 +1055,11 @@ function transactionTypeLabel(value?: string | null, sourceModule?: string | nul
     case 'GUARANTEE_REFUND':
       return 'Remboursement de garantie locative';
     case 'TENANT_CREDIT':
-      return 'Crédit locataire';
+      return 'CrÃ©dit locataire';
     case 'SHAREHOLDER_PAYOUT':
       return 'Remboursement actionnaire';
     case 'BANK_EXPENSE':
-      return 'Dépense bancaire';
+      return 'DÃ©pense bancaire';
     default:
       return value || '-';
   }
@@ -1072,11 +1072,11 @@ function sourceModuleLabel(value?: string | null) {
     case 'GUARANTEES':
       return 'Garanties';
     case 'TENANT_CREDITS':
-      return 'Crédits locataires';
+      return 'CrÃ©dits locataires';
     case 'SHAREHOLDER_PAYOUTS':
       return 'Actionnaires';
     case 'EXPENSES':
-      return 'Dépenses';
+      return 'DÃ©penses';
     default:
       return value || '-';
   }
@@ -1086,7 +1086,7 @@ function sourceEntityTypeLabel(value?: string | null, sourceModule?: string | nu
   const moduleValue = String(sourceModule ?? '').toUpperCase();
   const entityValue = String(value ?? '').toUpperCase();
   if (moduleValue === 'TENANT_CREDITS' || entityValue === 'TENANT_CREDIT') {
-    return 'Crédit locataire';
+    return 'CrÃ©dit locataire';
   }
   if (moduleValue === 'SHAREHOLDER_PAYOUTS' || entityValue === 'SHAREHOLDER_PAYOUT_LINE') {
     return 'Remboursement actionnaire';
@@ -1101,7 +1101,7 @@ function sourceEntityTypeLabel(value?: string | null, sourceModule?: string | nu
     return 'Paiement';
   }
   if (moduleValue === 'EXPENSES' || entityValue === 'EXPENSE') {
-    return 'Dépense';
+    return 'DÃ©pense';
   }
   return value || '-';
 }
@@ -1111,12 +1111,12 @@ function cashCategoryLabel(value?: string | null) {
     {
       INVOICE_PAYMENT: 'Paiement facture',
       SALARY_ADVANCE: 'Avance salaire',
-      OTHER_INCOME: 'Autre entree',
-      OTHER_EXPENSE: 'Autre dépense',
+      OTHER_INCOME: 'Autre entrÃ©e',
+      OTHER_EXPENSE: 'Autre dÃ©pense',
       LEASE_GUARANTEE: 'Garantie locative',
       LEASE_GUARANTEE_REFUND: 'Remboursement garantie',
       SALARY_PAYMENT: 'Paiement salaire',
-      MAINTENANCE_EXPENSE: 'Depense maintenance',
+      MAINTENANCE_EXPENSE: 'DÃ©pense maintenance',
       PAYMENT_REFUND: 'Remboursement paiement',
       STOCK_PURCHASE: 'Achat fournisseur',
       SHAREHOLDER_PAYOUT: 'Actionnaires',
