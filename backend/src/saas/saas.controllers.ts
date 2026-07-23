@@ -1217,7 +1217,7 @@ export class LeasesController {
 
   @Post(':id/guarantee/refund')
   refundGuarantee(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
-    return this.service.refundLeaseGuarantee(id, Number(body.amount ?? 0), body.reference ? String(body.reference) : undefined);
+    return this.service.refundLeaseGuarantee(id, body);
   }
 
   @Get(':id/documents')

@@ -47,7 +47,7 @@ type BankTransaction = {
   transaction_number: string;
   transaction_date: string;
   direction: 'IN' | 'OUT';
-  transaction_type: 'OPENING_BALANCE' | 'MANUAL_ADJUSTMENT' | 'RENT_PAYMENT' | 'GUARANTEE_PAYMENT';
+  transaction_type: 'OPENING_BALANCE' | 'MANUAL_ADJUSTMENT' | 'RENT_PAYMENT' | 'GUARANTEE_PAYMENT' | 'GUARANTEE_REFUND';
   amount: number;
   currency: 'USD' | 'CDF';
   reference?: string | null;
@@ -454,6 +454,7 @@ export function BankPage() {
                 <option value="MANUAL_ADJUSTMENT">Ajustement manuel</option>
                 <option value="RENT_PAYMENT">Paiement de loyer</option>
                 <option value="GUARANTEE_PAYMENT">Paiement de garantie</option>
+                <option value="GUARANTEE_REFUND">Remboursement de garantie</option>
               </select>
               <input value={filters.source_module} onChange={(event) => setFilters((current) => ({ ...current, source_module: event.target.value }))} placeholder="Origine" />
               <input value={filters.reference} onChange={(event) => setFilters((current) => ({ ...current, reference: event.target.value }))} placeholder="Référence" />
@@ -876,6 +877,9 @@ function transactionTypeLabel(value?: string | null, sourceModule?: string | nul
     return 'Paiement de loyer';
   }
   if (moduleValue === 'GUARANTEES') {
+    if (entityValue === 'GUARANTEE_REFUND') {
+      return 'Remboursement de garantie locative';
+    }
     return 'Paiement de garantie locative';
   }
   switch (String(value ?? '').toUpperCase()) {
@@ -887,6 +891,8 @@ function transactionTypeLabel(value?: string | null, sourceModule?: string | nul
       return 'Paiement de loyer';
     case 'GUARANTEE_PAYMENT':
       return 'Paiement de garantie locative';
+    case 'GUARANTEE_REFUND':
+      return 'Remboursement de garantie locative';
     default:
       return value || '-';
   }

@@ -88,6 +88,16 @@ export function LeaseDetail() {
   const [guaranteePaymentNotes, setGuaranteePaymentNotes] = useState('');
   const [guaranteePaymentBankAccountId, setGuaranteePaymentBankAccountId] = useState('');
   const [guaranteePaymentBusy, setGuaranteePaymentBusy] = useState(false);
+  const [guaranteeRefundOpen, setGuaranteeRefundOpen] = useState(false);
+  const [guaranteeRefundCurrency, setGuaranteeRefundCurrency] = useState<'USD' | 'CDF'>('USD');
+  const [guaranteeRefundDate, setGuaranteeRefundDate] = useState(todayDate());
+  const [guaranteeRefundAmount, setGuaranteeRefundAmount] = useState('');
+  const [guaranteeRefundMethod, setGuaranteeRefundMethod] = useState('CASH');
+  const [guaranteeRefundReference, setGuaranteeRefundReference] = useState('');
+  const [guaranteeRefundNotes, setGuaranteeRefundNotes] = useState('');
+  const [guaranteeRefundRate, setGuaranteeRefundRate] = useState('');
+  const [guaranteeRefundBankAccountId, setGuaranteeRefundBankAccountId] = useState('');
+  const [guaranteeRefundBusy, setGuaranteeRefundBusy] = useState(false);
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [autoPreviewHandled, setAutoPreviewHandled] = useState(false);
   const [signedFileName, setSignedFileName] = useState('');
@@ -152,6 +162,25 @@ export function LeaseDetail() {
     bankAccountId: guaranteePaymentBankAccountId,
     bankAccountRequired: guaranteeBankPaymentSelected,
     bankAccountAvailable: bankAccounts.loading || guaranteeBankAccounts.length > 0,
+  });
+  const guaranteeRefundRateValue = Number(guaranteeRefundRate || exchangeRate?.rate || 0);
+  const guaranteeRefundEquivalentUsd = guaranteeRefundCurrency === 'USD' || guaranteeRefundRateValue <= 0
+    ? Number(guaranteeRefundAmount || 0)
+    : Number((Number(guaranteeRefundAmount || 0) / guaranteeRefundRateValue).toFixed(2));
+  const guaranteeRefundBankAccounts = useMemo(
+    () => bankAccounts.data.filter((account) => account.status === 'ACTIVE' && account.currency === guaranteeRefundCurrency),
+    [bankAccounts.data, guaranteeRefundCurrency],
+  );
+  const guaranteeRefundBankPaymentSelected = guaranteeRefundMethod === 'BANK';
+  const guaranteeRefundValidation = guaranteeRefundValidationError({
+    amount: guaranteeRefundAmount,
+    currency: guaranteeRefundCurrency,
+    rate: guaranteeRefundRateValue,
+    equivalentUsd: guaranteeRefundEquivalentUsd,
+    refundable: guaranteePaid,
+    bankAccountId: guaranteeRefundBankAccountId,
+    bankAccountRequired: guaranteeRefundBankPaymentSelected,
+    bankAccountAvailable: bankAccounts.loading || guaranteeRefundBankAccounts.length > 0,
   });
 
   async function load() {
@@ -317,6 +346,62 @@ export function LeaseDetail() {
       setError(message || 'Impossible d enregistrer le paiement de garantie.');
     } finally {
       setGuaranteePaymentBusy(false);
+    }
+  }
+
+  function openGuaranteeRefund() {
+    const currentRate = exchangeRate?.rate ? String(exchangeRate.rate) : '';
+    setGuaranteeRefundCurrency('USD');
+    setGuaranteeRefundDate(todayDate());
+    setGuaranteeRefundAmount(guaranteePaid.toFixed(2));
+    setGuaranteeRefundMethod('CASH');
+    setGuaranteeRefundReference('');
+    setGuaranteeRefundNotes('');
+    setGuaranteeRefundRate(currentRate);
+    setGuaranteeRefundBankAccountId('');
+    setGuaranteeRefundOpen(true);
+    setError('');
+  }
+
+  async function refundGuarantee() {
+    if (!lease) return;
+    if (guaranteeRefundValidation) {
+      setError(guaranteeRefundValidation);
+      return;
+    }
+    const amount = Number(guaranteeRefundAmount || 0);
+    const amountUsd = guaranteeRefundCurrency === 'USD' ? amount : 0;
+    const amountCdf = guaranteeRefundCurrency === 'CDF' ? amount : 0;
+    const reference = guaranteeRefundReference.trim();
+    const bankAccountRequired = guaranteeRefundBankPaymentSelected;
+    setGuaranteeRefundBusy(true);
+    setError('');
+    try {
+      const response = await api.post(`/leases/${lease.id}/guarantee/refund`, {
+        payment_date: guaranteeRefundDate,
+        payment_currency: guaranteeRefundCurrency,
+        amount_usd: amountUsd,
+        amount_cdf: amountCdf,
+        exchange_rate_used: guaranteeRefundCurrency === 'CDF' ? guaranteeRefundRateValue : undefined,
+        exchange_rate_date: exchangeRate?.effectiveDate ?? todayDate(),
+        payment_method: guaranteeRefundMethod,
+        bank_account_id: bankAccountRequired ? Number(guaranteeRefundBankAccountId) : undefined,
+        reference: reference || undefined,
+        notes: guaranteeRefundNotes.trim() || undefined,
+      });
+      setGuaranteeRefundOpen(false);
+      setSuccess(response.data?.bank_transaction?.transaction_number
+        ? `Remboursement de garantie enregistre. Transaction ${response.data.bank_transaction.transaction_number}.`
+        : response.data?.movement?.id
+          ? `Remboursement de garantie enregistre. Mouvement ${response.data.movement.id}.`
+          : 'Remboursement de garantie enregistre.');
+      await load();
+    } catch (err: any) {
+      const responseMessage = err?.response?.data?.message;
+      const message = Array.isArray(responseMessage) ? responseMessage.join(' | ') : responseMessage;
+      setError(message || 'Impossible d enregistrer le remboursement de garantie.');
+    } finally {
+      setGuaranteeRefundBusy(false);
     }
   }
 
@@ -586,6 +671,9 @@ export function LeaseDetail() {
             {canPayGuarantee ? (
               <button type="button" className="secondary" onClick={openGuaranteePayment}><Receipt size={16} />Payer la garantie</button>
             ) : null}
+            {can('payments.create') && !isReadOnlyLifecycleView && guaranteePaid > 0 ? (
+              <button type="button" className="secondary" onClick={openGuaranteeRefund}><ArrowLeft size={16} />Rembourser la garantie</button>
+            ) : null}
             {guaranteePayments.length === 1 ? (
               <button type="button" className="secondary" onClick={() => navigate(`/payments/${guaranteePayments[0].id}`)}><Printer size={16} />Imprimer le recu</button>
             ) : null}
@@ -850,6 +938,78 @@ export function LeaseDetail() {
           {guaranteePaymentValidation ? <div className="error-message">{guaranteePaymentValidation}</div> : null}
         </Modal>
       ) : null}
+      {guaranteeRefundOpen && lease ? (
+        <Modal
+          title={`Rembourser la garantie ${leaseReference(lease)}`}
+          onClose={() => setGuaranteeRefundOpen(false)}
+          footer={
+            <>
+              <button type="button" className="secondary" onClick={() => setGuaranteeRefundOpen(false)}>Annuler</button>
+              <button type="button" onClick={() => void refundGuarantee()} disabled={guaranteeRefundBusy}>{guaranteeRefundBusy ? 'Enregistrement...' : 'Enregistrer le remboursement'}</button>
+            </>
+          }
+        >
+          <div className="summary-band">
+            <SummaryItem label="Montant deja paye" value={money(guaranteePaid)} />
+            <SummaryItem label="Montant remboursable" value={money(guaranteePaid)} />
+          </div>
+          <div className="lease-section-grid">
+            <label>Date remboursement<input type="date" required value={guaranteeRefundDate} onChange={(event) => setGuaranteeRefundDate(event.target.value)} /></label>
+            <label>Devise
+              <select
+                value={guaranteeRefundCurrency}
+                onChange={(event) => {
+                  const next = event.target.value as 'USD' | 'CDF';
+                  setGuaranteeRefundCurrency(next);
+                  setGuaranteeRefundBankAccountId('');
+                  if (next === 'USD') {
+                    setGuaranteeRefundAmount(guaranteePaid.toFixed(2));
+                  } else {
+                    setGuaranteeRefundAmount(guaranteePaid > 0 ? String(Math.round(guaranteePaid * (guaranteeRefundRateValue || exchangeRate?.rate || 0) || 0)) : '');
+                  }
+                }}
+              >
+                <option value="USD">USD</option>
+                <option value="CDF">CDF</option>
+              </select>
+            </label>
+            <label>Montant<input type="number" min="0" step="0.01" value={guaranteeRefundAmount} onChange={(event) => setGuaranteeRefundAmount(event.target.value)} /></label>
+            <label>Mode de remboursement
+              <select value={guaranteeRefundMethod} onChange={(event) => {
+                const next = event.target.value;
+                setGuaranteeRefundMethod(next);
+                if (next !== 'BANK') setGuaranteeRefundBankAccountId('');
+              }}>
+                <option value="CASH">Especes</option>
+                <option value="BANK">Banque</option>
+                <option value="MOBILE_MONEY">Mobile Money</option>
+              </select>
+            </label>
+            <label>Reference<input value={guaranteeRefundReference} onChange={(event) => setGuaranteeRefundReference(event.target.value)} placeholder="Reference facultative" /></label>
+            <label>Taux applique<input type="number" min="0" step="0.000001" value={guaranteeRefundRate} onChange={(event) => setGuaranteeRefundRate(event.target.value)} className={guaranteeRefundCurrency === 'USD' ? 'locked-field' : ''} readOnly={guaranteeRefundCurrency === 'USD'} /></label>
+            {guaranteeRefundBankPaymentSelected ? (
+              <label className="lease-field-full">
+                Compte bancaire
+                <select value={guaranteeRefundBankAccountId} onChange={(event) => setGuaranteeRefundBankAccountId(event.target.value)} required>
+                  <option value="">Selectionner un compte bancaire</option>
+                  {guaranteeRefundBankAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.bank_name} - {account.account_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <label className="lease-field-full">Observations<textarea rows={2} value={guaranteeRefundNotes} onChange={(event) => setGuaranteeRefundNotes(event.target.value)} placeholder="Observations" /></label>
+          </div>
+          <div className="payment-summary-strip">
+            <span>Equivalent USD: <strong>{guaranteeRefundEquivalentUsd.toFixed(2)} USD</strong></span>
+            <span>Montant remboursable: <strong>{money(guaranteePaid)} USD</strong></span>
+            <span>Taux: <strong>{guaranteeRefundCurrency === 'CDF' ? (guaranteeRefundRateValue ? `1 USD = ${guaranteeRefundRateValue.toLocaleString('fr-FR')} CDF` : 'Non disponible') : 'Non requis'}</strong></span>
+          </div>
+          {guaranteeRefundValidation ? <div className="error-message">{guaranteeRefundValidation}</div> : null}
+        </Modal>
+      ) : null}
     </section>
   );
 }
@@ -916,6 +1076,34 @@ function guaranteePaymentValidationError({
   if (bankAccountRequired && !bankAccountId) return 'Un compte bancaire actif est requis pour un paiement de garantie par banque.';
   if (bankAccountRequired && !bankAccountAvailable) return 'Aucun compte bancaire actif de la bonne devise n est disponible.';
   if (totalEquivalentUsd > remaining + 0.01) return `Le montant depasse le reste a payer (${money(remaining)} USD).`;
+  return '';
+}
+
+function guaranteeRefundValidationError({
+  amount,
+  currency,
+  rate,
+  equivalentUsd,
+  refundable,
+  bankAccountId,
+  bankAccountRequired,
+  bankAccountAvailable,
+}: {
+  amount: string;
+  currency: 'USD' | 'CDF';
+  rate: number;
+  equivalentUsd: number;
+  refundable: number;
+  bankAccountId: string;
+  bankAccountRequired: boolean;
+  bankAccountAvailable: boolean;
+}) {
+  const numericAmount = Number(amount || 0);
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0 || !Number.isFinite(equivalentUsd)) return 'Montant invalide.';
+  if (currency === 'CDF' && rate <= 0) return 'Aucun taux de change disponible pour un remboursement en CDF.';
+  if (bankAccountRequired && !bankAccountId) return 'Un compte bancaire actif est requis pour un remboursement de garantie par banque.';
+  if (bankAccountRequired && !bankAccountAvailable) return 'Aucun compte bancaire actif de la bonne devise n est disponible.';
+  if (equivalentUsd > refundable + 0.01) return `Le montant depasse le montant deja paye (${money(refundable)} USD).`;
   return '';
 }
 
