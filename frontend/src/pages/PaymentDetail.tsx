@@ -1,10 +1,11 @@
-import { ArrowLeft, FileSpreadsheet, Mail, MessageCircle, Pencil, Printer, Smartphone, Trash2, Wallet } from 'lucide-react';
+﻿import { ArrowLeft, FileSpreadsheet, Mail, MessageCircle, Pencil, Printer, Smartphone, Trash2, Wallet } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, money, paymentMethodLabel, shortDate } from '../api';
 import { useAuth } from '../auth';
 import { DocumentEmailModal, Modal, SuccessMessage } from '../components';
 import { formatLeaseReference } from '../utils/lease-reference';
+import { getPaymentsBranding } from '../core/utils/payments-branding';
 
 type PaymentDetailData = {
   id: number;
@@ -107,7 +108,8 @@ export function PaymentDetail() {
     };
   }, [payment]);
   const useCustomReceipt = payment ? CUSTOM_RECEIPT_ORGANIZATION_IDS.has(Number(payment.organization_id)) : false;
-  const receiptTitle = payment ? paymentReceiptTitle(payment) : 'Reçu de paiement';
+  const paymentsBranding = getPaymentsBranding(payment?.organization_id);
+  const receiptTitle = payment ? paymentReceiptTitle(payment, paymentsBranding) : paymentsBranding.receiptTitle;
   const isGuaranteeReceipt = payment ? isGuaranteePayment(payment) : false;
   const isTenantCreditReceipt = payment ? isTenantCreditPayment(payment) : false;
   const displayReference = payment ? displayValue(payment.reference) : '—';
@@ -115,17 +117,17 @@ export function PaymentDetail() {
 
   async function send(channel: 'EMAIL' | 'SMS' | 'WHATSAPP') {
     if (!payment) return;
-    const message = `${payment.tenant_name ?? 'Client'}, votre paiement ${payment.receipt_number ?? payment.id} a bien ete pris en compte.`;
+    const message = `${payment.tenant_name ?? 'Client'}, votre ${paymentsBranding.moduleSingular.toLowerCase()} ${payment.receipt_number ?? payment.id} a bien été pris en compte.`;
     const title = channel === 'EMAIL' ? 'Email' : channel === 'SMS' ? 'SMS' : 'WhatsApp';
     if (!window.confirm(`Envoyer par ${title} ?`)) return;
     await api.post(`/communications/send-${channel.toLowerCase()}`, {
       to: payment.tenant_email ?? payment.tenant_phone ?? '',
-      subject: `Paiement ${payment.receipt_number ?? payment.id}`,
+      subject: `${paymentsBranding.moduleSingular} ${payment.receipt_number ?? payment.id}`,
       message,
       related_entity_type: 'payments',
       related_entity_id: payment.id,
     });
-    setSuccess(`${title} envoye avec succes.`);
+    setSuccess(`${title} envoyé avec succès.`);
   }
 
   async function saveEdit(form: FormData) {
@@ -140,7 +142,7 @@ export function PaymentDetail() {
     });
     setEditOpen(false);
     setSearchParams({});
-    setSuccess('Paiement modifie avec succes.');
+    setSuccess('Paiement modifié avec succès.');
     await load();
   }
 
@@ -157,7 +159,7 @@ export function PaymentDetail() {
       description: `Remboursement paiement ${payment.receipt_number ?? payment.id}`,
       reference: payment.reference ?? payment.receipt_number ?? `PAY-${payment.id}`,
     });
-    setSuccess('Remboursement enregistre.');
+    setSuccess('Remboursement enregistré.');
   }
 
   async function cancelPayment() {
@@ -194,11 +196,11 @@ export function PaymentDetail() {
   return (
     <section>
       <div className="page-header no-print">
-        <h2>Fiche paiement</h2>
+        <h2>Fiche {paymentsBranding.moduleSingular.toLowerCase()}</h2>
         <div className="actions invoice-detail-actions">
           <button className="secondary" onClick={() => navigate('/payments')}><ArrowLeft size={16} />Retour</button>
           {can('payments.update') && !isGuaranteeReceipt && !isTenantCreditReceipt && <button onClick={() => setEditOpen(true)}><Pencil size={16} />Modifier</button>}
-          <button onClick={() => window.print()}><Printer size={16} />Imprimer reçu</button>
+          <button onClick={() => window.print()}><Printer size={16} />Imprimer le reçu</button>
           <button className="secondary" onClick={() => window.print()}><FileSpreadsheet size={16} />PDF</button>
           {can('communication.send') && <button className="secondary" onClick={() => setEmailOpen(true)}><Mail size={16} />Envoyer le reçu</button>}
           {can('communication.send') && <button className="secondary" onClick={() => send('WHATSAPP')}><MessageCircle size={16} />WhatsApp</button>}
@@ -223,13 +225,13 @@ export function PaymentDetail() {
           <div className="invoice-logo">PE</div>
           <div>
             <h2>NG Property ERP</h2>
-            <p>Reçu de paiement</p>
+            <p>{paymentsBranding.receiptTitle}</p>
             <p>Merci pour votre confiance.</p>
           </div>
             </>
           )}
           <div className="invoice-meta">
-            <strong>Reçu {payment.receipt_number ?? `PAY-${payment.id}`}</strong>
+            <strong>ReÃ§u {payment.receipt_number ?? `PAY-${payment.id}`}</strong>
             <span>{paymentSubjectLabel(payment)}</span>
             <span>Date: {shortDate(payment.payment_date)}</span>
             <span>Mode: {paymentMethodLabel(payment.payment_method)}</span>
@@ -264,7 +266,7 @@ export function PaymentDetail() {
         </div>
 
         <table>
-          <thead><tr><th>Référence</th><th>Facture</th><th>Mode</th><th className="right">Montant</th><th>Devise</th><th>Utilisateur</th></tr></thead>
+          <thead><tr><th>RÃ©fÃ©rence</th><th>Facture</th><th>Mode</th><th className="right">Montant</th><th>Devise</th><th>Utilisateur</th></tr></thead>
         <tbody>
             <tr>
               <td>{displayReference}</td>
@@ -282,11 +284,11 @@ export function PaymentDetail() {
       </article>
 
       <DocumentEmailModal
-        title="Envoyer le reçu par email"
+        title={useCustomReceipt ? 'Envoyer le reçu d’encaissement par email' : 'Envoyer le reçu par email'}
         open={emailOpen}
         defaultRecipient={payment.tenant_email ?? ''}
-        defaultSubject="Votre reçu de paiement"
-        defaultMessage={`Bonjour ${payment.tenant_name ?? ''},\n\nVeuillez trouver ci-joint votre reçu de paiement.\n\nCordialement.`}
+        defaultSubject={useCustomReceipt ? 'Votre reçu d’encaissement' : 'Votre reçu de paiement'}
+        defaultMessage={`Bonjour ${payment.tenant_name ?? ''},\n\nVeuillez trouver ci-joint votre ${useCustomReceipt ? 'reçu d’encaissement' : 'reçu de paiement'}.\n\nCordialement.`}
         attachmentName={payment.receipt_number ? `Recu_${payment.receipt_number}.pdf` : 'Recu.pdf'}
         sending={emailSending}
         error={emailError}
@@ -303,12 +305,12 @@ export function PaymentDetail() {
         <details open={false}><summary>Timeline</summary><SimpleBlock rows={timelineRows(payment)} /></details>
         <details open={false}><summary>Documents</summary><SimpleBlock rows={documentRows(payment)} /></details>
         <details open={false}><summary>Historique modifications</summary><SimpleBlock rows={auditRows(payment)} /></details>
-        <details open={false}><summary>Paiements liees ({payment.allocations?.length ?? 0})</summary><SimpleBlock rows={(payment.allocations ?? []).map((allocation) => ({ Reference: allocation.invoice_number, Montant: money(allocation.amount), Devise: 'USD' }))} /></details>
+        <details open={false}><summary>{paymentsBranding.modulePlural} liés ({payment.allocations?.length ?? 0})</summary><SimpleBlock rows={(payment.allocations ?? []).map((allocation) => ({ Reference: allocation.invoice_number, Montant: money(allocation.amount), Devise: 'USD' }))} /></details>
         <details open={false}><summary>Relances ({payment.reminders?.length ?? 0})</summary><SimpleBlock rows={(payment.reminders ?? []).map((reminder) => ({ Date: shortDate(reminder.reminded_at), Canal: reminder.channel, Statut: reminder.status, Message: reminder.message }))} /></details>
       </div>
 
       {editOpen && (
-        <Modal title="Modifier le paiement" onClose={() => { setEditOpen(false); setSearchParams({}); }}>
+        <Modal title={`Modifier ${paymentsBranding.moduleSingular.toLowerCase()}`} onClose={() => { setEditOpen(false); setSearchParams({}); }}>
           <form className="form-grid" onSubmit={(event) => { event.preventDefault(); saveEdit(new FormData(event.currentTarget)); }}>
             <label>Date<input name="payment_date" type="date" defaultValue={payment.payment_date.slice(0, 10)} /></label>
             <label>Montant<input name="amount" type="number" step="0.01" defaultValue={payment.amount} /></label>
@@ -478,7 +480,7 @@ function SimpleBlock({ rows }: { rows: Array<Record<string, unknown>> }) {
 }
 
 function label(key: string) {
-  return ({ reference: 'Reference', facture: 'Facture', date: 'Date', montant: 'Montant', devise: 'Devise', mode: 'Mode', utilisateur: 'Utilisateur', observations: 'Observations', statut: 'Statut', total: 'Total', paye: 'Paye', restant: 'Restant', nom: 'Nom', type: 'Type', telephone: 'Telephone', telephone_secondaire: 'Telephone secondaire', email: 'Email', rccm: 'RCCM', secteur: 'Secteur', immeuble: 'Immeuble', adresse: 'Adresse', ville: 'Ville', appartement: 'Appartement', loyer_contractuel: 'Loyer contractuel', bail: 'Bail', debut: 'Debut', fin: 'Fin', action: 'Action', } as Record<string, string>)[key] ?? key;
+  return ({ reference: 'Référence', facture: 'Facture', date: 'Date', montant: 'Montant', devise: 'Devise', mode: 'Mode', utilisateur: 'Utilisateur', observations: 'Observations', statut: 'Statut', total: 'Total', paye: 'Payé', restant: 'Restant', nom: 'Nom', type: 'Type', telephone: 'Téléphone', telephone_secondaire: 'Téléphone secondaire', email: 'Email', rccm: 'RCCM', secteur: 'Secteur', immeuble: 'Immeuble', adresse: 'Adresse', ville: 'Ville', appartement: 'Appartement', loyer_contractuel: 'Loyer contractuel', bail: 'Bail', debut: 'Début', fin: 'Fin', action: 'Action', } as Record<string, string>)[key] ?? key;
 }
 
 function isGuaranteePayment(payment: PaymentDetailData) {
@@ -494,7 +496,7 @@ function isTenantCreditAllocationPayment(payment: PaymentDetailData) {
 }
 
 function paymentSubjectLabel(payment: PaymentDetailData) {
-  if (isTenantCreditAllocationPayment(payment)) return `Facture: ${payment.invoice_number ?? '-'}`;
+  if (isTenantCreditAllocationPayment(payment)) return `Facture : ${payment.invoice_number ?? '-'}`;
   if (isTenantCreditPayment(payment)) return 'Crédit locataire';
   if (isGuaranteePayment(payment)) return 'Garantie locative';
   return `Facture: ${payment.invoice_number ?? '-'}`;
@@ -505,12 +507,12 @@ function displayValue(value: unknown) {
   return normalized || '—';
 }
 
-function paymentReceiptTitle(payment: PaymentDetailData) {
+function paymentReceiptTitle(payment: PaymentDetailData, branding: { receiptPrefix: string }) {
   if (isTenantCreditAllocationPayment(payment)) return 'AFFECTATION CRÉDIT LOCATAIRE';
-  if (isGuaranteePayment(payment)) return 'REÇU PAIEMENT GARANTIE';
-  if (isTenantCreditPayment(payment)) return 'REÇU CRÉDIT LOCATAIRE';
-  if (String(payment.invoice_type ?? '').toUpperCase() === 'OTHER_CHARGE') return 'REÇU PAIEMENT AUTRES CHARGES';
-  return 'REÇU PAIEMENT LOYER';
+  if (isGuaranteePayment(payment)) return `${branding.receiptPrefix} GARANTIE`;
+  if (isTenantCreditPayment(payment)) return `${branding.receiptPrefix} CRÉDIT LOCATAIRE`;
+  if (String(payment.invoice_type ?? '').toUpperCase() === 'OTHER_CHARGE') return `${branding.receiptPrefix} AUTRES CHARGES`;
+  return `${branding.receiptPrefix} LOYER`;
 }
 
 function tenantCreditStatusLabel(value: string) {
@@ -518,5 +520,5 @@ function tenantCreditStatusLabel(value: string) {
 }
 
 function statusLabel(value: string) {
-  return ({ PAID: 'Facture acquittee', PARTIAL: 'Paiement partiel', UNPAID: 'A payer', OVERDUE: 'En retard', DRAFT: 'Brouillon', CANCELLED: 'Annulee' } as Record<string, string>)[value] ?? value;
+  return ({ PAID: 'Facture acquittée', PARTIAL: 'Paiement partiel', UNPAID: 'À payer', OVERDUE: 'En retard', DRAFT: 'Brouillon', CANCELLED: 'Annulée' } as Record<string, string>)[value] ?? value;
 }

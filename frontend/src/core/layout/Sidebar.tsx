@@ -29,6 +29,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { appConfig } from '../../app/config';
 import { useAuth } from '../auth/AuthContext';
 import { isPlatformSuperAdmin } from '../auth/PlatformRoute';
+import { getPaymentsBranding } from '../utils/payments-branding';
 
 type NavLinkItem = {
   type?: 'link';
@@ -146,6 +147,7 @@ const defaultOpenGroups = ['Tableau de bord', 'Gestion immobilière', 'Finance',
 export function Sidebar() {
   const { can, user } = useAuth();
   const location = useLocation();
+  const paymentsBranding = getPaymentsBranding(user?.organization_id);
   const hasPermission = (permission?: string) => !permission || can(permission);
   const superAdmin = isPlatformSuperAdmin(user);
   const [openGroups, setOpenGroups] = useState<string[]>(() => {
@@ -231,7 +233,7 @@ export function Sidebar() {
                         setOpenKeys={setOpenGroups}
                       />
                     ) : (
-                      <SidebarLink key={entry.to ?? entry.label} item={entry} pathname={location.pathname} />
+                      <SidebarLink key={entry.to ?? entry.label} item={entry} pathname={location.pathname} paymentsLabel={paymentsBranding.modulePlural} />
                     ),
                   )}
                 </div>
@@ -278,7 +280,7 @@ function SidebarSubgroup({
   );
 }
 
-function SidebarLink({ item, pathname, nested = false }: { item: NavLinkItem; pathname: string; nested?: boolean }) {
+function SidebarLink({ item, pathname, nested = false, paymentsLabel }: { item: NavLinkItem; pathname: string; nested?: boolean; paymentsLabel?: string }) {
   const ItemIcon = item.icon;
   const className = nested ? 'sidebar-subitem sidebar-subitem-nested' : 'sidebar-subitem';
   const isActive = Boolean(item.to && isRouteActive(pathname, item.to));
@@ -291,7 +293,7 @@ function SidebarLink({ item, pathname, nested = false }: { item: NavLinkItem; pa
         className={() => (isActive ? `${className} active` : className)}
       >
         <ItemIcon size={16} />
-        {item.label}
+        {paymentsLabel && item.to === '/payments' ? paymentsLabel : item.label}
       </NavLink>
     );
   }
@@ -299,7 +301,7 @@ function SidebarLink({ item, pathname, nested = false }: { item: NavLinkItem; pa
   return (
     <span className={`${className} sidebar-subitem-soon`}>
       <ItemIcon size={16} />
-      {item.label}
+      {paymentsLabel && item.to === '/payments' ? paymentsLabel : item.label}
       <small>Bientôt</small>
     </span>
   );

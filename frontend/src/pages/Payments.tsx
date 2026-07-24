@@ -6,6 +6,7 @@ import { useAuth } from '../auth';
 import { EmptyState, Modal, PageHeader, SuccessMessage } from '../components';
 import { useApiList } from '../hooks';
 import { formatLeaseReference } from '../utils/lease-reference';
+import { getPaymentsBranding } from '../core/utils/payments-branding';
 
 type Payment = {
   id: number;
@@ -68,8 +69,9 @@ const paymentMethods = [
 ];
 
 export function Payments() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const navigate = useNavigate();
+  const paymentsBranding = getPaymentsBranding(user?.organization_id);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [paymentsLoading, setPaymentsLoading] = useState(true);
   const [paymentsError, setPaymentsError] = useState('');
@@ -102,7 +104,7 @@ export function Payments() {
       const response = await api.get<Payment[]>('/payments');
       setPayments(response.data);
     } catch (error) {
-      setPaymentsError(apiErrorMessage(error, 'Impossible de charger les paiements. Veuillez réessayer ou contacter l’administrateur.'));
+      setPaymentsError(apiErrorMessage(error, paymentsBranding.errorLoading));
     } finally {
       setPaymentsLoading(false);
     }
@@ -194,7 +196,7 @@ export function Payments() {
       payer_name: form.get('payer_name'),
     };
     await api.post('/payments', payload);
-    setSuccess('Paiement enregistré avec succès.');
+    setSuccess(paymentsBranding.recordedMessage);
     setOpen(false);
     setSelectedInvoiceId(null);
     reloadPayments();
@@ -216,19 +218,19 @@ export function Payments() {
   }
 
   const quickStats = [
-    ['Total paiements', totals.total],
-    ['Paiements aujourd\'hui', totals.today],
+    ['Total encaissements', totals.total],
+    ['Encaissements aujourd\'hui', totals.today],
     ['Ce mois', totals.month],
     ['Espèces', totals.cash],
     ['Banque', totals.bank],
     ['Mobile Money', totals.mobile],
-    ['Paiements partiels', totals.partial],
+    ['Encaissements partiels', totals.partial],
     ['Total encaissé', money(totals.collected)],
   ] as const;
 
   return (
     <section>
-      <PageHeader title="Paiements" action={can('payments.create') ? <button onClick={() => { setOpen(true); refreshExchangeRate(); }}><Plus size={16} />Nouveau paiement</button> : undefined} />
+      <PageHeader title={paymentsBranding.modulePlural} action={can('payments.create') ? <button onClick={() => { setOpen(true); refreshExchangeRate(); }}><Plus size={16} />{paymentsBranding.newActionLabel}</button> : undefined} />
       <SuccessMessage message={success} />
       {paymentsError ? <div className="error-banner">{paymentsError}</div> : null}
 
@@ -247,7 +249,7 @@ export function Payments() {
         </div>
         <div className="toolbar-actions">
           <button type="button" className="secondary" onClick={() => setFilters({ month: '', year: '', payment_method: '', tenant: '', status: '', invoice: '', start: '', end: '', min: '', max: '', receipt: '', reference: '' })}>Réinitialiser</button>
-          <button type="button" className="secondary" onClick={() => exportXlsxWorkbook('Paiements.xlsx', [{ name: 'Paiements', rows: exportRows() }])}><FileSpreadsheet size={16} />Exporter</button>
+          <button type="button" className="secondary" onClick={() => exportXlsxWorkbook(`${paymentsBranding.modulePlural}.xlsx`, [{ name: paymentsBranding.modulePlural, rows: exportRows() }])}><FileSpreadsheet size={16} />Exporter</button>
         </div>
       </div>
 
@@ -325,9 +327,9 @@ export function Payments() {
             })}
           </tbody>
         </table>
-        {paymentsLoading ? <EmptyState message="Chargement des paiements..." /> : null}
+        {paymentsLoading ? <EmptyState message={paymentsBranding.loadingMessage} /> : null}
         {!paymentsLoading && !paymentsError && !payments.length ? (
-          <EmptyState message="Aucun élément trouvé. Ajustez les filtres ou créez le premier élément si vous avez les droits." />
+          <EmptyState title={paymentsBranding.emptyStateTitle} message={paymentsBranding.emptyStateDescription} />
         ) : null}
       </div>
 
@@ -338,6 +340,7 @@ export function Payments() {
           selectedInvoice={selectedInvoice}
           selectedInvoiceId={selectedInvoiceId}
           exchangeRate={exchangeRate}
+          paymentsBranding={paymentsBranding}
           onSelectInvoice={setSelectedInvoiceId}
           onClose={() => {
             setOpen(false);
@@ -350,7 +353,7 @@ export function Payments() {
   );
 
   async function cancelPayment(paymentId: number) {
-    if (!window.confirm('Annuler ce paiement ?')) return;
+    if (!window.confirm(paymentsBranding.cancelConfirm)) return;
     await api.delete(`/payments/${paymentId}`);
     reloadPayments();
     invoices.reload();
@@ -363,6 +366,7 @@ function PaymentModal({
   selectedInvoice,
   selectedInvoiceId,
   exchangeRate,
+  paymentsBranding,
   onSelectInvoice,
   onClose,
   onSubmit,
@@ -372,6 +376,7 @@ function PaymentModal({
   selectedInvoice: Invoice | null;
   selectedInvoiceId: number | null;
   exchangeRate: ExchangeRate | null;
+  paymentsBranding: { newActionLabel: string };
   onSelectInvoice: (value: number | null) => void;
   onClose: () => void;
   onSubmit: (form: FormData) => Promise<void>;
@@ -477,7 +482,7 @@ function PaymentModal({
       : contextFallback;
 
   return (
-    <Modal title="Nouveau paiement" onClose={onClose}>
+    <Modal title={paymentsBranding.newActionLabel} onClose={onClose}>
       <form
         className="form-grid payment-modal"
         onSubmit={async (event) => {

@@ -21,6 +21,7 @@ import {
 import { api, exportExcel, statusLabel } from '../api';
 import { EmptyState, LoadingState, PageHeader } from '../components';
 import { useAuth } from '../auth';
+import { getPaymentsBranding } from '../core/utils/payments-branding';
 
 type ChartPoint = { name: string; value: number };
 
@@ -110,7 +111,8 @@ const REVENUE_COLORS = [
 ];
 
 export function Dashboard() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
+  const paymentsBranding = getPaymentsBranding(user?.organization_id);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -145,7 +147,7 @@ export function Dashboard() {
     ['Impayés / retards', summary?.overdue_invoices ?? summary?.unpaid_invoices, FileWarning, '/invoices?filter=impayes'],
     ['Alertes stock', summary?.stock_alerts, Boxes, '/stock'],
     ['Maintenance ouverte', summary?.maintenance_open, Wrench, '/maintenance'],
-    ['Paiements', summary?.payments, CreditCard, '/payments'],
+    [paymentsBranding.modulePlural, summary?.payments, CreditCard, '/payments'],
   ];
 
   const revenueByBuilding = useMemo<RevenueDatum[]>(
