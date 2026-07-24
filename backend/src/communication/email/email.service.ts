@@ -149,7 +149,7 @@ export class EmailService {
 
   async sendTestEmail(dto: SendTestEmailDto) {
     const organizationId = this.context.organizationId();
-    const settings = await this.getValidatedSettingsForSending(organizationId, true);
+    const settings = await this.getValidatedSettingsForSending(organizationId, false);
     const organizationName = await this.resolveOrganizationName(organizationId);
     const [baseTemplate, bodyTemplate] = await Promise.all([
       this.readTemplate('base.html'),
