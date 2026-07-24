@@ -10647,7 +10647,10 @@ export class SaasService {
   }
 
   private statementMovementOrder(type: string) {
-    return type === 'INVOICE' ? 1 : type === 'PAYMENT' ? 2 : 0;
+    if (type === 'INVOICE') return 1;
+    if (type === 'TENANT_CREDIT') return 2;
+    if (type === 'PAYMENT') return 3;
+    return 0;
   }
 
   private statementEntityLabel(scope: 'tenant' | 'unit' | 'building', row: Record<string, any>) {
@@ -10683,9 +10686,13 @@ export class SaasService {
     const openingBalance = await this.statementOpeningBalance(scope, id, organizationId, period.start);
     const invoiceRows = await this.statementInvoices(scope, id, organizationId, period.start, period.end);
     const paymentRows = await this.statementPayments(scope, id, organizationId, period.start, period.end);
-    const movements = this.statementMovements(openingBalance, invoiceRows, paymentRows, currency, period.start);
+    const tenantCreditRows = scope === 'tenant'
+      ? await this.statementTenantCredits(id, organizationId, period.start, period.end)
+      : [];
+    const movements = this.statementMovements(openingBalance, invoiceRows, paymentRows, tenantCreditRows, currency, period.start);
     const debits = invoiceRows.reduce((sum, row) => sum + Number(row.total ?? 0), 0);
-    const credits = paymentRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+    const credits = paymentRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0)
+      + tenantCreditRows.reduce((sum, row) => sum + Number(row.amount ?? row.original_amount ?? 0), 0);
     const closingBalance = Number(openingBalance ?? 0) + debits - credits;
     return {
       kind: scope.toUpperCase(),
@@ -10698,7 +10705,7 @@ export class SaasService {
         credits,
         closing_balance: Number(closingBalance.toFixed(2)),
         invoices_count: invoiceRows.length,
-        payments_count: paymentRows.length,
+        payments_count: paymentRows.length + tenantCreditRows.length,
       },
       movements,
       invoices: invoiceRows,
@@ -10824,9 +10831,9 @@ export class SaasService {
            LEFT JOIN leases l ON l.id = i.lease_id
            LEFT JOIN tenants t ON t.id = i.tenant_id
            WHERE ${paymentCondition}
-             AND p.payment_date < $3
-             AND p.organization_id = $2
-             AND p.deleted_at IS NULL`
+           AND p.payment_date < $3
+           AND p.organization_id = $2
+           AND p.deleted_at IS NULL`
         : `SELECT COALESCE(SUM(p.amount), 0)::FLOAT AS total
            FROM payments p
            JOIN invoices i ON i.id = p.invoice_id
@@ -10837,11 +10844,75 @@ export class SaasService {
              AND p.payment_date < $3
              AND p.organization_id = $2
              AND p.deleted_at IS NULL`;
-    const [invoiceBalance, paymentBalance] = await Promise.all([
+    const tenantCreditSql = scope === 'tenant'
+      ? `SELECT COALESCE(SUM(GREATEST(tc.original_amount - COALESCE(alloc.amount_used, 0) - COALESCE(refund.amount_refunded, 0), 0)), 0)::FLOAT AS total
+         FROM tenant_credits tc
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(SUM(tca.amount_applied), 0)::FLOAT AS amount_used
+           FROM tenant_credit_allocations tca
+           WHERE tca.tenant_credit_id = tc.id
+             AND tca.organization_id = tc.organization_id
+             AND tca.deleted_at IS NULL
+             AND tca.created_at::DATE < $3::DATE
+         ) alloc ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(SUM(tcr.amount), 0)::FLOAT AS amount_refunded
+           FROM tenant_credit_refunds tcr
+           WHERE tcr.tenant_credit_id = tc.id
+             AND tcr.organization_id = tc.organization_id
+             AND tcr.deleted_at IS NULL
+             AND tcr.refund_date < $3::DATE
+         ) refund ON TRUE
+         WHERE tc.tenant_id = $1
+           AND tc.organization_id = $2
+           AND tc.deleted_at IS NULL
+           AND tc.payment_date < $3::DATE`
+      : null;
+    const [invoiceBalance, paymentBalance, tenantCreditBalance] = await Promise.all([
       this.db.query(invoiceSql, [id, organizationId, start]),
       this.db.query(paymentSql, [id, organizationId, start]),
+      tenantCreditSql ? this.db.query(tenantCreditSql, [id, organizationId, start]) : Promise.resolve({ rows: [{ total: 0 }] }) as Promise<{ rows: Array<{ total: number }> }>,
     ]);
-    return Number(invoiceBalance.rows[0]?.total ?? 0) - Number(paymentBalance.rows[0]?.total ?? 0);
+    return Number(invoiceBalance.rows[0]?.total ?? 0)
+      - Number(paymentBalance.rows[0]?.total ?? 0)
+      - Number(tenantCreditBalance.rows[0]?.total ?? 0);
+  }
+
+  private async statementTenantCredits(id: number, organizationId: number, start: string, end: string) {
+    const { rows } = await this.db.query(
+      `SELECT tc.id, tc.payment_date, tc.reference, tc.currency, tc.original_amount, tc.remaining_amount, tc.status,
+              p.receipt_number, p.payment_method, p.amount_usd, p.amount_cdf, p.total_equivalent_usd,
+              tc.tenant_id,
+              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name,
+              l.lease_number,
+              u.number AS unit_number,
+              b.name AS building_name
+       FROM tenant_credits tc
+       JOIN payments p ON p.id = tc.source_payment_id
+         AND p.organization_id = tc.organization_id
+         AND p.deleted_at IS NULL
+       JOIN tenants t ON t.id = tc.tenant_id
+         AND t.organization_id = tc.organization_id
+         AND t.deleted_at IS NULL
+       LEFT JOIN leases l ON l.id = tc.lease_id
+         AND l.organization_id = tc.organization_id
+         AND l.deleted_at IS NULL
+       LEFT JOIN units u ON u.id = l.unit_id
+         AND u.organization_id = tc.organization_id
+         AND u.deleted_at IS NULL
+       LEFT JOIN buildings b ON b.id = u.building_id
+         AND b.organization_id = tc.organization_id
+         AND b.deleted_at IS NULL
+       WHERE tc.tenant_id = $1
+         AND tc.organization_id = $2
+         AND tc.deleted_at IS NULL
+         AND tc.payment_date BETWEEN $3 AND $4
+       ORDER BY tc.payment_date ASC, tc.id ASC`,
+      [id, organizationId, start, end],
+    );
+    return rows;
   }
 
   private async statementInvoices(scope: 'tenant' | 'unit' | 'building', id: number, organizationId: number, start: string, end: string) {
@@ -10954,7 +11025,7 @@ export class SaasService {
     return rows;
   }
 
-  private statementMovements(openingBalance: number, invoices: Record<string, any>[], payments: Record<string, any>[], currency: string, openingDate: string) {
+  private statementMovements(openingBalance: number, invoices: Record<string, any>[], payments: Record<string, any>[], tenantCredits: Record<string, any>[], currency: string, openingDate: string) {
     const rows = [
       {
         date: openingDate,
@@ -10985,6 +11056,16 @@ export class SaasService {
         credit: Number(payment.amount ?? 0),
         currency,
         source_id: payment.id,
+      })),
+      ...tenantCredits.map((credit) => ({
+        date: credit.payment_date,
+        reference: credit.receipt_number ?? credit.reference ?? `#${credit.id}`,
+        movement_type: 'TENANT_CREDIT',
+        label: `Crédit locataire ${credit.receipt_number ?? credit.reference ?? `#${credit.id}`}`,
+        debit: 0,
+        credit: Number(credit.original_amount ?? credit.amount ?? 0),
+        currency: String(credit.currency ?? currency),
+        source_id: credit.id,
       })),
     ].sort((a, b) => {
       const dateDiff = new Date(String(a.date)).getTime() - new Date(String(b.date)).getTime();

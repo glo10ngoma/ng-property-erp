@@ -410,6 +410,7 @@ function SummaryCard({ label, value, wide }: { label: string; value: unknown; wi
 function movementLabel(type: string) {
   if (type === 'OPENING') return 'Solde initial';
   if (type === 'INVOICE') return 'Facture';
+  if (type === 'TENANT_CREDIT') return 'Crédit locataire';
   if (type === 'PAYMENT') return 'Paiement';
   return type;
 }
