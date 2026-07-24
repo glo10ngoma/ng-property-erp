@@ -1,11 +1,35 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { api, exportCsv, exportExcel, includesText, shortDate } from '../../../api';
 import { useAuth } from '../../../auth';
-import { EmptyState, PageHeader, SuccessMessage, TableToolbar } from '../../../components';
+import { EmptyState, Modal, PageHeader, SuccessMessage, TableToolbar } from '../../../components';
 
 type Template = { id: number; code: string; name: string; channel: string; subject?: string; body: string; variables?: string[]; status: string };
 type CommunicationLog = { id: number; recipient: string; subject?: string; message: string; status: string; sent_at?: string; created_at: string; related_entity_type?: string };
 type Notification = { id: number; title: string; message: string; priority: string; status: string; link_path?: string; created_at: string; user_name?: string };
+type CommunicationHistoryRow = {
+  id: number;
+  organization_id: number;
+  organization_name: string | null;
+  channel: string;
+  provider: string | null;
+  recipient: string;
+  subject: string | null;
+  status: string;
+  document_type: string | null;
+  document_id: number | null;
+  document_reference: string | null;
+  invoice_reference: string | null;
+  document_label: string | null;
+  delivery_trigger: string | null;
+  idempotency_key: string | null;
+  external_message_id: string | null;
+  error: string | null;
+  created_by: number | null;
+  created_by_name: string | null;
+  actor_label: string | null;
+  attempt_count: number;
+  created_at: string;
+};
 
 export function CommunicationsPage() {
   const { can } = useAuth();
@@ -183,6 +207,7 @@ export function CommunicationsPage() {
 
       {can('communication.logs.read') && (
         <>
+          <CommunicationHistorySection />
           <LogsSection title="Logs email" filename="communications-email.csv" logs={filteredEmailLogs} />
           <LogsSection title="Logs SMS" filename="communications-sms.csv" logs={filteredSmsLogs} />
           <LogsSection title="Logs WhatsApp" filename="communications-whatsapp.csv" logs={filteredWhatsappLogs} />
@@ -223,6 +248,165 @@ function LogsSection({ title, filename, logs }: { title: string; filename: strin
         empty="Aucun log."
         rows={logs.map((log) => [log.recipient, log.subject ?? '-', <Badge key="status" value={log.status} />, shortDate(log.sent_at ?? log.created_at), log.message])}
       />
+    </Section>
+  );
+}
+
+function CommunicationHistorySection() {
+  const [rows, setRows] = useState<CommunicationHistoryRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [selected, setSelected] = useState<CommunicationHistoryRow | null>(null);
+  const [filters, setFilters] = useState({
+    from: '',
+    to: '',
+    status: '',
+    trigger: '',
+    documentType: '',
+    recipient: '',
+    search: '',
+  });
+
+  async function loadHistory(nextFilters = filters) {
+    setLoading(true);
+    setError('');
+    try {
+      const params = {
+        limit: 100,
+        from: nextFilters.from || undefined,
+        to: nextFilters.to || undefined,
+        status: nextFilters.status || undefined,
+        trigger: nextFilters.trigger || undefined,
+        documentType: nextFilters.documentType || undefined,
+        recipient: nextFilters.recipient || undefined,
+        search: nextFilters.search || undefined,
+      };
+      const response = await api.get<CommunicationHistoryRow[]>('/communications/email/logs', { params });
+      setRows(response.data ?? []);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Impossible de charger l'historique des communications.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function openDetail(id: number) {
+    setError('');
+    try {
+      const response = await api.get<CommunicationHistoryRow>(`/communications/email/logs/${id}`);
+      setSelected(response.data);
+    } catch (detailError) {
+      setError(detailError instanceof Error ? detailError.message : 'Impossible de charger le détail.');
+    }
+  }
+
+  function updateFilter<K extends keyof typeof filters>(key: K, value: string) {
+    setFilters((current) => ({ ...current, [key]: value }));
+  }
+
+  const exportRows = useMemo(() => rows.map((row) => ({
+    Date: formatDateTime(row.created_at),
+    Organisation: row.organization_name ?? `Organisation ${row.organization_id}`,
+    Destinataire: row.recipient,
+    Canal: channelLabel(row.channel),
+    'Type de document': documentTypeLabel(row.document_type),
+    Référence: row.document_reference ?? row.invoice_reference ?? '—',
+    Déclencheur: triggerLabel(row.delivery_trigger),
+    Statut: statusLabel(row.status),
+    Erreur: row.error ?? '',
+    Utilisateur: row.actor_label ?? row.created_by_name ?? '—',
+  })), [rows]);
+
+  return (
+    <Section
+      title="Historique des communications"
+      action={
+        <span className="actions">
+          <button className="secondary" onClick={() => void loadHistory()} disabled={loading}>{loading ? 'Chargement...' : 'Actualiser'}</button>
+          <button className="secondary" onClick={() => exportExcel('communications-historique.xls', exportRows)}>Exporter Excel</button>
+        </span>
+      }
+    >
+      {error ? <div className="error-message">{error}</div> : null}
+      <div className="table-toolbar communication-history-toolbar">
+        <div className="toolbar-main communication-history-filters">
+          <input type="date" value={filters.from} onChange={(event) => updateFilter('from', event.target.value)} placeholder="Début" />
+          <input type="date" value={filters.to} onChange={(event) => updateFilter('to', event.target.value)} placeholder="Fin" />
+          <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)}>
+            <option value="">Tous les statuts</option>
+            <option value="SENT">Envoyé</option>
+            <option value="FAILED">Échec</option>
+            <option value="PENDING">En attente</option>
+            <option value="SKIPPED">Ignoré</option>
+          </select>
+          <select value={filters.trigger} onChange={(event) => updateFilter('trigger', event.target.value)}>
+            <option value="">Tous les déclencheurs</option>
+            <option value="MANUAL">Manuel</option>
+            <option value="AUTO">Automatique</option>
+            <option value="SYSTEM">Système</option>
+          </select>
+          <select value={filters.documentType} onChange={(event) => updateFilter('documentType', event.target.value)}>
+            <option value="">Tous les documents</option>
+            <option value="INVOICE">Facture</option>
+            <option value="PAYMENT_RECEIPT">Reçu de paiement</option>
+            <option value="TENANT_CREDIT_RECEIPT">Reçu de crédit locataire</option>
+          </select>
+          <input value={filters.recipient} onChange={(event) => updateFilter('recipient', event.target.value)} placeholder="Destinataire" />
+          <input value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} placeholder="Recherche" />
+        </div>
+      <div className="toolbar-actions">
+          <button className="secondary" onClick={() => {
+            const nextFilters = { from: '', to: '', status: '', trigger: '', documentType: '', recipient: '', search: '' };
+            setFilters(nextFilters);
+            void loadHistory(nextFilters);
+          }}>Réinitialiser</button>
+          <button className="secondary" onClick={() => void loadHistory()}>Filtrer</button>
+          <button className="secondary" onClick={() => exportCsv('communications-historique.csv', exportRows)}>CSV</button>
+        </div>
+      </div>
+
+      <DataTable
+        headers={['Date / heure', 'Organisation', 'Destinataire', 'Canal', 'Document', 'Référence', 'Déclencheur', 'Statut', 'Utilisateur / Processus', 'Actions']}
+        empty="Aucune communication."
+        rows={rows.map((row) => [
+          formatDateTime(row.created_at),
+          row.organization_name ?? `Organisation ${row.organization_id}`,
+          row.recipient,
+          channelLabel(row.channel),
+          documentTypeLabel(row.document_type),
+          row.document_reference ?? row.invoice_reference ?? '—',
+          triggerLabel(row.delivery_trigger),
+          <Badge key={`status-${row.id}`} value={row.status} />,
+          row.actor_label ?? row.created_by_name ?? '—',
+          <button key={`detail-${row.id}`} className="secondary" type="button" onClick={() => void openDetail(row.id)}>Détail</button>,
+        ])}
+      />
+
+      {selected ? (
+        <Modal title={`Détail - ${selected.document_reference ?? selected.invoice_reference ?? `Log ${selected.id}`}`} onClose={() => setSelected(null)}>
+          <div className="detail-grid communication-history-detail">
+            <div><span>Destinataire</span><strong>{selected.recipient}</strong></div>
+            <div><span>Sujet</span><strong>{selected.subject ?? '—'}</strong></div>
+            <div><span>Document concerné</span><strong>{selected.document_label ?? documentTypeLabel(selected.document_type)}</strong></div>
+            <div><span>Référence du document</span><strong>{selected.document_reference ?? '—'}</strong></div>
+            <div><span>Facture concernée</span><strong>{selected.invoice_reference ?? '—'}</strong></div>
+            <div><span>Date d'envoi</span><strong>{formatDateTime(selected.created_at)}</strong></div>
+            <div><span>Fournisseur email</span><strong>{selected.provider ?? '—'}</strong></div>
+            <div><span>Identifiant fournisseur</span><strong>{selected.external_message_id ?? '—'}</strong></div>
+            <div><span>Statut</span><strong>{statusLabel(selected.status)}</strong></div>
+            <div><span>Déclencheur</span><strong>{triggerLabel(selected.delivery_trigger)}</strong></div>
+            <div><span>Nombre de tentatives</span><strong>{selected.attempt_count}</strong></div>
+            <div><span>Organisation</span><strong>{selected.organization_name ?? `Organisation ${selected.organization_id}`}</strong></div>
+            <div><span>Utilisateur / Processus</span><strong>{selected.actor_label ?? selected.created_by_name ?? '—'}</strong></div>
+            <div className="detail-full"><span>Erreur</span><strong>{selected.error ?? '—'}</strong></div>
+          </div>
+        </Modal>
+      ) : null}
     </Section>
   );
 }
@@ -270,12 +454,34 @@ function statusLabel(value: string) {
     SENT: 'Envoye',
     FAILED: 'Echec',
     PENDING: 'En attente',
+    SKIPPED: 'Ignoré',
   };
   return labels[value] ?? value;
 }
 
 function channelLabel(value: string) {
   return ({ EMAIL: 'Email', SMS: 'SMS', WHATSAPP: 'WhatsApp', INTERNAL: 'Interne' } as Record<string, string>)[value] ?? value;
+}
+
+function documentTypeLabel(value?: string | null) {
+  return ({
+    INVOICE: 'Facture',
+    PAYMENT_RECEIPT: 'Reçu de paiement',
+    TENANT_CREDIT_RECEIPT: 'Reçu de crédit locataire',
+  } as Record<string, string>)[String(value ?? '')] ?? String(value ?? '—');
+}
+
+function triggerLabel(value?: string | null) {
+  return ({
+    MANUAL: 'Manuel',
+    AUTO: 'Automatique',
+    SYSTEM: 'Système',
+  } as Record<string, string>)[String(value ?? '')] ?? String(value ?? '—');
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return '—';
+  return new Date(String(value)).toLocaleString('fr-FR', { timeZone: 'Africa/Kinshasa' });
 }
 
 function badgeClass(value: string) {

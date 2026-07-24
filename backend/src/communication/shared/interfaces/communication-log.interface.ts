@@ -1,6 +1,7 @@
 export type CommunicationLog = {
   id: number;
   organization_id: number;
+  organization_name: string | null;
   channel: string;
   provider: string | null;
   recipient: string;
@@ -8,9 +9,16 @@ export type CommunicationLog = {
   status: string;
   document_type: string | null;
   document_id: number | null;
+  document_reference: string | null;
+  invoice_reference: string | null;
+  document_label: string | null;
   delivery_trigger: string | null;
   idempotency_key: string | null;
   external_message_id: string | null;
   error: string | null;
+  created_by: number | null;
+  created_by_name: string | null;
+  actor_label: string | null;
+  attempt_count: number;
   created_at: string;
 };

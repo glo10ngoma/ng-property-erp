@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { RequestContext } from '../auth/request-context';
 import { SendDocumentDto } from './dto/send-document.dto';
 import { DocumentResolverService } from './document-resolver.service';
@@ -10,6 +10,8 @@ import { EmailService } from './email/email.service';
 
 @Injectable()
 export class CommunicationService {
+  private readonly automaticInvoiceOrganizationIds = new Set([1, 5]);
+
   constructor(
     private readonly emailService: EmailService,
     private readonly documentResolver: DocumentResolverService,
@@ -60,8 +62,26 @@ export class CommunicationService {
     });
   }
 
-  emailLogs(limit?: number) {
-    return this.emailService.listLogs(limit);
+  emailLogs(filters?: {
+    limit?: number;
+    offset?: number;
+    status?: string;
+    trigger?: string;
+    documentType?: string;
+    recipient?: string;
+    search?: string;
+    from?: string;
+    to?: string;
+  }) {
+    return this.emailService.listLogs(filters);
+  }
+
+  async emailLog(id: number) {
+    const log = await this.emailService.getLog(id);
+    if (!log) {
+      throw new NotFoundException('Log de communication introuvable.');
+    }
+    return log;
   }
 
   private async sendAutomaticDocument(
@@ -87,6 +107,7 @@ export class CommunicationService {
         trigger: DocumentDeliveryTrigger.AUTO,
         idempotencyKey,
         status: 'SKIPPED',
+        createdBy: this.context.userId(),
         error: !autoAllowed
           ? 'AUTO_SEND_DISABLED'
           : !settings.enabled
@@ -141,7 +162,7 @@ export class CommunicationService {
   private isAutoSendEnabled(documentType: DocumentType, settings: Awaited<ReturnType<EmailService['getSettings']>>) {
     switch (documentType) {
       case DocumentType.INVOICE:
-        return Boolean(settings.autoSendInvoice);
+        return this.automaticInvoiceOrganizationIds.has(this.context.organizationId()) && Boolean(settings.autoSendInvoice);
       case DocumentType.PAYMENT_RECEIPT:
         return Boolean(settings.autoSendPaymentReceipt);
       case DocumentType.TENANT_CREDIT_RECEIPT:

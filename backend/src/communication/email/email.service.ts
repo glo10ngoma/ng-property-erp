@@ -15,6 +15,8 @@ import { EmailProvider } from './providers/email-provider';
 import { ResendProvider } from './providers/resend.provider';
 import { decryptSecret, encryptSecret } from './utils/secret-crypto';
 
+const AUTO_INVOICE_ORGANIZATION_IDS = new Set([1, 5]);
+
 type EmailSettingsRow = {
   id: number;
   organization_id: number;
@@ -29,6 +31,25 @@ type EmailSettingsRow = {
   auto_send_tenant_credit_receipt: boolean;
   created_at: string;
   updated_at: string;
+};
+
+type CommunicationLogFilters = {
+  limit?: number;
+  offset?: number;
+  status?: string;
+  trigger?: string;
+  documentType?: string;
+  recipient?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+};
+
+type CommunicationLogRow = CommunicationLog & {
+  document_reference: string | null;
+  invoice_reference: string | null;
+  document_label: string | null;
+  actor_label: string | null;
 };
 
 type EmailSettingsSummary = {
@@ -60,8 +81,9 @@ export class EmailService {
   }
 
   async getSettings() {
-    const row = await this.loadSettingsRow(this.context.organizationId());
-    return this.toSettingsSummary(row);
+    const organizationId = this.context.organizationId();
+    const row = await this.loadSettingsRow(organizationId);
+    return this.toSettingsSummary(row, organizationId);
   }
 
   async updateSettings(dto: UpdateEmailSettingsDto) {
@@ -70,6 +92,7 @@ export class EmailService {
     const apiKeyEncrypted = dto.api_key
       ? encryptSecret(dto.api_key, this.secretKey())
       : existing?.api_key_encrypted ?? null;
+    const autoSendInvoice = this.normalizeAutomaticInvoiceSetting(organizationId, dto.auto_send_invoice ?? false);
 
     const query = `
       INSERT INTO communication_settings (
@@ -109,12 +132,12 @@ export class EmailService {
       dto.reply_to ?? null,
       apiKeyEncrypted,
       dto.enabled,
-      dto.auto_send_invoice ?? false,
+      autoSendInvoice,
       dto.auto_send_payment_receipt ?? false,
       dto.auto_send_tenant_credit_receipt ?? false,
     ]);
 
-    return this.toSettingsSummary(result.rows[0] ?? null);
+    return this.toSettingsSummary(result.rows[0] ?? null, organizationId);
   }
 
   async testConnection() {
@@ -156,6 +179,7 @@ export class EmailService {
         provider: settings.provider,
         recipient: dto.recipient,
         subject: 'Test ERP Immobilier',
+        createdBy: this.context.userId(),
       });
       const sent = await this.provider.send({
         apiKey: settings.apiKey,
@@ -235,6 +259,7 @@ export class EmailService {
         provider: settings.provider,
         recipient,
         subject: finalSubject,
+        createdBy: this.context.userId(),
       });
       const sent = await this.provider.send({
         apiKey: settings.apiKey,
@@ -329,6 +354,7 @@ export class EmailService {
       trigger,
       idempotencyKey: args.idempotencyKey ?? null,
       status: 'PENDING',
+      createdBy: this.context.userId(),
     });
 
     if (!logId) {
@@ -380,34 +406,16 @@ export class EmailService {
     }
   }
 
-  async listLogs(limit = 20) {
-    const normalizedLimit = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 20;
-    const result = await this.db.query<CommunicationLog>(
-      `
-        SELECT
-          id,
-          organization_id,
-          channel,
-          provider,
-          recipient,
-          subject,
-          status,
-          document_type,
-          document_id,
-          delivery_trigger,
-          idempotency_key,
-          external_message_id,
-          error,
-          created_at
-        FROM communication_logs
-        WHERE organization_id = $1
-          AND channel = $2
-        ORDER BY created_at DESC, id DESC
-        LIMIT $3
-      `,
-      [this.context.organizationId(), CommunicationChannel.EMAIL, normalizedLimit],
-    );
+  async listLogs(filters: CommunicationLogFilters = {}) {
+    const { sql, params } = this.buildLogQuery(filters);
+    const result = await this.db.query<CommunicationLogRow>(sql, params);
     return result.rows;
+  }
+
+  async getLog(id: number) {
+    const { sql, params } = this.buildLogQuery({ limit: 1 }, id);
+    const result = await this.db.query<CommunicationLogRow>(sql, params);
+    return result.rows[0] ?? null;
   }
 
   private async loadSettingsRow(organizationId: number) {
@@ -440,7 +448,7 @@ export class EmailService {
     return result.rows[0] ?? null;
   }
 
-  private toSettingsSummary(row: EmailSettingsRow | null): EmailSettingsSummary {
+  private toSettingsSummary(row: EmailSettingsRow | null, organizationId = row?.organization_id ?? this.context.organizationId()): EmailSettingsSummary {
     return {
       provider: row?.provider ?? 'RESEND',
       fromName: row?.from_name ?? '',
@@ -448,7 +456,7 @@ export class EmailService {
       replyTo: row?.reply_to ?? '',
       enabled: row?.enabled ?? false,
       hasApiKey: Boolean(row?.api_key_encrypted),
-      autoSendInvoice: Boolean(row?.auto_send_invoice ?? false),
+      autoSendInvoice: this.normalizeAutomaticInvoiceSetting(organizationId, Boolean(row?.auto_send_invoice ?? false)),
       autoSendPaymentReceipt: Boolean(row?.auto_send_payment_receipt ?? false),
       autoSendTenantCreditReceipt: Boolean(row?.auto_send_tenant_credit_receipt ?? false),
       updatedAt: row?.updated_at ?? null,
@@ -490,6 +498,174 @@ export class EmailService {
     return this.config.get<string>('COMMUNICATION_ENCRYPTION_KEY')
       ?? this.config.get<string>('JWT_SECRET')
       ?? 'local-demo-secret';
+  }
+
+  private normalizeAutomaticInvoiceSetting(organizationId: number, value: boolean) {
+    return AUTO_INVOICE_ORGANIZATION_IDS.has(Number(organizationId)) && Boolean(value);
+  }
+
+  private buildLogQuery(filters: CommunicationLogFilters, id?: number) {
+    const params: unknown[] = [];
+    const push = (value: unknown) => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+
+    const conditions = [
+      `cl.organization_id = ${push(this.context.organizationId())}`,
+      `cl.channel = ${push(CommunicationChannel.EMAIL)}`,
+    ];
+    if (typeof id === 'number') {
+      conditions.push(`cl.id = ${push(id)}`);
+    }
+    if (filters.status) {
+      conditions.push(`cl.status = ${push(String(filters.status).toUpperCase())}`);
+    }
+    if (filters.trigger) {
+      conditions.push(`cl.delivery_trigger = ${push(String(filters.trigger).toUpperCase())}`);
+    }
+    if (filters.documentType) {
+      conditions.push(`cl.document_type = ${push(String(filters.documentType).toUpperCase())}`);
+    }
+    if (filters.recipient) {
+      conditions.push(`cl.recipient ILIKE ${push(`%${String(filters.recipient).trim()}%`)}`);
+    }
+    if (filters.from) {
+      conditions.push(`cl.created_at::date >= ${push(String(filters.from).slice(0, 10))}`);
+    }
+    if (filters.to) {
+      conditions.push(`cl.created_at::date <= ${push(String(filters.to).slice(0, 10))}`);
+    }
+    if (filters.search) {
+      const term = `%${String(filters.search).trim()}%`;
+      conditions.push(`(
+        cl.recipient ILIKE ${push(term)}
+        OR COALESCE(cl.subject, '') ILIKE ${push(term)}
+        OR COALESCE(cl.error, '') ILIKE ${push(term)}
+        OR COALESCE(cl.external_message_id, '') ILIKE ${push(term)}
+        OR COALESCE(o.name, '') ILIKE ${push(term)}
+        OR COALESCE(u_full.name, '') ILIKE ${push(term)}
+        OR COALESCE(document_reference.reference, '') ILIKE ${push(term)}
+      )`);
+    }
+
+    const limit = Number.isFinite(filters.limit) ? Math.min(Math.max(Number(filters.limit), 1), 100) : 50;
+    const offset = Number.isFinite(filters.offset) ? Math.max(Number(filters.offset), 0) : 0;
+    const limitParam = push(limit);
+    const offsetParam = push(offset);
+
+    const sql = `
+      WITH base AS (
+        SELECT
+          cl.id,
+          cl.organization_id,
+          COALESCE(o.name, 'Organisation ' || cl.organization_id::text) AS organization_name,
+          cl.channel,
+          cl.provider,
+          cl.recipient,
+          cl.subject,
+          cl.status,
+          cl.document_type,
+          cl.document_id,
+          cl.delivery_trigger,
+          cl.idempotency_key,
+          cl.external_message_id,
+          cl.error,
+          cl.created_by,
+          COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
+          CASE
+            WHEN cl.delivery_trigger = 'AUTO' THEN 'PROCESSUS AUTOMATIQUE'
+            WHEN cl.delivery_trigger = 'SYSTEM' THEN 'SYSTEME'
+            ELSE 'UTILISATEUR'
+          END AS actor_label,
+          CASE
+            WHEN cl.document_type = 'INVOICE' THEN 'Facture'
+            WHEN cl.document_type = 'PAYMENT_RECEIPT' THEN 'Reçu de paiement'
+            WHEN cl.document_type = 'TENANT_CREDIT_RECEIPT' THEN 'Reçu de crédit locataire'
+            ELSE COALESCE(cl.document_type, 'Document')
+          END AS document_label,
+          CASE
+            WHEN cl.document_type = 'INVOICE' THEN invoice_doc.invoice_number
+            WHEN cl.document_type = 'PAYMENT_RECEIPT' THEN payment_doc.receipt_number
+            WHEN cl.document_type = 'TENANT_CREDIT_RECEIPT' THEN credit_doc.receipt_number
+            ELSE NULL
+          END AS document_reference,
+          CASE
+            WHEN cl.document_type = 'INVOICE' THEN invoice_doc.invoice_number
+            WHEN cl.document_type = 'PAYMENT_RECEIPT' THEN payment_invoice.invoice_number
+            WHEN cl.document_type = 'TENANT_CREDIT_RECEIPT' THEN credit_invoice.invoice_number
+            ELSE NULL
+          END AS invoice_reference,
+          COUNT(*) OVER (
+            PARTITION BY cl.organization_id,
+            cl.channel,
+            COALESCE(
+              cl.idempotency_key,
+              CONCAT(
+                COALESCE(cl.document_type, ''),
+                ':',
+                COALESCE(cl.document_id::text, ''),
+                ':',
+                LOWER(COALESCE(cl.recipient, '')),
+                ':',
+                COALESCE(cl.subject, '')
+              )
+            )
+          )::INT AS attempt_count,
+          cl.created_at
+        FROM communication_logs cl
+        LEFT JOIN organizations o
+          ON o.id = cl.organization_id
+        LEFT JOIN app_users u
+          ON u.id = cl.created_by
+         AND u.deleted_at IS NULL
+        LEFT JOIN invoices invoice_doc
+          ON cl.document_type = 'INVOICE'
+         AND invoice_doc.id = cl.document_id
+         AND invoice_doc.organization_id = cl.organization_id
+         AND invoice_doc.deleted_at IS NULL
+        LEFT JOIN payments payment_doc
+          ON cl.document_type = 'PAYMENT_RECEIPT'
+         AND payment_doc.id = cl.document_id
+         AND payment_doc.organization_id = cl.organization_id
+         AND payment_doc.deleted_at IS NULL
+        LEFT JOIN invoices payment_invoice
+          ON payment_invoice.id = payment_doc.invoice_id
+         AND payment_invoice.organization_id = cl.organization_id
+         AND payment_invoice.deleted_at IS NULL
+        LEFT JOIN tenant_credits credit_doc
+          ON cl.document_type = 'TENANT_CREDIT_RECEIPT'
+         AND credit_doc.id = cl.document_id
+         AND credit_doc.organization_id = cl.organization_id
+         AND credit_doc.deleted_at IS NULL
+        LEFT JOIN payments credit_payment
+          ON cl.document_type = 'TENANT_CREDIT_RECEIPT'
+         AND credit_payment.id = credit_doc.source_payment_id
+         AND credit_payment.organization_id = cl.organization_id
+         AND credit_payment.deleted_at IS NULL
+        LEFT JOIN invoices credit_invoice
+          ON credit_invoice.id = credit_payment.invoice_id
+         AND credit_invoice.organization_id = cl.organization_id
+         AND credit_invoice.deleted_at IS NULL
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u2.first_name, ''), ' ', COALESCE(u2.last_name, ''))), ''), u2.email) AS name
+          FROM app_users u2
+          WHERE u2.id = cl.created_by
+            AND u2.deleted_at IS NULL
+        ) u_full ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(invoice_doc.invoice_number, payment_doc.receipt_number, credit_doc.receipt_number) AS reference
+        ) document_reference ON TRUE
+        WHERE ${conditions.join(' AND ')}
+      )
+      SELECT *
+      FROM base
+      ORDER BY created_at DESC, id DESC
+      LIMIT ${limitParam}
+      OFFSET ${offsetParam}
+    `;
+
+    return { sql, params };
   }
 
   private async resolveOrganizationName(organizationId: number) {
@@ -595,11 +771,13 @@ export class EmailService {
     provider,
     recipient,
     subject,
+    createdBy,
   }: {
     organizationId: number;
     provider: string;
     recipient: string;
     subject: string;
+    createdBy?: number | null;
   }) {
     const result = await this.db.query<{ id: number }>(
       `
@@ -610,12 +788,13 @@ export class EmailService {
           recipient,
           subject,
           status,
+          created_by,
           created_at
         )
-        VALUES ($1, $2, $3, $4, $5, 'PENDING', NOW())
+        VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, NOW())
         RETURNING id
       `,
-      [organizationId, CommunicationChannel.EMAIL, provider, recipient, subject],
+      [organizationId, CommunicationChannel.EMAIL, provider, recipient, subject, createdBy ?? null],
     );
     return result.rows[0]?.id ?? null;
   }
@@ -646,6 +825,7 @@ export class EmailService {
     idempotencyKey,
     status,
     error,
+    createdBy,
   }: {
     organizationId: number;
     provider: string;
@@ -657,6 +837,7 @@ export class EmailService {
     idempotencyKey?: string | null;
     status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
     error?: string | null;
+    createdBy?: number | null;
   }) {
     const result = await this.db.query<{ id: number }>(
       `
@@ -672,9 +853,10 @@ export class EmailService {
           delivery_trigger,
           idempotency_key,
           error,
+          created_by,
           created_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
         ON CONFLICT (organization_id, channel, idempotency_key)
         WHERE idempotency_key IS NOT NULL
         DO NOTHING
@@ -692,6 +874,7 @@ export class EmailService {
         trigger ?? DocumentDeliveryTrigger.MANUAL,
         idempotencyKey ?? null,
         error ?? null,
+        createdBy ?? null,
       ],
     );
     return result.rows[0]?.id ?? null;

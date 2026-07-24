@@ -122,6 +122,15 @@ tbody tr.clickable-row:hover { background: #f8fafb; }
 .toolbar-main { display: flex; gap: 8px; align-items: center; flex: 1 1 320px; }
 .toolbar-main input { max-width: 420px; }
 .toolbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.communication-history-toolbar { align-items: flex-start; }
+.communication-history-filters { display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 8px; width: 100%; }
+.communication-history-filters input,
+.communication-history-filters select { max-width: none; width: 100%; min-width: 0; }
+.communication-history-detail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+.communication-history-detail > div { display: grid; gap: 3px; min-width: 0; }
+.communication-history-detail span { color: #637783; font-size: 11px; text-transform: uppercase; font-weight: 700; }
+.communication-history-detail strong { white-space: normal; overflow-wrap: anywhere; color: #1f2933; }
+.communication-history-detail .detail-full { grid-column: 1 / -1; }
 .cash-filters-row { display: grid; grid-template-columns: minmax(240px, 1.8fr) repeat(4, minmax(118px, .82fr)) minmax(290px, 1.1fr); gap: 8px; margin-bottom: 10px; align-items: end; }
 .cash-modal-form { display: grid; gap: 10px; max-height: 84vh; }
 .modal-section { border: 1px solid #dce5eb; border-radius: 8px; padding: 10px 12px; background: #fafcfd; }
@@ -154,6 +163,7 @@ tbody tr.clickable-row:hover { background: #f8fafb; }
   .stock-purchase-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
   .user-form-grid { grid-template-columns: 1fr; }
   .modal { width: min(100%, 720px); }
+  .communication-history-filters, .communication-history-detail { grid-template-columns: 1fr; }
 }
 .cash-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 8px; margin-top: 12px; }
 .table-meta { color: #637783; font-size: 13px; display: inline-flex; align-items: center; gap: 8px; }

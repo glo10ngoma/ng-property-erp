@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { CommunicationService } from './communication.service';
 import { SendDocumentDto } from './dto/send-document.dto';
 import { SendTestEmailDto } from './email/dto/send-test-email.dto';
@@ -34,7 +34,32 @@ export class CommunicationController {
   }
 
   @Get('email/logs')
-  logs(@Query('limit') limit?: string) {
-    return this.communicationService.emailLogs(limit ? Number(limit) : undefined);
+  logs(
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('status') status?: string,
+    @Query('trigger') trigger?: string,
+    @Query('documentType') documentType?: string,
+    @Query('recipient') recipient?: string,
+    @Query('search') search?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.communicationService.emailLogs({
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+      status,
+      trigger,
+      documentType,
+      recipient,
+      search,
+      from,
+      to,
+    });
+  }
+
+  @Get('email/logs/:id')
+  log(@Param('id', ParseIntPipe) id: number) {
+    return this.communicationService.emailLog(id);
   }
 }

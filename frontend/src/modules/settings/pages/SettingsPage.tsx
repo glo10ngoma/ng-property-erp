@@ -320,7 +320,7 @@ function draftFromCommunicationEmailSettings(settings: CommunicationEmailSetting
 }
 
 export function SettingsPage() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<SettingsDraft>(defaultSettingsDraft);
   const [references, setReferences] = useState<ReferenceData[]>([]);
@@ -464,6 +464,7 @@ export function SettingsPage() {
   const documentsDisabled = !can('settings.update') || savingSection === 'documents';
   const generalDisabled = !can('settings.update') || savingSection === 'general';
   const communicationDisabled = !can('communication.update') || savingSection === 'communication';
+  const invoiceAutoSendAllowed = [1, 5].includes(Number(user?.organization_id ?? 0));
   const rateDisabled = !can('settings.update') || savingSection === 'rate';
   const automationDisabled = !can('automations.update') || savingSection === 'automation';
 
@@ -665,7 +666,7 @@ export function SettingsPage() {
         reply_to: cleanOptionalText(emailSettingsDraft.replyTo),
         api_key: cleanOptionalText(emailSettingsDraft.apiKey),
         enabled: emailSettingsDraft.enabled,
-        auto_send_invoice: emailSettingsDraft.autoSendInvoice,
+        auto_send_invoice: invoiceAutoSendAllowed && emailSettingsDraft.autoSendInvoice,
         auto_send_payment_receipt: emailSettingsDraft.autoSendPaymentReceipt,
         auto_send_tenant_credit_receipt: emailSettingsDraft.autoSendTenantCreditReceipt,
       });
@@ -1064,12 +1065,13 @@ export function SettingsPage() {
               <label className="communication-auto-send-option">
                 <input
                   type="checkbox"
-                  checked={emailSettingsDraft.autoSendInvoice}
+                  checked={invoiceAutoSendAllowed ? emailSettingsDraft.autoSendInvoice : false}
                   onChange={(event) => setEmailSettingsDraft((current) => ({ ...current, autoSendInvoice: event.target.checked }))}
-                  disabled={communicationDisabled}
+                  disabled={communicationDisabled || !invoiceAutoSendAllowed}
                 />
                 <span>Envoyer automatiquement les nouvelles factures</span>
               </label>
+              {!invoiceAutoSendAllowed ? <p className="muted-text communication-auto-send-help">Cette option n&apos;est activée automatiquement que pour CATALYSE et MAGIC CONSTRUCTION.</p> : null}
               <label className="communication-auto-send-option">
                 <input
                   type="checkbox"
