@@ -237,11 +237,11 @@ type OfficialFileKind = keyof typeof officialFileLabels;
 
 const referenceTypeLabels: Record<string, string> = {
   charge_types: 'Types de charges',
-  expense_categories: 'CatÃ©gories de dÃ©penses',
-  stock_categories: 'CatÃ©gories stock',
+  expense_categories: 'Catégories de dépenses',
+  stock_categories: 'Catégories stock',
   document_types: 'Types de documents',
   staff_positions: 'Fonctions du personnel',
-  leave_types: 'Types de congÃ©s',
+  leave_types: 'Types de congés',
   payment_methods: 'Modes de paiement',
   banks: 'Banques',
   cities: 'Villes',
@@ -383,19 +383,19 @@ export function SettingsPage() {
       if (companyResult.status === 'fulfilled') {
         setSettings(normalizeSettings(companyResult.value.data));
       } else {
-        setError(extractErrorMessage(companyResult.reason, "Impossible de charger les paramÃ¨tres de lâ€™entreprise."));
+        setError(extractErrorMessage(companyResult.reason, "Impossible de charger les paramètres de l'entreprise."));
       }
 
       if (referencesResult.status === 'fulfilled') {
         setReferences(referencesResult.value.data);
       } else {
-        setError((current) => current || extractErrorMessage(referencesResult.reason, 'Impossible de charger les rÃ©fÃ©rentiels.'));
+        setError((current) => current || extractErrorMessage(referencesResult.reason, 'Impossible de charger les référentiels.'));
       }
 
       if (servicesResult.status === 'fulfilled') {
         setServices(servicesResult.value.data);
       } else {
-        setError((current) => current || extractErrorMessage(servicesResult.reason, 'Impossible de charger les services complÃ©mentaires.'));
+        setError((current) => current || extractErrorMessage(servicesResult.reason, 'Impossible de charger les services complémentaires.'));
       }
 
       if (exchangeRateResult.status === 'fulfilled') {
@@ -437,7 +437,7 @@ export function SettingsPage() {
       if (restrictedResult.status === 'fulfilled') {
         setRestricted(restrictedResult.value.data);
       } else {
-        setError((current) => current || extractErrorMessage(restrictedResult.reason, 'Impossible de charger les paramÃ¨tres rÃ©servÃ©s.'));
+        setError((current) => current || extractErrorMessage(restrictedResult.reason, 'Impossible de charger les paramètres réservés.'));
       }
 
       setLoading(false);
@@ -519,7 +519,7 @@ export function SettingsPage() {
       formData.append('file', file);
       const response = await api.post<CompanySettingsResponse>(`/settings/company-files/${kind}`, formData);
       setSettings(normalizeSettings(response.data));
-      setSuccess(`${officialFileLabels[kind]} enregistrÃ© avec succÃ¨s.`);
+      setSuccess(`${officialFileLabels[kind]} enregistré avec succès.`);
       return response.data;
     } catch (uploadError) {
       setError(extractErrorMessage(uploadError, `Impossible d'enregistrer le ${officialFileLabels[kind].toLowerCase()}.`));
@@ -533,7 +533,7 @@ export function SettingsPage() {
     try {
       const response = await api.delete<CompanySettingsResponse>(`/settings/company-files/${kind}`);
       setSettings(normalizeSettings(response.data));
-      setSuccess(`${officialFileLabels[kind]} supprimÃ© avec succÃ¨s.`);
+      setSuccess(`${officialFileLabels[kind]} supprimé avec succès.`);
       return response.data;
     } catch (deleteError) {
       setError(extractErrorMessage(deleteError, `Impossible de supprimer le ${officialFileLabels[kind].toLowerCase()}.`));
@@ -621,9 +621,9 @@ export function SettingsPage() {
         effectiveDate: exchangeRateDateDraft,
       });
       await refreshExchangeRate();
-      setSuccess('ParamÃ¨tres enregistrÃ©s avec succÃ¨s.');
+      setSuccess('Paramètres enregistrés avec succès.');
     } catch (submissionError) {
-      setError(extractErrorMessage(submissionError, "Impossible dâ€™enregistrer le taux de change."));
+      setError(extractErrorMessage(submissionError, "Impossible d'enregistrer le taux de change."));
     } finally {
       setSavingSection(null);
     }
@@ -760,22 +760,22 @@ export function SettingsPage() {
     try {
       await api.patch<CompanySettingsResponse>('/settings/company', payload);
       await refreshCompanySettings();
-      setSuccess('ParamÃ¨tres enregistrÃ©s avec succÃ¨s.');
+      setSuccess('Paramètres enregistrés avec succès.');
     } catch (submissionError) {
-      setError(extractErrorMessage(submissionError, "Impossible dâ€™enregistrer les paramÃ¨tres."));
+      setError(extractErrorMessage(submissionError, "Impossible d'enregistrer les paramètres."));
     } finally {
       setSavingSection(null);
     }
   }
 
   if (loading) {
-    return <LoadingState message="Chargement des paramÃ¨tres..." />;
+    return <LoadingState message="Chargement des paramètres..." />;
   }
 
   return (
     <section className="settings-page">
-      <PageHeader title="ParamÃ¨tres" />
-      <p className="muted-text settings-intro">Centralisez les informations du bailleur, les paramÃ¨tres des baux et le taux de change.</p>
+      <PageHeader title="Paramètres" />
+      <p className="muted-text settings-intro">Centralisez les informations du bailleur, les paramètres des baux et le taux de change.</p>
       <SuccessMessage message={success} />
       {error ? <div className="error-message">{error}</div> : null}
 
@@ -800,7 +800,7 @@ export function SettingsPage() {
 
       <SettingsSection
         title="Entreprise / Bailleur"
-        description="Informations juridiques utilisÃ©es dans les contrats, factures et documents officiels."
+        description="Informations juridiques utilisées dans les contrats, factures et documents officiels."
         icon={<Building2 size={16} />}
       >
         <form className="settings-grid" onSubmit={saveCompanySection}>
@@ -822,7 +822,7 @@ export function SettingsPage() {
           <SettingField label="ID national">
             <input {...fieldProps('company_national_id')} disabled={companyDisabled} />
           </SettingField>
-          <SettingField label="NumÃ©ro fiscal">
+          <SettingField label="Numéro fiscal">
             <input {...fieldProps('company_tax_id')} disabled={companyDisabled} />
           </SettingField>
           <SettingActions>
@@ -858,20 +858,20 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
-        title="ReprÃ©sentant lÃ©gal"
-        description="Nom et contact du signataire utilisÃ© dans les contrats."
+        title="Représentant légal"
+        description="Nom et contact du signataire utilisé dans les contrats."
         icon={<User size={16} />}
       >
         <form className="settings-grid" onSubmit={saveRepresentativeSection}>
-          <SettingField label="Nom du reprÃ©sentant">
+          <SettingField label="Nom du représentant">
             <input {...fieldProps('legal_representative_name')} disabled={representativeDisabled} />
           </SettingField>
           <SettingField label="Fonction">
             <input {...fieldProps('legal_representative_title')} disabled={representativeDisabled} />
           </SettingField>
-          <SettingField label="CivilitÃ© du reprÃ©sentant">
+          <SettingField label="Civilité du représentant">
             <select {...fieldProps('legal_representative_civility')} disabled={representativeDisabled}>
-              <option value="">SÃ©lectionner une civilitÃ©</option>
+              <option value="">Sélectionner une civilité</option>
               {representativeCivilities.map((item) => (
                 <option key={item.value} value={item.value}>
                   {item.label}
@@ -879,7 +879,7 @@ export function SettingsPage() {
               ))}
             </select>
           </SettingField>
-          <SettingField label="TÃ©lÃ©phone">
+          <SettingField label="Téléphone">
             <input {...fieldProps('phone')} disabled={representativeDisabled} />
           </SettingField>
           <SettingField label="Adresse e-mail">
@@ -898,33 +898,33 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
-        title="ParamÃ¨tres des baux"
-        description="Valeurs par dÃ©faut reprises dans les nouveaux baux et contrats gÃ©nÃ©rÃ©s."
+        title="Paramètres des baux"
+        description="Valeurs par défaut reprises dans les nouveaux baux et contrats générés."
         icon={<FileCog size={16} />}
       >
         <form className="settings-grid" onSubmit={saveLeaseSection}>
-          <SettingField label="DurÃ©e par dÃ©faut (mois)">
+          <SettingField label="Durée par défaut (mois)">
             <input {...fieldProps('default_lease_duration_months')} type="number" min="1" step="1" disabled={leaseDisabled} required />
           </SettingField>
-          <SettingField label="PrÃ©avis par dÃ©faut (mois)">
+          <SettingField label="Préavis par défaut (mois)">
             <input {...fieldProps('default_notice_months')} type="number" min="0" step="1" disabled={leaseDisabled} required />
           </SettingField>
-          <SettingField label="Garantie par dÃ©faut (mois)">
+          <SettingField label="Garantie par défaut (mois)">
             <input {...fieldProps('default_guarantee_months')} type="number" min="0" step="1" disabled={leaseDisabled} required />
           </SettingField>
           <SettingField label="Lieu de signature">
             <input {...fieldProps('default_signature_place')} disabled={leaseDisabled} />
           </SettingField>
-          <SettingField label="Usage par dÃ©faut">
+          <SettingField label="Usage par défaut">
             <select {...fieldProps('default_lease_usage')} disabled={leaseDisabled}>
-              <option value="RESIDENTIAL">RÃ©sidentiel</option>
+              <option value="RESIDENTIAL">Résidentiel</option>
               <option value="COMMERCIAL">Commercial</option>
               <option value="MIXED">Mixte</option>
             </select>
           </SettingField>
-          <SettingField label="ModÃ¨le de contrat">
+          <SettingField label="Modèle de contrat">
             <select {...fieldProps('default_contract_template_code')} disabled={leaseDisabled}>
-              <option value="LEASE_RESIDENTIAL">Bail rÃ©sidentiel</option>
+              <option value="LEASE_RESIDENTIAL">Bail résidentiel</option>
               <option value="LEASE_COMMERCIAL">Bail commercial</option>
               <option value="LEASE_MIXED">Bail mixte</option>
             </select>
@@ -940,11 +940,11 @@ export function SettingsPage() {
 
       <SettingsSection
         title="Taux de change"
-        description="Le taux USD/CDF est chargÃ© au chargement de la page et rÃ©utilisÃ© dans les paiements."
+        description="Le taux USD/CDF est chargé au chargement de la page et réutilisé dans les paiements."
         icon={<Percent size={16} />}
       >
         <form className="settings-grid" onSubmit={saveExchangeRate}>
-          <SettingField label="Devise de rÃ©fÃ©rence">
+          <SettingField label="Devise de référence">
             <input value="USD" readOnly className="locked-field" />
           </SettingField>
           <SettingField label="Devise locale">
@@ -970,10 +970,10 @@ export function SettingsPage() {
               required
             />
           </SettingField>
-          <SettingField label="DerniÃ¨re mise Ã  jour">
+          <SettingField label="Dernière mise à jour">
             <input value={exchangeRate?.updatedAt ?? exchangeRate?.createdAt ?? '-'} readOnly className="locked-field" />
           </SettingField>
-          <SettingField label="AperÃ§u">
+          <SettingField label="Aperçu">
             <input
               value={Number(exchangeRateDraft) > 0 ? `1 USD = ${Number(exchangeRateDraft).toLocaleString('fr-FR')} CDF` : 'Non disponible'}
               readOnly
@@ -991,7 +991,7 @@ export function SettingsPage() {
 
       <SettingsSection
         title="Communication - Email"
-        description="Infrastructure email Resend isol\u00E9e par organisation. Aucun envoi m\u00E9tier n'est d\u00E9clench\u00E9 depuis cette configuration."
+        description="Infrastructure email Resend isolée par organisation. Aucun envoi métier n'est déclenché depuis cette configuration."
         icon={<Mail size={16} />}
       >
         <form className="settings-grid" onSubmit={saveCommunicationEmailSettings}>
@@ -1014,14 +1014,14 @@ export function SettingsPage() {
               <option value="false">Non</option>
             </select>
           </SettingField>
-          <SettingField label="Nom exp\u00E9diteur">
+          <SettingField label="Nom expéditeur">
             <input
               value={emailSettingsDraft.fromName}
               onChange={(event) => setEmailSettingsDraft((current) => ({ ...current, fromName: event.target.value }))}
               disabled={communicationDisabled}
             />
           </SettingField>
-          <SettingField label="Email exp\u00E9diteur">
+          <SettingField label="Email expéditeur">
             <input
               type="email"
               value={emailSettingsDraft.fromEmail}
@@ -1037,23 +1037,23 @@ export function SettingsPage() {
               disabled={communicationDisabled}
             />
           </SettingField>
-          <SettingField label="Cl\u00E9 API" wide>
+          <SettingField label="Clé API" wide>
             <input
               type="password"
               value={emailSettingsDraft.apiKey}
               onChange={(event) => setEmailSettingsDraft((current) => ({ ...current, apiKey: event.target.value }))}
-              placeholder={emailSettingsDraft.hasApiKey ? 'Laisser vide pour conserver la cl\u00E9 actuelle' : 'Saisir la cl\u00E9 API Resend'}
+              placeholder={emailSettingsDraft.hasApiKey ? 'Laisser vide pour conserver la clé actuelle' : 'Saisir la clé API Resend'}
               disabled={communicationDisabled}
             />
           </SettingField>
-          <SettingField label="\u00C9tat de la cl\u00E9" wide>
+          <SettingField label="État de la clé" wide>
             <input
-              value={emailSettingsDraft.hasApiKey ? 'Cl\u00E9 API enregistr\u00E9e' : 'Aucune cl\u00E9 API enregistr\u00E9e'}
+              value={emailSettingsDraft.hasApiKey ? 'Clé API enregistrée' : 'Aucune clé API enregistrée'}
               readOnly
               className="locked-field"
             />
           </SettingField>
-          <SettingField label="Derni\u00E8re mise \u00E0 jour" wide>
+          <SettingField label="Dernière mise à jour" wide>
             <input
               value={emailSettingsDraft.updatedAt ? shortDate(emailSettingsDraft.updatedAt) : '-'}
               readOnly
@@ -1115,9 +1115,9 @@ export function SettingsPage() {
       {can('automations.read') && automation ? (
         <SettingsSection
           title="Automatisations"
-          description="Facturation automatique des loyers le 25 du mois courant, avec echeance fixee au mois suivant."
-          icon={<Settings2 size={16} />}
-        >
+        description="Facturation automatique des loyers le 25 du mois courant, avec échéance fixée au mois suivant."
+        icon={<Settings2 size={16} />}
+      >
           <form className="settings-grid" onSubmit={saveAutomationSection}>
             <SettingField label="Automatisation">
               <input value="Facturation automatique des loyers" readOnly className="locked-field" />
@@ -1132,7 +1132,7 @@ export function SettingsPage() {
                 <option value="true">Active</option>
               </select>
             </SettingField>
-            <SettingField label="Heure d'execution">
+            <SettingField label="Heure d'exécution">
               <input
                 type="time"
                 value={automation.executionTime}
@@ -1140,7 +1140,7 @@ export function SettingsPage() {
                 disabled={automationDisabled}
               />
             </SettingField>
-            <SettingField label="Jour de generation">
+            <SettingField label="Jour de génération">
               <input value={String(automation.generationDay ?? 25)} readOnly className="locked-field" />
             </SettingField>
             <SettingField label="Fuseau horaire">
@@ -1150,7 +1150,7 @@ export function SettingsPage() {
                 disabled={automationDisabled}
               />
             </SettingField>
-            <SettingField label="Jour d'echeance (mois suivant)">
+            <SettingField label="Jour d'échéance (mois suivant)">
               <input value={String(automation.dueDay || 5)} readOnly className="locked-field" />
             </SettingField>
             <SettingField label="Email automatique">
@@ -1173,17 +1173,17 @@ export function SettingsPage() {
                 <option value="false">Inactif</option>
               </select>
             </SettingField>
-            <SettingField label="Prochaine execution theorique">
+            <SettingField label="Prochaine exécution théorique">
               <input value={automation.nextExecutionAt || '-'} readOnly className="locked-field" />
             </SettingField>
-            <SettingField label="Derniere execution">
+            <SettingField label="Dernière exécution">
               <input value={automation.lastRun?.startedAt ?? '-'} readOnly className="locked-field" />
             </SettingField>
             <SettingField label="Dernier statut">
               <input value={automation.lastRun?.status ?? 'Aucun run'} readOnly className="locked-field" />
             </SettingField>
-            <SettingField label="Regle de facturation" wide>
-              <input value="Le 25 du mois M : facture du mois M, date de facture = 25, echeance = 05 du mois M+1." readOnly className="locked-field" />
+            <SettingField label="Règle de facturation" wide>
+              <input value="Le 25 du mois M : facture du mois M, date de facture = 25, échéance = 05 du mois M+1." readOnly className="locked-field" />
             </SettingField>
             <SettingActions>
               <button type="submit" disabled={automationDisabled}>
@@ -1194,19 +1194,19 @@ export function SettingsPage() {
           </form>
 
           <div className="settings-grid" style={{ marginTop: 16 }}>
-            <SettingField label="Mois a previsualiser">
+            <SettingField label="Mois à prévisualiser">
               <input type="number" min="1" max="12" value={automationMonthDraft} onChange={(event) => setAutomationMonthDraft(event.target.value)} />
             </SettingField>
-            <SettingField label="Annee a previsualiser">
+            <SettingField label="Année à prévisualiser">
               <input type="number" min="2000" value={automationYearDraft} onChange={(event) => setAutomationYearDraft(event.target.value)} />
             </SettingField>
             <SettingActions>
               <button type="button" className="secondary" onClick={() => void previewAutomation()} disabled={automationAction === 'preview' || automationAction === 'run'}>
-                {automationAction === 'preview' ? 'Previsualisation...' : 'Previsualiser'}
+                {automationAction === 'preview' ? 'Prévisualisation...' : 'Prévisualiser'}
               </button>
               {can('automations.run') ? (
                 <button type="button" onClick={() => void runAutomation()} disabled={automationAction === 'preview' || automationAction === 'run'}>
-                  {automationAction === 'run' ? 'Execution...' : 'Generer les factures du mois'}
+                  {automationAction === 'run' ? 'Exécution...' : 'Générer les factures du mois'}
                 </button>
               ) : null}
             </SettingActions>
@@ -1217,12 +1217,12 @@ export function SettingsPage() {
               <div className="summary-band" style={{ marginTop: 16 }}>
                 <div className="summary-item"><span>Mois facture</span><strong>{monthLabel(automationPreview.billing_month)} {automationPreview.billing_year}</strong></div>
                 <div className="summary-item"><span>Date facture</span><strong>{shortDate(automationPreview.issue_date)}</strong></div>
-                <div className="summary-item"><span>Echeance</span><strong>{shortDate(automationPreview.due_date)}</strong></div>
-                <div className="summary-item summary-item-wide"><span>Periode</span><strong>{shortDate(automationPreview.period_start)} au {shortDate(automationPreview.period_end)}</strong></div>
-                <div className="summary-item"><span>Baux eligibles</span><strong>{automationPreview.eligible_count}</strong></div>
-                <div className="summary-item"><span>A creer</span><strong>{automationPreview.create_count}</strong></div>
-                <div className="summary-item"><span>Deja existantes</span><strong>{automationPreview.existing_count}</strong></div>
-                <div className="summary-item"><span>Ignorees</span><strong>{automationPreview.skipped_count}</strong></div>
+                <div className="summary-item"><span>Échéance</span><strong>{shortDate(automationPreview.due_date)}</strong></div>
+                <div className="summary-item summary-item-wide"><span>Période</span><strong>{shortDate(automationPreview.period_start)} au {shortDate(automationPreview.period_end)}</strong></div>
+                <div className="summary-item"><span>Baux éligibles</span><strong>{automationPreview.eligible_count}</strong></div>
+                <div className="summary-item"><span>À créer</span><strong>{automationPreview.create_count}</strong></div>
+                <div className="summary-item"><span>Déjà existantes</span><strong>{automationPreview.existing_count}</strong></div>
+                <div className="summary-item"><span>Ignorées</span><strong>{automationPreview.skipped_count}</strong></div>
               </div>
               <div className="table-wrap" style={{ marginTop: 16 }}>
                 <table>
@@ -1230,7 +1230,7 @@ export function SettingsPage() {
                     <tr>
                       <th>Bail</th>
                       <th>Locataire</th>
-                      <th>Unite</th>
+                      <th>Unité</th>
                       <th className="right">Loyer</th>
                       <th className="right">Syndic</th>
                       <th className="right">Total</th>
@@ -1253,7 +1253,7 @@ export function SettingsPage() {
                     ))}
                     {!automationPreview.createable.length ? (
                       <tr>
-                        <td colSpan={8}>Aucune facture a creer pour cette periode.</td>
+                      <td colSpan={8}>Aucune facture à créer pour cette période.</td>
                       </tr>
                     ) : null}
                   </tbody>
@@ -1265,7 +1265,7 @@ export function SettingsPage() {
                     <tr>
                       <th>Bail</th>
                       <th>Locataire</th>
-                      <th>Unite</th>
+                      <th>Unité</th>
                       <th>Raison</th>
                     </tr>
                   </thead>
@@ -1280,7 +1280,7 @@ export function SettingsPage() {
                     ))}
                     {!automationPreview.skipped.length ? (
                       <tr>
-                        <td colSpan={4}>Aucun bail ignore.</td>
+                      <td colSpan={4}>Aucun bail ignoré.</td>
                       </tr>
                     ) : null}
                   </tbody>
@@ -1297,11 +1297,11 @@ export function SettingsPage() {
                   <th>Mode</th>
                   <th>Periode</th>
                   <th>Statut</th>
-                  <th>Eligibles</th>
-                  <th>Creees</th>
-                  <th>Ignorees</th>
-                  <th>Echouees</th>
-                  <th>Demarre le</th>
+                  <th>Éligibles</th>
+                  <th>Créées</th>
+                  <th>Ignorées</th>
+                  <th>Échouées</th>
+                  <th>Démarré le</th>
                 </tr>
               </thead>
               <tbody>
@@ -1320,7 +1320,7 @@ export function SettingsPage() {
                 ))}
                 {!automationRuns.length ? (
                   <tr>
-                    <td colSpan={9}>Aucune execution enregistree.</td>
+                    <td colSpan={9}>Aucune exécution enregistrée.</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -1331,14 +1331,14 @@ export function SettingsPage() {
 
       <SettingsSection
         title="Documents et impression"
-        description="Logos, signatures et mentions visibles dans les documents gÃ©nÃ©rÃ©s."
+        description="Logos, signatures et mentions visibles dans les documents générés."
         icon={<Settings2 size={16} />}
       >
         <form className="settings-grid" onSubmit={saveDocumentsSection}>
           <OfficialFileUpload
             kind="logo"
             title="Logo principal"
-            description="PiÃ¨ce jointe utilisÃ©e dans les documents officiels."
+            description="Pièce jointe utilisée dans les documents officiels."
             fileName={settings.logo_file_name}
             fileUrl={settings.logo_file_url}
             disabled={documentsDisabled}
@@ -1351,7 +1351,7 @@ export function SettingsPage() {
           <OfficialFileUpload
             kind="signature"
             title="Signature"
-            description="Signature officielle rÃ©utilisable dans les futurs documents."
+            description="Signature officielle réutilisable dans les futurs documents."
             fileName={settings.signature_file_name}
             fileUrl={settings.signature_file_url}
             disabled={documentsDisabled}
@@ -1361,7 +1361,7 @@ export function SettingsPage() {
           <OfficialFileUpload
             kind="stamp"
             title="Cachet"
-            description="Cachet officiel rÃ©utilisable dans les futurs documents."
+            description="Cachet officiel réutilisable dans les futurs documents."
             fileName={settings.stamp_file_name}
             fileUrl={settings.stamp_file_url}
             disabled={documentsDisabled}
@@ -1391,7 +1391,7 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
-        title="ParamÃ¨tres gÃ©nÃ©raux"
+        title="Paramètres généraux"
         description="Devise, langue et fuseau horaire de la plateforme."
         icon={<ShieldCheck size={16} />}
       >
@@ -1404,7 +1404,7 @@ export function SettingsPage() {
           </SettingField>
           <SettingField label="Langue">
             <select {...fieldProps('language')} disabled={generalDisabled}>
-              <option value="fr">FranÃ§ais</option>
+              <option value="fr">Français</option>
               <option value="en">English</option>
             </select>
           </SettingField>
@@ -1420,15 +1420,15 @@ export function SettingsPage() {
         </form>
       </SettingsSection>
 
-      <SettingsSection title="RÃ©fÃ©rentiels">
+      <SettingsSection title="Référentiels">
         {!Object.keys(groupedReferences).length ? (
-          <EmptyState message="Aucun rÃ©fÃ©rentiel disponible." />
+          <EmptyState message="Aucun référentiel disponible." />
         ) : (
           <div className="chart-grid">
             {Object.entries(groupedReferences).map(([label, items]) => (
               <article className="chart-card" key={label}>
                 <h3>{label}</h3>
-                <p>{items.slice(0, 4).map((item) => item.label).join(', ') || 'Aucune donnÃ©e'}</p>
+                <p>{items.slice(0, 4).map((item) => item.label).join(', ') || 'Aucune donnée'}</p>
                 <small>{items.length} valeur(s)</small>
               </article>
             ))}
@@ -1436,7 +1436,7 @@ export function SettingsPage() {
         )}
       </SettingsSection>
 
-      <SettingsSection title="Services complÃ©mentaires" description="Zones non connectÃ©es Ã  la V1, visibles Ã  titre informatif uniquement.">
+      <SettingsSection title="Services complémentaires" description="Zones non connectées à la V1, visibles à titre informatif uniquement.">
         <div className="chart-grid">
           {services.map((service) => (
             <article className="chart-card" key={service.title}>
@@ -1449,15 +1449,15 @@ export function SettingsPage() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="RÃ©servÃ© Ã©diteur" description="ParamÃ¨tres avancÃ©s non modifiables dans cette version.">
+      <SettingsSection title="Réservé éditeur" description="Paramètres avancés non modifiables dans cette version.">
         {!can('publisher_settings.read') ? (
-          <EmptyState message="AccÃ¨s rÃ©servÃ©." />
+          <EmptyState message="Accès réservé." />
         ) : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>ParamÃ¨tre avancÃ©</th>
+                  <th>Paramètre avancé</th>
                   <th>Statut</th>
                 </tr>
               </thead>
@@ -1725,7 +1725,7 @@ function OfficialFileUpload({
 
   const hasStoredFile = Boolean(fileName || fileUrl);
   const previewUrl = selectedFile ? objectUrl : remotePreviewUrl;
-  const displayName = selectedFile ? selectedFile.name : hasStoredFile ? fileName || 'Fichier enregistrÃ©' : 'Aucun fichier';
+  const displayName = selectedFile ? selectedFile.name : hasStoredFile ? fileName || 'Fichier enregistré' : 'Aucun fichier';
   const displayType = inferFileType(selectedFile?.name, fileUrl, selectedFile?.type);
   const displaySize = selectedFile ? formatBytes(selectedFile.size) : hasStoredFile ? 'Taille non disponible' : '-';
 
@@ -1822,7 +1822,7 @@ function OfficialFileUpload({
         </button>
         <button type="button" onClick={() => void handleUpload()} disabled={disabled || busy || !selectedFile}>
           <Save size={14} />
-          {busy ? 'Enregistrement...' : hasStoredFile ? 'Remplacer' : 'TÃ©lÃ©verser'}
+          {busy ? 'Enregistrement...' : hasStoredFile ? 'Remplacer' : 'Téléverser'}
         </button>
         <button type="button" className="secondary" onClick={() => void handleDelete()} disabled={disabled || busy || (!selectedFile && !hasStoredFile)}>
           <Trash2 size={14} />
