@@ -1,5 +1,5 @@
 ﻿import { ArrowLeft, CreditCard, Download, FileSpreadsheet, Mail, MessageCircle, Pencil, Plus, Printer, Smartphone, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, invoiceDisplayStatus, itemLabel, money, paymentMethodLabel, shortDate } from '../api';
 import { useAuth } from '../auth';
@@ -123,6 +123,7 @@ export function InvoiceDetail() {
   const [paymentRate, setPaymentRate] = useState('');
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState('');
+  const printTitleRef = useRef<string | null>(null);
 
   async function reload() {
     if (!id) return;
@@ -179,6 +180,31 @@ export function InvoiceDetail() {
   useEffect(() => {
     if (invoice && searchParams.get('edit') === '1') openEdit();
   }, [invoice, searchParams]);
+
+  useEffect(() => {
+    const applyPrintTitle = () => {
+      if (printTitleRef.current === null) {
+        printTitleRef.current = document.title;
+      }
+      document.title = ' ';
+    };
+
+    const restorePrintTitle = () => {
+      if (printTitleRef.current !== null) {
+        document.title = printTitleRef.current;
+        printTitleRef.current = null;
+      }
+    };
+
+    window.addEventListener('beforeprint', applyPrintTitle);
+    window.addEventListener('afterprint', restorePrintTitle);
+
+    return () => {
+      window.removeEventListener('beforeprint', applyPrintTitle);
+      window.removeEventListener('afterprint', restorePrintTitle);
+      restorePrintTitle();
+    };
+  }, []);
 
   async function pay(form: FormData) {
     setPaymentError('');
@@ -397,6 +423,23 @@ export function InvoiceDetail() {
     }
   }
 
+  function printInvoice() {
+    if (printTitleRef.current === null) {
+      printTitleRef.current = document.title;
+    }
+    document.title = ' ';
+    try {
+      window.print();
+    } finally {
+      window.setTimeout(() => {
+        if (printTitleRef.current !== null) {
+          document.title = printTitleRef.current;
+          printTitleRef.current = null;
+        }
+      }, 0);
+    }
+  }
+
   const invoiceEmailContent = getInvoiceEmailContent(invoice.invoice_type);
 
   return (
@@ -406,7 +449,7 @@ export function InvoiceDetail() {
         <div className="actions invoice-detail-actions">
           <button className="secondary" onClick={() => navigate('/invoices')}><ArrowLeft size={16} />Retour</button>
           {can('invoices.update') && <button onClick={openEdit}><Pencil size={16} />Modifier</button>}
-          <button onClick={() => void openInvoicePdf('inline')}><Printer size={16} />Imprimer</button>
+          <button onClick={printInvoice}><Printer size={16} />Imprimer</button>
           <button className="secondary" onClick={() => void openInvoicePdf('attachment')}><Download size={16} />Télécharger</button>
           {can('communication.send') && <button className="secondary" onClick={() => setEmailOpen(true)}><Mail size={16} />Envoyer par email</button>}
           {canPrintReceipt && receiptPayments.length === 1 && (
