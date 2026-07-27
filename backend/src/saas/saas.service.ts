@@ -5532,6 +5532,7 @@ export class SaasService {
   async remindInvoice(id: number, body: Record<string, unknown>) {
     const organizationId = this.context.organizationId();
     const channel = String(body.channel ?? '').toUpperCase();
+    const skipDelivery = body.skip_delivery === true;
     if (!['EMAIL', 'SMS', 'WHATSAPP'].includes(channel)) throw new BadRequestException('Canal de relance invalide');
 
     const { rows } = await this.db.query(
@@ -5544,7 +5545,7 @@ export class SaasService {
     );
     const invoice = requireRow(rows[0], 'Invoice');
     const recipient = channel === 'EMAIL' ? invoice.email : invoice.phone;
-    if (!recipient) throw new BadRequestException(channel === 'EMAIL' ? 'Adresse email locataire absente' : 'Téléphone locataire absent');
+    if (!skipDelivery && !recipient) throw new BadRequestException(channel === 'EMAIL' ? 'Adresse email locataire absente' : 'Téléphone locataire absent');
 
     const message = body.message
       ? String(body.message)
@@ -5555,31 +5556,35 @@ export class SaasService {
           currency: 'USD',
         });
 
-    const communication = channel === 'EMAIL'
-      ? await this.emailService.sendInvoiceReminderEmail({
-          organizationId,
-          invoiceId: id,
-          invoiceNumber: String(invoice.invoice_number),
-          tenantName: String(invoice.tenant_name ?? 'Locataire'),
-          tenantEmail: invoice.email ? String(invoice.email) : null,
-          amount: Number(invoice.total ?? 0),
-          currency: 'USD',
-          dueDate: null,
-          stage: String(body.stage ?? 'MANUAL'),
-          message,
-          createdBy: this.context.userId() ?? 1,
-          idempotencyKey: body.idempotency_key
-            ? String(body.idempotency_key)
-            : this.emailService.buildIdempotencyKey([organizationId, 'INVOICE_REMINDER', id, channel, String(body.stage ?? 'MANUAL'), message]),
-        })
-      : await this.sendCommunication(channel, {
-          recipient,
-          subject: channel === 'EMAIL' ? `Relance facture ${invoice.invoice_number}` : undefined,
-          message,
-          related_entity_type: 'invoice',
-          related_entity_id: id,
-        });
-    const communicationStatus = String((communication as { status?: string; log?: { status?: string } })?.status ?? (communication as { log?: { status?: string } })?.log?.status ?? 'SIMULATED').toUpperCase();
+    const communication = skipDelivery
+      ? null
+      : channel === 'EMAIL'
+        ? await this.emailService.sendInvoiceReminderEmail({
+            organizationId,
+            invoiceId: id,
+            invoiceNumber: String(invoice.invoice_number),
+            tenantName: String(invoice.tenant_name ?? 'Locataire'),
+            tenantEmail: invoice.email ? String(invoice.email) : null,
+            amount: Number(invoice.total ?? 0),
+            currency: 'USD',
+            dueDate: null,
+            stage: String(body.stage ?? 'MANUAL'),
+            message,
+            createdBy: this.context.userId() ?? 1,
+            idempotencyKey: body.idempotency_key
+              ? String(body.idempotency_key)
+              : this.emailService.buildIdempotencyKey([organizationId, 'INVOICE_REMINDER', id, channel, String(body.stage ?? 'MANUAL'), message]),
+          })
+        : await this.sendCommunication(channel, {
+            recipient,
+            subject: channel === 'EMAIL' ? `Relance facture ${invoice.invoice_number}` : undefined,
+            message,
+            related_entity_type: 'invoice',
+            related_entity_id: id,
+          });
+    const communicationStatus = skipDelivery
+      ? String(body.status ?? 'SENT').toUpperCase()
+      : String((communication as { status?: string; log?: { status?: string } })?.status ?? (communication as { log?: { status?: string } })?.log?.status ?? 'SIMULATED').toUpperCase();
     const status = communicationStatus === 'FAILED'
       ? 'FAILED'
       : communicationStatus === 'SENT'

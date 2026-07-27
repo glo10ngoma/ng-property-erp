@@ -26,6 +26,7 @@ type Invoice = {
   total: number;
   status: string;
   invoice_type?: string;
+  tenant_civility?: string;
   generated_automatically?: boolean;
   generation_source?: string;
   email_delivery_status?: string;
@@ -96,6 +97,32 @@ function getInvoiceEmailContent(invoiceType?: string) {
   };
 }
 
+function invoiceReminderContent(invoiceType: string | undefined, civility: string | undefined, tenantName: string) {
+  const name = tenantName.trim() || 'Locataire';
+  const greeting = invoiceReminderGreeting(civility, name);
+  const normalized = String(invoiceType ?? 'RENT').trim().toUpperCase();
+  if (normalized === 'RENT' || normalized === 'LOYER') {
+    return {
+      subject: 'Relance — Votre facture de loyer',
+      message: `${greeting},\n\nNous vous rappelons que votre facture de loyer est en attente de règlement.\nVeuillez trouver la facture en pièce jointe.`,
+    };
+  }
+
+  return {
+    subject: 'Relance — Votre facture maintenance et des autres charges',
+    message: `${greeting},\n\nNous vous rappelons que votre facture maintenance et des autres charges est en attente de règlement.\nVeuillez trouver la facture en pièce jointe.`,
+  };
+}
+
+function invoiceReminderGreeting(civility: string | undefined, tenantName: string) {
+  const normalized = String(civility ?? '').trim().toUpperCase();
+  if (normalized === 'MONSIEUR' || normalized === 'MR' || normalized === 'M') return `Bonjour Monsieur ${tenantName}`;
+  if (normalized === 'MADAME' || normalized === 'MME') return `Bonjour Madame ${tenantName}`;
+  if (normalized === 'MAITRE' || normalized === 'MAÎTRE') return `Bonjour Maître ${tenantName}`;
+  if (normalized === 'DOCTEUR' || normalized === 'DR') return `Bonjour Docteur ${tenantName}`;
+  return `Bonjour ${tenantName}`;
+}
+
 export function InvoiceDetail() {
   const { can, user } = useAuth();
   const { id } = useParams();
@@ -115,6 +142,7 @@ export function InvoiceDetail() {
   const [emailOpen, setEmailOpen] = useState(false);
   const [emailSending, setEmailSending] = useState(false);
   const [emailError, setEmailError] = useState('');
+  const [emailMode, setEmailMode] = useState<'send' | 'reminder'>('send');
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [companySettings, setCompanySettings] = useState<CompanySettingsHeader | null>(null);
   const [paymentCurrency, setPaymentCurrency] = useState<'USD' | 'CDF' | 'MIXED'>('USD');
@@ -295,6 +323,12 @@ export function InvoiceDetail() {
     await reload();
   }
 
+  function openEmailModal(mode: 'send' | 'reminder') {
+    setEmailMode(mode);
+    setEmailError('');
+    setEmailOpen(true);
+  }
+
   function openEdit() {
     if (!invoice) return;
     setEditLines(invoice.items.map((item) => ({ item_type: item.item_type ?? inferInvoiceItemType(item.description), description: item.description, amount: Number(item.amount) })));
@@ -364,6 +398,14 @@ export function InvoiceDetail() {
     .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
   const receiptPayments = (invoice.payments ?? []).filter((payment) => String(payment.payment_type ?? '').toUpperCase() !== 'TENANT_CREDIT_ALLOCATION' && Boolean(payment.receipt_number));
   const canPrintReceipt = ['PARTIAL', 'PAID'].includes(String(invoice.status).toUpperCase()) && receiptPayments.length > 0;
+  const invoiceEmailContent = getInvoiceEmailContent(invoice.invoice_type);
+  const invoiceReminderEmailContent = invoiceReminderContent(
+    invoice.invoice_type,
+    invoice.tenant_civility,
+    invoice.tenant_name || `${invoice.first_name} ${invoice.last_name}`.trim(),
+  );
+  const emailModalTitle = emailMode === 'reminder' ? 'Relance par email' : 'Envoyer la facture par email';
+  const emailDefaultContent = emailMode === 'reminder' ? invoiceReminderEmailContent : invoiceEmailContent;
 
   async function openInvoicePdf(disposition: 'inline' | 'attachment' = 'inline') {
     if (!invoice) return;
@@ -413,9 +455,24 @@ export function InvoiceDetail() {
         cc: payload.cc,
         subject: payload.subject,
         message: payload.message,
+        trigger: 'MANUAL',
       });
+      if (emailMode === 'reminder') {
+        try {
+          await api.post(`/reports/invoices/${invoice.id}/remind`, {
+            channel: 'EMAIL',
+            message: payload.message,
+            stage: 'MANUAL',
+            skip_delivery: true,
+            status: 'SENT',
+          });
+        } catch (traceError) {
+          console.error('[COMMUNICATION] reminder trace sync failed', traceError);
+        }
+      }
       setEmailOpen(false);
-      setSuccess('Facture envoyée par email avec succès.');
+      setSuccess(emailMode === 'reminder' ? 'Relance email envoyée avec succès.' : 'Facture envoyée par email avec succès.');
+      await reload();
     } catch (err) {
       setEmailError(apiErrorMessage(err));
     } finally {
@@ -440,8 +497,6 @@ export function InvoiceDetail() {
     }
   }
 
-  const invoiceEmailContent = getInvoiceEmailContent(invoice.invoice_type);
-
   return (
     <section>
       <div className="page-header no-print">
@@ -451,7 +506,7 @@ export function InvoiceDetail() {
           {can('invoices.update') && <button onClick={openEdit}><Pencil size={16} />Modifier</button>}
           <button onClick={printInvoice}><Printer size={16} />Imprimer</button>
           <button className="secondary" onClick={() => void openInvoicePdf('attachment')}><Download size={16} />Télécharger</button>
-          {can('communication.send') && <button className="secondary" onClick={() => setEmailOpen(true)}><Mail size={16} />Envoyer par email</button>}
+          {can('communication.send') && <button className="secondary" onClick={() => openEmailModal('send')}><Mail size={16} />Envoyer par email</button>}
           {canPrintReceipt && receiptPayments.length === 1 && (
             <button className="secondary" onClick={() => navigate(`/payments/${receiptPayments[0].id}`)}><Printer size={16} />Imprimer le reçu</button>
           )}
@@ -467,7 +522,7 @@ export function InvoiceDetail() {
           )}
           {can('payments.create') && <button title="Enregistrer un paiement" onClick={() => setPaymentOpen(true)}><CreditCard size={16} />Paiement</button>}
           {can('communication.send') && <button className="secondary" title="Envoyer par WhatsApp" onClick={() => sendReminder('WHATSAPP')}><MessageCircle size={16} />WhatsApp</button>}
-          {can('communication.send') && <button className="secondary" title="Envoyer par e-mail" onClick={() => sendReminder('EMAIL')}><Mail size={16} />Email</button>}
+          {can('communication.send') && <button className="secondary" title="Envoyer par e-mail" onClick={() => openEmailModal('reminder')}><Mail size={16} />Email</button>}
           {can('communication.send') && <button className="secondary" title="Envoyer par SMS" onClick={() => sendReminder('SMS')}><Smartphone size={16} />SMS</button>}
           <button className="secondary" onClick={() => exportInvoiceExcel(invoice, stats, risk, timeline, schedule, documents)}><FileSpreadsheet size={16} />Excel</button>
         </div>
@@ -476,11 +531,11 @@ export function InvoiceDetail() {
       <div className="no-print"><SuccessMessage message={success} /></div>
 
       <DocumentEmailModal
-        title="Envoyer la facture par email"
+        title={emailModalTitle}
         open={emailOpen}
         defaultRecipient={invoice.email ?? ''}
-        defaultSubject={invoiceEmailContent.subject}
-        defaultMessage={invoiceEmailContent.message}
+        defaultSubject={emailDefaultContent.subject}
+        defaultMessage={emailDefaultContent.message}
         attachmentName={`Facture_${invoice.invoice_number}.pdf`}
         sending={emailSending}
         error={emailError}
