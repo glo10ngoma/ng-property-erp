@@ -7,7 +7,7 @@ import { AutomationsController } from './automations.controller';
 import { AutomationsService } from './automations.service';
 
 @Module({
-  imports: [DatabaseModule, forwardRef(() => SaasModule), EmailModule, CommunicationModule],
+  imports: [DatabaseModule, forwardRef(() => SaasModule), EmailModule, forwardRef(() => CommunicationModule)],
   controllers: [AutomationsController],
   providers: [AutomationsService],
   exports: [AutomationsService],

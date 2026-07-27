@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { RequestContext } from '../auth/request-context';
 import { requireRow } from '../common/not-found';
@@ -11,6 +11,7 @@ export class InvoicesService {
   constructor(
     private readonly db: DatabaseService,
     private readonly context: RequestContext,
+    @Inject(forwardRef(() => SaasService))
     private readonly saasService: SaasService,
   ) {}
 

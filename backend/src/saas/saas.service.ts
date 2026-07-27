@@ -51,6 +51,7 @@ export class SaasService {
     private readonly db: DatabaseService,
     private readonly context: RequestContext,
     private readonly emailService: EmailService,
+    @Inject(forwardRef(() => CommunicationService))
     private readonly communicationService: CommunicationService,
     @Inject(forwardRef(() => AutomationsService))
     private readonly automationsService: AutomationsService,

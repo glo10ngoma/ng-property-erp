@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { CommunicationController } from './communication.controller';
 import { CommunicationService } from './communication.service';
 import { DocumentResolverService } from './document-resolver.service';
@@ -7,7 +7,7 @@ import { EmailModule } from './email/email.module';
 import { InvoicesModule } from '../invoices/invoices.module';
 
 @Module({
-  imports: [DatabaseModule, EmailModule, InvoicesModule],
+  imports: [DatabaseModule, EmailModule, forwardRef(() => InvoicesModule)],
   controllers: [CommunicationController],
   providers: [CommunicationService, DocumentResolverService],
   exports: [CommunicationService],

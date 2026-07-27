@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { PdfRendererService } from '../documents/pdf-renderer.service';
 import { RequestContext } from '../auth/request-context';
@@ -21,6 +21,7 @@ export class InvoicePdfService {
     private readonly invoices: InvoicesService,
     private readonly db: DatabaseService,
     private readonly context: RequestContext,
+    @Inject(forwardRef(() => SaasService))
     private readonly saasService: SaasService,
   ) {}
 

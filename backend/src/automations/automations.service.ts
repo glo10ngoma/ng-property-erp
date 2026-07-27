@@ -98,6 +98,7 @@ export class AutomationsService {
     private readonly context: RequestContext,
     @Inject(forwardRef(() => SaasService))
     private readonly saasService: SaasService,
+    @Inject(forwardRef(() => CommunicationService))
     private readonly communicationService: CommunicationService,
   ) {}
 

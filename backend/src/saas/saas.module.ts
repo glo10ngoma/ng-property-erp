@@ -39,7 +39,7 @@ import {
 import { SaasService } from './saas.service';
 
 @Module({
-  imports: [DatabaseModule, EmailModule, CommunicationModule, forwardRef(() => AutomationsModule)],
+  imports: [DatabaseModule, EmailModule, forwardRef(() => CommunicationModule), forwardRef(() => AutomationsModule)],
   controllers: [
     UsersController,
     WorkflowsController,
