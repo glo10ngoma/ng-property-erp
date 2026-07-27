@@ -1,5 +1,5 @@
-﻿import { ArrowLeft, CreditCard, FileSpreadsheet, Mail, MessageCircle, Pencil, Plus, Printer, Smartphone, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+﻿import { ArrowLeft, CreditCard, Download, FileSpreadsheet, Mail, MessageCircle, Pencil, Plus, Printer, Smartphone, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, invoiceDisplayStatus, itemLabel, money, paymentMethodLabel, shortDate } from '../api';
 import { useAuth } from '../auth';
@@ -108,7 +108,6 @@ export function InvoiceDetail() {
   const [paymentRate, setPaymentRate] = useState('');
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState('');
-  const printTitleRef = useRef<string | null>(null);
 
   async function reload() {
     if (!id) return;
@@ -145,30 +144,6 @@ export function InvoiceDetail() {
     if (invoice) setUsdAmount(String(Number(invoice.remaining_amount ?? 0).toFixed(2)));
   }, [invoice]);
 
-  useEffect(() => {
-    const applyPrintTitle = () => {
-      if (printTitleRef.current === null) {
-        printTitleRef.current = document.title;
-      }
-      document.title = ' ';
-    };
-
-    const restorePrintTitle = () => {
-      if (printTitleRef.current !== null) {
-        document.title = printTitleRef.current;
-        printTitleRef.current = null;
-      }
-    };
-
-    window.addEventListener('beforeprint', applyPrintTitle);
-    window.addEventListener('afterprint', restorePrintTitle);
-
-    return () => {
-      window.removeEventListener('beforeprint', applyPrintTitle);
-      window.removeEventListener('afterprint', restorePrintTitle);
-      restorePrintTitle();
-    };
-  }, []);
 
   useEffect(() => {
     if (!invoice) return;
@@ -349,20 +324,39 @@ export function InvoiceDetail() {
   const receiptPayments = (invoice.payments ?? []).filter((payment) => String(payment.payment_type ?? '').toUpperCase() !== 'TENANT_CREDIT_ALLOCATION' && Boolean(payment.receipt_number));
   const canPrintReceipt = ['PARTIAL', 'PAID'].includes(String(invoice.status).toUpperCase()) && receiptPayments.length > 0;
 
-  function printInvoice() {
-    if (printTitleRef.current === null) {
-      printTitleRef.current = document.title;
-    }
-    document.title = ' ';
+  async function openInvoicePdf(disposition: 'inline' | 'attachment' = 'inline') {
+    if (!invoice) return;
+    const response = await api.get(`/invoices/${invoice.id}/pdf`, {
+      responseType: 'blob',
+      params: { disposition },
+    });
+    const contentType = String(response.headers?.['content-type'] ?? 'application/pdf');
+    const blob = new Blob([response.data], { type: contentType });
+    const objectUrl = window.URL.createObjectURL(blob);
     try {
-      window.print();
+      if (disposition === 'attachment') {
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = `Facture_${invoice.invoice_number}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        return;
+      }
+      const previewWindow = window.open('', '_blank', 'noopener,noreferrer');
+      if (!previewWindow) {
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        return;
+      }
+      previewWindow.location.href = objectUrl;
     } finally {
-      window.setTimeout(() => {
-        if (printTitleRef.current !== null) {
-          document.title = printTitleRef.current;
-          printTitleRef.current = null;
-        }
-      }, 0);
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 30000);
     }
   }
 
@@ -395,7 +389,8 @@ export function InvoiceDetail() {
         <div className="actions invoice-detail-actions">
           <button className="secondary" onClick={() => navigate('/invoices')}><ArrowLeft size={16} />Retour</button>
           {can('invoices.update') && <button onClick={openEdit}><Pencil size={16} />Modifier</button>}
-          <button onClick={printInvoice}><Printer size={16} />Imprimer</button>
+          <button onClick={() => void openInvoicePdf('inline')}><Printer size={16} />Imprimer</button>
+          <button className="secondary" onClick={() => void openInvoicePdf('attachment')}><Download size={16} />Télécharger</button>
           {can('communication.send') && <button className="secondary" onClick={() => setEmailOpen(true)}><Mail size={16} />Envoyer par email</button>}
           {canPrintReceipt && receiptPayments.length === 1 && (
             <button className="secondary" onClick={() => navigate(`/payments/${receiptPayments[0].id}`)}><Printer size={16} />Imprimer le reçu</button>
@@ -581,7 +576,13 @@ export function InvoiceDetail() {
               {documents.map((document) => (
                 <div className="compact-item" key={document.name}>
                   <span>{document.name}</span>
-                  <strong>{document.exists ? <button type="button" className="link-button" onClick={() => openOrDownloadDocument({ fileName: document.fileName, fileUrl: document.fileUrl, title: document.name, context: `Facture ${invoice.invoice_number}` })}>{document.detail}</button> : 'Non disponible'}</strong>
+                  <strong>{document.exists ? (
+                    document.name === 'Facture PDF' ? (
+                      <button type="button" className="link-button" onClick={() => void openInvoicePdf('inline')}>{document.detail}</button>
+                    ) : (
+                      <button type="button" className="link-button" onClick={() => openOrDownloadDocument({ fileName: document.fileName, fileUrl: document.fileUrl, title: document.name, context: `Facture ${invoice.invoice_number}` })}>{document.detail}</button>
+                    )
+                  ) : 'Non disponible'}</strong>
                 </div>
               ))}
               {invoice.internal_notes && <div className="compact-item"><span>Notes internes</span><strong>{invoice.internal_notes}</strong></div>}
