@@ -44,7 +44,7 @@ export class DocumentResolverService {
   }
 
   private async resolveInvoice(id: number, message: string): Promise<ResolvedDocument> {
-    const document = await this.invoicePdfService.buildDocument(id);
+    const document = await this.invoicePdfService.buildDocument(id, { variant: 'email' });
     const invoice = document.invoice;
     const emailContent = this.getInvoiceEmailContent(invoice.invoice_type);
     return {

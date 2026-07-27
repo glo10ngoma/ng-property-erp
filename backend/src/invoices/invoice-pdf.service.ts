@@ -13,6 +13,8 @@ export type InvoicePdfDocument = {
   contentType: string;
 };
 
+type InvoicePdfVariant = 'default' | 'email';
+
 @Injectable()
 export class InvoicePdfService {
   private readonly pdfRenderer = new PdfRendererService();
@@ -25,9 +27,9 @@ export class InvoicePdfService {
     private readonly saasService: SaasService,
   ) {}
 
-  async buildDocument(id: number): Promise<InvoicePdfDocument> {
+  async buildDocument(id: number, options?: { variant?: InvoicePdfVariant }): Promise<InvoicePdfDocument> {
     const invoice = await this.loadInvoiceDocument(id);
-    const pdfBuffer = await this.pdfRenderer.renderA4Pdf(this.renderInvoicePdfHtml(invoice));
+    const pdfBuffer = await this.pdfRenderer.renderA4Pdf(this.renderInvoicePdfHtml(invoice, options));
     return {
       invoice,
       pdfBuffer,
@@ -74,7 +76,8 @@ export class InvoicePdfService {
     };
   }
 
-  private renderInvoicePdfHtml(invoice: Record<string, any>) {
+  private renderInvoicePdfHtml(invoice: Record<string, any>, options?: { variant?: InvoicePdfVariant }) {
+    const isEmailVariant = (options?.variant ?? 'default') === 'email';
     const isRentInvoice = String(invoice.invoice_type ?? 'RENT').toUpperCase() === 'RENT';
     const titleOnlyInvoiceHeader = this.isTitleOnlyInvoiceHeaderOrganization(String(invoice.organization_slug ?? null));
     const companyName = this.companyDisplayName(invoice, invoice.organization_name);
@@ -153,12 +156,13 @@ export class InvoicePdfService {
     .invoice-accordion-grid details { border: 1px solid #dce5eb; border-radius: 6px; background: white; padding: 8px; }
     .invoice-accordion-grid summary { cursor: pointer; font-weight: 800; color: #255e7e; }
     .invoice-accordion-grid .compact-list { margin-top: 8px; max-height: 220px; }
+    .email-variant .invoice-email-hidden { display: none !important; }
     .print-invoice { border: 0; border-radius: 0; max-width: none; min-height: calc(100vh - 24mm); padding-bottom: 18mm; position: relative; }
     .print-invoice-footer { position: fixed; left: 0; right: 0; bottom: 0; margin: 0; text-align: center; font-size: 10px; color: #6b7f8b; background: white; }
   </style>
 </head>
 <body>
-  <article class="print-invoice">
+  <article class="print-invoice${isEmailVariant ? ' email-variant' : ''}">
     <header class="${titleOnlyInvoiceHeader ? 'invoice-header-title-only' : ''}">
       ${
         titleOnlyInvoiceHeader
@@ -187,7 +191,7 @@ export class InvoicePdfService {
       </div>
     </header>
 
-    <div class="summary-band no-print">
+    <div class="summary-band no-print invoice-email-hidden">
       <div class="summary-item"><span>Date de facture</span><strong>${this.formatDate(invoice.issue_date)}</strong></div>
       <div class="summary-item"><span>Date d'echeance</span><strong>${this.formatDate(invoice.due_date)}</strong></div>
       <div class="summary-item"><span>Type</span><strong>${escapeHtml(this.invoiceTypeLabel(invoice.invoice_type))}</strong></div>
@@ -229,7 +233,7 @@ export class InvoicePdfService {
       </tfoot>
     </table>
 
-    <div class="compact-list">
+    <div class="compact-list invoice-email-hidden">
       <div class="compact-item"><span>Montant réglé par crédit</span><strong>${this.money(creditAppliedAmount)}</strong></div>
       <div class="compact-item"><span>Solde restant</span><strong>${this.money(invoice.remaining_amount)}</strong></div>
     </div>
@@ -238,7 +242,7 @@ export class InvoicePdfService {
     <p class="thanks">Merci pour votre confiance.</p>
     <footer class="print-invoice-footer">Powered by Property ERP</footer>
 
-    <div class="no-print">
+    <div class="no-print invoice-email-hidden">
       <div class="invoice-accordion-grid">
         <details>
           <summary>Paiements (${Array.isArray(invoice.payments) ? invoice.payments.length : 0})</summary>
