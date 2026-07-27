@@ -71,6 +71,7 @@ export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private readonly templatesRoot = join(process.cwd(), 'src', 'communication', 'email', 'templates');
   private readonly provider: EmailProvider;
+  private communicationLogsSchemaPromise?: Promise<{ hasCreatedBy: boolean }>;
 
   constructor(
     private readonly db: DatabaseService,
@@ -410,13 +411,13 @@ export class EmailService {
   }
 
   async listLogs(filters: CommunicationLogFilters = {}) {
-    const { sql, params } = this.buildLogQuery(filters);
+    const { sql, params } = await this.buildLogQuery(filters);
     const result = await this.db.query<CommunicationLogRow>(sql, params);
     return result.rows;
   }
 
   async getLog(id: number) {
-    const { sql, params } = this.buildLogQuery({ limit: 1 }, id);
+    const { sql, params } = await this.buildLogQuery({ limit: 1 }, id);
     const result = await this.db.query<CommunicationLogRow>(sql, params);
     return result.rows[0] ?? null;
   }
@@ -507,12 +508,35 @@ export class EmailService {
     return AUTO_INVOICE_ORGANIZATION_IDS.has(Number(organizationId)) && Boolean(value);
   }
 
-  private buildLogQuery(filters: CommunicationLogFilters, id?: number) {
+  private async getCommunicationLogsSchema() {
+    if (!this.communicationLogsSchemaPromise) {
+      this.communicationLogsSchemaPromise = this.db
+        .query<{ has_created_by: boolean }>(
+          `
+            SELECT EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name = 'communication_logs'
+                AND column_name = 'created_by'
+            ) AS has_created_by
+          `,
+        )
+        .then((result) => ({ hasCreatedBy: Boolean(result.rows[0]?.has_created_by) }))
+        .catch(() => ({ hasCreatedBy: false }));
+    }
+
+    return this.communicationLogsSchemaPromise;
+  }
+
+  private async buildLogQuery(filters: CommunicationLogFilters, id?: number) {
     const params: unknown[] = [];
     const push = (value: unknown) => {
       params.push(value);
       return `$${params.length}`;
     };
+    const schema = await this.getCommunicationLogsSchema();
+    const hasCreatedBy = Boolean(schema.hasCreatedBy);
 
     const conditions = [
       `cl.organization_id = ${push(this.context.organizationId())}`,
@@ -547,8 +571,8 @@ export class EmailService {
         OR COALESCE(cl.error, '') ILIKE ${push(term)}
         OR COALESCE(cl.external_message_id, '') ILIKE ${push(term)}
         OR COALESCE(o.name, '') ILIKE ${push(term)}
-        OR COALESCE(u_full.name, '') ILIKE ${push(term)}
         OR COALESCE(document_reference.reference, '') ILIKE ${push(term)}
+        ${hasCreatedBy ? `OR COALESCE(u_full.name, '') ILIKE ${push(term)}` : ''}
       )`);
     }
 
@@ -574,8 +598,8 @@ export class EmailService {
           cl.idempotency_key,
           cl.external_message_id,
           cl.error,
-          cl.created_by,
-          COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
+          ${hasCreatedBy ? 'cl.created_by' : 'NULL::INTEGER AS created_by'},
+          ${hasCreatedBy ? "COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name" : 'NULL::TEXT AS created_by_name'},
           CASE
             WHEN cl.delivery_trigger = 'AUTO' THEN 'PROCESSUS AUTOMATIQUE'
             WHEN cl.delivery_trigger = 'SYSTEM' THEN 'SYSTEME'
@@ -619,9 +643,7 @@ export class EmailService {
         FROM communication_logs cl
         LEFT JOIN organizations o
           ON o.id = cl.organization_id
-        LEFT JOIN app_users u
-          ON u.id = cl.created_by
-         AND u.deleted_at IS NULL
+        ${hasCreatedBy ? `LEFT JOIN app_users u ON u.id = cl.created_by AND u.deleted_at IS NULL` : ''}
         LEFT JOIN invoices invoice_doc
           ON cl.document_type = 'INVOICE'
          AND invoice_doc.id = cl.document_id
@@ -799,22 +821,31 @@ export class EmailService {
     subject: string;
     createdBy?: number | null;
   }) {
+    const schema = await this.getCommunicationLogsSchema();
+    const hasCreatedBy = Boolean(schema.hasCreatedBy);
+    const columns = [
+      'organization_id',
+      'channel',
+      'provider',
+      'recipient',
+      'subject',
+      'status',
+      ...(hasCreatedBy ? ['created_by'] : []),
+      'created_at',
+    ];
+    const placeholders = hasCreatedBy ? '$1, $2, $3, $4, $5, \'PENDING\', $6, NOW()' : '$1, $2, $3, $4, $5, \'PENDING\', NOW()';
+    const values = hasCreatedBy
+      ? [organizationId, CommunicationChannel.EMAIL, provider, recipient, subject, createdBy ?? null]
+      : [organizationId, CommunicationChannel.EMAIL, provider, recipient, subject];
     const result = await this.db.query<{ id: number }>(
       `
         INSERT INTO communication_logs (
-          organization_id,
-          channel,
-          provider,
-          recipient,
-          subject,
-          status,
-          created_by,
-          created_at
+          ${columns.join(',\n          ')}
         )
-        VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, NOW())
+        VALUES (${placeholders})
         RETURNING id
       `,
-      [organizationId, CommunicationChannel.EMAIL, provider, recipient, subject, createdBy ?? null],
+      values,
     );
     return result.rows[0]?.id ?? null;
   }
@@ -859,43 +890,66 @@ export class EmailService {
     error?: string | null;
     createdBy?: number | null;
   }) {
-    const result = await this.db.query<{ id: number }>(
-      `
-        INSERT INTO communication_logs (
-          organization_id,
-          channel,
+    const schema = await this.getCommunicationLogsSchema();
+    const hasCreatedBy = Boolean(schema.hasCreatedBy);
+    const columns = [
+      'organization_id',
+      'channel',
+      'provider',
+      'recipient',
+      'subject',
+      'status',
+      'document_type',
+      'document_id',
+      'delivery_trigger',
+      'idempotency_key',
+      'error',
+      ...(hasCreatedBy ? ['created_by'] : []),
+      'created_at',
+    ];
+    const placeholders = hasCreatedBy
+      ? '$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()'
+      : '$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()';
+    const values = hasCreatedBy
+      ? [
+          organizationId,
+          CommunicationChannel.EMAIL,
           provider,
           recipient,
           subject,
           status,
-          document_type,
-          document_id,
-          delivery_trigger,
-          idempotency_key,
-          error,
-          created_by,
-          created_at
+          documentType ?? null,
+          documentId ?? null,
+          trigger ?? DocumentDeliveryTrigger.MANUAL,
+          idempotencyKey ?? null,
+          error ?? null,
+          createdBy ?? null,
+        ]
+      : [
+          organizationId,
+          CommunicationChannel.EMAIL,
+          provider,
+          recipient,
+          subject,
+          status,
+          documentType ?? null,
+          documentId ?? null,
+          trigger ?? DocumentDeliveryTrigger.MANUAL,
+          idempotencyKey ?? null,
+          error ?? null,
+        ];
+    const result = await this.db.query<{ id: number }>(
+      `
+        INSERT INTO communication_logs (
+          ${columns.join(',\n          ')}
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+        VALUES (${placeholders})
         ON CONFLICT (organization_id, channel, idempotency_key)
         WHERE idempotency_key IS NOT NULL
         DO NOTHING
         RETURNING id
       `,
-      [
-        organizationId,
-        CommunicationChannel.EMAIL,
-        provider,
-        recipient,
-        subject,
-        status,
-        documentType ?? null,
-        documentId ?? null,
-        trigger ?? DocumentDeliveryTrigger.MANUAL,
-        idempotencyKey ?? null,
-        error ?? null,
-        createdBy ?? null,
-      ],
+      values,
     );
     return result.rows[0]?.id ?? null;
   }
