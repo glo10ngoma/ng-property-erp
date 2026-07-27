@@ -1,10 +1,10 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Patch, Post, Req, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Logger, Patch, Post, Req, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Type } from 'class-transformer';
 import { IsInt, IsPositive, IsString } from 'class-validator';
 import { createHmac } from 'crypto';
 import { DatabaseService } from '../database/database.service';
-import { hashPassword, verifyPassword } from './password';
+import { hashPassword, isBcryptHash, verifyPassword } from './password';
 import { OrganizationAccessService } from './organization-access.service';
 import { AuthPayload } from './request-context';
 
@@ -41,6 +41,7 @@ type RequestWithHeaders = {
 
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
   private readonly jwtSecret: string;
   private readonly absoluteTimeoutSeconds: number;
 
@@ -72,6 +73,12 @@ export class AuthController {
     const user = rows[0];
     if (!user || user.status !== 'ACTIVE' || !(await verifyPassword(dto.password, user.password_hash))) {
       throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (isBcryptHash(String(user.password_hash ?? ''))) {
+      this.rehashLegacyPassword(Number(user.id), dto.password).catch((error: unknown) => {
+        this.logger.warn(`Unable to migrate legacy bcrypt password hash for user ${user.id}: ${error instanceof Error ? error.message : String(error)}`);
+      });
     }
 
     const requestedOrganizationId = this.readRequestedOrganizationId(request);
@@ -192,6 +199,16 @@ export class AuthController {
     ).toString('base64url');
     const signature = createHmac('sha256', this.jwtSecret).update(body).digest('base64url');
     return `${body}.${signature}`;
+  }
+
+  private async rehashLegacyPassword(userId: number, password: string) {
+    const nextHash = await hashPassword(password);
+    await this.db.query(
+      `UPDATE app_users
+       SET password_hash = $2, updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [userId, nextHash],
+    );
   }
 
   private validatePasswordChangePayload(currentPassword: string, newPassword: string, confirmPassword: string) {

@@ -1,4 +1,5 @@
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'crypto';
+import * as bcrypt from 'bcryptjs';
 const KEY_LENGTH = 64;
 const DEFAULT_N = 16384;
 const DEFAULT_R = 8;
@@ -10,6 +11,7 @@ export async function hashPassword(password: string, salt = randomBytes(16).toSt
 }
 
 export async function verifyPassword(password: string, storedHash: string) {
+  if (!storedHash) return false;
   if (storedHash.startsWith('scrypt|')) {
     const [, n, r, p, salt, hash] = storedHash.split('|');
     if (!n || !r || !p || !salt || !hash) return false;
@@ -18,8 +20,16 @@ export async function verifyPassword(password: string, storedHash: string) {
     return derivedKey.length === expected.length && timingSafeEqual(derivedKey, expected);
   }
 
+  if (isBcryptHash(storedHash)) {
+    return bcrypt.compare(password, storedHash);
+  }
+
   // Temporary compatibility for databases seeded before password hashing.
   return storedHash === password;
+}
+
+export function isBcryptHash(value: string) {
+  return /^\$2[aby]\$\d{2}\$/.test(String(value ?? ''));
 }
 
 function deriveKey(password: string, salt: string, keyLength: number, n: number, r: number, p: number) {
