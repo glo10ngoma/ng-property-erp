@@ -45,8 +45,8 @@ export class InvoicePdfService {
     const [{ rows: organizationRows }, companySettings] = await Promise.all([
       this.db.query(
         `SELECT id, name, slug
-         FROM organizations
-         WHERE id = $1 AND deleted_at IS NULL`,
+         FROM public.organizations
+         WHERE id = $1`,
         [this.context.organizationId()],
       ),
       this.saasService.companySettings(),
