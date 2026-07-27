@@ -529,6 +529,10 @@ export class EmailService {
     return this.communicationLogsSchemaPromise;
   }
 
+  private invalidateCommunicationLogsSchemaCache() {
+    this.communicationLogsSchemaPromise = undefined;
+  }
+
   private async buildLogQuery(filters: CommunicationLogFilters, id?: number) {
     const params: unknown[] = [];
     const push = (value: unknown) => {
@@ -640,7 +644,7 @@ export class EmailService {
             )
           )::INT AS attempt_count,
           cl.created_at
-        FROM communication_logs cl
+        FROM public.communication_logs cl
         LEFT JOIN organizations o
           ON o.id = cl.organization_id
         ${hasCreatedBy ? `LEFT JOIN app_users u ON u.id = cl.created_by AND u.deleted_at IS NULL` : ''}
@@ -839,7 +843,7 @@ export class EmailService {
       : [organizationId, CommunicationChannel.EMAIL, provider, recipient, subject];
     const result = await this.db.query<{ id: number }>(
       `
-        INSERT INTO communication_logs (
+        INSERT INTO public.communication_logs (
           ${columns.join(',\n          ')}
         )
         VALUES (${placeholders})
@@ -854,7 +858,7 @@ export class EmailService {
     const result = await this.db.query<{ id: number }>(
       `
         SELECT id
-        FROM communication_logs
+        FROM public.communication_logs
         WHERE organization_id = $1
           AND channel = $2
           AND idempotency_key = $3
@@ -891,7 +895,79 @@ export class EmailService {
     createdBy?: number | null;
   }) {
     const schema = await this.getCommunicationLogsSchema();
-    const hasCreatedBy = Boolean(schema.hasCreatedBy);
+    const includeCreatedBy = Boolean(schema.hasCreatedBy);
+
+    try {
+      return await this.executeDocumentLogInsert({
+        organizationId,
+        provider,
+        recipient,
+        subject,
+        documentType,
+        documentId,
+        trigger,
+        idempotencyKey,
+        status,
+        error,
+        createdBy,
+        includeCreatedBy,
+      });
+    } catch (caughtError) {
+      const pgError = caughtError as { code?: string; message?: string };
+      const isCreatedByMismatch =
+        pgError?.code === '42703' &&
+        typeof pgError?.message === 'string' &&
+        /created_by/i.test(pgError.message);
+
+      if (!isCreatedByMismatch) {
+        throw caughtError;
+      }
+
+      this.invalidateCommunicationLogsSchemaCache();
+      return this.executeDocumentLogInsert({
+        organizationId,
+        provider,
+        recipient,
+        subject,
+        documentType,
+        documentId,
+        trigger,
+        idempotencyKey,
+        status,
+        error,
+        createdBy,
+        includeCreatedBy: false,
+      });
+    }
+  }
+
+  private async executeDocumentLogInsert({
+    organizationId,
+    provider,
+    recipient,
+    subject,
+    documentType,
+    documentId,
+    trigger,
+    idempotencyKey,
+    status,
+    error,
+    createdBy,
+    includeCreatedBy,
+  }: {
+    organizationId: number;
+    provider: string;
+    recipient: string;
+    subject: string;
+    documentType?: DocumentType | null;
+    documentId?: number | null;
+    trigger?: DocumentDeliveryTrigger;
+    idempotencyKey?: string | null;
+    status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
+    error?: string | null;
+    createdBy?: number | null;
+    includeCreatedBy: boolean;
+  }) {
     const columns = [
       'organization_id',
       'channel',
@@ -904,13 +980,13 @@ export class EmailService {
       'delivery_trigger',
       'idempotency_key',
       'error',
-      ...(hasCreatedBy ? ['created_by'] : []),
+      ...(includeCreatedBy ? ['created_by'] : []),
       'created_at',
     ];
-    const placeholders = hasCreatedBy
+    const placeholders = includeCreatedBy
       ? '$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()'
       : '$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()';
-    const values = hasCreatedBy
+    const values = includeCreatedBy
       ? [
           organizationId,
           CommunicationChannel.EMAIL,
@@ -940,7 +1016,7 @@ export class EmailService {
         ];
     const result = await this.db.query<{ id: number }>(
       `
-        INSERT INTO communication_logs (
+        INSERT INTO public.communication_logs (
           ${columns.join(',\n          ')}
         )
         VALUES (${placeholders})
@@ -957,7 +1033,7 @@ export class EmailService {
   private async finalizeLog(logId: number, status: 'SENT' | 'FAILED', externalMessageId: string | null, error: string | null) {
     await this.db.query(
       `
-        UPDATE communication_logs
+        UPDATE public.communication_logs
         SET status = $2,
             external_message_id = $3,
             error = $4
