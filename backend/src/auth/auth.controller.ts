@@ -61,12 +61,13 @@ export class AuthController {
 
   @Post('login')
   async login(@Body() dto: LoginDto, @Req() request: RequestWithHeaders) {
+    const normalizedEmail = String(dto.email ?? '').trim().toLowerCase();
     const { rows } = await this.db.query(
       `SELECT id, email, status, password_hash, role, platform_role
        FROM app_users
-       WHERE email = $1
+       WHERE LOWER(TRIM(email)) = $1
        LIMIT 1`,
-      [dto.email],
+      [normalizedEmail],
     );
     const user = rows[0];
     if (!user || user.status !== 'ACTIVE' || !(await verifyPassword(dto.password, user.password_hash))) {

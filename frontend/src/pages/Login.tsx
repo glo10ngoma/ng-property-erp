@@ -30,7 +30,7 @@ export function Login() {
     try {
       setError('');
       setSubmitting(true);
-      const authenticatedUser = await login(email, password);
+      const authenticatedUser = await login(email.trim(), password);
       const activeOrganizations = (authenticatedUser.organizations ?? []).filter((organization) => organization.is_active);
       if (activeOrganizations.length > 1) {
         navigate('/select-organization', { replace: true, state: { from: location.state?.from } });
