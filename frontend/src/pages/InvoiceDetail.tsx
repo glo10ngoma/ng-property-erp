@@ -123,6 +123,32 @@ function invoiceReminderGreeting(civility: string | undefined, tenantName: strin
   return `Bonjour ${tenantName}`;
 }
 
+function normalizeWhatsappPhone(phone: string | undefined) {
+  const raw = String(phone ?? '').trim();
+  if (!raw) return '';
+  const compact = raw.replace(/[\s()-]/g, '');
+  const withoutPlus = compact.startsWith('+') ? compact.slice(1) : compact;
+  const digits = withoutPlus.replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('00')) return digits.slice(2);
+  if (digits.startsWith('243')) return digits;
+  if (digits.startsWith('0') && digits.length === 10) return `243${digits.slice(1)}`;
+  return digits;
+}
+
+function invoiceWhatsappReminderContent(invoice: Invoice) {
+  const tenantName = invoice.tenant_name || `${invoice.first_name} ${invoice.last_name}`.trim() || 'Locataire';
+  const greeting = invoiceReminderGreeting(invoice.tenant_civility, tenantName);
+  const normalizedType = String(invoice.invoice_type ?? 'RENT').trim().toUpperCase();
+  const dueDateLabel = safeDateLabel(invoice.due_date);
+  const dueDateSentence = invoiceDueDateSentence(invoice.due_date);
+  const intro = normalizedType === 'RENT' || normalizedType === 'LOYER'
+    ? `Nous vous rappelons que votre facture de loyer ${invoice.invoice_number} ${dueDateSentence} ${dueDateLabel}.`
+    : `Nous vous rappelons que votre facture maintenance et des autres charges ${invoice.invoice_number} ${dueDateSentence} ${dueDateLabel}.`;
+
+  return `${greeting},\n\n${intro}\n\nSolde restant : ${money(invoice.remaining_amount)}.\n\nMerci de bien vouloir procéder au règlement.`;
+}
+
 export function InvoiceDetail() {
   const { can, user } = useAuth();
   const { id } = useParams();
@@ -329,6 +355,23 @@ export function InvoiceDetail() {
     setEmailOpen(true);
   }
 
+  function openWhatsappReminder() {
+    if (!invoice) return;
+    const phone = normalizeWhatsappPhone(invoice.phone);
+    if (!phone || phone.length < 9) {
+      window.alert('Le numéro WhatsApp du locataire n’est pas renseigné.');
+      return;
+    }
+    const message = invoiceWhatsappReminderContent(invoice);
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    const popup = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!popup) {
+      window.location.href = url;
+      return;
+    }
+    setSuccess('Relance WhatsApp préparée. Vérifiez et envoyez le message dans WhatsApp.');
+  }
+
   function openEdit() {
     if (!invoice) return;
     setEditLines(invoice.items.map((item) => ({ item_type: item.item_type ?? inferInvoiceItemType(item.description), description: item.description, amount: Number(item.amount) })));
@@ -521,7 +564,7 @@ export function InvoiceDetail() {
             </details>
           )}
           {can('payments.create') && <button title="Enregistrer un paiement" onClick={() => setPaymentOpen(true)}><CreditCard size={16} />Paiement</button>}
-          {can('communication.send') && <button className="secondary" title="Envoyer par WhatsApp" onClick={() => sendReminder('WHATSAPP')}><MessageCircle size={16} />WhatsApp</button>}
+          {can('communication.send') && <button className="secondary" title="Envoyer par WhatsApp" onClick={openWhatsappReminder}><MessageCircle size={16} />WhatsApp</button>}
           {can('communication.send') && <button className="secondary" title="Envoyer par e-mail" onClick={() => openEmailModal('reminder')}><Mail size={16} />Email</button>}
           {can('communication.send') && <button className="secondary" title="Envoyer par SMS" onClick={() => sendReminder('SMS')}><Smartphone size={16} />SMS</button>}
           <button className="secondary" onClick={() => exportInvoiceExcel(invoice, stats, risk, timeline, schedule, documents)}><FileSpreadsheet size={16} />Excel</button>
@@ -1021,6 +1064,23 @@ function exportInvoiceExcel(invoice: Invoice, stats: ReturnType<typeof invoiceSt
 
 function channelLabel(channel: string) {
   return ({ EMAIL: 'Email', SMS: 'SMS', WHATSAPP: 'WhatsApp' } as Record<string, string>)[channel] ?? channel;
+}
+
+function safeDateLabel(value: string | undefined) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return shortDate(date.toISOString());
+}
+
+function invoiceDueDateSentence(value: string | undefined) {
+  if (!value) return 'arrive à échéance le';
+  const dueDate = new Date(value);
+  if (Number.isNaN(dueDate.getTime())) return 'arrive à échéance le';
+  const today = new Date();
+  const dueUtc = Date.UTC(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+  const todayUtc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  return dueUtc < todayUtc ? 'est arrivée à échéance le' : 'arrive à échéance le';
 }
 
 function shiftedDate(value: string, days: number) {
