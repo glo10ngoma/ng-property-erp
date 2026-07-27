@@ -3,6 +3,7 @@ import { DatabaseService } from '../database/database.service';
 import { PdfRendererService } from '../documents/pdf-renderer.service';
 import { RequestContext } from '../auth/request-context';
 import { SaasService } from '../saas/saas.service';
+import { formatInvoiceDocumentDate } from './invoice-document-format';
 import { InvoicesService } from './invoices.service';
 
 export type InvoicePdfDocument = {
@@ -262,15 +263,7 @@ export class InvoicePdfService {
   }
 
   private formatDate(value?: string | null) {
-    if (!value) return '';
-    const [yearText, monthText, dayText] = String(value).slice(0, 10).split('-');
-    const year = Number(yearText);
-    const month = Number(monthText);
-    const day = Number(dayText);
-    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
-      return new Intl.DateTimeFormat('fr-FR').format(new Date(value));
-    }
-    return new Intl.DateTimeFormat('fr-FR').format(new Date(year, month - 1, day));
+    return formatInvoiceDocumentDate(value);
   }
 
   private periodLabel(month: number, year: number) {

@@ -40,7 +40,7 @@ export class InvoicesService {
   async findOne(id: number) {
     const organizationId = this.context.organizationId();
     const { rows } = await this.db.query(
-      `SELECT i.*, t.first_name, t.last_name, t.tenant_type, t.company_name,
+      `SELECT i.*, t.first_name, t.last_name, t.post_name, t.civility AS tenant_civility, t.tenant_type, t.company_name,
               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
                    ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
               END AS tenant_name,

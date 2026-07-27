@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { DatabaseService } from '../database/database.service';
 import { PdfRendererService } from '../documents/pdf-renderer.service';
 import { RequestContext } from '../auth/request-context';
+import { formatInvoiceDocumentDate } from '../invoices/invoice-document-format';
 import { InvoicePdfService } from '../invoices/invoice-pdf.service';
 import { DocumentType } from './shared/enums/document-type.enum';
 
@@ -45,20 +46,22 @@ export class DocumentResolverService {
   private async resolveInvoice(id: number, message: string): Promise<ResolvedDocument> {
     const document = await this.invoicePdfService.buildDocument(id);
     const invoice = document.invoice;
+    const emailContent = this.getInvoiceEmailContent(invoice.invoice_type);
     return {
       documentType: DocumentType.INVOICE,
       documentId: id,
       recipientFallback: invoice.tenant_email,
-      subjectFallback: `Votre facture ${invoice.invoice_number}`,
+      subjectFallback: emailContent.subject,
       attachmentFileName: `Facture_${invoice.invoice_number}.pdf`,
       templateName: 'invoice.html',
       templateVariables: {
-        document_label: 'Facture de loyer',
-        recipient_name: String(invoice.tenant_name ?? ''),
+        document_label: emailContent.title,
+        main_text: emailContent.mainText,
+        recipient_name: this.formatRecipientName(invoice),
         reference: String(invoice.invoice_number ?? ''),
         amount: this.money(invoice.total),
         due_date: this.formatDate(invoice.due_date),
-        message_body: escapeHtml(this.normalizeMessage(message)),
+        message_body: escapeHtml(this.normalizeInvoiceMessage(message, emailContent.mainText)),
       },
       pdfBuffer: document.pdfBuffer,
     };
@@ -227,8 +230,41 @@ export class DocumentResolverService {
   }
 
   private formatDate(value?: string | null) {
-    if (!value) return '-';
-    return new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString('fr-FR', { timeZone: 'Africa/Kinshasa' });
+    return formatInvoiceDocumentDate(value);
+  }
+
+  private getInvoiceEmailContent(invoiceType?: string | null) {
+    const normalized = String(invoiceType ?? 'RENT').trim().toUpperCase();
+    if (normalized === 'RENT' || normalized === 'LOYER') {
+      return {
+        subject: 'Votre facture de loyer',
+        title: 'Votre facture de loyer',
+        mainText: 'Veuillez trouver ci-joint votre facture de loyer.',
+      };
+    }
+
+    return {
+      subject: 'Votre facture maintenance et des autres charges',
+      title: 'Votre facture maintenance et des autres charges',
+      mainText: 'Veuillez trouver ci-joint votre facture maintenance et des autres charges.',
+    };
+  }
+
+  private formatRecipientName(invoice: Record<string, any>) {
+    const name = String(invoice.tenant_name ?? '').trim();
+    const civility = this.civilityLabel(invoice.tenant_civility);
+    return [civility, name].filter(Boolean).join(' ') || name;
+  }
+
+  private civilityLabel(value?: string | null) {
+    const normalized = String(value ?? '').trim().toUpperCase();
+    if (normalized === 'MR') return 'Monsieur';
+    if (normalized === 'MRS') return 'Madame';
+    return this.cleanPrintValue(value);
+  }
+
+  private normalizeInvoiceMessage(value: string, fallback: string) {
+    return String(value ?? '').trim() || fallback;
   }
 
   private periodLabel(month: number, year: number) {

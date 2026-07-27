@@ -16,6 +16,7 @@ import { ResendProvider } from './providers/resend.provider';
 import { decryptSecret, encryptSecret } from './utils/secret-crypto';
 
 const AUTO_INVOICE_ORGANIZATION_IDS = new Set([1, 5]);
+const INVOICE_EMAIL_HIDE_ORGANIZATION_IDS = new Set([1, 5]);
 
 type EmailSettingsRow = {
   id: number;
@@ -244,6 +245,7 @@ export class EmailService {
     const bodyHtml = this.renderTemplate(bodyTemplate, {
       ...args.document.templateVariables,
       organization_name: organizationName,
+      organization_signature: this.invoiceOrganizationSignature(args.document.documentType, organizationId, organizationName),
     });
     const finalSubject = args.subject?.trim() || args.document.subjectFallback;
     const html = this.renderTemplate(baseTemplate, {
@@ -337,6 +339,7 @@ export class EmailService {
     const bodyHtml = this.renderTemplate(bodyTemplate, {
       ...args.document.templateVariables,
       organization_name: organizationName,
+      organization_signature: this.invoiceOrganizationSignature(args.document.documentType, organizationId, organizationName),
     });
     const html = this.renderTemplate(baseTemplate, {
       title: subject,
@@ -764,6 +767,23 @@ export class EmailService {
 
   private normalizeMessage(value: string) {
     return String(value ?? '').trim() || 'Veuillez trouver ci-joint votre document.';
+  }
+
+  private invoiceOrganizationSignature(documentType: DocumentType, organizationId: number, organizationName: string) {
+    if (documentType !== DocumentType.INVOICE || INVOICE_EMAIL_HIDE_ORGANIZATION_IDS.has(organizationId)) {
+      return '';
+    }
+    const trimmed = String(organizationName ?? '').trim();
+    return trimmed ? `<br />${this.escapeHtml(trimmed)}` : '';
+  }
+
+  private escapeHtml(value: string) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   private async insertPendingLog({

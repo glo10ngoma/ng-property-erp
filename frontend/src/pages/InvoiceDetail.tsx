@@ -81,6 +81,21 @@ type CompanySettingsHeader = {
 
 const lineTypes = ['Monthly rent', 'Syndic', 'Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Penalty', 'Other'];
 
+function getInvoiceEmailContent(invoiceType?: string) {
+  const normalized = String(invoiceType ?? 'RENT').trim().toUpperCase();
+  if (normalized === 'RENT' || normalized === 'LOYER') {
+    return {
+      subject: 'Votre facture de loyer',
+      message: 'Veuillez trouver ci-joint votre facture de loyer.',
+    };
+  }
+
+  return {
+    subject: 'Votre facture maintenance et des autres charges',
+    message: 'Veuillez trouver ci-joint votre facture maintenance et des autres charges.',
+  };
+}
+
 export function InvoiceDetail() {
   const { can, user } = useAuth();
   const { id } = useParams();
@@ -382,6 +397,8 @@ export function InvoiceDetail() {
     }
   }
 
+  const invoiceEmailContent = getInvoiceEmailContent(invoice.invoice_type);
+
   return (
     <section>
       <div className="page-header no-print">
@@ -419,8 +436,8 @@ export function InvoiceDetail() {
         title="Envoyer la facture par email"
         open={emailOpen}
         defaultRecipient={invoice.email ?? ''}
-        defaultSubject="Votre facture de loyer"
-        defaultMessage={`Bonjour ${invoice.tenant_name ?? ''},\n\nVeuillez trouver ci-joint votre facture.\n\nCordialement.`}
+        defaultSubject={invoiceEmailContent.subject}
+        defaultMessage={invoiceEmailContent.message}
         attachmentName={`Facture_${invoice.invoice_number}.pdf`}
         sending={emailSending}
         error={emailError}
