@@ -6269,6 +6269,22 @@ export class SaasService {
         throw new ConflictException('Ce mouvement de garantie ne peut pas être supprimé depuis cet écran.');
       }
 
+      if (movementType === 'GARANTY_REFUND') {
+        await this.softDeleteFinanceRows(client, 'guarantee_cash_movements', 'id', id, deletionReason);
+        const leaseGuaranteeId = Number(movement.lease_guarantee_id ?? 0);
+        if (leaseGuaranteeId > 0) {
+          await this.recalculateLeaseGuaranteeFromActiveRows(client, leaseGuaranteeId);
+        }
+        await this.writeFinanceTrashAudit(client, 'GUARANTEE_REFUND_MOVED_TO_TRASH', 'guarantee_cash', String(id), {
+          reason: deletionReason,
+          movement_type: movementType,
+          lease_guarantee_id: leaseGuaranteeId || null,
+          lease_id: Number(movement.lease_id ?? 0) || null,
+          reference: String(movement.reference ?? '').trim() || null,
+        });
+        return { deleted: true };
+      }
+
       await this.softDeleteFinanceRows(client, 'guarantee_cash_movements', 'id', id, deletionReason);
       const leaseGuaranteeId = Number(movement.lease_guarantee_id ?? 0);
       if (leaseGuaranteeId > 0) {
