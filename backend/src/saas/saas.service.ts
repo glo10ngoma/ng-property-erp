@@ -2167,48 +2167,12 @@ export class SaasService {
       const movement = requireRow(movementResult.rows[0], 'Cash movement') as Record<string, unknown>;
 
       if (movement.payment_id) {
-        const paymentResult = await client.query(
-          `SELECT id, payment_type, lease_guarantee_id, deleted_at
-           FROM payments
-           WHERE id = $1
-             AND organization_id = $2
-           FOR UPDATE`,
-          [Number(movement.payment_id), this.context.organizationId()],
-        );
-        const payment = requireRow(paymentResult.rows[0], 'Payment') as Record<string, unknown>;
-        if (payment.deleted_at) {
-          throw new ConflictException('Le paiement lié est déjà dans la corbeille.');
-        }
-        const allocations = await client.query(
-          `SELECT invoice_id
-           FROM payment_allocations
-           WHERE payment_id = $1
-             AND organization_id = $2
-             AND deleted_at IS NULL
-           FOR UPDATE`,
-          [Number(payment.id), this.context.organizationId()],
-        );
-        await this.softDeleteFinanceRows(client, 'cash_movements', 'payment_id', Number(payment.id), deletionReason);
-        await this.softDeleteFinanceRows(client, 'guarantee_cash_movements', 'payment_id', Number(payment.id), deletionReason);
-        await this.softDeleteFinanceRows(client, 'payment_allocations', 'payment_id', Number(payment.id), deletionReason);
-        await this.softDeleteFinanceRows(client, 'payments', 'id', Number(payment.id), deletionReason);
-
-        const invoiceIds = Array.from(new Set(
-          allocations.rows.map((row) => Number(row.invoice_id ?? 0)).filter((invoiceId) => invoiceId > 0),
-        ));
-        for (const invoiceId of invoiceIds) {
-          await this.refreshInvoiceStatusInTransaction(client, this.context.organizationId(), invoiceId);
-        }
-        if (String(payment.payment_type ?? '').toUpperCase() === 'GUARANTEE' && payment.lease_guarantee_id) {
-          await this.recalculateLeaseGuaranteeFromActiveRows(client, Number(payment.lease_guarantee_id));
-        }
-        await this.writeFinanceTrashAudit(client, 'CASH_PAYMENT_MOVED_TO_TRASH', 'cash', String(id), {
-          reason: deletionReason,
-          payment_id: Number(payment.id),
-          payment_type: payment.payment_type ?? 'INVOICE',
-          invoice_ids: invoiceIds,
+        return this.trashPaymentInTransaction(client, Number(movement.payment_id), deletionReason, {
+          auditAction: 'CASH_PAYMENT_MOVED_TO_TRASH',
+          auditResource: 'cash',
+          auditResourceId: String(id),
+          sourceMovementId: id,
         });
-        return { deleted: true, payment_id: Number(payment.id) };
       }
 
       const protectionReason = this.cashMovementProtectionReason(movement);
@@ -2223,6 +2187,21 @@ export class SaasService {
       });
       return { deleted: true };
     });
+  }
+
+  async trashPayment(
+    paymentId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    return this.db.transaction((client) =>
+      this.trashPaymentInTransaction(client, paymentId, reason, options),
+    );
   }
 
   async stockCategories() {
@@ -6239,30 +6218,12 @@ export class SaasService {
       }
 
       if (movement.payment_id) {
-        const paymentResult = await client.query(
-          `SELECT id, payment_type, lease_guarantee_id, deleted_at
-           FROM payments
-           WHERE id = $1
-             AND organization_id = $2
-           FOR UPDATE`,
-          [Number(movement.payment_id), this.context.organizationId()],
-        );
-        const payment = requireRow(paymentResult.rows[0], 'Payment') as Record<string, unknown>;
-        if (payment.deleted_at) {
-          throw new ConflictException('Le paiement de garantie lié est déjà dans la corbeille.');
-        }
-        await this.softDeleteFinanceRows(client, 'guarantee_cash_movements', 'payment_id', Number(payment.id), deletionReason);
-        await this.softDeleteFinanceRows(client, 'payments', 'id', Number(payment.id), deletionReason);
-        const leaseGuaranteeId = Number(payment.lease_guarantee_id ?? movement.lease_guarantee_id ?? 0);
-        if (leaseGuaranteeId > 0) {
-          await this.recalculateLeaseGuaranteeFromActiveRows(client, leaseGuaranteeId);
-        }
-        await this.writeFinanceTrashAudit(client, 'GUARANTEE_PAYMENT_MOVED_TO_TRASH', 'guarantee_cash', String(id), {
-          reason: deletionReason,
-          payment_id: Number(payment.id),
-          lease_guarantee_id: leaseGuaranteeId || null,
+        return this.trashPaymentInTransaction(client, Number(movement.payment_id), deletionReason, {
+          auditAction: 'GUARANTEE_PAYMENT_MOVED_TO_TRASH',
+          auditResource: 'guarantee_cash',
+          auditResourceId: String(id),
+          sourceMovementId: id,
         });
-        return { deleted: true, payment_id: Number(payment.id) };
       }
 
       if (!['GARANTY_REFUND', 'GARANTY_EXPENSE'].includes(movementType)) {
@@ -8876,6 +8837,86 @@ export class SaasService {
          AND deleted_at IS NULL`,
       params,
     );
+  }
+
+  private async trashPaymentInTransaction(
+    client: PoolClient,
+    paymentId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    const paymentResult = await client.query(
+      `SELECT id, payment_type, lease_guarantee_id, deleted_at, invoice_id
+       FROM payments
+       WHERE id = $1
+         AND organization_id = $2
+       FOR UPDATE`,
+      [paymentId, this.context.organizationId()],
+    );
+    const payment = requireRow(paymentResult.rows[0], 'Payment') as Record<string, unknown>;
+    if (payment.deleted_at) {
+      throw new ConflictException('Ce paiement est déjà dans la corbeille.');
+    }
+
+    const allocations = await client.query(
+      `SELECT invoice_id
+       FROM payment_allocations
+       WHERE payment_id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL
+       FOR UPDATE`,
+      [paymentId, this.context.organizationId()],
+    );
+
+    await this.softDeleteFinanceRows(client, 'cash_movements', 'payment_id', paymentId, reason);
+    await this.softDeleteFinanceRows(client, 'guarantee_cash_movements', 'payment_id', paymentId, reason);
+    await this.softDeleteFinanceRows(client, 'payment_allocations', 'payment_id', paymentId, reason);
+    await this.softDeleteFinanceRows(client, 'payments', 'id', paymentId, reason);
+
+    const invoiceIds = Array.from(
+      new Set(
+        [
+          Number(payment.invoice_id ?? 0),
+          ...allocations.rows.map((row) => Number(row.invoice_id ?? 0)),
+        ].filter((invoiceId) => invoiceId > 0),
+      ),
+    );
+
+    for (const invoiceId of invoiceIds) {
+      await this.refreshInvoiceStatusInTransaction(client, this.context.organizationId(), invoiceId);
+    }
+
+    if (String(payment.payment_type ?? '').toUpperCase() === 'GUARANTEE' && payment.lease_guarantee_id) {
+      await this.recalculateLeaseGuaranteeFromActiveRows(client, Number(payment.lease_guarantee_id));
+    }
+
+    await this.writeFinanceTrashAudit(
+      client,
+      options?.auditAction ?? 'PAYMENT_MOVED_TO_TRASH',
+      options?.auditResource ?? 'payments',
+      options?.auditResourceId ?? String(paymentId),
+      {
+        reason,
+        payment_id: paymentId,
+        payment_type: payment.payment_type ?? 'INVOICE',
+        invoice_ids: invoiceIds,
+        lease_guarantee_id: Number(payment.lease_guarantee_id ?? 0) || null,
+        source_movement_id: options?.sourceMovementId ?? null,
+      },
+    );
+
+    return {
+      deleted: true,
+      payment_id: paymentId,
+      payment_type: String(payment.payment_type ?? 'INVOICE'),
+      invoice_ids: invoiceIds,
+      lease_guarantee_id: Number(payment.lease_guarantee_id ?? 0) || null,
+    };
   }
 
   private async recalculateLeaseGuaranteeFromActiveRows(client: PoolClient, leaseGuaranteeId: number) {

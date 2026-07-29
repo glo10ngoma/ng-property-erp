@@ -550,6 +550,11 @@ export class PaymentsService {
     if (!deletionReason) {
       throw new BadRequestException('Le motif de suppression est obligatoire.');
     }
+    return this.saas.trashPayment(id, deletionReason, {
+      auditAction: 'PAYMENT_MOVED_TO_TRASH',
+      auditResource: 'payments',
+      auditResourceId: String(id),
+    });
     await this.db.transaction(async (client) => {
       const payment = await this.lockPaymentForDeletion(client, id);
       if (payment.deleted_at) {
