@@ -27,7 +27,7 @@ export class PaymentsController {
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.payments.remove(id);
+  remove(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.payments.remove(id, body);
   }
 }

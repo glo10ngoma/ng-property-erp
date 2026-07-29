@@ -11,6 +11,7 @@ import { getPaymentsBranding } from '../core/utils/payments-branding';
 type Payment = {
   id: number;
   invoice_id?: number;
+  payment_type?: string;
   invoice_number: string;
   invoice_status?: string;
   tenant_id?: number;
@@ -94,6 +95,7 @@ export function Payments() {
     reference: '',
   });
   const [success, setSuccess] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
 
@@ -319,7 +321,7 @@ export function Payments() {
                     <div className="row-actions">
                       <button type="button" className="icon-btn" title="Voir" onClick={(event) => { event.stopPropagation(); navigate(`/payments/${payment.id}`); }}><ChevronRight size={16} /></button>
                       {can('payments.update') && <button type="button" className="icon-btn" title="Modifier" onClick={(event) => { event.stopPropagation(); navigate(`/payments/${payment.id}?edit=1`); }}><Pencil size={16} /></button>}
-                      {can('payments.delete') && <button type="button" className="icon-btn danger" title="Supprimer" onClick={(event) => { event.stopPropagation(); cancelPayment(payment.id); }}><Trash2 size={16} /></button>}
+                      {can('payments.delete') && <button type="button" className="icon-btn danger" title="Supprimer" onClick={(event) => { event.stopPropagation(); setDeleteTarget(payment); }}><Trash2 size={16} /></button>}
                     </div>
                   </td>
                 </tr>
@@ -349,15 +351,86 @@ export function Payments() {
           onSubmit={save}
         />
       )}
+      {deleteTarget ? (
+        <PaymentDeleteModal
+          payment={deleteTarget}
+          confirmLabel={`Mettre ${paymentsBranding.moduleSingular.toLowerCase()} dans la corbeille`}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={async (reason) => {
+            await cancelPayment(deleteTarget.id, reason);
+            setDeleteTarget(null);
+          }}
+        />
+      ) : null}
     </section>
   );
 
-  async function cancelPayment(paymentId: number) {
-    if (!window.confirm(paymentsBranding.cancelConfirm)) return;
-    await api.delete(`/payments/${paymentId}`);
+  async function cancelPayment(paymentId: number, reason: string) {
+    await api.delete(`/payments/${paymentId}`, { data: { reason } });
     reloadPayments();
     invoices.reload();
+    setSuccess('Paiement déplacé dans la corbeille.');
   }
+}
+
+function PaymentDeleteModal({
+  payment,
+  confirmLabel,
+  onClose,
+  onConfirm,
+}: {
+  payment: Payment;
+  confirmLabel: string;
+  onClose: () => void;
+  onConfirm: (reason: string) => Promise<void>;
+}) {
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      setError('Le motif de suppression est obligatoire.');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    try {
+      await onConfirm(trimmedReason);
+    } catch (nextError) {
+      setError(apiErrorMessage(nextError, 'Impossible de supprimer ce paiement.'));
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <Modal title={confirmLabel} onClose={onClose}>
+      <div className="modal-section">
+        <h3>Impact</h3>
+        <p>Cette opération placera le paiement et les écritures de caisse liées dans la corbeille, puis recalculera le statut de la facture.</p>
+        <div className="mini-stats">
+          <div className="mini-stat"><span>Facture</span><strong>{payment.invoice_number}</strong></div>
+          <div className="mini-stat"><span>Date</span><strong>{shortDate(payment.payment_date)}</strong></div>
+          <div className="mini-stat"><span>Montant</span><strong>{money(payment.amount)}</strong></div>
+          <div className="mini-stat"><span>Mode</span><strong>{paymentMethodLabel(payment.payment_method)}</strong></div>
+        </div>
+        <label className="form-field-full">
+          Motif de suppression *
+          <textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ex. paiement saisi en double" />
+        </label>
+        {error ? <div className="error-message">{error}</div> : null}
+      </div>
+      <div className="modal-footer-sticky">
+        <button type="button" className="secondary" onClick={onClose} disabled={submitting}>Annuler</button>
+        <button type="button" className="danger" onClick={() => void submit()} disabled={submitting}>
+          {submitting ? 'Suppression...' : 'Mettre dans la corbeille'}
+        </button>
+      </div>
+    </Modal>
+  );
 }
 
 function PaymentModal({

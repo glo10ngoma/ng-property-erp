@@ -1,4 +1,4 @@
-import { FileSpreadsheet, FileText, Plus, Printer, RefreshCcw } from 'lucide-react';
+import { FileSpreadsheet, FileText, Plus, Printer, RefreshCcw, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, exportCsv, exportXlsxWorkbook, includesText, shortDate } from '../api';
@@ -24,6 +24,8 @@ type GuaranteeCashMovement = {
   reason?: string | null;
   notes?: string | null;
   user_name?: string | null;
+  payment_id?: number | null;
+  lease_guarantee_id?: number | null;
 };
 
 type GuaranteeCashOverview = {
@@ -56,6 +58,7 @@ export function GuaranteeCashPage() {
   const [filters, setFilters] = useState({ date_from: '', date_to: '', currency: '', type: '', payment_id: searchParams.get('payment_id') ?? '' });
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [shareholderPayoutOpen, setShareholderPayoutOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<GuaranteeCashMovement | null>(null);
 
   const params = useMemo(
     () => Object.fromEntries(Object.entries(filters).filter(([, value]) => value)),
@@ -104,6 +107,18 @@ export function GuaranteeCashPage() {
       await load();
     } catch (nextError) {
       setError(apiErrorMessage(nextError, 'Impossible d enregistrer la sortie.'));
+    }
+  }
+
+  async function deleteMovement(movement: GuaranteeCashMovement, reason: string) {
+    setError('');
+    try {
+      await api.delete(`/guarantee-cash/movements/${movement.id}`, { data: { reason } });
+      setDeleteTarget(null);
+      setSuccess('Mouvement de garantie déplacé dans la corbeille.');
+      await load();
+    } catch (nextError) {
+      throw nextError;
     }
   }
 
@@ -186,6 +201,7 @@ export function GuaranteeCashPage() {
               <th>Reference</th>
               <th>Motif</th>
               <th>Utilisateur</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -201,6 +217,13 @@ export function GuaranteeCashPage() {
                 <td>{movement.reference || '-'}</td>
                 <td>{movement.reason || '-'}</td>
                 <td>{movement.user_name || '-'}</td>
+                <td>
+                  {can('guarantee_cash.delete') ? (
+                    <button type="button" className="icon-btn danger" title="Supprimer" onClick={() => setDeleteTarget(movement)}>
+                      <Trash2 size={16} />
+                    </button>
+                  ) : null}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -232,7 +255,72 @@ export function GuaranteeCashPage() {
           }}
         />
       ) : null}
+      {deleteTarget ? (
+        <GuaranteeCashDeleteModal
+          movement={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={(reason) => deleteMovement(deleteTarget, reason)}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function GuaranteeCashDeleteModal({
+  movement,
+  onClose,
+  onConfirm,
+}: {
+  movement: GuaranteeCashMovement;
+  onClose: () => void;
+  onConfirm: (reason: string) => Promise<void>;
+}) {
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      setError('Le motif de suppression est obligatoire.');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    try {
+      await onConfirm(trimmedReason);
+    } catch (nextError) {
+      setError(apiErrorMessage(nextError, 'Impossible de supprimer ce mouvement de garantie.'));
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <Modal title="Mettre le mouvement de garantie dans la corbeille" onClose={onClose}>
+      <div className="modal-section">
+        <h3>Impact</h3>
+        <p>Cette suppression placera le mouvement et l opération de garantie liée dans la corbeille lorsque c est applicable.</p>
+        <div className="mini-stats">
+          <div className="mini-stat"><span>Type</span><strong>{movementTypeLabel(movement.movement_type)}</strong></div>
+          <div className="mini-stat"><span>Date</span><strong>{shortDate(movement.movement_date)}</strong></div>
+          <div className="mini-stat"><span>Montant</span><strong>{money(movement.amount)} {movement.currency}</strong></div>
+          <div className="mini-stat"><span>Référence</span><strong>{movement.reference || '-'}</strong></div>
+        </div>
+        <label className="form-field-full">
+          Motif de suppression *
+          <textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ex. remboursement saisi par erreur" />
+        </label>
+        {error ? <div className="error-message">{error}</div> : null}
+      </div>
+      <div className="modal-footer-sticky">
+        <button type="button" className="secondary" onClick={onClose} disabled={submitting}>Annuler</button>
+        <button type="button" className="danger" onClick={() => void submit()} disabled={submitting}>
+          {submitting ? 'Suppression...' : 'Mettre dans la corbeille'}
+        </button>
+      </div>
+    </Modal>
   );
 }
 

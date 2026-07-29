@@ -562,8 +562,8 @@ export class CashController {
   }
 
   @Delete('movements/:id')
-  deleteMovement(@Param('id', ParseIntPipe) id: number) {
-    return this.service.deleteCashMovement(id);
+  deleteMovement(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.deleteCashMovement(id, body);
   }
 
   @Post('expenses')
@@ -614,6 +614,11 @@ export class GuaranteeCashController {
   @Get('movements')
   movements(@Query() query: Record<string, unknown>) {
     return this.service.guaranteeCashMovements(query);
+  }
+
+  @Delete('movements/:id')
+  deleteMovement(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.deleteGuaranteeCashMovement(id, body);
   }
 
   @Post('expenses')

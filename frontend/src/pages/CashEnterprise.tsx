@@ -240,16 +240,16 @@ export function CashPage() {
     return response.data;
   }
 
-  async function deleteMovement(movement: CashMovement) {
+  async function deleteMovement(movement: CashMovement, reason: string) {
     setError('');
     if (movement.is_locked) {
       setError(movement.locked_reason || 'Ce mouvement ne peut pas etre supprime.');
       setDeleteTarget(null);
       return;
     }
-    await api.delete(`/cash/movements/${movement.id}`);
+    await api.delete(`/cash/movements/${movement.id}`, { data: { reason } });
     setDeleteTarget(null);
-    setSuccess('Mouvement de caisse supprime.');
+    setSuccess('Mouvement de caisse déplacé dans la corbeille.');
     await movements.reload();
     await sessions.reload();
   }
@@ -457,7 +457,7 @@ export function CashPage() {
         <CashDeleteMovementModal
           movement={deleteTarget}
           onClose={() => setDeleteTarget(null)}
-          onConfirm={() => deleteMovement(deleteTarget)}
+          onConfirm={(reason) => deleteMovement(deleteTarget, reason)}
         />
       ) : null}
       {shareholderPayoutOpen ? (
@@ -551,7 +551,7 @@ export function CashPage() {
                     >
                       <Eye size={16} />
                     </button>
-                    {can('cash.update') ? (
+                    {can('cash_movements.delete') ? (
                       <button
                         type="button"
                         className="icon-btn danger"
@@ -713,16 +713,22 @@ function CashDeleteMovementModal({
 }: {
   movement: CashMovement;
   onClose: () => void;
-  onConfirm: () => Promise<void>;
+  onConfirm: (reason: string) => Promise<void>;
 }) {
+  const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   async function submit() {
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      setError('Le motif de suppression est obligatoire.');
+      return;
+    }
     setSubmitting(true);
     setError('');
     try {
-      await onConfirm();
+      await onConfirm(trimmedReason);
     } catch (err: any) {
       setError(apiErrorMessage(err, 'Impossible de supprimer ce mouvement.'));
       setSubmitting(false);
@@ -735,8 +741,8 @@ function CashDeleteMovementModal({
     <Modal title="Supprimer le mouvement" onClose={onClose}>
       <div className="modal-section">
         <h3>Confirmation</h3>
-        <p>Supprimer définitivement ce mouvement ?</p>
-        <p>Cette opération est irréversible.</p>
+        <p>Ce mouvement sera placé dans la corbeille avec son objet source lorsqu il existe.</p>
+        <p>Les soldes et statuts liés seront recalculés automatiquement.</p>
         <div className="mini-stats">
           <div className="mini-stat">
             <span>Piece</span>
@@ -751,6 +757,10 @@ function CashDeleteMovementModal({
             <strong>{cashCategoryLabel(movement.category)}</strong>
           </div>
         </div>
+        <label className="form-field-full">
+          Motif de suppression *
+          <textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ex. mouvement saisi en double" />
+        </label>
         {error ? <div className="error-message">{error}</div> : null}
       </div>
       <div className="modal-footer-sticky">
@@ -758,7 +768,7 @@ function CashDeleteMovementModal({
           Annuler
         </button>
         <button type="button" className="danger" onClick={() => void submit()} disabled={submitting}>
-          {submitting ? 'Suppression...' : 'Supprimer'}
+          {submitting ? 'Suppression...' : 'Mettre dans la corbeille'}
         </button>
       </div>
     </Modal>

@@ -81,6 +81,7 @@ export function PaymentDetail() {
   const [emailOpen, setEmailOpen] = useState(false);
   const [emailSending, setEmailSending] = useState(false);
   const [emailError, setEmailError] = useState('');
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const load = async () => {
     if (!id) return;
@@ -162,10 +163,9 @@ export function PaymentDetail() {
     setSuccess('Remboursement enregistré.');
   }
 
-  async function cancelPayment() {
+  async function deletePayment(reason: string) {
     if (!payment) return;
-    if (!window.confirm('Annuler ce paiement ?')) return;
-    await api.delete(`/payments/${payment.id}`);
+    await api.delete(`/payments/${payment.id}`, { data: { reason } });
     navigate('/payments');
   }
 
@@ -208,7 +208,7 @@ export function PaymentDetail() {
           {can('communication.send') && <button className="secondary" onClick={() => send('SMS')}><Smartphone size={16} />SMS</button>}
           <button className="secondary" onClick={() => exportPaymentExcel(payment)}>Excel</button>
           {can('payments.update') && !isGuaranteeReceipt && !isTenantCreditReceipt && <button className="secondary" onClick={refund}><Wallet size={16} />Rembourser</button>}
-          {can('payments.delete') && !isGuaranteeReceipt && !isTenantCreditReceipt && <button className="secondary danger" onClick={cancelPayment}><Trash2 size={16} />Annuler</button>}
+          {can('payments.delete') && !isGuaranteeReceipt && !isTenantCreditReceipt && <button className="secondary danger" onClick={() => setDeleteOpen(true)}><Trash2 size={16} />Annuler</button>}
         </div>
       </div>
 
@@ -321,7 +321,75 @@ export function PaymentDetail() {
           </form>
         </Modal>
       )}
+      {deleteOpen ? (
+        <PaymentDeleteModal
+          payment={payment}
+          onClose={() => setDeleteOpen(false)}
+          onConfirm={async (reason) => {
+            await deletePayment(reason);
+            setDeleteOpen(false);
+          }}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function PaymentDeleteModal({
+  payment,
+  onClose,
+  onConfirm,
+}: {
+  payment: PaymentDetailData;
+  onClose: () => void;
+  onConfirm: (reason: string) => Promise<void>;
+}) {
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      setError('Le motif de suppression est obligatoire.');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    try {
+      await onConfirm(trimmedReason);
+    } catch (nextError: any) {
+      setError(String(nextError?.response?.data?.message ?? nextError?.message ?? 'Impossible de supprimer ce paiement.'));
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <Modal title="Mettre le paiement dans la corbeille" onClose={onClose}>
+      <div className="modal-section">
+        <h3>Impact</h3>
+        <p>Cette suppression placera le paiement et les mouvements liés dans la corbeille, puis recalculera la facture associée.</p>
+        <div className="mini-stats">
+          <div className="mini-stat"><span>Reçu</span><strong>{payment.receipt_number ?? `PAY-${payment.id}`}</strong></div>
+          <div className="mini-stat"><span>Facture</span><strong>{payment.invoice_number ?? '-'}</strong></div>
+          <div className="mini-stat"><span>Date</span><strong>{shortDate(payment.payment_date)}</strong></div>
+          <div className="mini-stat"><span>Montant</span><strong>{money(payment.amount)}</strong></div>
+        </div>
+        <label className="form-field-full">
+          Motif de suppression *
+          <textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ex. mauvaise facture sélectionnée" />
+        </label>
+        {error ? <div className="error-message">{error}</div> : null}
+      </div>
+      <div className="modal-footer-sticky">
+        <button type="button" className="secondary" onClick={onClose} disabled={submitting}>Annuler</button>
+        <button type="button" className="danger" onClick={() => void submit()} disabled={submitting}>
+          {submitting ? 'Suppression...' : 'Mettre dans la corbeille'}
+        </button>
+      </div>
+    </Modal>
   );
 }
 

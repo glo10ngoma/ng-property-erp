@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { RequestContext } from '../auth/request-context';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { RequestContext, type AuthPayload } from '../auth/request-context';
 import { requireRow } from '../common/not-found';
 import { CommunicationService } from '../communication/communication.service';
 import { DocumentDeliveryTrigger } from '../communication/shared/enums/document-delivery-trigger.enum';
@@ -8,6 +8,7 @@ import { DatabaseService } from '../database/database.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { SaasService } from '../saas/saas.service';
 import { CreatePaymentDto, UpdatePaymentDto } from './dto';
+import { PoolClient } from 'pg';
 
 @Injectable()
 export class PaymentsService {
@@ -509,22 +510,47 @@ export class PaymentsService {
     });
   }
 
-  async remove(id: number) {
-    const payment = await this.findOne(id);
+  async remove(id: number, body?: Record<string, unknown>) {
+    if (!this.hasPermission('payments.delete')) {
+      throw new ForbiddenException('Permission de suppression de paiement requise.');
+    }
+    const deletionReason = String(body?.reason ?? '').trim();
+    if (!deletionReason) {
+      throw new BadRequestException('Le motif de suppression est obligatoire.');
+    }
     await this.db.transaction(async (client) => {
-      await client.query('UPDATE payments SET deleted_at = NOW(), deleted_by = $2 WHERE id = $1 AND organization_id = $3', [
-        id,
-        this.context.userId(),
-        this.context.organizationId(),
-      ]);
-      await client.query('UPDATE payment_allocations SET deleted_at = NOW(), deleted_by = $2 WHERE payment_id = $1 AND organization_id = $3', [
-        id,
-        this.context.userId(),
-        this.context.organizationId(),
-      ]);
-      for (const allocation of payment.allocations ?? []) {
-        await this.invoices.refreshStatus(client, allocation.invoice_id);
+      const payment = await this.lockPaymentForDeletion(client, id);
+      if (payment.deleted_at) {
+        throw new ConflictException('Ce paiement est déjà dans la corbeille.');
       }
+      const allocations = await client.query(
+        `SELECT invoice_id
+         FROM payment_allocations
+         WHERE payment_id = $1
+           AND organization_id = $2
+           AND deleted_at IS NULL
+         FOR UPDATE`,
+        [id, this.context.organizationId()],
+      );
+      await this.softDeleteRows(client, 'cash_movements', 'payment_id', id, deletionReason);
+      await this.softDeleteRows(client, 'guarantee_cash_movements', 'payment_id', id, deletionReason);
+      await this.softDeleteRows(client, 'payment_allocations', 'payment_id', id, deletionReason);
+      await this.softDeleteRows(client, 'payments', 'id', id, deletionReason);
+
+      const invoiceIds = Array.from(new Set(
+        allocations.rows.map((row) => Number(row.invoice_id ?? 0)).filter((invoiceId) => invoiceId > 0),
+      ));
+      for (const invoiceId of invoiceIds) {
+        await this.invoices.refreshStatus(client, invoiceId);
+      }
+      if (String(payment.payment_type ?? 'INVOICE').toUpperCase() === 'GUARANTEE' && payment.lease_guarantee_id) {
+        await this.recalculateLeaseGuaranteePaymentState(client, Number(payment.lease_guarantee_id));
+      }
+      await this.writeAuditLog(client, 'PAYMENT_MOVED_TO_TRASH', 'payments', String(id), {
+        reason: deletionReason,
+        payment_type: payment.payment_type ?? 'INVOICE',
+        invoice_ids: invoiceIds,
+      });
     });
     return { deleted: true };
   }
@@ -689,5 +715,148 @@ export class PaymentsService {
       message: 'Veuillez trouver ci-joint votre reçu de paiement.',
       trigger: DocumentDeliveryTrigger.AUTO,
     });
+  }
+
+  private hasPermission(permission: string) {
+    const user = this.context.user() as AuthPayload | undefined;
+    return Array.isArray(user?.permissions) && (user.permissions.includes('*') || user.permissions.includes(permission));
+  }
+
+  private async lockPaymentForDeletion(client: PoolClient, paymentId: number) {
+    const { rows } = await client.query(
+      `SELECT id, payment_type, lease_guarantee_id, deleted_at
+       FROM payments
+       WHERE id = $1
+         AND organization_id = $2
+       FOR UPDATE`,
+      [paymentId, this.context.organizationId()],
+    );
+    return requireRow(rows[0], 'Payment') as Record<string, unknown>;
+  }
+
+  private async softDeleteRows(
+    client: PoolClient,
+    tableName: 'payments' | 'payment_allocations' | 'cash_movements' | 'guarantee_cash_movements',
+    keyColumn: 'id' | 'payment_id',
+    value: number,
+    reason: string,
+  ) {
+    const supportsDeletionReason = await this.columnExists(tableName, 'deletion_reason');
+    const assignments = ['deleted_at = NOW()', 'deleted_by = $2'];
+    const params: unknown[] = [value, this.context.userId() ?? null, this.context.organizationId()];
+    if (supportsDeletionReason) {
+      params.splice(2, 0, reason);
+      assignments.push('deletion_reason = $3');
+    }
+    const organizationParam = supportsDeletionReason ? 4 : 3;
+    await client.query(
+      `UPDATE ${tableName}
+       SET ${assignments.join(', ')}
+       WHERE ${keyColumn} = $1
+         AND organization_id = $${organizationParam}
+         AND deleted_at IS NULL`,
+      params,
+    );
+  }
+
+  private async recalculateLeaseGuaranteePaymentState(client: PoolClient, leaseGuaranteeId: number) {
+    const guaranteeResult = await client.query(
+      `SELECT id, lease_id, amount
+       FROM lease_guarantees
+       WHERE id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL
+       FOR UPDATE`,
+      [leaseGuaranteeId, this.context.organizationId()],
+    );
+    const guarantee = requireRow(guaranteeResult.rows[0], 'Lease guarantee') as { id: number; lease_id: number; amount: number };
+    const receipts = await client.query(
+      `SELECT COALESCE(SUM(total_equivalent_usd), 0)::NUMERIC(12,2) AS total
+       FROM payments
+       WHERE organization_id = $1
+         AND lease_guarantee_id = $2
+         AND payment_type = 'GUARANTEE'
+         AND deleted_at IS NULL`,
+      [this.context.organizationId(), leaseGuaranteeId],
+    );
+    const refunds = await client.query(
+      `SELECT COALESCE(SUM(COALESCE(equivalent_usd, amount)), 0)::NUMERIC(12,2) AS total
+       FROM guarantee_cash_movements
+       WHERE organization_id = $1
+         AND lease_guarantee_id = $2
+         AND movement_type = 'GARANTY_REFUND'
+         AND type = 'OUT'
+         AND deleted_at IS NULL`,
+      [this.context.organizationId(), leaseGuaranteeId],
+    );
+    const receivedTotal = Number(receipts.rows[0]?.total ?? 0);
+    const refundedTotal = Number(refunds.rows[0]?.total ?? 0);
+    const paidAmount = Math.max(receivedTotal - refundedTotal, 0);
+    const guaranteeAmount = Number(guarantee.amount ?? 0);
+    const status = paidAmount >= guaranteeAmount && guaranteeAmount > 0
+      ? 'PAID'
+      : paidAmount > 0
+        ? 'PARTIAL'
+        : refundedTotal > 0 && receivedTotal > 0
+          ? 'REFUNDED'
+          : 'NOT_PAID';
+    await client.query(
+      `UPDATE lease_guarantees
+       SET amount = $2,
+           paid_amount = $3,
+           payment_date = NULL,
+           status = $4,
+           updated_at = NOW()
+       WHERE id = $1
+         AND organization_id = $5`,
+      [leaseGuaranteeId, guaranteeAmount, paidAmount, status, this.context.organizationId()],
+    );
+    await client.query(
+      `UPDATE leases
+       SET rental_guarantee_amount = $2,
+           rental_guarantee_paid = $3,
+           rental_guarantee_payment_date = NULL,
+           rental_guarantee_status = $4,
+           updated_at = NOW()
+       WHERE id = $1
+         AND organization_id = $5`,
+      [guarantee.lease_id, guaranteeAmount, paidAmount, status, this.context.organizationId()],
+    );
+  }
+
+  private async writeAuditLog(
+    client: PoolClient,
+    action: string,
+    resource: string,
+    resourceId: string,
+    metadata: Record<string, unknown>,
+  ) {
+    await client.query(
+      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+       VALUES ($1, $2, $3, $4, $5, 'DELETE', $6, 200, $7::JSONB)`,
+      [
+        this.context.organizationId(),
+        this.context.userId(),
+        action,
+        resource,
+        resourceId,
+        `/api/${resource}/${resourceId}`,
+        JSON.stringify(metadata),
+      ],
+    );
+  }
+
+  private async columnExists(tableName: string, columnName: string) {
+    const { rows } = await this.db.query(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = $1
+           AND column_name = $2
+       ) AS exists`,
+      [tableName, columnName],
+    );
+    return Boolean(rows[0]?.exists);
   }
 }
