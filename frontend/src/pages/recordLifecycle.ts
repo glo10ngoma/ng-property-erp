@@ -1,7 +1,7 @@
 import { api } from '../api';
 import { formatLeaseReference } from '../utils/lease-reference';
 
-export type LifecycleEntityType = 'lease' | 'tenant' | 'payment' | 'cash' | 'guarantee_cash';
+export type LifecycleEntityType = 'lease' | 'tenant' | 'payment' | 'cash' | 'guarantee_cash' | 'shareholder_payout';
 export type LifecycleObjectFilter = 'all' | LifecycleEntityType;
 
 export type LeaseLifecycleRecord = {
@@ -77,6 +77,9 @@ export type FinanceTrashRecord = {
   tenant_name?: string | null;
   lease_number?: number | null;
   organization_id?: number | null;
+  batch_id?: number | null;
+  batch_reference?: string | null;
+  shareholder_name?: string | null;
 };
 
 export type ArchiveListItem = {
@@ -355,6 +358,45 @@ const guaranteeCashTrashProvider: TrashEntityProvider = {
   canPermanentDeletePermission: 'finance.hard_delete',
 };
 
+const shareholderPayoutTrashProvider: TrashEntityProvider = {
+  type: 'shareholder_payout',
+  label: 'Remboursements actionnaires',
+  async load() {
+    const response = await api.get<FinanceTrashRecord[]>('/shareholder-payout-lines/trash');
+    return response.data.map((record) => ({
+      entityType: 'shareholder_payout',
+      recordId: record.id,
+      reference: financeReference(record, 'SHR'),
+      designation: record.shareholder_name ?? record.batch_reference ?? 'Remboursement actionnaire',
+      associatedInfo: [
+        record.batch_reference ?? '',
+        record.currency ? `${record.amount ?? 0} ${record.currency}` : '',
+      ].filter(Boolean).join(' · '),
+      deletedAt: record.deleted_at,
+      deletedBy: record.deleted_by_name,
+      reason: record.deletion_reason,
+      raw: record,
+    }));
+  },
+  async restore() {
+    throw new Error("La restauration des remboursements actionnaires n'est pas encore disponible.");
+  },
+  async loadDeletionImpact() {
+    return { canHardDelete: false, hasFinancialHistory: true, dependencies: [] };
+  },
+  async permanentDelete() {
+    return {};
+  },
+  async archive() {
+    throw new Error("L'archivage n'est pas disponible.");
+  },
+  buildDetailPath(recordId) {
+    return `/shareholder-payout-lines/${recordId}/receipt`;
+  },
+  canRestorePermission: 'finance.restore',
+  canPermanentDeletePermission: 'finance.hard_delete',
+};
+
 const leaseArchiveProvider: ArchiveEntityProvider = {
   type: 'lease',
   label: 'Baux et contrats',
@@ -373,6 +415,7 @@ export const trashEntityProviders: Record<LifecycleEntityType, TrashEntityProvid
   payment: paymentTrashProvider,
   cash: cashTrashProvider,
   guarantee_cash: guaranteeCashTrashProvider,
+  shareholder_payout: shareholderPayoutTrashProvider,
 };
 
 export const archiveEntityProviders: Record<'lease', ArchiveEntityProvider> = {
@@ -386,6 +429,7 @@ export const lifecycleObjectOptions: Array<{ value: LifecycleObjectFilter; label
   { value: 'payment', label: 'Paiements' },
   { value: 'cash', label: 'Caisse principale' },
   { value: 'guarantee_cash', label: 'Caisse garanties' },
+  { value: 'shareholder_payout', label: 'Remboursements actionnaires' },
 ];
 
 export function lifecycleEntityLabel(entityType: LifecycleEntityType) {
@@ -394,5 +438,6 @@ export function lifecycleEntityLabel(entityType: LifecycleEntityType) {
   if (entityType === 'payment') return 'Paiement';
   if (entityType === 'cash') return 'Caisse';
   if (entityType === 'guarantee_cash') return 'Garantie';
+  if (entityType === 'shareholder_payout') return 'Remboursement actionnaire';
   return entityType;
 }

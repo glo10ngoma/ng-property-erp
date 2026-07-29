@@ -1957,16 +1957,18 @@ export class SaasService {
     const supportsStockPurchaseId = await this.columnExists('cash_movements', 'stock_purchase_id');
     const shareholderSelect = hasShareholderSchema
       ? `,
+             spl.id AS shareholder_payout_line_id,
              spl.batch_id AS shareholder_batch_id,
              spl.shareholder_id,
              sh.display_name AS shareholder_name`
       : `,
+             NULL::INT AS shareholder_payout_line_id,
              NULL::INT AS shareholder_batch_id,
              NULL::INT AS shareholder_id,
              NULL::VARCHAR AS shareholder_name`;
     const shareholderJoin = hasShareholderSchema
       ? `
-      LEFT JOIN shareholder_payout_lines spl ON spl.cash_movement_id = cm.id AND spl.organization_id = cm.organization_id
+      LEFT JOIN shareholder_payout_lines spl ON spl.cash_movement_id = cm.id AND spl.organization_id = cm.organization_id AND spl.deleted_at IS NULL
       LEFT JOIN shareholders sh ON sh.id = spl.shareholder_id AND sh.organization_id = spl.organization_id`
       : '';
     const { rows } = await this.db.query(`
@@ -1980,7 +1982,7 @@ export class SaasService {
                WHEN cm.payment_id IS NOT NULL THEN TRUE
                WHEN cm.invoice_id IS NOT NULL THEN TRUE
                ${supportsStockPurchaseId ? `WHEN cm.stock_purchase_id IS NOT NULL THEN TRUE` : ''}
-               WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND', 'TENANT_CREDIT_REFUND', 'SHAREHOLDER_PAYOUT', 'BANK_DEPOSIT', 'BANK_WITHDRAWAL') THEN TRUE
+               WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND', 'TENANT_CREDIT_REFUND', 'BANK_DEPOSIT', 'BANK_WITHDRAWAL') THEN TRUE
                ELSE FALSE
              END AS is_locked,
              CASE
@@ -1988,7 +1990,7 @@ export class SaasService {
                WHEN cm.invoice_id IS NOT NULL THEN 'Ce mouvement est lié à une facture.'
                ${supportsStockPurchaseId ? `WHEN cm.stock_purchase_id IS NOT NULL THEN 'Ce mouvement est lié à un achat fournisseur.'` : ''}
                WHEN cm.category = 'TENANT_CREDIT_REFUND' THEN 'Ce mouvement est lié à un remboursement de crédit locataire.'
-               WHEN cm.category = 'SHAREHOLDER_PAYOUT' THEN 'Ce mouvement est lié à un remboursement actionnaire.'
+               WHEN cm.category = 'SHAREHOLDER_PAYOUT' AND spl.id IS NULL THEN 'Ce mouvement de remboursement actionnaire ne peut pas être supprimé automatiquement, car sa source n’a pas été identifiée.'
                WHEN cm.category = 'BANK_DEPOSIT' THEN 'Ce mouvement est généré automatiquement par un dépôt en banque.'
                WHEN cm.category = 'BANK_WITHDRAWAL' THEN 'Ce mouvement est généré automatiquement par un retrait bancaire.'
                WHEN cm.category IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND') THEN 'Ce mouvement est généré automatiquement pour une garantie.'
@@ -2019,16 +2021,18 @@ export class SaasService {
     const supportsStockPurchaseId = await this.columnExists('cash_movements', 'stock_purchase_id');
     const shareholderSelect = hasShareholderSchema
       ? `,
+              spl.id AS shareholder_payout_line_id,
               spl.batch_id AS shareholder_batch_id,
               spl.shareholder_id,
               sh.display_name AS shareholder_name`
       : `,
+              NULL::INT AS shareholder_payout_line_id,
               NULL::INT AS shareholder_batch_id,
               NULL::INT AS shareholder_id,
               NULL::VARCHAR AS shareholder_name`;
     const shareholderJoin = hasShareholderSchema
       ? `
-       LEFT JOIN shareholder_payout_lines spl ON spl.cash_movement_id = cm.id AND spl.organization_id = cm.organization_id
+       LEFT JOIN shareholder_payout_lines spl ON spl.cash_movement_id = cm.id AND spl.organization_id = cm.organization_id AND spl.deleted_at IS NULL
        LEFT JOIN shareholders sh ON sh.id = spl.shareholder_id AND sh.organization_id = spl.organization_id`
       : '';
     const { rows } = await this.db.query(
@@ -2046,14 +2050,14 @@ export class SaasService {
                 WHEN cm.payment_id IS NOT NULL THEN TRUE
                 WHEN cm.invoice_id IS NOT NULL THEN TRUE
                 ${supportsStockPurchaseId ? `WHEN cm.stock_purchase_id IS NOT NULL THEN TRUE` : ''}
-                WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND', 'SHAREHOLDER_PAYOUT', 'BANK_DEPOSIT', 'BANK_WITHDRAWAL') THEN TRUE
+                WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND', 'BANK_DEPOSIT', 'BANK_WITHDRAWAL') THEN TRUE
                 ELSE FALSE
               END AS is_locked,
               CASE
                 WHEN cm.payment_id IS NOT NULL THEN 'Ce mouvement est lié à un paiement.'
                 WHEN cm.invoice_id IS NOT NULL THEN 'Ce mouvement est lié à une facture.'
                 ${supportsStockPurchaseId ? `WHEN cm.stock_purchase_id IS NOT NULL THEN 'Ce mouvement est lié à un achat fournisseur.'` : ''}
-                WHEN cm.category = 'SHAREHOLDER_PAYOUT' THEN 'Ce mouvement est lié à un remboursement actionnaire.'
+                WHEN cm.category = 'SHAREHOLDER_PAYOUT' AND spl.id IS NULL THEN 'Ce mouvement de remboursement actionnaire ne peut pas être supprimé automatiquement, car sa source n’a pas été identifiée.'
                 WHEN cm.category = 'BANK_DEPOSIT' THEN 'Ce mouvement est généré automatiquement par un dépôt en banque.'
                 WHEN cm.category = 'BANK_WITHDRAWAL' THEN 'Ce mouvement est généré automatiquement par un retrait bancaire.'
                 WHEN cm.category IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND') THEN 'Ce mouvement est généré automatiquement pour une garantie.'
@@ -2152,6 +2156,10 @@ export class SaasService {
     }
     const supportsStockPurchaseId = await this.columnExists('cash_movements', 'stock_purchase_id');
     const supportsTreasuryTransferId = await this.columnExists('cash_movements', 'treasury_transfer_id');
+    const hasShareholderSchema = await this.hasShareholderPayoutSchema();
+    const supportsShareholderTrash = hasShareholderSchema
+      && (await this.columnExists('shareholder_payout_lines', 'deleted_at'))
+      && (await this.columnExists('shareholder_payout_batches', 'deleted_at'));
     return this.db.transaction(async (client) => {
       const movementResult = await client.query(
         `SELECT id, payment_id, invoice_id, category, piece_number, amount, currency, reference, movement_date
@@ -2173,6 +2181,32 @@ export class SaasService {
           auditResourceId: String(id),
           sourceMovementId: id,
         });
+      }
+
+      if (String(movement.category ?? '').toUpperCase() === 'SHAREHOLDER_PAYOUT') {
+        if (supportsShareholderTrash) {
+          const payoutLineResult = await client.query(
+            `SELECT id
+             FROM shareholder_payout_lines
+             WHERE organization_id = $1
+               AND cash_movement_id = $2
+               AND deleted_at IS NULL
+             LIMIT 1
+             FOR UPDATE`,
+            [this.context.organizationId(), id],
+          );
+          if (payoutLineResult.rows[0]) {
+            return this.trashShareholderPayoutInTransaction(client, Number(payoutLineResult.rows[0].id), deletionReason, {
+              auditAction: 'SHAREHOLDER_PAYOUT_MOVED_TO_TRASH_FROM_CASH',
+              auditResource: 'cash',
+              auditResourceId: String(id),
+              sourceMovementId: id,
+            });
+          }
+        }
+        throw new ConflictException(
+          'Ce mouvement de remboursement actionnaire ne peut pas être supprimé automatiquement, car sa source n’a pas été identifiée.',
+        );
       }
 
       const protectionReason = this.cashMovementProtectionReason(movement);
@@ -2201,6 +2235,29 @@ export class SaasService {
   ) {
     return this.db.transaction((client) =>
       this.trashPaymentInTransaction(client, paymentId, reason, options),
+    );
+  }
+
+  async trashShareholderPayout(
+    payoutLineId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    await this.ensureShareholderSchema();
+    if (!this.hasPermission('shareholder_payouts.delete')) {
+      throw new ForbiddenException('Permission requise pour supprimer un remboursement actionnaire.');
+    }
+    const deletionReason = String(reason ?? '').trim();
+    if (!deletionReason) {
+      throw new BadRequestException('Le motif de suppression est obligatoire.');
+    }
+    return this.db.transaction((client) =>
+      this.trashShareholderPayoutInTransaction(client, payoutLineId, deletionReason, options),
     );
   }
 
@@ -7211,16 +7268,18 @@ export class SaasService {
               COALESCE(main.total_cdf, 0)::NUMERIC(14,2) AS total_received_cdf,
               COALESCE(main.payout_count, 0)::INT AS payout_count
        FROM shareholders s
-       LEFT JOIN (
-         SELECT spl.shareholder_id,
-                SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'USD' THEN spl.amount ELSE 0 END) AS total_usd,
-                SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'CDF' THEN spl.amount ELSE 0 END) AS total_cdf,
-                COUNT(*) FILTER (WHERE spb.status = 'VALIDATED') AS payout_count
-         FROM shareholder_payout_lines spl
-         JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
-         WHERE spl.organization_id = $1
-         GROUP BY spl.shareholder_id
-       ) main ON main.shareholder_id = s.id
+         LEFT JOIN (
+           SELECT spl.shareholder_id,
+                  SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'USD' THEN spl.amount ELSE 0 END) AS total_usd,
+                  SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'CDF' THEN spl.amount ELSE 0 END) AS total_cdf,
+                  COUNT(*) FILTER (WHERE spb.status = 'VALIDATED') AS payout_count
+           FROM shareholder_payout_lines spl
+           JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
+           WHERE spl.organization_id = $1
+             AND spl.deleted_at IS NULL
+             AND spb.deleted_at IS NULL
+           GROUP BY spl.shareholder_id
+         ) main ON main.shareholder_id = s.id
        WHERE ${clauses.join(' AND ')}
        ORDER BY s.display_name ASC`,
       values,
@@ -7244,6 +7303,8 @@ export class SaasService {
          FROM shareholder_payout_lines spl
          JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
          WHERE spl.organization_id = $1
+           AND spl.deleted_at IS NULL
+           AND spb.deleted_at IS NULL
          GROUP BY spl.shareholder_id
        ) main ON main.shareholder_id = s.id
        WHERE s.id = $2
@@ -7280,7 +7341,9 @@ export class SaasService {
        LEFT JOIN app_users u ON u.id = spb.created_by
        WHERE spl.organization_id = $1
          AND spl.shareholder_id = $2
-       ORDER BY spb.payout_date DESC, spl.id DESC`,
+         AND spl.deleted_at IS NULL
+         AND spb.deleted_at IS NULL
+        ORDER BY spb.payout_date DESC, spl.id DESC`,
       [this.context.organizationId(), id],
     );
     return rows;
@@ -7481,7 +7544,8 @@ export class SaasService {
        LEFT JOIN bank_accounts ba ON ba.id = bt.bank_account_id AND ba.organization_id = bt.organization_id
        WHERE spl.organization_id = $1
          AND spl.batch_id = $2
-       ORDER BY s.display_name, spl.id`,
+         AND spl.deleted_at IS NULL
+        ORDER BY s.display_name, spl.id`,
       [this.context.organizationId(), id],
     );
     return { ...batch, lines: lines.rows };
@@ -8962,6 +9026,199 @@ export class SaasService {
       payment_date: paidAmount > 0 ? (guarantee.payment_date ?? null) : null,
       status,
     });
+  }
+
+  async trashedShareholderPayoutLines() {
+    await this.ensureShareholderSchema();
+    const { rows } = await this.db.query(
+      `SELECT spl.id,
+              spl.batch_id,
+              spl.shareholder_id,
+              spl.amount,
+              spl.currency,
+              spl.payment_method,
+              spl.reference,
+              spl.receipt_number,
+              spl.cash_movement_id,
+              spl.guarantee_cash_movement_id,
+              spl.deleted_at,
+              spl.deletion_reason,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS deleted_by_name,
+              spb.reference AS batch_reference,
+              spb.source_register,
+              sh.display_name AS shareholder_name
+       FROM shareholder_payout_lines spl
+       JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
+       JOIN shareholders sh ON sh.id = spl.shareholder_id AND sh.organization_id = spl.organization_id
+       LEFT JOIN app_users u ON u.id = spl.deleted_by
+       WHERE spl.organization_id = $1
+         AND spl.deleted_at IS NOT NULL
+       ORDER BY spl.deleted_at DESC, spl.id DESC`,
+      [this.context.organizationId()],
+    );
+    return rows;
+  }
+
+  private async trashShareholderPayoutInTransaction(
+    client: PoolClient,
+    payoutLineId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    const lineResult = await client.query(
+      `SELECT spl.id,
+              spl.batch_id,
+              spl.shareholder_id,
+              spl.amount,
+              spl.currency,
+              spl.reference,
+              spl.receipt_number,
+              spl.cash_movement_id,
+              spl.guarantee_cash_movement_id,
+              spl.bank_transaction_id,
+              spl.deleted_at,
+              spb.reference AS batch_reference,
+              spb.source_register,
+              spb.status AS batch_status,
+              spb.deleted_at AS batch_deleted_at,
+              sh.display_name AS shareholder_name
+       FROM shareholder_payout_lines spl
+       JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
+       JOIN shareholders sh ON sh.id = spl.shareholder_id AND sh.organization_id = spl.organization_id
+       WHERE spl.id = $1
+         AND spl.organization_id = $2
+       FOR UPDATE`,
+      [payoutLineId, this.context.organizationId()],
+    );
+    const line = requireRow(lineResult.rows[0], 'Shareholder payout') as Record<string, unknown>;
+    if (line.deleted_at) {
+      throw new ConflictException('Ce remboursement actionnaire est déjà dans la corbeille.');
+    }
+    if (line.batch_deleted_at) {
+      throw new ConflictException('Le lot de remboursement actionnaire est déjà dans la corbeille.');
+    }
+    if (line.bank_transaction_id) {
+      throw new ConflictException(
+        'Ce remboursement actionnaire bancaire ne peut pas encore être supprimé automatiquement depuis ce workflow.',
+      );
+    }
+
+    const cashMovementId = Number(line.cash_movement_id ?? 0) || null;
+    const guaranteeCashMovementId = Number(line.guarantee_cash_movement_id ?? 0) || null;
+    if (cashMovementId) {
+      await this.softDeleteFinanceRows(client, 'cash_movements', 'id', cashMovementId, reason);
+    }
+    if (guaranteeCashMovementId) {
+      await this.softDeleteFinanceRows(client, 'guarantee_cash_movements', 'id', guaranteeCashMovementId, reason);
+    }
+
+    await client.query(
+      `UPDATE shareholder_payout_lines
+       SET deleted_at = NOW(),
+           deleted_by = $2,
+           deletion_reason = $3
+       WHERE id = $1
+         AND organization_id = $4
+         AND deleted_at IS NULL`,
+      [payoutLineId, this.context.userId() ?? null, reason, this.context.organizationId()],
+    );
+
+    const remainingResult = await client.query(
+      `SELECT COUNT(*)::INT AS line_count,
+              COALESCE(SUM(amount), 0)::NUMERIC(14,2) AS total_amount
+       FROM shareholder_payout_lines
+       WHERE organization_id = $1
+         AND batch_id = $2
+         AND deleted_at IS NULL`,
+      [this.context.organizationId(), Number(line.batch_id)],
+    );
+    const remainingLineCount = Number(remainingResult.rows[0]?.line_count ?? 0);
+    const remainingTotalAmount = Number(remainingResult.rows[0]?.total_amount ?? 0);
+    const nextBatchStatus = remainingLineCount > 0 ? 'VALIDATED' : 'CANCELLED';
+
+    if (remainingLineCount > 0) {
+      await client.query(
+        `UPDATE shareholder_payout_batches
+         SET total_amount = $3,
+             beneficiary_count = $4,
+             status = $5
+         WHERE id = $1
+           AND organization_id = $2`,
+        [Number(line.batch_id), this.context.organizationId(), remainingTotalAmount, remainingLineCount, nextBatchStatus],
+      );
+    } else {
+      await client.query(
+        `UPDATE shareholder_payout_batches
+         SET total_amount = 0,
+             beneficiary_count = 0,
+             status = $3,
+             deleted_at = NOW(),
+             deleted_by = $4,
+             deletion_reason = $5
+         WHERE id = $1
+           AND organization_id = $2`,
+        [Number(line.batch_id), this.context.organizationId(), nextBatchStatus, this.context.userId() ?? null, reason],
+      );
+    }
+
+    const shareholderTotals = await client.query(
+      `SELECT COALESCE(SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'USD' THEN spl.amount ELSE 0 END), 0)::NUMERIC(14,2) AS total_usd,
+              COALESCE(SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'CDF' THEN spl.amount ELSE 0 END), 0)::NUMERIC(14,2) AS total_cdf,
+              COUNT(*) FILTER (WHERE spb.status = 'VALIDATED')::INT AS payout_count
+       FROM shareholder_payout_lines spl
+       JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
+       WHERE spl.organization_id = $1
+         AND spl.shareholder_id = $2
+         AND spl.deleted_at IS NULL
+         AND spb.deleted_at IS NULL`,
+      [this.context.organizationId(), Number(line.shareholder_id)],
+    );
+
+    await this.writeFinanceTrashAudit(
+      client,
+      options?.auditAction ?? 'SHAREHOLDER_PAYOUT_MOVED_TO_TRASH',
+      options?.auditResource ?? 'shareholder_payouts',
+      options?.auditResourceId ?? String(payoutLineId),
+      {
+        reason,
+        shareholder_payout_line_id: payoutLineId,
+        shareholder_id: Number(line.shareholder_id),
+        shareholder_name: line.shareholder_name ?? null,
+        shareholder_batch_id: Number(line.batch_id),
+        batch_reference: line.batch_reference ?? null,
+        source_register: line.source_register ?? null,
+        amount: Number(line.amount ?? 0),
+        currency: String(line.currency ?? 'USD'),
+        receipt_number: line.receipt_number ?? null,
+        cash_movement_id: cashMovementId,
+        guarantee_cash_movement_id: guaranteeCashMovementId,
+        source_movement_id: options?.sourceMovementId ?? cashMovementId ?? guaranteeCashMovementId,
+        remaining_batch_lines: remainingLineCount,
+        batch_total_amount: remainingTotalAmount,
+        batch_status: nextBatchStatus,
+        shareholder_total_usd: Number(shareholderTotals.rows[0]?.total_usd ?? 0),
+        shareholder_total_cdf: Number(shareholderTotals.rows[0]?.total_cdf ?? 0),
+        shareholder_payout_count: Number(shareholderTotals.rows[0]?.payout_count ?? 0),
+      },
+    );
+
+    return {
+      deleted: true,
+      shareholder_payout_line_id: payoutLineId,
+      batch_id: Number(line.batch_id),
+      shareholder_id: Number(line.shareholder_id),
+      remaining_batch_lines: remainingLineCount,
+      batch_deleted: remainingLineCount === 0,
+      batch_status: nextBatchStatus,
+      shareholder_total_usd: Number(shareholderTotals.rows[0]?.total_usd ?? 0),
+      shareholder_total_cdf: Number(shareholderTotals.rows[0]?.total_cdf ?? 0),
+      shareholder_payout_count: Number(shareholderTotals.rows[0]?.payout_count ?? 0),
+    };
   }
 
   private async writeFinanceTrashAudit(
@@ -14206,7 +14463,7 @@ export class SaasService {
       return 'Ce mouvement est lié à une dépense de maintenance et ne peut pas être supprimé.';
     }
     if (category === 'SHAREHOLDER_PAYOUT') {
-      return 'Ce mouvement est lié à un remboursement actionnaire et ne peut pas être supprimé.';
+      return 'Ce mouvement de remboursement actionnaire ne peut pas être supprimé automatiquement, car sa source n’a pas été identifiée.';
     }
     if (category === 'BANK_DEPOSIT') {
       return 'Ce mouvement est lié à un dépôt en banque et ne peut pas être supprimé.';

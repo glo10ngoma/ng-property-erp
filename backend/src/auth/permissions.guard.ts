@@ -145,6 +145,12 @@ export class PermissionsGuard implements CanActivate {
     if (/^\/api\/shareholder-payout-lines\/\d+\/receipt$/.test(path)) {
       return 'shareholder_payouts.receipt';
     }
+    if (/^\/api\/shareholder-payout-lines\/trash$/.test(path)) {
+      return 'shareholder_payouts.read';
+    }
+    if (/^\/api\/shareholder-payout-lines\/\d+$/.test(path)) {
+      return method === 'DELETE' ? 'shareholder_payouts.delete' : 'shareholder_payouts.read';
+    }
     if (/^\/api\/shareholder-payouts\/\d+\/summary$/.test(path)) {
       return 'shareholder_payouts.export';
     }

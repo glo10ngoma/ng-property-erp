@@ -41,6 +41,7 @@ export function TrashPage() {
   const canReadPaymentTrash = can('payments.read');
   const canReadCashTrash = can('cash.read');
   const canReadGuaranteeCashTrash = can('guarantee_cash.read');
+  const canReadShareholderPayoutTrash = can('shareholder_payouts.read');
 
   const enabledProviders = useMemo(
     () => [
@@ -49,8 +50,9 @@ export function TrashPage() {
       ...(canReadPaymentTrash ? [trashEntityProviders.payment] : []),
       ...(canReadCashTrash ? [trashEntityProviders.cash] : []),
       ...(canReadGuaranteeCashTrash ? [trashEntityProviders.guarantee_cash] : []),
+      ...(canReadShareholderPayoutTrash ? [trashEntityProviders.shareholder_payout] : []),
     ],
-    [canReadLeaseTrash, canReadTenantTrash, canReadPaymentTrash, canReadCashTrash, canReadGuaranteeCashTrash],
+    [canReadLeaseTrash, canReadTenantTrash, canReadPaymentTrash, canReadCashTrash, canReadGuaranteeCashTrash, canReadShareholderPayoutTrash],
   );
 
   async function loadRows() {

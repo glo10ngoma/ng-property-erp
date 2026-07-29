@@ -741,6 +741,7 @@ function CashDeleteMovementModal({
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const isShareholderPayout = String(movement.category ?? '').toUpperCase() === 'SHAREHOLDER_PAYOUT';
 
   async function submit() {
     const trimmedReason = reason.trim();
@@ -764,8 +765,17 @@ function CashDeleteMovementModal({
     <Modal title="Supprimer le mouvement" onClose={onClose}>
       <div className="modal-section">
         <h3>Confirmation</h3>
-        <p>Ce mouvement sera placé dans la corbeille avec son objet source lorsqu il existe.</p>
-        <p>Les soldes et statuts liés seront recalculés automatiquement.</p>
+        {isShareholderPayout ? (
+          <>
+            <p>Cette action mettra en corbeille le remboursement actionnaire, les écritures de caisse associées et recalculera automatiquement le solde ainsi que le statut.</p>
+            <p>Le workflow métier source sera utilisé pour éviter toute suppression partielle.</p>
+          </>
+        ) : (
+          <>
+            <p>Ce mouvement sera placé dans la corbeille avec son objet source lorsqu il existe.</p>
+            <p>Les soldes et statuts liés seront recalculés automatiquement.</p>
+          </>
+        )}
         <div className="mini-stats">
           <div className="mini-stat">
             <span>Piece</span>

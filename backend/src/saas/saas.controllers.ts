@@ -786,9 +786,19 @@ export class ShareholderPayoutsController {
 export class ShareholderPayoutLinesController {
   constructor(private readonly service: SaasService) {}
 
+  @Get('trash')
+  trash() {
+    return this.service.trashedShareholderPayoutLines();
+  }
+
   @Get(':id/receipt')
   receipt(@Param('id', ParseIntPipe) id: number) {
     return this.service.shareholderPayoutLineReceipt(id);
+  }
+
+  @Delete(':id')
+  delete(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.trashShareholderPayout(id, String(body?.reason ?? ''));
   }
 }
 
