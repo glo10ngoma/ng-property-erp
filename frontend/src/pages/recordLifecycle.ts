@@ -1,7 +1,7 @@
 import { api } from '../api';
 import { formatLeaseReference } from '../utils/lease-reference';
 
-export type LifecycleEntityType = 'lease' | 'tenant';
+export type LifecycleEntityType = 'lease' | 'tenant' | 'payment' | 'cash' | 'guarantee_cash';
 export type LifecycleObjectFilter = 'all' | LifecycleEntityType;
 
 export type LeaseLifecycleRecord = {
@@ -54,7 +54,29 @@ export type TrashListItem = {
   deletedAt?: string | null;
   deletedBy?: string | null;
   reason?: string | null;
-  raw: LeaseLifecycleRecord | TenantLifecycleRecord;
+  raw: LeaseLifecycleRecord | TenantLifecycleRecord | FinanceTrashRecord;
+};
+
+export type FinanceTrashRecord = {
+  id: number;
+  payment_type?: string | null;
+  movement_type?: string | null;
+  type?: string | null;
+  category?: string | null;
+  payment_date?: string | null;
+  movement_date?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+  reference?: string | null;
+  receipt_number?: string | null;
+  deleted_at?: string | null;
+  deleted_by_name?: string | null;
+  deletion_reason?: string | null;
+  invoice_id?: number | null;
+  invoice_number?: string | null;
+  tenant_name?: string | null;
+  lease_number?: number | null;
+  organization_id?: number | null;
 };
 
 export type ArchiveListItem = {
@@ -135,6 +157,7 @@ function mapTenantTrashRow(record: TenantLifecycleRecord): TrashListItem {
     Number(record.invoice_count ?? 0) ? `${record.invoice_count} facture(s)` : '',
     Number(record.payment_count ?? 0) ? `${record.payment_count} paiement(s)` : '',
   ].filter(Boolean).join(' · ');
+
   return {
     entityType: 'tenant',
     recordId: record.id,
@@ -206,6 +229,132 @@ const tenantTrashProvider: TrashEntityProvider = {
   canRestorePermission: 'tenants.update',
 };
 
+function financeReference(record: FinanceTrashRecord, fallbackPrefix: string) {
+  const direct = String(record.reference ?? '').trim();
+  if (direct) return direct;
+
+  const receipt = String(record.receipt_number ?? '').trim();
+  if (receipt) return receipt;
+
+  return `${fallbackPrefix}-${String(record.id).padStart(6, '0')}`;
+}
+
+function financeAssociatedInfo(record: FinanceTrashRecord) {
+  return [
+    record.invoice_number || '',
+    record.tenant_name || '',
+    record.currency ? `${record.amount ?? 0} ${record.currency}` : '',
+  ].filter(Boolean).join(' · ');
+}
+
+const paymentTrashProvider: TrashEntityProvider = {
+  type: 'payment',
+  label: 'Paiements',
+  async load() {
+    const response = await api.get<FinanceTrashRecord[]>('/payments/trash');
+    return response.data.map((record) => ({
+      entityType: 'payment',
+      recordId: record.id,
+      reference: financeReference(record, 'PAY'),
+      designation: record.invoice_number ?? record.tenant_name ?? 'Paiement',
+      associatedInfo: financeAssociatedInfo(record),
+      deletedAt: record.deleted_at,
+      deletedBy: record.deleted_by_name,
+      reason: record.deletion_reason,
+      raw: record,
+    }));
+  },
+  async restore() {
+    throw new Error("La restauration des paiements n'est pas encore disponible.");
+  },
+  async loadDeletionImpact() {
+    return { canHardDelete: false, hasFinancialHistory: true, dependencies: [] };
+  },
+  async permanentDelete() {
+    return {};
+  },
+  async archive() {
+    throw new Error("L'archivage n'est pas disponible.");
+  },
+  buildDetailPath(recordId) {
+    return `/payments/${recordId}`;
+  },
+  canRestorePermission: 'finance.restore',
+  canPermanentDeletePermission: 'finance.hard_delete',
+};
+
+const cashTrashProvider: TrashEntityProvider = {
+  type: 'cash',
+  label: 'Caisse principale',
+  async load() {
+    const response = await api.get<FinanceTrashRecord[]>('/cash/trash');
+    return response.data.map((record) => ({
+      entityType: 'cash',
+      recordId: record.id,
+      reference: financeReference(record, 'CASH'),
+      designation: record.invoice_number ?? record.category ?? 'Mouvement de caisse',
+      associatedInfo: financeAssociatedInfo(record),
+      deletedAt: record.deleted_at,
+      deletedBy: record.deleted_by_name,
+      reason: record.deletion_reason,
+      raw: record,
+    }));
+  },
+  async restore() {
+    throw new Error("La restauration des mouvements de caisse n'est pas encore disponible.");
+  },
+  async loadDeletionImpact() {
+    return { canHardDelete: false, hasFinancialHistory: true, dependencies: [] };
+  },
+  async permanentDelete() {
+    return {};
+  },
+  async archive() {
+    throw new Error("L'archivage n'est pas disponible.");
+  },
+  buildDetailPath(recordId) {
+    return `/cash/${recordId}`;
+  },
+  canRestorePermission: 'finance.restore',
+  canPermanentDeletePermission: 'finance.hard_delete',
+};
+
+const guaranteeCashTrashProvider: TrashEntityProvider = {
+  type: 'guarantee_cash',
+  label: 'Caisse garanties',
+  async load() {
+    const response = await api.get<FinanceTrashRecord[]>('/guarantee-cash/trash');
+    return response.data.map((record) => ({
+      entityType: 'guarantee_cash',
+      recordId: record.id,
+      reference: financeReference(record, 'GRC'),
+      designation: record.invoice_number ?? record.movement_type ?? 'Mouvement garantie',
+      associatedInfo: financeAssociatedInfo(record),
+      deletedAt: record.deleted_at,
+      deletedBy: record.deleted_by_name,
+      reason: record.deletion_reason,
+      raw: record,
+    }));
+  },
+  async restore() {
+    throw new Error("La restauration des mouvements de garantie n'est pas encore disponible.");
+  },
+  async loadDeletionImpact() {
+    return { canHardDelete: false, hasFinancialHistory: true, dependencies: [] };
+  },
+  async permanentDelete() {
+    return {};
+  },
+  async archive() {
+    throw new Error("L'archivage n'est pas disponible.");
+  },
+  buildDetailPath(recordId) {
+    return `/guarantee-cash?movement=${recordId}`;
+  },
+  canRestorePermission: 'finance.restore',
+  canPermanentDeletePermission: 'finance.hard_delete',
+};
+
 const leaseArchiveProvider: ArchiveEntityProvider = {
   type: 'lease',
   label: 'Baux et contrats',
@@ -221,6 +370,9 @@ const leaseArchiveProvider: ArchiveEntityProvider = {
 export const trashEntityProviders: Record<LifecycleEntityType, TrashEntityProvider> = {
   lease: leaseTrashProvider,
   tenant: tenantTrashProvider,
+  payment: paymentTrashProvider,
+  cash: cashTrashProvider,
+  guarantee_cash: guaranteeCashTrashProvider,
 };
 
 export const archiveEntityProviders: Record<'lease', ArchiveEntityProvider> = {
@@ -231,10 +383,16 @@ export const lifecycleObjectOptions: Array<{ value: LifecycleObjectFilter; label
   { value: 'all', label: 'Tous' },
   { value: 'lease', label: 'Baux et contrats' },
   { value: 'tenant', label: 'Locataires' },
+  { value: 'payment', label: 'Paiements' },
+  { value: 'cash', label: 'Caisse principale' },
+  { value: 'guarantee_cash', label: 'Caisse garanties' },
 ];
 
 export function lifecycleEntityLabel(entityType: LifecycleEntityType) {
   if (entityType === 'lease') return 'Bail / Contrat';
   if (entityType === 'tenant') return 'Locataire';
+  if (entityType === 'payment') return 'Paiement';
+  if (entityType === 'cash') return 'Caisse';
+  if (entityType === 'guarantee_cash') return 'Garantie';
   return entityType;
 }

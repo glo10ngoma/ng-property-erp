@@ -57,6 +57,38 @@ export class PaymentsService {
     return rows;
   }
 
+  async findTrashed() {
+    const organizationId = this.context.organizationId();
+    const { rows } = await this.db.query(
+      `SELECT p.id,
+              p.payment_type,
+              p.payment_date,
+              p.amount,
+              p.currency,
+              p.reference,
+              p.receipt_number,
+              p.deleted_at,
+              p.deletion_reason,
+              p.organization_id,
+              p.invoice_id,
+              i.invoice_number,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS deleted_by_name,
+              CASE
+                WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name
+       FROM payments p
+       LEFT JOIN invoices i ON i.id = p.invoice_id
+       LEFT JOIN tenants t ON t.id = i.tenant_id
+       LEFT JOIN app_users u ON u.id = p.deleted_by
+       WHERE p.organization_id = $1
+         AND p.deleted_at IS NOT NULL
+       ORDER BY p.deleted_at DESC, p.id DESC`,
+      [organizationId],
+    );
+    return rows;
+  }
+
   async findOne(id: number) {
     const organizationId = this.context.organizationId();
     if (!(await this.supportsGuaranteePaymentSchema())) {

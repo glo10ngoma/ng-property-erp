@@ -165,6 +165,11 @@ export function Payments() {
     );
   });
 
+  function paymentReference(payment: Payment) {
+    const direct = String(payment.reference ?? '').trim();
+    return direct || '—';
+  }
+
   const totals = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     const month = new Date().getMonth() + 1;
@@ -315,7 +320,7 @@ export function Payments() {
                   <td>{shortDate(payment.payment_date)}</td>
                   <td className="right">{money(payment.amount)}</td>
                   <td>{paymentMethodLabel(payment.payment_method)}</td>
-                  <td>{payment.reference ?? '-'}</td>
+                  <td>{paymentReference(payment)}</td>
                   <td><span className={`badge ${String(status).toLowerCase()}`}>{statusLabel(status)}</span></td>
                   <td>
                     <div className="row-actions">

@@ -541,6 +541,11 @@ export class CashController {
     return this.service.cashMovements();
   }
 
+  @Get('trash')
+  trash() {
+    return this.service.trashedCashMovements();
+  }
+
   @Get('expense-categories')
   expenseCategories() {
     return this.service.cashExpenseCategories();
@@ -614,6 +619,11 @@ export class GuaranteeCashController {
   @Get('movements')
   movements(@Query() query: Record<string, unknown>) {
     return this.service.guaranteeCashMovements(query);
+  }
+
+  @Get('trash')
+  trash() {
+    return this.service.trashedGuaranteeCashMovements();
   }
 
   @Delete('movements/:id')

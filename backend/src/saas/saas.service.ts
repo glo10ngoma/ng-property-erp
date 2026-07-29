@@ -1970,7 +1970,9 @@ export class SaasService {
       LEFT JOIN shareholders sh ON sh.id = spl.shareholder_id AND sh.organization_id = spl.organization_id`
       : '';
     const { rows } = await this.db.query(`
-      SELECT cm.*, cs.status AS session_status, i.invoice_number,
+      SELECT cm.*, cs.status AS session_status,
+             COALESCE(cm.invoice_id, p.invoice_id) AS invoice_id,
+             COALESCE(i.invoice_number, pi.invoice_number) AS invoice_number,
              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
              CONCAT(e.first_name, ' ', e.last_name) AS employee_name
              ${shareholderSelect},
@@ -1998,7 +2000,9 @@ export class SaasService {
              END AS locked_reason
       FROM cash_movements cm
       JOIN cash_sessions cs ON cs.id = cm.cash_session_id
+      LEFT JOIN payments p ON p.id = cm.payment_id AND p.organization_id = cm.organization_id
       LEFT JOIN invoices i ON i.id = cm.invoice_id
+      LEFT JOIN invoices pi ON pi.id = p.invoice_id
       LEFT JOIN tenants t ON t.id = cm.tenant_id
       LEFT JOIN employees e ON e.id = cm.employee_id
       ${shareholderJoin}
@@ -2029,8 +2033,10 @@ export class SaasService {
       : '';
     const { rows } = await this.db.query(
       `SELECT cm.*, cs.status AS session_status, cs.opened_at, cs.closed_at, cs.opening_balance, cs.closing_balance,
+              COALESCE(cm.invoice_id, p.invoice_id) AS invoice_id,
               cs.expected_balance, cs.difference_amount,
-              i.invoice_number, i.total AS invoice_total, i.status AS invoice_status,
+              COALESCE(i.invoice_number, pi.invoice_number) AS invoice_number,
+              COALESCE(i.total, pi.total) AS invoice_total, COALESCE(i.status, pi.status) AS invoice_status,
               CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
               t.phone AS tenant_phone, t.email AS tenant_email,
               CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
@@ -2060,11 +2066,13 @@ export class SaasService {
               al.action AS audit_action, al.created_at AS audit_date, al.metadata AS audit_metadata
        FROM cash_movements cm
        JOIN cash_sessions cs ON cs.id = cm.cash_session_id
+       LEFT JOIN payments p ON p.id = cm.payment_id AND p.organization_id = cm.organization_id
        LEFT JOIN invoices i ON i.id = cm.invoice_id
+       LEFT JOIN invoices pi ON pi.id = p.invoice_id
        LEFT JOIN tenants t ON t.id = cm.tenant_id
        LEFT JOIN employees e ON e.id = cm.employee_id
-       LEFT JOIN units u ON u.id = i.unit_id
-       LEFT JOIN buildings b ON b.id = u.building_id
+       LEFT JOIN units u ON u.id = COALESCE(i.unit_id, pi.unit_id)
+       LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, pi.building_id, u.building_id)
        ${shareholderJoin}
        LEFT JOIN LATERAL (
          SELECT action, created_at, metadata
@@ -2098,6 +2106,40 @@ export class SaasService {
       { name: 'Code barre', exists: true, detail: 'Placeholder' },
     ];
     return { ...movement, timeline: timeline.rows, documents, history: timeline.rows };
+  }
+
+  async trashedCashMovements() {
+    const { rows } = await this.db.query(
+      `SELECT cm.id,
+              cm.type,
+              cm.category,
+              cm.amount,
+              cm.currency,
+              cm.movement_date,
+              cm.reference,
+              cm.payment_id,
+              COALESCE(cm.invoice_id, p.invoice_id) AS invoice_id,
+              COALESCE(i.invoice_number, pi.invoice_number) AS invoice_number,
+              cm.deleted_at,
+              cm.deletion_reason,
+              cm.organization_id,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS deleted_by_name,
+              CASE
+                WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name
+       FROM cash_movements cm
+       LEFT JOIN payments p ON p.id = cm.payment_id AND p.organization_id = cm.organization_id
+       LEFT JOIN invoices i ON i.id = cm.invoice_id
+       LEFT JOIN invoices pi ON pi.id = p.invoice_id
+       LEFT JOIN tenants t ON t.id = COALESCE(i.tenant_id, pi.tenant_id, cm.tenant_id)
+       LEFT JOIN app_users u ON u.id = cm.deleted_by
+       WHERE cm.organization_id = $1
+         AND cm.deleted_at IS NOT NULL
+       ORDER BY cm.deleted_at DESC, cm.id DESC`,
+      [this.context.organizationId()],
+    );
+    return rows;
   }
 
   async deleteCashMovement(id: number, body?: Record<string, unknown>) {
@@ -6076,6 +6118,57 @@ export class SaasService {
        ${where}
        ORDER BY gcm.movement_date DESC, gcm.id DESC`,
       values,
+    );
+    return rows;
+  }
+
+  async trashedGuaranteeCashMovements() {
+    await this.ensureGuaranteeCashSchema();
+    const hasShareholderSchema = await this.hasShareholderPayoutSchema();
+    const shareholderSelect = hasShareholderSchema
+      ? `,
+              spl.batch_id AS shareholder_batch_id,
+              sh.display_name AS shareholder_name`
+      : `,
+              NULL::INT AS shareholder_batch_id,
+              NULL::VARCHAR AS shareholder_name`;
+    const shareholderJoin = hasShareholderSchema
+      ? `
+       LEFT JOIN shareholder_payout_lines spl ON spl.guarantee_cash_movement_id = gcm.id AND spl.organization_id = gcm.organization_id
+       LEFT JOIN shareholders sh ON sh.id = spl.shareholder_id AND sh.organization_id = spl.organization_id`
+      : '';
+    const { rows } = await this.db.query(
+      `SELECT gcm.id,
+              gcm.movement_type,
+              gcm.type,
+              gcm.amount,
+              gcm.currency,
+              gcm.equivalent_usd,
+              gcm.movement_date,
+              gcm.reference,
+              gcm.reason,
+              gcm.notes,
+              gcm.payment_id,
+              gcm.lease_guarantee_id,
+              gcm.lease_id,
+              gcm.deleted_at,
+              gcm.deletion_reason,
+              gcm.organization_id,
+              l.lease_number,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS deleted_by_name,
+              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name
+              ${shareholderSelect}
+       FROM guarantee_cash_movements gcm
+       LEFT JOIN leases l ON l.id = gcm.lease_id
+       LEFT JOIN tenants t ON t.id = gcm.tenant_id
+       LEFT JOIN app_users u ON u.id = gcm.deleted_by
+       ${shareholderJoin}
+       WHERE gcm.organization_id = $1
+         AND gcm.deleted_at IS NOT NULL
+       ORDER BY gcm.deleted_at DESC, gcm.id DESC`,
+      [this.context.organizationId()],
     );
     return rows;
   }

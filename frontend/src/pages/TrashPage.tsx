@@ -38,13 +38,19 @@ export function TrashPage() {
   const [archiveReason, setArchiveReason] = useState('');
   const canReadLeaseTrash = can('leases.trash.read');
   const canReadTenantTrash = can('tenants.read');
+  const canReadPaymentTrash = can('payments.read');
+  const canReadCashTrash = can('cash.read');
+  const canReadGuaranteeCashTrash = can('guarantee_cash.read');
 
   const enabledProviders = useMemo(
     () => [
       ...(canReadLeaseTrash ? [trashEntityProviders.lease] : []),
       ...(canReadTenantTrash ? [trashEntityProviders.tenant] : []),
+      ...(canReadPaymentTrash ? [trashEntityProviders.payment] : []),
+      ...(canReadCashTrash ? [trashEntityProviders.cash] : []),
+      ...(canReadGuaranteeCashTrash ? [trashEntityProviders.guarantee_cash] : []),
     ],
-    [canReadLeaseTrash, canReadTenantTrash],
+    [canReadLeaseTrash, canReadTenantTrash, canReadPaymentTrash, canReadCashTrash, canReadGuaranteeCashTrash],
   );
 
   async function loadRows() {
@@ -168,7 +174,16 @@ export function TrashPage() {
         <input placeholder="Supprimé par" value={deletedByFilter} onChange={(event) => setDeletedByFilter(event.target.value)} />
         <input type="date" value={deletedDateFilter} onChange={(event) => setDeletedDateFilter(event.target.value)} />
         <div className="filter-actions">
-          <button type="button" className="secondary" onClick={() => { setQuery(''); setObjectType('all'); setDeletedByFilter(''); setDeletedDateFilter(''); }}>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              setQuery('');
+              setObjectType('all');
+              setDeletedByFilter('');
+              setDeletedDateFilter('');
+            }}
+          >
             Réinitialiser
           </button>
         </div>

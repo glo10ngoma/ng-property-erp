@@ -231,7 +231,7 @@ export function PaymentDetail() {
             </>
           )}
           <div className="invoice-meta">
-            <strong>ReÃ§u {payment.receipt_number ?? `PAY-${payment.id}`}</strong>
+            <strong>Reçu {payment.receipt_number ?? `PAY-${payment.id}`}</strong>
             <span>{paymentSubjectLabel(payment)}</span>
             <span>Date: {shortDate(payment.payment_date)}</span>
             <span>Mode: {paymentMethodLabel(payment.payment_method)}</span>
@@ -266,7 +266,7 @@ export function PaymentDetail() {
         </div>
 
         <table>
-          <thead><tr><th>RÃ©fÃ©rence</th><th>Facture</th><th>Mode</th><th className="right">Montant</th><th>Devise</th><th>Utilisateur</th></tr></thead>
+          <thead><tr><th>Référence</th><th>Facture</th><th>Mode</th><th className="right">Montant</th><th>Devise</th><th>Utilisateur</th></tr></thead>
         <tbody>
             <tr>
               <td>{displayReference}</td>
@@ -564,10 +564,10 @@ function isTenantCreditAllocationPayment(payment: PaymentDetailData) {
 }
 
 function paymentSubjectLabel(payment: PaymentDetailData) {
-  if (isTenantCreditAllocationPayment(payment)) return `Facture : ${payment.invoice_number ?? '-'}`;
+  if (isTenantCreditAllocationPayment(payment)) return payment.invoice_number ?? '-';
   if (isTenantCreditPayment(payment)) return 'Crédit locataire';
   if (isGuaranteePayment(payment)) return 'Garantie locative';
-  return `Facture: ${payment.invoice_number ?? '-'}`;
+  return payment.invoice_number ?? '-';
 }
 
 function displayValue(value: unknown) {

@@ -88,6 +88,29 @@ function debitCreditValues(movement: Pick<CashMovement, 'type' | 'amount' | 'cur
     : { debit: '', credit: formattedAmount };
 }
 
+function renderInvoiceValue(
+  movement: Pick<CashMovement, 'invoice_id' | 'invoice_number'>,
+  navigate?: (path: string) => void,
+) {
+  const invoiceNumber = String(movement.invoice_number ?? '').trim();
+  if (!invoiceNumber) return '—';
+  if (movement.invoice_id && navigate) {
+    return (
+      <button
+        type="button"
+        className="link-button"
+        onClick={(event) => {
+          event.stopPropagation();
+          navigate(`/invoices/${movement.invoice_id}`);
+        }}
+      >
+        {invoiceNumber}
+      </button>
+    );
+  }
+  return invoiceNumber;
+}
+
 export function CashPage() {
   const { can } = useAuth();
   const navigate = useNavigate();
@@ -532,7 +555,7 @@ export function CashPage() {
                 <td>{movement.currency ?? 'USD'}</td>
                 <td>{movement.exchange_rate_used ? movement.exchange_rate_used.toLocaleString('fr-FR') : '-'}</td>
                 <td className="right">{formatCashAmount(movement.equivalent_usd ?? movement.amount, 'USD')}</td>
-                <td>{movement.invoice_number ?? '-'}</td>
+                <td>{renderInvoiceValue(movement, navigate)}</td>
                 <td>{movement.tenant_name ?? movement.supplier ?? movement.shareholder_name ?? '-'}</td>
                 <td>{movement.reference ?? '-'}</td>
                 <td>
@@ -889,7 +912,7 @@ export function CashDetailPage() {
             <span>Informations générales</span>
             <strong>{cashCategoryLabel(movement.category)}</strong>
             <p>Libellé: {movement.label ?? movement.description ?? '-'}</p>
-            <p>Facture: {movement.invoice_number ?? '-'}</p>
+            <p>{renderInvoiceValue(movement, navigate)}</p>
             <p>Locataire: {movement.tenant_name ?? '-'}</p>
             <p>Téléphone: {movement.tenant_phone ?? '-'}</p>
             <p>Email: {movement.tenant_email ?? '-'}</p>
@@ -919,7 +942,7 @@ export function CashDetailPage() {
           </div>
               <div className="mini-stat">
                 <span>Facture</span>
-                <strong>{movement.invoice_number ?? '-'}</strong>
+                <strong>{renderInvoiceValue(movement, navigate)}</strong>
               </div>
             </div>
 

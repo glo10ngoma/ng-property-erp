@@ -11,6 +11,11 @@ export class PaymentsController {
     return this.payments.findAll();
   }
 
+  @Get('trash')
+  findTrashed() {
+    return this.payments.findTrashed();
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.payments.findOne(id);
