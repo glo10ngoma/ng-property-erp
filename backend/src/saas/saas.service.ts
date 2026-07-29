@@ -2160,6 +2160,9 @@ export class SaasService {
     const supportsShareholderTrash = hasShareholderSchema
       && (await this.columnExists('shareholder_payout_lines', 'deleted_at'))
       && (await this.columnExists('shareholder_payout_batches', 'deleted_at'));
+    this.logger.log(
+      `cash delete requested | requestedCashMovementId=${id} organizationId=${this.context.organizationId()} supportsShareholderTrash=${supportsShareholderTrash}`,
+    );
     return this.db.transaction(async (client) => {
       const movementResult = await client.query(
         `SELECT id, payment_id, invoice_id, category, piece_number, amount, currency, reference, movement_date
@@ -2172,7 +2175,13 @@ export class SaasService {
          FOR UPDATE`,
         [id, this.context.organizationId()],
       );
+      this.logger.log(
+        `cash delete lookup | requestedCashMovementId=${id} organizationId=${this.context.organizationId()} movementFound=${Boolean(movementResult.rows[0])}`,
+      );
       const movement = requireRow(movementResult.rows[0], 'Cash movement') as Record<string, unknown>;
+      this.logger.log(
+        `cash delete resolved | requestedCashMovementId=${id} organizationId=${this.context.organizationId()} sourceType=${String(movement.category ?? 'UNKNOWN')} sourceId=${movement.payment_id ?? movement.invoice_id ?? null}`,
+      );
 
       if (movement.payment_id) {
         return this.trashPaymentInTransaction(client, Number(movement.payment_id), deletionReason, {
@@ -2194,6 +2203,9 @@ export class SaasService {
              LIMIT 1
              FOR UPDATE`,
             [this.context.organizationId(), id],
+          );
+          this.logger.log(
+            `cash delete shareholder lookup | requestedCashMovementId=${id} organizationId=${this.context.organizationId()} payoutLineFound=${Boolean(payoutLineResult.rows[0])} payoutLineId=${payoutLineResult.rows[0]?.id ?? null}`,
           );
           if (payoutLineResult.rows[0]) {
             return this.trashShareholderPayoutInTransaction(client, Number(payoutLineResult.rows[0].id), deletionReason, {
@@ -9070,6 +9082,9 @@ export class SaasService {
       sourceMovementId?: number | null;
     },
   ) {
+    this.logger.log(
+      `shareholder payout trash requested | payoutLineId=${payoutLineId} organizationId=${this.context.organizationId()} sourceMovementId=${options?.sourceMovementId ?? null}`,
+    );
     const lineResult = await client.query(
       `SELECT spl.id,
               spl.batch_id,
@@ -9094,6 +9109,9 @@ export class SaasService {
          AND spl.organization_id = $2
        FOR UPDATE`,
       [payoutLineId, this.context.organizationId()],
+    );
+    this.logger.log(
+      `shareholder payout trash lookup | payoutLineId=${payoutLineId} organizationId=${this.context.organizationId()} payoutFound=${Boolean(lineResult.rows[0])}`,
     );
     const line = requireRow(lineResult.rows[0], 'Shareholder payout') as Record<string, unknown>;
     if (line.deleted_at) {
