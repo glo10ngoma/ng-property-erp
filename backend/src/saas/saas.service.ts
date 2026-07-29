@@ -2156,6 +2156,7 @@ export class SaasService {
     }
     const supportsStockPurchaseId = await this.columnExists('cash_movements', 'stock_purchase_id');
     const supportsTreasuryTransferId = await this.columnExists('cash_movements', 'treasury_transfer_id');
+    const supportsShareholderPayoutLineId = await this.columnExists('cash_movements', 'shareholder_payout_line_id');
     const hasShareholderSchema = await this.hasShareholderPayoutSchema();
     const supportsShareholderTrash = hasShareholderSchema
       && (await this.columnExists('shareholder_payout_lines', 'deleted_at'))
@@ -2168,6 +2169,7 @@ export class SaasService {
         `SELECT id, payment_id, invoice_id, category, piece_number, amount, currency, reference, movement_date
                 ${supportsStockPurchaseId ? ', stock_purchase_id' : ', NULL::INT AS stock_purchase_id'}
                 ${supportsTreasuryTransferId ? ', treasury_transfer_id' : ', NULL::INT AS treasury_transfer_id'}
+                ${supportsShareholderPayoutLineId ? ', shareholder_payout_line_id' : ', NULL::INT AS shareholder_payout_line_id'}
          FROM cash_movements
          WHERE id = $1
            AND organization_id = $2
@@ -2194,16 +2196,33 @@ export class SaasService {
 
       if (String(movement.category ?? '').toUpperCase() === 'SHAREHOLDER_PAYOUT') {
         if (supportsShareholderTrash) {
-          const payoutLineResult = await client.query(
-            `SELECT id
-             FROM shareholder_payout_lines
-             WHERE organization_id = $1
-               AND cash_movement_id = $2
-               AND deleted_at IS NULL
-             LIMIT 1
-             FOR UPDATE`,
-            [this.context.organizationId(), id],
-          );
+          // Preferred resolution:
+          // cash_movements.shareholder_payout_line_id
+          // Fallback:
+          // shareholder_payout_lines.cash_movement_id
+          // for backward compatibility.
+          const preferredPayoutLineId = Number(movement.shareholder_payout_line_id ?? 0) || null;
+          const payoutLineResult = preferredPayoutLineId
+            ? await client.query(
+                `SELECT id
+                 FROM shareholder_payout_lines
+                 WHERE id = $1
+                   AND organization_id = $2
+                   AND deleted_at IS NULL
+                 LIMIT 1
+                 FOR UPDATE`,
+                [preferredPayoutLineId, this.context.organizationId()],
+              )
+            : await client.query(
+                `SELECT id
+                 FROM shareholder_payout_lines
+                 WHERE organization_id = $1
+                   AND cash_movement_id = $2
+                   AND deleted_at IS NULL
+                 LIMIT 1
+                 FOR UPDATE`,
+                [this.context.organizationId(), id],
+              );
           this.logger.log(
             `cash delete shareholder lookup | requestedCashMovementId=${id} organizationId=${this.context.organizationId()} payoutLineFound=${Boolean(payoutLineResult.rows[0])} payoutLineId=${payoutLineResult.rows[0]?.id ?? null}`,
           );
