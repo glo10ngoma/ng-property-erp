@@ -1,6 +1,6 @@
 import { ArrowLeft, Printer } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, money, paymentMethodLabel, shortDate } from '../api';
 import { formatLeaseReference } from '../utils/lease-reference';
 
@@ -36,22 +36,25 @@ type TenantCreditRefundDetailData = {
 
 export function TenantCreditRefundDetail() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [refund, setRefund] = useState<TenantCreditRefundDetailData | null>(null);
   const [error, setError] = useState('');
+  const trashScope = searchParams.get('scope') === 'trash';
 
   useEffect(() => {
     const load = async () => {
       if (!id) return;
       try {
-        const response = await api.get<TenantCreditRefundDetailData>(`/tenant-credits/refunds/${id}`);
+        const endpoint = trashScope ? `/tenant-credits/refunds/trash/${id}` : `/tenant-credits/refunds/${id}`;
+        const response = await api.get<TenantCreditRefundDetailData>(endpoint);
         setRefund(response.data);
       } catch (loadError: any) {
         setError(loadError?.response?.data?.message ?? 'Impossible de charger le justificatif de remboursement.');
       }
     };
     void load();
-  }, [id]);
+  }, [id, trashScope]);
 
   if (!refund) {
     return <div className="empty">{error || 'Chargement du justificatif...'}</div>;

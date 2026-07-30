@@ -89,7 +89,7 @@ export class PaymentsService {
     return rows;
   }
 
-  async findOne(id: number) {
+  async findOne(id: number, includeDeleted = false) {
     const organizationId = this.context.organizationId();
     if (!(await this.supportsGuaranteePaymentSchema())) {
       return this.findOneInvoicePayment(id, organizationId);
@@ -148,8 +148,8 @@ export class PaymentsService {
          ORDER BY id
          LIMIT 1
        ) pcm ON TRUE
-       LEFT JOIN app_users creator ON creator.id = pcm.created_by AND creator.deleted_at IS NULL
-       WHERE p.id = $1 AND p.organization_id = $2 AND p.deleted_at IS NULL`,
+      LEFT JOIN app_users creator ON creator.id = pcm.created_by AND creator.deleted_at IS NULL
+       WHERE p.id = $1 AND p.organization_id = $2 AND p.deleted_at ${includeDeleted ? 'IS NOT NULL' : 'IS NULL'}`,
       [id, organizationId],
     );
     const payment = requireRow(rows[0], 'Payment');
@@ -157,7 +157,7 @@ export class PaymentsService {
       `SELECT pa.*, i.invoice_number
        FROM payment_allocations pa
        JOIN invoices i ON i.id = pa.invoice_id
-       WHERE pa.payment_id = $1 AND pa.organization_id = $2 AND pa.deleted_at IS NULL
+       WHERE pa.payment_id = $1 AND pa.organization_id = $2 AND pa.deleted_at ${includeDeleted ? 'IS NOT NULL' : 'IS NULL'}
        ORDER BY pa.id`,
       [id, organizationId],
     );
@@ -177,6 +177,21 @@ export class PaymentsService {
       [organizationId, String(id)],
     );
     return { ...payment, allocations: allocations.rows, reminders: reminders.rows, audit: audit.rows };
+  }
+
+  async findTrashedOne(id: number) {
+    return this.findOne(id, true);
+  }
+
+  async restore(id: number, body?: Record<string, unknown>) {
+    if (!this.hasPermission('payments.update')) {
+      throw new ForbiddenException('Permission de restauration de paiement requise.');
+    }
+    return this.saas.restorePayment(id, body?.reason ? String(body.reason) : undefined, {
+      auditAction: 'PAYMENT_RESTORED',
+      auditResource: 'payments',
+      auditResourceId: String(id),
+    });
   }
 
   private async supportsGuaranteePaymentSchema() {

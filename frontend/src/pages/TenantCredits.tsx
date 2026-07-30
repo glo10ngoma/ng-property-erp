@@ -95,6 +95,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 export function TenantCredits() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const trashScope = searchParams.get('scope') === 'trash';
   const { can } = useAuth();
   const [credits, setCredits] = useState<TenantCredit[]>([]);
   const [formData, setFormData] = useState<FormDataPayload>({ tenants: [], leases: [], bankAccounts: [] });
@@ -207,8 +208,8 @@ export function TenantCredits() {
   useEffect(() => {
     const creditId = Number(searchParams.get('credit_id') ?? 0);
     if (!creditId) return;
-    void openDetail(creditId);
-  }, [searchParams]);
+    void openDetail(creditId, trashScope);
+  }, [searchParams, trashScope]);
 
   async function sendCreditEmail(payload: { recipient: string; cc: string; subject: string; message: string }) {
     if (!selectedCredit) return;
@@ -349,10 +350,11 @@ export function TenantCredits() {
     }));
   };
 
-  const openDetail = async (creditId: number) => {
+  const openDetail = async (creditId: number, includeDeleted = false) => {
     setError('');
     try {
-      const response = await api.get<TenantCredit>(`/tenant-credits/${creditId}`);
+      const endpoint = includeDeleted ? `/tenant-credits/trash/${creditId}` : `/tenant-credits/${creditId}`;
+      const response = await api.get<TenantCredit>(endpoint);
       setSelectedCredit(response.data);
       setDetailOpen(true);
     } catch (detailError: any) {
@@ -361,7 +363,7 @@ export function TenantCredits() {
   };
 
   const reloadDetail = async (creditId: number) => {
-    await Promise.all([loadCredits(), openDetail(creditId)]);
+    await Promise.all([loadCredits(), openDetail(creditId, trashScope)]);
   };
 
   const resetRefundForm = (credit: TenantCredit | null) => {

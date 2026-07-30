@@ -16,6 +16,11 @@ export class PaymentsController {
     return this.payments.findTrashed();
   }
 
+  @Get('trash/:id')
+  findTrashedOne(@Param('id', ParseIntPipe) id: number) {
+    return this.payments.findTrashedOne(id);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.payments.findOne(id);
@@ -34,5 +39,10 @@ export class PaymentsController {
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
     return this.payments.remove(id, body);
+  }
+
+  @Post(':id/restore')
+  restore(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.payments.restore(id, body);
   }
 }

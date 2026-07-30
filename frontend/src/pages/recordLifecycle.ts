@@ -1,7 +1,7 @@
 import { api } from '../api';
 import { formatLeaseReference } from '../utils/lease-reference';
 
-export type LifecycleEntityType = 'lease' | 'tenant' | 'payment' | 'cash' | 'guarantee_cash' | 'shareholder_payout';
+export type LifecycleEntityType = 'lease' | 'tenant' | 'payment' | 'tenant_credit' | 'tenant_credit_refund' | 'cash' | 'guarantee_cash' | 'shareholder_payout';
 export type LifecycleObjectFilter = 'all' | LifecycleEntityType;
 
 export type LeaseLifecycleRecord = {
@@ -80,6 +80,8 @@ export type FinanceTrashRecord = {
   batch_id?: number | null;
   batch_reference?: string | null;
   shareholder_name?: string | null;
+  tenant_credit_id?: number | null;
+  credit_reference?: string | null;
 };
 
 export type ArchiveListItem = {
@@ -267,8 +269,8 @@ const paymentTrashProvider: TrashEntityProvider = {
       raw: record,
     }));
   },
-  async restore() {
-    throw new Error("La restauration des paiements n'est pas encore disponible.");
+  async restore(recordId) {
+    await api.post(`/payments/${recordId}/restore`);
   },
   async loadDeletionImpact() {
     return { canHardDelete: false, hasFinancialHistory: true, dependencies: [] };
@@ -280,10 +282,83 @@ const paymentTrashProvider: TrashEntityProvider = {
     throw new Error("L'archivage n'est pas disponible.");
   },
   buildDetailPath(recordId) {
-    return `/payments/${recordId}`;
+    return `/payments/${recordId}?scope=trash`;
   },
-  canRestorePermission: 'finance.restore',
+  canRestorePermission: 'payments.update',
   canPermanentDeletePermission: 'finance.hard_delete',
+};
+
+const tenantCreditTrashProvider: TrashEntityProvider = {
+  type: 'tenant_credit',
+  label: 'Crédits locataires',
+  async load() {
+    const response = await api.get<FinanceTrashRecord[]>('/tenant-credits/trash');
+    return response.data.map((record) => ({
+      entityType: 'tenant_credit',
+      recordId: record.id,
+      reference: financeReference(record, 'TC'),
+      designation: record.tenant_name ?? 'Crédit locataire',
+      associatedInfo: financeAssociatedInfo(record),
+      deletedAt: record.deleted_at,
+      deletedBy: record.deleted_by_name,
+      reason: record.deletion_reason,
+      raw: record,
+    }));
+  },
+  async restore(recordId) {
+    await api.post(`/tenant-credits/${recordId}/restore`);
+  },
+  async loadDeletionImpact() {
+    return { canHardDelete: false, hasFinancialHistory: true, dependencies: [] };
+  },
+  async permanentDelete() {
+    return {};
+  },
+  async archive() {
+    throw new Error("L'archivage n'est pas disponible.");
+  },
+  buildDetailPath(recordId) {
+    return `/tenant-credits?credit_id=${recordId}&scope=trash`;
+  },
+  canRestorePermission: 'payments.update',
+};
+
+const tenantCreditRefundTrashProvider: TrashEntityProvider = {
+  type: 'tenant_credit_refund',
+  label: 'Remboursements crédits locataires',
+  async load() {
+    const response = await api.get<FinanceTrashRecord[]>('/tenant-credits/refunds/trash');
+    return response.data.map((record) => ({
+      entityType: 'tenant_credit_refund',
+      recordId: record.id,
+      reference: financeReference(record, 'TCR'),
+      designation: record.tenant_name ?? record.credit_reference ?? 'Remboursement crédit locataire',
+      associatedInfo: [
+        record.credit_reference ?? '',
+        record.currency ? `${record.amount ?? 0} ${record.currency}` : '',
+      ].filter(Boolean).join(' Â· '),
+      deletedAt: record.deleted_at,
+      deletedBy: record.deleted_by_name,
+      reason: record.deletion_reason,
+      raw: record,
+    }));
+  },
+  async restore(recordId) {
+    await api.post(`/tenant-credits/refunds/${recordId}/restore`);
+  },
+  async loadDeletionImpact() {
+    return { canHardDelete: false, hasFinancialHistory: true, dependencies: [] };
+  },
+  async permanentDelete() {
+    return {};
+  },
+  async archive() {
+    throw new Error("L'archivage n'est pas disponible.");
+  },
+  buildDetailPath(recordId) {
+    return `/tenant-credits/refunds/${recordId}?scope=trash`;
+  },
+  canRestorePermission: 'payments.update',
 };
 
 const cashTrashProvider: TrashEntityProvider = {
@@ -413,6 +488,8 @@ export const trashEntityProviders: Record<LifecycleEntityType, TrashEntityProvid
   lease: leaseTrashProvider,
   tenant: tenantTrashProvider,
   payment: paymentTrashProvider,
+  tenant_credit: tenantCreditTrashProvider,
+  tenant_credit_refund: tenantCreditRefundTrashProvider,
   cash: cashTrashProvider,
   guarantee_cash: guaranteeCashTrashProvider,
   shareholder_payout: shareholderPayoutTrashProvider,
@@ -427,6 +504,8 @@ export const lifecycleObjectOptions: Array<{ value: LifecycleObjectFilter; label
   { value: 'lease', label: 'Baux et contrats' },
   { value: 'tenant', label: 'Locataires' },
   { value: 'payment', label: 'Paiements' },
+  { value: 'tenant_credit', label: 'Crédits locataires' },
+  { value: 'tenant_credit_refund', label: 'Remboursements crédits locataires' },
   { value: 'cash', label: 'Caisse principale' },
   { value: 'guarantee_cash', label: 'Caisse garanties' },
   { value: 'shareholder_payout', label: 'Remboursements actionnaires' },
@@ -436,6 +515,8 @@ export function lifecycleEntityLabel(entityType: LifecycleEntityType) {
   if (entityType === 'lease') return 'Bail / Contrat';
   if (entityType === 'tenant') return 'Locataire';
   if (entityType === 'payment') return 'Paiement';
+  if (entityType === 'tenant_credit') return 'Crédit locataire';
+  if (entityType === 'tenant_credit_refund') return 'Remboursement crédit locataire';
   if (entityType === 'cash') return 'Caisse';
   if (entityType === 'guarantee_cash') return 'Garantie';
   if (entityType === 'shareholder_payout') return 'Remboursement actionnaire';

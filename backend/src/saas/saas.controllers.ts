@@ -816,6 +816,26 @@ export class TenantCreditsController {
     return this.service.tenantCreditFormData();
   }
 
+  @Get('trash')
+  trash() {
+    return this.service.trashedTenantCredits();
+  }
+
+  @Get('trash/:id')
+  trashCredit(@Param('id', ParseIntPipe) id: number) {
+    return this.service.trashedTenantCreditDetail(id);
+  }
+
+  @Get('refunds/trash')
+  trashedRefunds() {
+    return this.service.trashedTenantCreditRefunds();
+  }
+
+  @Get('refunds/trash/:id')
+  trashedRefundDetail(@Param('id', ParseIntPipe) id: number) {
+    return this.service.trashedTenantCreditRefundDetail(id);
+  }
+
   @Get('refunds/:id')
   refundDetail(@Param('id', ParseIntPipe) id: number) {
     return this.service.tenantCreditRefundDetail(id);
@@ -839,6 +859,16 @@ export class TenantCreditsController {
   @Post(':id/cancel')
   cancel(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
     return this.service.cancelTenantCredit(id, body);
+  }
+
+  @Post(':id/restore')
+  restore(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.restoreTenantCredit(id, body.reason ? String(body.reason) : undefined);
+  }
+
+  @Post('refunds/:id/restore')
+  restoreRefund(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.restoreTenantCreditRefund(id, body.reason ? String(body.reason) : undefined);
   }
 }
 

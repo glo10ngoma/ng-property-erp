@@ -2193,6 +2193,36 @@ export class SaasService {
             auditResourceId: String(id),
             sourceMovementId: id,
           });
+        case 'TENANT_CREDIT':
+          if (!workflow.sourceId) {
+            this.throwCashMovementWorkflowNotImplemented(id, movement, workflow.type, workflow.sourceId);
+          }
+          return this.trashTenantCreditInTransaction(client, workflow.sourceId, deletionReason, {
+            auditAction: 'TENANT_CREDIT_MOVED_TO_TRASH_FROM_CASH',
+            auditResource: 'cash',
+            auditResourceId: String(id),
+            sourceMovementId: id,
+          });
+        case 'TENANT_CREDIT_REFUND':
+          if (!workflow.sourceId) {
+            this.throwCashMovementWorkflowNotImplemented(id, movement, workflow.type, workflow.sourceId);
+          }
+          return this.trashTenantCreditRefundInTransaction(client, workflow.sourceId, deletionReason, {
+            auditAction: 'TENANT_CREDIT_REFUND_MOVED_TO_TRASH_FROM_CASH',
+            auditResource: 'cash',
+            auditResourceId: String(id),
+            sourceMovementId: id,
+          });
+        case 'GUARANTEE_REFUND':
+          if (!workflow.sourceId) {
+            this.throwCashMovementWorkflowNotImplemented(id, movement, workflow.type, workflow.sourceId);
+          }
+          return this.trashGuaranteeRefundInTransaction(client, workflow.sourceId, deletionReason, {
+            auditAction: 'GUARANTEE_REFUND_MOVED_TO_TRASH_FROM_CASH',
+            auditResource: 'cash',
+            auditResourceId: String(id),
+            sourceMovementId: id,
+          });
         default:
           this.throwCashMovementWorkflowNotImplemented(id, movement, workflow.type, workflow.sourceId);
       }
@@ -2294,12 +2324,33 @@ export class SaasService {
     }
 
     if (category === 'TENANT_CREDIT') {
-      return { type: 'TENANT_CREDIT', sourceId: Number(movement.tenant_credit_id ?? 0) || null };
+      const directCreditId = Number(movement.tenant_credit_id ?? 0) || null;
+      if (directCreditId) {
+        return { type: 'TENANT_CREDIT', sourceId: directCreditId };
+      }
+      const paymentId = Number(movement.payment_id ?? 0) || null;
+      if (paymentId) {
+        const creditResult = await client.query(
+          `SELECT id
+           FROM tenant_credits
+           WHERE organization_id = $1
+             AND source_payment_id = $2
+             AND deleted_at IS NULL
+           LIMIT 1
+           FOR UPDATE`,
+          [this.context.organizationId(), paymentId],
+        );
+        return {
+          type: 'TENANT_CREDIT',
+          sourceId: creditResult.rows[0] ? Number(creditResult.rows[0].id) : null,
+        };
+      }
+      return { type: 'TENANT_CREDIT', sourceId: null };
     }
 
     if (category === 'TENANT_CREDIT_REFUND') {
       const refundResult = await client.query(
-        `SELECT id, tenant_credit_id
+        `SELECT id
          FROM tenant_credit_refunds
          WHERE organization_id = $1
            AND cash_movement_id = $2
@@ -2310,9 +2361,7 @@ export class SaasService {
       );
       return {
         type: 'TENANT_CREDIT_REFUND',
-        sourceId: refundResult.rows[0]
-          ? Number(refundResult.rows[0].id)
-          : Number(movement.tenant_credit_id ?? 0) || null,
+        sourceId: refundResult.rows[0] ? Number(refundResult.rows[0].id) : null,
       };
     }
 
@@ -2340,7 +2389,25 @@ export class SaasService {
     }
 
     if (category === 'LEASE_GUARANTEE_REFUND') {
-      return { type: 'GUARANTEE_REFUND', sourceId: null };
+      const paymentId = Number(movement.payment_id ?? 0) || null;
+      if (paymentId) {
+        return { type: 'GUARANTEE_REFUND', sourceId: paymentId };
+      }
+      const guaranteeRefundResult = await client.query(
+        `SELECT p.id
+         FROM guarantee_cash_movements gcm
+         JOIN payments p ON p.guarantee_cash_movement_id = gcm.id AND p.organization_id = gcm.organization_id AND p.deleted_at IS NULL
+         WHERE gcm.organization_id = $1
+           AND gcm.id = $2
+           AND gcm.deleted_at IS NULL
+         LIMIT 1
+         FOR UPDATE`,
+        [this.context.organizationId(), cashMovementId],
+      );
+      return {
+        type: 'GUARANTEE_REFUND',
+        sourceId: guaranteeRefundResult.rows[0] ? Number(guaranteeRefundResult.rows[0].id) : null,
+      };
     }
 
     if (['SALARY_ADVANCE', 'SALARY_PAYMENT'].includes(category)) {
@@ -2372,8 +2439,95 @@ export class SaasService {
       auditResourceId?: string;
       sourceMovementId?: number | null;
     },
-    ) {
+  ) {
     return this.db.transaction((client) => this.trashPurchasePaymentInTransaction(client, paymentId, reason, options));
+  }
+
+  async trashTenantCredit(
+    creditId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    return this.db.transaction((client) => this.trashTenantCreditInTransaction(client, creditId, reason, options));
+  }
+
+  async trashTenantCreditRefund(
+    refundId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    return this.db.transaction((client) => this.trashTenantCreditRefundInTransaction(client, refundId, reason, options));
+  }
+
+  async trashGuaranteeRefund(
+    paymentId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    return this.db.transaction((client) => this.trashGuaranteeRefundInTransaction(client, paymentId, reason, options));
+  }
+
+  async restorePayment(
+    paymentId: number,
+    reason?: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    if (!this.hasPermission('payments.update')) {
+      throw new ForbiddenException('Permission requise pour restaurer un paiement.');
+    }
+    return this.db.transaction((client) => this.restorePaymentInTransaction(client, paymentId, reason ?? 'Restauration depuis la corbeille', options));
+  }
+
+  async restoreTenantCredit(
+    creditId: number,
+    reason?: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    if (!this.hasPermission('payments.update')) {
+      throw new ForbiddenException('Permission requise pour restaurer un crédit locataire.');
+    }
+    return this.db.transaction((client) => this.restoreTenantCreditInTransaction(client, creditId, reason ?? 'Restauration depuis la corbeille', options));
+  }
+
+  async restoreTenantCreditRefund(
+    refundId: number,
+    reason?: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    if (!this.hasPermission('payments.update')) {
+      throw new ForbiddenException('Permission requise pour restaurer un remboursement de crédit locataire.');
+    }
+    return this.db.transaction((client) => this.restoreTenantCreditRefundInTransaction(client, refundId, reason ?? 'Restauration depuis la corbeille', options));
   }
 
   private async trashExpenseInTransaction(
@@ -2537,6 +2691,581 @@ export class SaasService {
       stock_purchase_id: stockPurchaseId,
       cash_movement_id: cashMovementId,
     };
+  }
+
+  private async trashTenantCreditInTransaction(
+    client: PoolClient,
+    creditId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    const creditResult = await client.query(
+      `SELECT id, source_payment_id, tenant_id, lease_id, currency, original_amount, remaining_amount, status,
+              payment_date, reference, notes, deleted_at
+       FROM tenant_credits
+       WHERE id = $1
+         AND organization_id = $2
+       FOR UPDATE`,
+      [creditId, this.context.organizationId()],
+    );
+    const credit = requireRow(creditResult.rows[0], 'Tenant credit') as Record<string, unknown>;
+    if (credit.deleted_at) {
+      throw new ConflictException('Ce crédit locataire est déjà dans la corbeille.');
+    }
+
+    const paymentId = Number(credit.source_payment_id ?? 0) || null;
+    if (paymentId) {
+      await this.softDeleteFinanceRows(client, 'cash_movements', 'payment_id', paymentId, reason);
+      await this.softDeleteFinanceRows(client, 'payment_allocations', 'payment_id', paymentId, reason);
+      await this.softDeleteFinanceRows(client, 'payments', 'id', paymentId, reason);
+    }
+
+    const refundRows = await client.query(
+      `SELECT id, cash_movement_id
+       FROM tenant_credit_refunds
+       WHERE tenant_credit_id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL
+       FOR UPDATE`,
+      [creditId, this.context.organizationId()],
+    );
+    for (const refund of refundRows.rows) {
+      const cashMovementId = Number(refund.cash_movement_id ?? 0) || null;
+      if (cashMovementId) {
+        await this.softDeleteFinanceRows(client, 'cash_movements', 'id', cashMovementId, reason);
+      }
+      await client.query(
+        `UPDATE tenant_credit_refunds
+         SET deleted_at = NOW(),
+             deleted_by = $2,
+             deletion_reason = $3
+         WHERE id = $1
+           AND organization_id = $4
+           AND deleted_at IS NULL`,
+        [Number(refund.id), this.context.userId() ?? null, reason, this.context.organizationId()],
+      );
+    }
+
+    const allocationRows = await client.query(
+      `SELECT id, payment_id
+       FROM tenant_credit_allocations
+       WHERE tenant_credit_id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL
+       FOR UPDATE`,
+      [creditId, this.context.organizationId()],
+    );
+    for (const allocation of allocationRows.rows) {
+      const allocationPaymentId = Number(allocation.payment_id ?? 0) || null;
+      if (allocationPaymentId) {
+        await this.softDeleteFinanceRows(client, 'cash_movements', 'payment_id', allocationPaymentId, reason);
+        await this.softDeleteFinanceRows(client, 'payment_allocations', 'payment_id', allocationPaymentId, reason);
+        await this.softDeleteFinanceRows(client, 'payments', 'id', allocationPaymentId, reason);
+      }
+      await client.query(
+        `UPDATE tenant_credit_allocations
+         SET deleted_at = NOW()
+         WHERE id = $1
+           AND organization_id = $2
+           AND deleted_at IS NULL`,
+        [Number(allocation.id), this.context.organizationId()],
+      );
+    }
+
+    await client.query(
+      `UPDATE tenant_credits
+       SET deleted_at = NOW(),
+           deleted_by = $2,
+           deletion_reason = $3
+       WHERE id = $1
+         AND organization_id = $4
+         AND deleted_at IS NULL`,
+      [creditId, this.context.userId() ?? null, reason, this.context.organizationId()],
+    );
+
+    await this.writeFinanceTrashAudit(
+      client,
+      options?.auditAction ?? 'TENANT_CREDIT_MOVED_TO_TRASH',
+      options?.auditResource ?? 'tenant_credits',
+      options?.auditResourceId ?? String(creditId),
+      {
+        reason,
+        tenant_credit_id: creditId,
+        tenant_id: Number(credit.tenant_id ?? 0) || null,
+        lease_id: Number(credit.lease_id ?? 0) || null,
+        source_payment_id: paymentId,
+        source_movement_id: options?.sourceMovementId ?? paymentId,
+      },
+    );
+
+    return {
+      deleted: true,
+      tenant_credit_id: creditId,
+      source_payment_id: paymentId,
+    };
+  }
+
+  private async trashTenantCreditRefundInTransaction(
+    client: PoolClient,
+    refundId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    const refundResult = await client.query(
+      `SELECT id, tenant_credit_id, tenant_id, lease_id, amount, currency, refund_date, payment_method,
+              reference, reason AS refund_reason, cash_movement_id, receipt_number, status, deleted_at
+       FROM tenant_credit_refunds
+       WHERE id = $1
+         AND organization_id = $2
+       FOR UPDATE`,
+      [refundId, this.context.organizationId()],
+    );
+    const refund = requireRow(refundResult.rows[0], 'Tenant credit refund') as Record<string, unknown>;
+    if (refund.deleted_at) {
+      throw new ConflictException('Ce remboursement de crédit locataire est déjà dans la corbeille.');
+    }
+
+    const cashMovementId = Number(refund.cash_movement_id ?? 0) || null;
+    if (cashMovementId) {
+      await this.softDeleteFinanceRows(client, 'cash_movements', 'id', cashMovementId, reason);
+    }
+
+    await client.query(
+      `UPDATE tenant_credit_refunds
+       SET deleted_at = NOW(),
+           deleted_by = $2,
+           deletion_reason = $3
+       WHERE id = $1
+         AND organization_id = $4
+         AND deleted_at IS NULL`,
+      [refundId, this.context.userId() ?? null, reason, this.context.organizationId()],
+    );
+
+    const creditId = Number(refund.tenant_credit_id ?? 0) || null;
+    if (creditId) {
+      const remaining = await client.query(
+        `SELECT
+           tc.original_amount,
+           tc.remaining_amount,
+           COALESCE(SUM(CASE WHEN tcr.deleted_at IS NULL THEN tcr.amount ELSE 0 END), 0)::NUMERIC(14,2) AS active_refunds
+         FROM tenant_credits tc
+         LEFT JOIN tenant_credit_refunds tcr ON tcr.tenant_credit_id = tc.id AND tcr.organization_id = tc.organization_id
+         WHERE tc.id = $1 AND tc.organization_id = $2
+         GROUP BY tc.id`,
+        [creditId, this.context.organizationId()],
+      );
+      const originalAmount = Number(remaining.rows[0]?.original_amount ?? 0);
+      const activeRefunds = Number(remaining.rows[0]?.active_refunds ?? 0);
+      const nextRemaining = Number(Math.max(originalAmount - activeRefunds, 0).toFixed(2));
+      const nextStatus = nextRemaining <= 0 ? 'REFUNDED' : nextRemaining < originalAmount ? 'PARTIALLY_USED' : 'AVAILABLE';
+      await client.query(
+        `UPDATE tenant_credits
+         SET remaining_amount = $2,
+             status = $3,
+             updated_at = NOW()
+         WHERE id = $1
+           AND organization_id = $4`,
+        [creditId, nextRemaining, nextStatus, this.context.organizationId()],
+      );
+    }
+
+    await this.writeFinanceTrashAudit(
+      client,
+      options?.auditAction ?? 'TENANT_CREDIT_REFUND_MOVED_TO_TRASH',
+      options?.auditResource ?? 'tenant_credit_refunds',
+      options?.auditResourceId ?? String(refundId),
+      {
+        reason,
+        tenant_credit_refund_id: refundId,
+        tenant_credit_id: creditId,
+        tenant_id: Number(refund.tenant_id ?? 0) || null,
+        lease_id: Number(refund.lease_id ?? 0) || null,
+        amount: Number(refund.amount ?? 0),
+        currency: refund.currency ?? null,
+        cash_movement_id: cashMovementId,
+        source_movement_id: options?.sourceMovementId ?? cashMovementId,
+      },
+    );
+
+    return {
+      deleted: true,
+      tenant_credit_refund_id: refundId,
+      tenant_credit_id: creditId,
+      cash_movement_id: cashMovementId,
+    };
+  }
+
+  private async trashGuaranteeRefundInTransaction(
+    client: PoolClient,
+    paymentId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    const paymentResult = await client.query(
+      `SELECT id, payment_type, lease_guarantee_id, deleted_at
+       FROM payments
+       WHERE id = $1
+         AND organization_id = $2
+       FOR UPDATE`,
+      [paymentId, this.context.organizationId()],
+    );
+    const payment = requireRow(paymentResult.rows[0], 'Guarantee refund payment') as Record<string, unknown>;
+    if (payment.deleted_at) {
+      throw new ConflictException('Ce remboursement de garantie est déjà dans la corbeille.');
+    }
+    if (String(payment.payment_type ?? '').toUpperCase() !== 'GUARANTEE') {
+      throw new ConflictException('Ce paiement n est pas un remboursement de garantie.');
+    }
+    return this.trashPaymentInTransaction(client, paymentId, reason, {
+      auditAction: options?.auditAction ?? 'GUARANTEE_REFUND_MOVED_TO_TRASH_FROM_CASH',
+      auditResource: options?.auditResource ?? 'cash',
+      auditResourceId: options?.auditResourceId ?? String(options?.sourceMovementId ?? paymentId),
+      sourceMovementId: options?.sourceMovementId ?? paymentId,
+    });
+  }
+
+  private async restorePaymentInTransaction(
+    client: PoolClient,
+    paymentId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    const paymentResult = await client.query(
+      `SELECT id, payment_type, lease_guarantee_id, invoice_id, deleted_at
+       FROM payments
+       WHERE id = $1
+         AND organization_id = $2
+       FOR UPDATE`,
+      [paymentId, this.context.organizationId()],
+    );
+    const payment = requireRow(paymentResult.rows[0], 'Payment') as Record<string, unknown>;
+    if (!payment.deleted_at) {
+      throw new ConflictException('Ce paiement est déjà actif.');
+    }
+
+    const allocationRows = await client.query(
+      `SELECT id, invoice_id
+       FROM payment_allocations
+       WHERE payment_id = $1
+         AND organization_id = $2
+       FOR UPDATE`,
+      [paymentId, this.context.organizationId()],
+    );
+    const invoiceIds = Array.from(
+      new Set(
+        [
+          Number(payment.invoice_id ?? 0),
+          ...allocationRows.rows.map((row) => Number(row.invoice_id ?? 0)),
+        ].filter((invoiceId) => invoiceId > 0),
+      ),
+    );
+
+    await this.restoreFinanceRows(client, 'cash_movements', 'payment_id', paymentId);
+    await this.restoreFinanceRows(client, 'guarantee_cash_movements', 'payment_id', paymentId);
+    await this.restoreFinanceRows(client, 'payment_allocations', 'payment_id', paymentId);
+    await this.restoreFinanceRows(client, 'payments', 'id', paymentId);
+
+    for (const invoiceId of invoiceIds) {
+      await this.refreshInvoiceStatusInTransaction(client, this.context.organizationId(), invoiceId);
+    }
+
+    if (String(payment.payment_type ?? '').toUpperCase() === 'GUARANTEE' && Number(payment.lease_guarantee_id ?? 0) > 0) {
+      await this.recalculateLeaseGuaranteeFromActiveRows(client, Number(payment.lease_guarantee_id));
+    }
+
+    await this.writeFinanceTrashAudit(
+      client,
+      options?.auditAction ?? 'PAYMENT_RESTORED',
+      options?.auditResource ?? 'payments',
+      options?.auditResourceId ?? String(paymentId),
+      {
+        reason,
+        payment_id: paymentId,
+        payment_type: payment.payment_type ?? 'INVOICE',
+        invoice_ids: invoiceIds,
+        lease_guarantee_id: Number(payment.lease_guarantee_id ?? 0) || null,
+        source_movement_id: options?.sourceMovementId ?? null,
+        restored: true,
+      },
+    );
+
+    return {
+      restored: true,
+      payment_id: paymentId,
+      payment_type: String(payment.payment_type ?? 'INVOICE'),
+      invoice_ids: invoiceIds,
+      lease_guarantee_id: Number(payment.lease_guarantee_id ?? 0) || null,
+    };
+  }
+
+  private async restoreTenantCreditInTransaction(
+    client: PoolClient,
+    creditId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    const creditResult = await client.query(
+      `SELECT id, source_payment_id, tenant_id, lease_id, currency, original_amount, remaining_amount, status,
+              payment_date, reference, notes, deleted_at
+       FROM tenant_credits
+       WHERE id = $1
+         AND organization_id = $2
+       FOR UPDATE`,
+      [creditId, this.context.organizationId()],
+    );
+    const credit = requireRow(creditResult.rows[0], 'Tenant credit') as Record<string, unknown>;
+    if (!credit.deleted_at) {
+      throw new ConflictException('Ce crédit locataire est déjà actif.');
+    }
+
+    const deletedRefunds = await client.query(
+      `SELECT id, cash_movement_id
+       FROM tenant_credit_refunds
+       WHERE tenant_credit_id = $1
+         AND organization_id = $2
+       FOR UPDATE`,
+      [creditId, this.context.organizationId()],
+    );
+    const deletedAllocations = await client.query(
+      `SELECT id, payment_id
+       FROM tenant_credit_allocations
+       WHERE tenant_credit_id = $1
+         AND organization_id = $2
+       FOR UPDATE`,
+      [creditId, this.context.organizationId()],
+    );
+
+    const sourcePaymentId = Number(credit.source_payment_id ?? 0) || null;
+
+    for (const refund of deletedRefunds.rows) {
+      const cashMovementId = Number(refund.cash_movement_id ?? 0) || null;
+      if (cashMovementId) {
+        await this.restoreFinanceRows(client, 'cash_movements', 'id', cashMovementId);
+      }
+      await this.restoreFinanceRows(client, 'tenant_credit_refunds', 'id', Number(refund.id));
+    }
+
+    for (const allocation of deletedAllocations.rows) {
+      const allocationPaymentId = Number(allocation.payment_id ?? 0) || null;
+      if (allocationPaymentId) {
+        await this.restoreFinanceRows(client, 'cash_movements', 'payment_id', allocationPaymentId);
+        await this.restoreFinanceRows(client, 'payment_allocations', 'payment_id', allocationPaymentId);
+        await this.restoreFinanceRows(client, 'payments', 'id', allocationPaymentId);
+      }
+      await this.restoreFinanceRows(client, 'tenant_credit_allocations', 'id', Number(allocation.id));
+    }
+
+    if (sourcePaymentId) {
+      await this.restoreFinanceRows(client, 'cash_movements', 'payment_id', sourcePaymentId);
+      await this.restoreFinanceRows(client, 'payment_allocations', 'payment_id', sourcePaymentId);
+      await this.restoreFinanceRows(client, 'payments', 'id', sourcePaymentId);
+    }
+
+    await this.restoreFinanceRows(client, 'tenant_credits', 'id', creditId);
+
+    const balanceRows = await client.query(
+      `SELECT tc.original_amount,
+              COALESCE(SUM(CASE WHEN tca.deleted_at IS NULL THEN tca.amount_applied ELSE 0 END), 0)::NUMERIC(14,2) AS active_allocations,
+              COALESCE(SUM(CASE WHEN tcr.deleted_at IS NULL THEN tcr.amount ELSE 0 END), 0)::NUMERIC(14,2) AS active_refunds
+       FROM tenant_credits tc
+       LEFT JOIN tenant_credit_allocations tca ON tca.tenant_credit_id = tc.id AND tca.organization_id = tc.organization_id
+       LEFT JOIN tenant_credit_refunds tcr ON tcr.tenant_credit_id = tc.id AND tcr.organization_id = tc.organization_id
+       WHERE tc.id = $1 AND tc.organization_id = $2
+       GROUP BY tc.id`,
+      [creditId, this.context.organizationId()],
+    );
+    const originalAmount = Number(balanceRows.rows[0]?.original_amount ?? 0);
+    const activeAllocations = Number(balanceRows.rows[0]?.active_allocations ?? 0);
+    const activeRefunds = Number(balanceRows.rows[0]?.active_refunds ?? 0);
+    const remainingAmount = Number(Math.max(originalAmount - activeAllocations - activeRefunds, 0).toFixed(2));
+    const nextStatus = activeAllocations > 0
+      ? (remainingAmount <= 0 ? 'USED' : 'PARTIALLY_USED')
+      : activeRefunds > 0
+        ? (remainingAmount <= 0 ? 'REFUNDED' : 'PARTIALLY_USED')
+        : 'AVAILABLE';
+    await client.query(
+      `UPDATE tenant_credits
+       SET remaining_amount = $2,
+           status = $3,
+           deleted_at = NULL,
+           deleted_by = NULL,
+           deletion_reason = NULL,
+           updated_at = NOW()
+       WHERE id = $1
+         AND organization_id = $4`,
+      [creditId, remainingAmount, nextStatus, this.context.organizationId()],
+    );
+
+    await this.writeFinanceTrashAudit(
+      client,
+      options?.auditAction ?? 'TENANT_CREDIT_RESTORED',
+      options?.auditResource ?? 'tenant_credits',
+      options?.auditResourceId ?? String(creditId),
+      {
+        reason,
+        tenant_credit_id: creditId,
+        source_payment_id: sourcePaymentId,
+        source_movement_id: options?.sourceMovementId ?? sourcePaymentId,
+        restored: true,
+        remaining_amount: remainingAmount,
+        status: nextStatus,
+      },
+    );
+
+    return {
+      restored: true,
+      tenant_credit_id: creditId,
+      source_payment_id: sourcePaymentId,
+      remaining_amount: remainingAmount,
+      status: nextStatus,
+    };
+  }
+
+  private async restoreTenantCreditRefundInTransaction(
+    client: PoolClient,
+    refundId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    const refundResult = await client.query(
+      `SELECT id, tenant_credit_id, cash_movement_id, deleted_at
+       FROM tenant_credit_refunds
+       WHERE id = $1
+         AND organization_id = $2
+       FOR UPDATE`,
+      [refundId, this.context.organizationId()],
+    );
+    const refund = requireRow(refundResult.rows[0], 'Tenant credit refund') as Record<string, unknown>;
+    if (!refund.deleted_at) {
+      throw new ConflictException('Ce remboursement de crédit locataire est déjà actif.');
+    }
+
+    const cashMovementId = Number(refund.cash_movement_id ?? 0) || null;
+    if (cashMovementId) {
+      await this.restoreFinanceRows(client, 'cash_movements', 'id', cashMovementId);
+    }
+    await this.restoreFinanceRows(client, 'tenant_credit_refunds', 'id', refundId);
+
+    const creditId = Number(refund.tenant_credit_id ?? 0) || null;
+    if (creditId) {
+      const balanceRows = await client.query(
+        `SELECT tc.original_amount,
+                COALESCE(SUM(CASE WHEN tca.deleted_at IS NULL THEN tca.amount_applied ELSE 0 END), 0)::NUMERIC(14,2) AS active_allocations,
+                COALESCE(SUM(CASE WHEN tcr.deleted_at IS NULL THEN tcr.amount ELSE 0 END), 0)::NUMERIC(14,2) AS active_refunds
+         FROM tenant_credits tc
+         LEFT JOIN tenant_credit_allocations tca ON tca.tenant_credit_id = tc.id AND tca.organization_id = tc.organization_id
+         LEFT JOIN tenant_credit_refunds tcr ON tcr.tenant_credit_id = tc.id AND tcr.organization_id = tc.organization_id
+         WHERE tc.id = $1 AND tc.organization_id = $2
+         GROUP BY tc.id`,
+        [creditId, this.context.organizationId()],
+      );
+      const originalAmount = Number(balanceRows.rows[0]?.original_amount ?? 0);
+      const activeAllocations = Number(balanceRows.rows[0]?.active_allocations ?? 0);
+      const activeRefunds = Number(balanceRows.rows[0]?.active_refunds ?? 0);
+      const remainingAmount = Number(Math.max(originalAmount - activeAllocations - activeRefunds, 0).toFixed(2));
+      const nextStatus = activeAllocations > 0
+        ? (remainingAmount <= 0 ? 'USED' : 'PARTIALLY_USED')
+        : activeRefunds > 0
+          ? (remainingAmount <= 0 ? 'REFUNDED' : 'PARTIALLY_USED')
+          : 'AVAILABLE';
+      await client.query(
+        `UPDATE tenant_credits
+         SET remaining_amount = $2,
+             status = $3,
+             updated_at = NOW()
+         WHERE id = $1
+           AND organization_id = $4`,
+        [creditId, remainingAmount, nextStatus, this.context.organizationId()],
+      );
+    }
+
+    await this.writeFinanceTrashAudit(
+      client,
+      options?.auditAction ?? 'TENANT_CREDIT_REFUND_RESTORED',
+      options?.auditResource ?? 'tenant_credit_refunds',
+      options?.auditResourceId ?? String(refundId),
+      {
+        reason,
+        tenant_credit_refund_id: refundId,
+        tenant_credit_id: creditId,
+        cash_movement_id: cashMovementId,
+        source_movement_id: options?.sourceMovementId ?? cashMovementId,
+        restored: true,
+      },
+    );
+
+    return {
+      restored: true,
+      tenant_credit_refund_id: refundId,
+      tenant_credit_id: creditId,
+      cash_movement_id: cashMovementId,
+    };
+  }
+
+  private async restoreFinanceRows(
+    client: PoolClient,
+    tableName: 'payments' | 'payment_allocations' | 'cash_movements' | 'guarantee_cash_movements' | 'tenant_credits' | 'tenant_credit_refunds' | 'tenant_credit_allocations',
+    keyColumn: 'id' | 'payment_id',
+    value: number,
+  ) {
+    const supportsDeletionReason = await this.columnExists(tableName, 'deletion_reason');
+    const supportsDeletedBy = await this.columnExists(tableName, 'deleted_by');
+    const supportsRestoredAt = await this.columnExists(tableName, 'restored_at');
+    const supportsRestoredBy = await this.columnExists(tableName, 'restored_by');
+    const assignments = ['deleted_at = NULL'];
+    const params: unknown[] = [value, this.context.organizationId()];
+    let index = 3;
+    if (supportsDeletionReason) {
+      assignments.push(`deletion_reason = NULL`);
+    }
+    if (supportsDeletedBy) {
+      assignments.push(`deleted_by = NULL`);
+    }
+    if (supportsRestoredAt) {
+      assignments.push(`restored_at = NOW()`);
+    }
+    if (supportsRestoredBy) {
+      assignments.push(`restored_by = $${index}`);
+      params.push(this.context.userId() ?? null);
+      index += 1;
+    }
+    await client.query(
+      `UPDATE ${tableName}
+       SET ${assignments.join(', ')}
+       WHERE ${keyColumn} = $1
+         AND organization_id = $2`,
+      params,
+    );
   }
 
   private throwCashMovementWorkflowNotImplemented(
@@ -8612,7 +9341,7 @@ export class SaasService {
               u.number AS unit_number, b.name AS building_name,
               l.lease_number
        FROM tenant_credits tc
-       JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tc.organization_id AND p.deleted_at IS NULL
+       JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tc.organization_id
        JOIN tenants t ON t.id = tc.tenant_id AND t.organization_id = tc.organization_id AND t.deleted_at IS NULL
        LEFT JOIN LATERAL (
          SELECT CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, t.first_name, '')
@@ -8629,8 +9358,53 @@ export class SaasService {
     return rows;
   }
 
-  async tenantCreditDetail(id: number) {
+  async trashedTenantCredits() {
+    await this.ensureTenantCreditSchema();
+    const { rows } = await this.db.query(
+      `SELECT tc.id,
+              tc.tenant_id,
+              tc.lease_id,
+              tc.source_payment_id,
+              tc.currency,
+              tc.original_amount AS amount,
+              tc.original_amount,
+              tc.remaining_amount,
+              tc.status,
+              tc.payment_date,
+              tc.reference,
+              tc.notes,
+              tc.receipt_number,
+              tc.payment_method,
+              tc.deleted_at,
+              tc.deletion_reason,
+              tc.organization_id,
+              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name,
+              t.email AS tenant_email,
+              u.number AS unit_number,
+              b.name AS building_name,
+              l.lease_number,
+              p.receipt_number AS source_receipt_number,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u1.first_name, ''), ' ', COALESCE(u1.last_name, ''))), ''), u1.email) AS deleted_by_name
+       FROM tenant_credits tc
+       JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tc.organization_id
+       JOIN tenants t ON t.id = tc.tenant_id AND t.organization_id = tc.organization_id
+       LEFT JOIN leases l ON l.id = tc.lease_id AND l.organization_id = tc.organization_id
+       LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = tc.organization_id
+       LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = tc.organization_id
+       LEFT JOIN app_users u1 ON u1.id = tc.deleted_by AND u1.deleted_at IS NULL
+       WHERE tc.organization_id = $1
+         AND tc.deleted_at IS NOT NULL
+       ORDER BY tc.deleted_at DESC, tc.id DESC`,
+      [this.context.organizationId()],
+    );
+    return rows;
+  }
+
+  async tenantCreditDetail(id: number, includeDeleted = false) {
     await this.ensureTenantCreditRefundSchema();
+    const childDeletedClause = includeDeleted ? 'IS NOT NULL' : 'IS NULL';
     const { rows: direct } = await this.db.query(
       `SELECT tc.*, p.receipt_number, p.payment_method, p.amount_usd, p.amount_cdf, p.total_equivalent_usd,
               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, t.first_name, '')
@@ -8639,12 +9413,12 @@ export class SaasService {
               t.email AS tenant_email,
               u.number AS unit_number, b.name AS building_name, l.lease_number
        FROM tenant_credits tc
-       JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tc.organization_id AND p.deleted_at IS NULL
+       JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tc.organization_id AND p.deleted_at ${includeDeleted ? 'IS NOT NULL' : 'IS NULL'}
        JOIN tenants t ON t.id = tc.tenant_id AND t.organization_id = tc.organization_id AND t.deleted_at IS NULL
        LEFT JOIN leases l ON l.id = tc.lease_id AND l.organization_id = tc.organization_id AND l.deleted_at IS NULL
        LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = tc.organization_id AND u.deleted_at IS NULL
        LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = tc.organization_id AND b.deleted_at IS NULL
-       WHERE tc.id = $1 AND tc.organization_id = $2 AND tc.deleted_at IS NULL`,
+       WHERE tc.id = $1 AND tc.organization_id = $2 AND tc.deleted_at ${includeDeleted ? 'IS NOT NULL' : 'IS NULL'}`,
       [id, this.context.organizationId()],
     );
     const credit = requireRow(direct[0], 'Tenant credit');
@@ -8655,10 +9429,10 @@ export class SaasService {
               p.id AS payment_id, p.payment_date
        FROM tenant_credit_allocations tca
        JOIN invoices i ON i.id = tca.invoice_id AND i.organization_id = tca.organization_id AND i.deleted_at IS NULL
-       JOIN payments p ON p.id = tca.payment_id AND p.organization_id = tca.organization_id AND p.deleted_at IS NULL
+       JOIN payments p ON p.id = tca.payment_id AND p.organization_id = tca.organization_id AND p.deleted_at ${childDeletedClause}
        WHERE tca.tenant_credit_id = $1
          AND tca.organization_id = $2
-         AND tca.deleted_at IS NULL
+         AND tca.deleted_at ${childDeletedClause}
        ORDER BY tca.created_at ASC, tca.id ASC`,
       [id, this.context.organizationId()],
       ),
@@ -8668,11 +9442,11 @@ export class SaasService {
                 cm.piece_number AS cash_piece_number,
                 COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name
          FROM tenant_credit_refunds tcr
-         LEFT JOIN cash_movements cm ON cm.id = tcr.cash_movement_id AND cm.organization_id = tcr.organization_id AND cm.deleted_at IS NULL
+         LEFT JOIN cash_movements cm ON cm.id = tcr.cash_movement_id AND cm.organization_id = tcr.organization_id AND cm.deleted_at ${childDeletedClause}
          LEFT JOIN app_users u ON u.id = tcr.created_by AND u.deleted_at IS NULL
          WHERE tcr.tenant_credit_id = $1
            AND tcr.organization_id = $2
-           AND tcr.deleted_at IS NULL
+           AND tcr.deleted_at ${childDeletedClause}
          ORDER BY tcr.refund_date ASC, tcr.id ASC`,
         [id, this.context.organizationId()],
       ),
@@ -8691,8 +9465,59 @@ export class SaasService {
     };
   }
 
-  async tenantCreditRefundDetail(id: number) {
+  async trashedTenantCreditDetail(id: number) {
+    return this.tenantCreditDetail(id, true);
+  }
+
+  async trashedTenantCreditRefunds() {
     await this.ensureTenantCreditRefundSchema();
+    const parentDeletedClause = 'IS NOT NULL';
+    const { rows } = await this.db.query(
+      `SELECT tcr.id,
+              tcr.tenant_credit_id,
+              tcr.tenant_id,
+              tcr.lease_id,
+              tcr.amount,
+              tcr.currency,
+              tcr.refund_date,
+              tcr.payment_method,
+              tcr.reference,
+              tcr.reason,
+              tcr.cash_movement_id,
+              tcr.receipt_number,
+              tcr.status,
+              tcr.deleted_at,
+              tcr.deletion_reason,
+              tcr.organization_id,
+              tc.reference AS credit_reference,
+              tc.source_payment_id,
+              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name,
+              l.lease_number,
+              u.number AS unit_number,
+              b.name AS building_name,
+              cm.piece_number AS cash_piece_number,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u1.first_name, ''), ' ', COALESCE(u1.last_name, ''))), ''), u1.email) AS deleted_by_name
+       FROM tenant_credit_refunds tcr
+       JOIN tenant_credits tc ON tc.id = tcr.tenant_credit_id AND tc.organization_id = tcr.organization_id AND tc.deleted_at ${parentDeletedClause}
+       JOIN tenants t ON t.id = tcr.tenant_id AND t.organization_id = tcr.organization_id
+       LEFT JOIN leases l ON l.id = tcr.lease_id AND l.organization_id = tcr.organization_id
+       LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = tcr.organization_id
+       LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = tcr.organization_id
+       LEFT JOIN cash_movements cm ON cm.id = tcr.cash_movement_id AND cm.organization_id = tcr.organization_id AND cm.deleted_at ${parentDeletedClause}
+       LEFT JOIN app_users u1 ON u1.id = tcr.deleted_by AND u1.deleted_at IS NULL
+       WHERE tcr.organization_id = $1
+         AND tcr.deleted_at IS NOT NULL
+       ORDER BY tcr.deleted_at DESC, tcr.id DESC`,
+      [this.context.organizationId()],
+    );
+    return rows;
+  }
+
+  async tenantCreditRefundDetail(id: number, includeDeleted = false) {
+    await this.ensureTenantCreditRefundSchema();
+    const parentDeletedClause = includeDeleted ? 'IS NOT NULL' : 'IS NULL';
     const { rows } = await this.db.query(
       `SELECT tcr.*, tc.original_amount, tc.remaining_amount, tc.status AS credit_status, tc.reference AS credit_reference,
               tc.source_payment_id, tc.payment_date AS credit_payment_date,
@@ -8706,20 +9531,24 @@ export class SaasService {
               p.receipt_number AS source_receipt_number,
               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(creator.first_name, ''), ' ', COALESCE(creator.last_name, ''))), ''), creator.email) AS created_by_name
        FROM tenant_credit_refunds tcr
-       JOIN tenant_credits tc ON tc.id = tcr.tenant_credit_id AND tc.organization_id = tcr.organization_id AND tc.deleted_at IS NULL
+       JOIN tenant_credits tc ON tc.id = tcr.tenant_credit_id AND tc.organization_id = tcr.organization_id AND tc.deleted_at ${parentDeletedClause}
        JOIN tenants t ON t.id = tcr.tenant_id AND t.organization_id = tcr.organization_id AND t.deleted_at IS NULL
        LEFT JOIN leases l ON l.id = tcr.lease_id AND l.organization_id = tcr.organization_id AND l.deleted_at IS NULL
        LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = tcr.organization_id AND u.deleted_at IS NULL
        LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = tcr.organization_id AND b.deleted_at IS NULL
-       LEFT JOIN cash_movements cm ON cm.id = tcr.cash_movement_id AND cm.organization_id = tcr.organization_id AND cm.deleted_at IS NULL
-       LEFT JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tcr.organization_id AND p.deleted_at IS NULL
+       LEFT JOIN cash_movements cm ON cm.id = tcr.cash_movement_id AND cm.organization_id = tcr.organization_id AND cm.deleted_at ${parentDeletedClause}
+       LEFT JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tcr.organization_id AND p.deleted_at ${parentDeletedClause}
        LEFT JOIN app_users creator ON creator.id = tcr.created_by AND creator.deleted_at IS NULL
        WHERE tcr.id = $1
          AND tcr.organization_id = $2
-         AND tcr.deleted_at IS NULL`,
+         AND tcr.deleted_at ${includeDeleted ? 'IS NOT NULL' : 'IS NULL'}`,
       [id, this.context.organizationId()],
     );
     return requireRow(rows[0], 'Tenant credit refund');
+  }
+
+  async trashedTenantCreditRefundDetail(id: number) {
+    return this.tenantCreditRefundDetail(id, true);
   }
 
   async tenantCreditFormData() {

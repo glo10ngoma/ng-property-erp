@@ -75,6 +75,8 @@ export function PaymentDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const trashScope = searchParams.get('scope') === 'trash';
+  const isTrashMode = trashScope;
   const [payment, setPayment] = useState<PaymentDetailData | null>(null);
   const [success, setSuccess] = useState('');
   const [editOpen, setEditOpen] = useState(false);
@@ -85,13 +87,14 @@ export function PaymentDetail() {
 
   const load = async () => {
     if (!id) return;
-    const response = await api.get<PaymentDetailData>(`/payments/${id}`);
+    const endpoint = trashScope ? `/payments/trash/${id}` : `/payments/${id}`;
+    const response = await api.get<PaymentDetailData>(endpoint);
     setPayment(response.data);
   };
 
   useEffect(() => {
     load();
-  }, [id]);
+  }, [id, trashScope]);
 
   useEffect(() => {
     if (searchParams.get('edit') === '1') setEditOpen(true);
@@ -199,16 +202,16 @@ export function PaymentDetail() {
         <h2>Fiche {paymentsBranding.moduleSingular.toLowerCase()}</h2>
         <div className="actions invoice-detail-actions">
           <button className="secondary" onClick={() => navigate('/payments')}><ArrowLeft size={16} />Retour</button>
-          {can('payments.update') && !isGuaranteeReceipt && !isTenantCreditReceipt && <button onClick={() => setEditOpen(true)}><Pencil size={16} />Modifier</button>}
+          {can('payments.update') && !isTrashMode && !isGuaranteeReceipt && !isTenantCreditReceipt && <button onClick={() => setEditOpen(true)}><Pencil size={16} />Modifier</button>}
           <button onClick={() => window.print()}><Printer size={16} />Imprimer le reçu</button>
           <button className="secondary" onClick={() => window.print()}><FileSpreadsheet size={16} />PDF</button>
-          {can('communication.send') && <button className="secondary" onClick={() => setEmailOpen(true)}><Mail size={16} />Envoyer le reçu</button>}
-          {can('communication.send') && <button className="secondary" onClick={() => send('WHATSAPP')}><MessageCircle size={16} />WhatsApp</button>}
-          {can('communication.send') && <button className="secondary" onClick={() => send('EMAIL')}><Mail size={16} />Email</button>}
-          {can('communication.send') && <button className="secondary" onClick={() => send('SMS')}><Smartphone size={16} />SMS</button>}
+          {can('communication.send') && !isTrashMode && <button className="secondary" onClick={() => setEmailOpen(true)}><Mail size={16} />Envoyer le reçu</button>}
+          {can('communication.send') && !isTrashMode && <button className="secondary" onClick={() => send('WHATSAPP')}><MessageCircle size={16} />WhatsApp</button>}
+          {can('communication.send') && !isTrashMode && <button className="secondary" onClick={() => send('EMAIL')}><Mail size={16} />Email</button>}
+          {can('communication.send') && !isTrashMode && <button className="secondary" onClick={() => send('SMS')}><Smartphone size={16} />SMS</button>}
           <button className="secondary" onClick={() => exportPaymentExcel(payment)}>Excel</button>
-          {can('payments.update') && !isGuaranteeReceipt && !isTenantCreditReceipt && <button className="secondary" onClick={refund}><Wallet size={16} />Rembourser</button>}
-          {can('payments.delete') && !isGuaranteeReceipt && !isTenantCreditReceipt && <button className="secondary danger" onClick={() => setDeleteOpen(true)}><Trash2 size={16} />Annuler</button>}
+          {can('payments.update') && !isTrashMode && !isGuaranteeReceipt && !isTenantCreditReceipt && <button className="secondary" onClick={refund}><Wallet size={16} />Rembourser</button>}
+          {can('payments.delete') && !isTrashMode && !isGuaranteeReceipt && !isTenantCreditReceipt && <button className="secondary danger" onClick={() => setDeleteOpen(true)}><Trash2 size={16} />Annuler</button>}
         </div>
       </div>
 

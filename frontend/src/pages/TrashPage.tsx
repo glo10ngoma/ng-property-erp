@@ -39,6 +39,8 @@ export function TrashPage() {
   const canReadLeaseTrash = can('leases.trash.read');
   const canReadTenantTrash = can('tenants.read');
   const canReadPaymentTrash = can('payments.read');
+  const canReadTenantCreditTrash = can('payments.read');
+  const canReadTenantCreditRefundTrash = can('payments.read');
   const canReadCashTrash = can('cash.read');
   const canReadGuaranteeCashTrash = can('guarantee_cash.read');
   const canReadShareholderPayoutTrash = can('shareholder_payouts.read');
@@ -48,11 +50,13 @@ export function TrashPage() {
       ...(canReadLeaseTrash ? [trashEntityProviders.lease] : []),
       ...(canReadTenantTrash ? [trashEntityProviders.tenant] : []),
       ...(canReadPaymentTrash ? [trashEntityProviders.payment] : []),
+      ...(canReadTenantCreditTrash ? [trashEntityProviders.tenant_credit] : []),
+      ...(canReadTenantCreditRefundTrash ? [trashEntityProviders.tenant_credit_refund] : []),
       ...(canReadCashTrash ? [trashEntityProviders.cash] : []),
       ...(canReadGuaranteeCashTrash ? [trashEntityProviders.guarantee_cash] : []),
       ...(canReadShareholderPayoutTrash ? [trashEntityProviders.shareholder_payout] : []),
     ],
-    [canReadLeaseTrash, canReadTenantTrash, canReadPaymentTrash, canReadCashTrash, canReadGuaranteeCashTrash, canReadShareholderPayoutTrash],
+    [canReadLeaseTrash, canReadTenantTrash, canReadPaymentTrash, canReadTenantCreditTrash, canReadTenantCreditRefundTrash, canReadCashTrash, canReadGuaranteeCashTrash, canReadShareholderPayoutTrash],
   );
 
   async function loadRows() {
