@@ -27,12 +27,13 @@ type ExpenseModalProps = {
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
+const EMPTY_BANK_ACCOUNTS: BankAccountOption[] = [];
 
 export function ExpenseModal({
   open,
   sourceRegister,
   categories,
-  bankAccounts = [],
+  bankAccounts = EMPTY_BANK_ACCOUNTS,
   defaultBankAccountId = null,
   nextPieceNumber,
   onClose,
