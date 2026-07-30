@@ -2116,6 +2116,8 @@ export class SaasService {
       throw new BadRequestException('Le motif de suppression est obligatoire.');
     }
     const supportsStockPurchaseId = await this.columnExists('cash_movements', 'stock_purchase_id');
+    const supportsMaintenanceExpenseId = await this.columnExists('cash_movements', 'maintenance_expense_id');
+    const supportsStockPurchasePaymentId = await this.columnExists('cash_movements', 'stock_purchase_payment_id');
     const supportsTreasuryTransferId = await this.columnExists('cash_movements', 'treasury_transfer_id');
     const supportsTenantCreditId = await this.columnExists('cash_movements', 'tenant_credit_id');
     const supportsShareholderPayoutLineId = await this.columnExists('cash_movements', 'shareholder_payout_line_id');
@@ -2130,6 +2132,8 @@ export class SaasService {
       const movementResult = await client.query(
         `SELECT id, payment_id, invoice_id, category, piece_number, amount, currency, reference, movement_date
                 ${supportsStockPurchaseId ? ', stock_purchase_id' : ', NULL::INT AS stock_purchase_id'}
+                ${supportsMaintenanceExpenseId ? ', maintenance_expense_id' : ', NULL::INT AS maintenance_expense_id'}
+                ${supportsStockPurchasePaymentId ? ', stock_purchase_payment_id' : ', NULL::INT AS stock_purchase_payment_id'}
                 ${supportsTreasuryTransferId ? ', treasury_transfer_id' : ', NULL::INT AS treasury_transfer_id'}
                 ${supportsTenantCreditId ? ', tenant_credit_id' : ', NULL::INT AS tenant_credit_id'}
                 ${supportsShareholderPayoutLineId ? ', shareholder_payout_line_id' : ', NULL::INT AS shareholder_payout_line_id'}
@@ -2145,7 +2149,7 @@ export class SaasService {
       );
       const movement = requireRow(movementResult.rows[0], 'Cash movement') as Record<string, unknown>;
       this.logger.log(
-        `cash delete resolved | requestedCashMovementId=${id} organizationId=${this.context.organizationId()} sourceType=${String(movement.category ?? 'UNKNOWN')} sourceId=${movement.payment_id ?? movement.invoice_id ?? null}`,
+        `cash delete resolved | requestedCashMovementId=${id} organizationId=${this.context.organizationId()} sourceType=${String(movement.category ?? 'UNKNOWN')} sourceId=${movement.payment_id ?? movement.invoice_id ?? movement.maintenance_expense_id ?? movement.stock_purchase_payment_id ?? movement.stock_purchase_id ?? null}`,
       );
       const workflow = await this.resolveCashMovementTrashWorkflow(client, id, movement, { supportsShareholderTrash });
       switch (workflow.type) {
@@ -2169,6 +2173,26 @@ export class SaasService {
             auditResourceId: String(id),
             sourceMovementId: id,
           });
+        case 'MAINTENANCE_EXPENSE':
+          if (!workflow.sourceId) {
+            this.throwCashMovementWorkflowNotImplemented(id, movement, workflow.type, workflow.sourceId);
+          }
+          return this.trashExpenseInTransaction(client, workflow.sourceId, deletionReason, {
+            auditAction: 'MAINTENANCE_EXPENSE_MOVED_TO_TRASH_FROM_CASH',
+            auditResource: 'cash',
+            auditResourceId: String(id),
+            sourceMovementId: id,
+          });
+        case 'STOCK_PURCHASE':
+          if (!workflow.sourceId) {
+            this.throwCashMovementWorkflowNotImplemented(id, movement, workflow.type, workflow.sourceId);
+          }
+          return this.trashPurchasePaymentInTransaction(client, workflow.sourceId, deletionReason, {
+            auditAction: 'STOCK_PURCHASE_PAYMENT_MOVED_TO_TRASH_FROM_CASH',
+            auditResource: 'cash',
+            auditResourceId: String(id),
+            sourceMovementId: id,
+          });
         default:
           this.throwCashMovementWorkflowNotImplemented(id, movement, workflow.type, workflow.sourceId);
       }
@@ -2179,7 +2203,11 @@ export class SaasService {
     client: PoolClient,
     cashMovementId: number,
     movement: Record<string, unknown>,
-    options: { supportsShareholderTrash: boolean },
+    options: {
+      supportsShareholderTrash: boolean;
+      supportsMaintenanceExpenseId?: boolean;
+      supportsStockPurchasePaymentId?: boolean;
+    },
   ): Promise<{ type: string; sourceId: number | null }> {
     const category = String(movement.category ?? '').trim().toUpperCase();
 
@@ -2223,6 +2251,48 @@ export class SaasService {
       };
     }
 
+    if (category === 'MAINTENANCE_EXPENSE') {
+      const directExpenseId = Number(movement.maintenance_expense_id ?? 0) || null;
+      if (directExpenseId) {
+        return { type: 'MAINTENANCE_EXPENSE', sourceId: directExpenseId };
+      }
+      const expenseResult = await client.query(
+        `SELECT id
+         FROM maintenance_expenses
+         WHERE organization_id = $1
+           AND cash_movement_id = $2
+           AND deleted_at IS NULL
+         LIMIT 1
+         FOR UPDATE`,
+        [this.context.organizationId(), cashMovementId],
+      );
+      return {
+        type: 'MAINTENANCE_EXPENSE',
+        sourceId: expenseResult.rows[0] ? Number(expenseResult.rows[0].id) : null,
+      };
+    }
+
+    if (category === 'STOCK_PURCHASE') {
+      const directPaymentId = Number(movement.stock_purchase_payment_id ?? 0) || null;
+      if (directPaymentId) {
+        return { type: 'STOCK_PURCHASE', sourceId: directPaymentId };
+      }
+      const paymentResult = await client.query(
+        `SELECT id
+         FROM stock_purchase_payments
+         WHERE organization_id = $1
+           AND cash_movement_id = $2
+           AND deleted_at IS NULL
+         LIMIT 1
+         FOR UPDATE`,
+        [this.context.organizationId(), cashMovementId],
+      );
+      return {
+        type: 'STOCK_PURCHASE',
+        sourceId: paymentResult.rows[0] ? Number(paymentResult.rows[0].id) : null,
+      };
+    }
+
     if (category === 'TENANT_CREDIT') {
       return { type: 'TENANT_CREDIT', sourceId: Number(movement.tenant_credit_id ?? 0) || null };
     }
@@ -2243,41 +2313,6 @@ export class SaasService {
         sourceId: refundResult.rows[0]
           ? Number(refundResult.rows[0].id)
           : Number(movement.tenant_credit_id ?? 0) || null,
-      };
-    }
-
-    if (category === 'MAINTENANCE_EXPENSE') {
-      const expenseResult = await client.query(
-        `SELECT id
-         FROM maintenance_expenses
-         WHERE organization_id = $1
-           AND cash_movement_id = $2
-         LIMIT 1`,
-        [this.context.organizationId(), cashMovementId],
-      );
-      return {
-        type: 'EXPENSE',
-        sourceId: expenseResult.rows[0] ? Number(expenseResult.rows[0].id) : null,
-      };
-    }
-
-    if (category === 'STOCK_PURCHASE' || Number(movement.stock_purchase_id ?? 0) > 0) {
-      const stockPurchaseId = Number(movement.stock_purchase_id ?? 0) || null;
-      if (stockPurchaseId) {
-        return { type: 'PURCHASE_PAYMENT', sourceId: stockPurchaseId };
-      }
-      const paymentResult = await client.query(
-        `SELECT stock_purchase_id
-         FROM stock_purchase_payments
-         WHERE organization_id = $1
-           AND cash_movement_id = $2
-           AND deleted_at IS NULL
-         LIMIT 1`,
-        [this.context.organizationId(), cashMovementId],
-      );
-      return {
-        type: 'PURCHASE_PAYMENT',
-        sourceId: paymentResult.rows[0] ? Number(paymentResult.rows[0].stock_purchase_id) : null,
       };
     }
 
@@ -2313,6 +2348,195 @@ export class SaasService {
     }
 
     return { type: category || 'AUTRE', sourceId: null };
+  }
+
+  async trashExpense(
+    expenseId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    return this.db.transaction((client) => this.trashExpenseInTransaction(client, expenseId, reason, options));
+  }
+
+  async trashPurchasePayment(
+    paymentId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+    ) {
+    return this.db.transaction((client) => this.trashPurchasePaymentInTransaction(client, paymentId, reason, options));
+  }
+
+  private async trashExpenseInTransaction(
+    client: PoolClient,
+    expenseId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    const expenseResult = await client.query(
+      `SELECT me.id, me.maintenance_request_id, me.amount, me.expense_date, me.category, me.description,
+              me.status, me.cash_movement_id, me.supplier, me.payment_method, me.reference,
+              me.attachment_file_name, me.attachment_file_url, me.observation, me.deleted_at
+       FROM maintenance_expenses me
+       WHERE me.id = $1
+         AND me.organization_id = $2
+       FOR UPDATE`,
+      [expenseId, this.context.organizationId()],
+    );
+    const expense = requireRow(expenseResult.rows[0], 'Maintenance expense') as Record<string, unknown>;
+    if (expense.deleted_at) {
+      throw new ConflictException('Cette dépense est déjà dans la corbeille.');
+    }
+
+    const cashMovementId = Number(expense.cash_movement_id ?? 0) || null;
+    if (cashMovementId) {
+      await this.softDeleteFinanceRows(client, 'cash_movements', 'id', cashMovementId, reason);
+    }
+
+    await this.softDeleteFinanceRows(client, 'maintenance_expenses', 'id', expenseId, reason);
+
+    const maintenanceRequestId = Number(expense.maintenance_request_id ?? 0) || null;
+    if (maintenanceRequestId) {
+      await this.addMaintenanceTimeline(
+        client,
+        maintenanceRequestId,
+        'EXPENSE_TRASH',
+        'Dépense mise en corbeille',
+        String(reason ?? '').trim() || 'Dépense supprimée depuis la caisse',
+      );
+    }
+
+    await this.writeFinanceTrashAudit(
+      client,
+      options?.auditAction ?? 'MAINTENANCE_EXPENSE_MOVED_TO_TRASH',
+      options?.auditResource ?? 'maintenance_expenses',
+      options?.auditResourceId ?? String(expenseId),
+      {
+        reason,
+        maintenance_expense_id: expenseId,
+        maintenance_request_id: maintenanceRequestId,
+        cash_movement_id: cashMovementId,
+        category: expense.category ?? null,
+        amount: Number(expense.amount ?? 0),
+        expense_date: expense.expense_date ?? null,
+        source_movement_id: options?.sourceMovementId ?? cashMovementId,
+      },
+    );
+
+    return {
+      deleted: true,
+      maintenance_expense_id: expenseId,
+      maintenance_request_id: maintenanceRequestId,
+      cash_movement_id: cashMovementId,
+    };
+  }
+
+  private async trashPurchasePaymentInTransaction(
+    client: PoolClient,
+    paymentId: number,
+    reason: string,
+    options?: {
+      auditAction?: string;
+      auditResource?: string;
+      auditResourceId?: string;
+      sourceMovementId?: number | null;
+    },
+  ) {
+    const paymentResult = await client.query(
+      `SELECT spp.id, spp.stock_purchase_id, spp.payment_date, spp.amount, spp.payment_method, spp.reference,
+              spp.notes, spp.cash_movement_id, spp.deleted_at
+       FROM stock_purchase_payments spp
+       WHERE spp.id = $1
+         AND spp.organization_id = $2
+       FOR UPDATE`,
+      [paymentId, this.context.organizationId()],
+    );
+    const payment = requireRow(paymentResult.rows[0], 'Stock purchase payment') as Record<string, unknown>;
+    if (payment.deleted_at) {
+      throw new ConflictException('Ce paiement d achat est déjà dans la corbeille.');
+    }
+
+    const cashMovementId = Number(payment.cash_movement_id ?? 0) || null;
+    if (cashMovementId) {
+      await this.softDeleteFinanceRows(client, 'cash_movements', 'id', cashMovementId, reason);
+    }
+
+    await client.query(
+      `UPDATE stock_purchase_payments
+       SET deleted_at = NOW()
+       WHERE id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL`,
+      [paymentId, this.context.organizationId()],
+    );
+
+    const stockPurchaseId = Number(payment.stock_purchase_id ?? 0) || null;
+    if (stockPurchaseId) {
+      const totals = await client.query(
+        `SELECT COALESCE(SUM(amount), 0)::NUMERIC(14,2) AS paid_amount
+         FROM stock_purchase_payments
+         WHERE stock_purchase_id = $1
+           AND organization_id = $2
+           AND deleted_at IS NULL`,
+        [stockPurchaseId, this.context.organizationId()],
+      );
+      const paidAmount = Number(totals.rows[0]?.paid_amount ?? 0);
+      await client.query(
+        `UPDATE stock_purchases
+         SET paid_amount = $2,
+             updated_at = NOW()
+         WHERE id = $1
+           AND organization_id = $3`,
+        [stockPurchaseId, paidAmount, this.context.organizationId()],
+      );
+      await this.refreshStockPurchaseStatus(client, stockPurchaseId);
+      await this.addStockPurchaseTimeline(
+        client,
+        stockPurchaseId,
+        'PAYMENT_TRASH',
+        'Paiement mis en corbeille',
+        String(reason ?? '').trim() || 'Paiement supprimé depuis la caisse',
+      );
+    }
+
+    await this.writeFinanceTrashAudit(
+      client,
+      options?.auditAction ?? 'STOCK_PURCHASE_PAYMENT_MOVED_TO_TRASH',
+      options?.auditResource ?? 'stock_purchase_payments',
+      options?.auditResourceId ?? String(paymentId),
+      {
+        reason,
+        stock_purchase_payment_id: paymentId,
+        stock_purchase_id: stockPurchaseId,
+        payment_date: payment.payment_date ?? null,
+        amount: Number(payment.amount ?? 0),
+        payment_method: payment.payment_method ?? null,
+        reference: payment.reference ?? null,
+        cash_movement_id: cashMovementId,
+        source_movement_id: options?.sourceMovementId ?? cashMovementId,
+      },
+    );
+
+    return {
+      deleted: true,
+      stock_purchase_payment_id: paymentId,
+      stock_purchase_id: stockPurchaseId,
+      cash_movement_id: cashMovementId,
+    };
   }
 
   private throwCashMovementWorkflowNotImplemented(
@@ -8984,7 +9208,7 @@ export class SaasService {
 
   private async softDeleteFinanceRows(
     client: PoolClient,
-    tableName: 'payments' | 'payment_allocations' | 'cash_movements' | 'guarantee_cash_movements',
+    tableName: 'payments' | 'payment_allocations' | 'cash_movements' | 'guarantee_cash_movements' | 'maintenance_expenses',
     keyColumn: 'id' | 'payment_id',
     value: number,
     reason: string,
