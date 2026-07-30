@@ -7327,8 +7327,10 @@ export class SaasService {
       throw new BadRequestException('Le motif de suppression est obligatoire.');
     }
     return this.db.transaction(async (client) => {
+      const supportsShareholderPayoutLineId = await this.columnExists('guarantee_cash_movements', 'shareholder_payout_line_id');
       const movementResult = await client.query(
         `SELECT id, movement_type, type, payment_id, lease_guarantee_id, lease_id, amount, currency, equivalent_usd, reference
+                ${supportsShareholderPayoutLineId ? ', shareholder_payout_line_id' : ', NULL::INT AS shareholder_payout_line_id'}
          FROM guarantee_cash_movements
          WHERE id = $1
            AND organization_id = $2
@@ -7339,7 +7341,50 @@ export class SaasService {
       const movement = requireRow(movementResult.rows[0], 'Guarantee cash movement') as Record<string, unknown>;
       const movementType = String(movement.movement_type ?? '').toUpperCase();
 
-      if (['SHAREHOLDER_PAYOUT', 'GARANTY_TRANSFER'].includes(movementType)) {
+      if (movementType === 'SHAREHOLDER_PAYOUT') {
+        const directPayoutLineId = Number(movement.shareholder_payout_line_id ?? 0) || null;
+        if (directPayoutLineId) {
+          const directLineResult = await client.query(
+            `SELECT id
+             FROM shareholder_payout_lines
+             WHERE id = $1
+               AND organization_id = $2
+               AND deleted_at IS NULL
+             LIMIT 1
+             FOR UPDATE`,
+            [directPayoutLineId, this.context.organizationId()],
+          );
+          if (directLineResult.rows[0]) {
+            return this.trashShareholderPayoutInTransaction(client, Number(directLineResult.rows[0].id), deletionReason, {
+              auditAction: 'SHAREHOLDER_PAYOUT_MOVED_TO_TRASH_FROM_GUARANTEE_CASH',
+              auditResource: 'guarantee_cash',
+              auditResourceId: String(id),
+              sourceMovementId: id,
+            });
+          }
+        }
+
+        const payoutLineResult = await client.query(
+          `SELECT id
+           FROM shareholder_payout_lines
+           WHERE organization_id = $1
+             AND guarantee_cash_movement_id = $2
+             AND deleted_at IS NULL
+           LIMIT 1
+           FOR UPDATE`,
+          [this.context.organizationId(), id],
+        );
+        if (payoutLineResult.rows[0]) {
+          return this.trashShareholderPayoutInTransaction(client, Number(payoutLineResult.rows[0].id), deletionReason, {
+            auditAction: 'SHAREHOLDER_PAYOUT_MOVED_TO_TRASH_FROM_GUARANTEE_CASH',
+            auditResource: 'guarantee_cash',
+            auditResourceId: String(id),
+            sourceMovementId: id,
+          });
+        }
+      }
+
+      if (movementType === 'GARANTY_TRANSFER') {
         throw new ConflictException('Ce mouvement de garantie doit être géré depuis son module d origine.');
       }
 
