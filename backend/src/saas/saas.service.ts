@@ -2131,7 +2131,7 @@ export class SaasService {
     );
     return this.db.transaction(async (client) => {
       const movementResult = await client.query(
-        `SELECT id, payment_id, invoice_id, category, piece_number, amount, currency, reference, movement_date
+        `SELECT id, type, payment_id, invoice_id, category, piece_number, amount, currency, reference, movement_date, organization_id, deleted_at
                 ${supportsStockPurchaseId ? ', stock_purchase_id' : ', NULL::INT AS stock_purchase_id'}
                 ${supportsMaintenanceExpenseId ? ', maintenance_expense_id' : ', NULL::INT AS maintenance_expense_id'}
                 ${supportsStockPurchasePaymentId ? ', stock_purchase_payment_id' : ', NULL::INT AS stock_purchase_payment_id'}
@@ -2254,14 +2254,14 @@ export class SaasService {
       : null;
     const matchedCashExpenseCategory = expenseCategoryLookup?.matchedCategory ?? null;
     const cashExpenseCategoryExists = Boolean(
-      matchedCashExpenseCategory && String(matchedCashExpenseCategory.status ?? '').toUpperCase() === 'ACTIVE',
+      matchedCashExpenseCategory && Boolean(matchedCashExpenseCategory.is_active),
     );
     let resolvedWorkflowType = normalizedCategory || 'AUTRE';
     let resolvedSourceId: number | null = null;
 
     const logCashTrashResolution = () => {
       this.logger.log(
-        `cash trash resolution | cashMovementId=${cashMovementId} organizationId=${this.context.organizationId()} movementType=${String(movement.type ?? 'UNKNOWN')} rawCategory=${rawCategory} normalizedCategory=${normalizedCategory} expenseCategoryExists=${cashExpenseCategoryExists} matchedCategoryId=${matchedCashExpenseCategory?.id ?? null} matchedCategoryCode=${matchedCashExpenseCategory?.code ?? null} matchedCategoryActive=${String(matchedCashExpenseCategory?.status ?? '').toUpperCase() === 'ACTIVE'} workflowType=${resolvedWorkflowType} sourceId=${resolvedSourceId ?? null}`,
+        `cash trash resolution | cashMovementId=${cashMovementId} organizationId=${this.context.organizationId()} movementType=${String(movement.type ?? 'UNKNOWN')} rawCategory=${rawCategory} normalizedCategory=${normalizedCategory} expenseCategoryExists=${cashExpenseCategoryExists} matchedCategoryId=${matchedCashExpenseCategory?.id ?? null} matchedCategoryCode=${matchedCashExpenseCategory?.code ?? null} matchedCategoryActive=${Boolean(matchedCashExpenseCategory?.is_active)} workflowType=${resolvedWorkflowType} sourceId=${resolvedSourceId ?? null}`,
       );
     };
 
@@ -15875,19 +15875,36 @@ export class SaasService {
 
   private async findCashExpenseCategoryForTrash(code: string) {
     const normalizedCode = String(code ?? '').trim().toUpperCase();
+    const supportsIsActive = await this.columnExists('cash_expense_categories', 'is_active');
+    const supportsStatus = await this.columnExists('cash_expense_categories', 'status');
+    const activeExpression = supportsIsActive
+      ? 'COALESCE(is_active, TRUE) = TRUE'
+      : supportsStatus
+        ? `COALESCE(UPPER(status), 'ACTIVE') = 'ACTIVE'`
+        : 'TRUE';
+    const selectedColumns = [
+      'id',
+      'code',
+      supportsIsActive
+        ? 'COALESCE(is_active, TRUE) AS is_active'
+        : supportsStatus
+          ? `CASE WHEN COALESCE(UPPER(status), 'ACTIVE') = 'ACTIVE' THEN TRUE ELSE FALSE END AS is_active`
+          : 'TRUE AS is_active',
+    ].join(', ');
     const { rows } = await this.db.query(
-      `SELECT id, code, status
+      `SELECT ${selectedColumns}
        FROM cash_expense_categories
        WHERE organization_id = $1
          AND deleted_at IS NULL
          AND UPPER(TRIM(code)) = $2
+         AND ${activeExpression}
        LIMIT 1`,
       [this.context.organizationId(), normalizedCode],
     );
     return {
       matchedCategory: rows[0] ?? null,
       normalizedCode,
-      exists: Boolean(rows[0] && String(rows[0].status ?? '').toUpperCase() === 'ACTIVE'),
+      exists: Boolean(rows[0]),
     };
   }
 
