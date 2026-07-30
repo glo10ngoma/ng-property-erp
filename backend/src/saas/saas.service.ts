@@ -2247,10 +2247,27 @@ export class SaasService {
       supportsCashExpenseCategories?: boolean;
     },
   ): Promise<{ type: string; sourceId: number | null }> {
-    const category = String(movement.category ?? '').trim().toUpperCase();
+    const rawCategory = String(movement.category ?? '');
+    const normalizedCategory = rawCategory.trim().toUpperCase();
+    const expenseCategoryLookup = movement.type === 'OUT'
+      ? await this.findCashExpenseCategoryForTrash(rawCategory)
+      : null;
+    const matchedCashExpenseCategory = expenseCategoryLookup?.matchedCategory ?? null;
+    const cashExpenseCategoryExists = Boolean(
+      matchedCashExpenseCategory && String(matchedCashExpenseCategory.status ?? '').toUpperCase() === 'ACTIVE',
+    );
+    let resolvedWorkflowType = normalizedCategory || 'AUTRE';
+    let resolvedSourceId: number | null = null;
 
-    if (category === 'SHAREHOLDER_PAYOUT') {
+    const logCashTrashResolution = () => {
+      this.logger.log(
+        `cash trash resolution | cashMovementId=${cashMovementId} organizationId=${this.context.organizationId()} movementType=${String(movement.type ?? 'UNKNOWN')} rawCategory=${rawCategory} normalizedCategory=${normalizedCategory} expenseCategoryExists=${cashExpenseCategoryExists} matchedCategoryId=${matchedCashExpenseCategory?.id ?? null} matchedCategoryCode=${matchedCashExpenseCategory?.code ?? null} matchedCategoryActive=${String(matchedCashExpenseCategory?.status ?? '').toUpperCase() === 'ACTIVE'} workflowType=${resolvedWorkflowType} sourceId=${resolvedSourceId ?? null}`,
+      );
+    };
+
+    if (normalizedCategory === 'SHAREHOLDER_PAYOUT') {
       if (!options.supportsShareholderTrash) {
+        logCashTrashResolution();
         return { type: 'SHAREHOLDER_PAYOUT', sourceId: null };
       }
       // Preferred resolution:
@@ -2283,16 +2300,22 @@ export class SaasService {
       this.logger.log(
         `cash delete shareholder lookup | requestedCashMovementId=${cashMovementId} organizationId=${this.context.organizationId()} payoutLineFound=${Boolean(payoutLineResult.rows[0])} payoutLineId=${payoutLineResult.rows[0]?.id ?? null}`,
       );
+      resolvedWorkflowType = 'SHAREHOLDER_PAYOUT';
+      resolvedSourceId = payoutLineResult.rows[0] ? Number(payoutLineResult.rows[0].id) : null;
+      logCashTrashResolution();
       return {
-        type: 'SHAREHOLDER_PAYOUT',
-        sourceId: payoutLineResult.rows[0] ? Number(payoutLineResult.rows[0].id) : null,
+        type: resolvedWorkflowType,
+        sourceId: resolvedSourceId,
       };
     }
 
-    if (category === 'MAINTENANCE_EXPENSE') {
+    if (normalizedCategory === 'MAINTENANCE_EXPENSE') {
       const directExpenseId = Number(movement.maintenance_expense_id ?? 0) || null;
       if (directExpenseId) {
-        return { type: 'MAINTENANCE_EXPENSE', sourceId: directExpenseId };
+        resolvedWorkflowType = 'MAINTENANCE_EXPENSE';
+        resolvedSourceId = directExpenseId;
+        logCashTrashResolution();
+        return { type: resolvedWorkflowType, sourceId: resolvedSourceId };
       }
       const expenseResult = await client.query(
         `SELECT id
@@ -2304,20 +2327,29 @@ export class SaasService {
          FOR UPDATE`,
         [this.context.organizationId(), cashMovementId],
       );
+      resolvedWorkflowType = 'MAINTENANCE_EXPENSE';
+      resolvedSourceId = expenseResult.rows[0] ? Number(expenseResult.rows[0].id) : null;
+      logCashTrashResolution();
       return {
-        type: 'MAINTENANCE_EXPENSE',
-        sourceId: expenseResult.rows[0] ? Number(expenseResult.rows[0].id) : null,
+        type: resolvedWorkflowType,
+        sourceId: resolvedSourceId,
       };
     }
 
-    if (movement.type === 'OUT' && options.supportsCashExpenseCategories && await this.cashExpenseCategoryExists(category)) {
-      return { type: 'EXPENSE', sourceId: cashMovementId };
+    if (movement.type === 'OUT' && options.supportsCashExpenseCategories && cashExpenseCategoryExists) {
+      resolvedWorkflowType = 'EXPENSE';
+      resolvedSourceId = cashMovementId;
+      logCashTrashResolution();
+      return { type: resolvedWorkflowType, sourceId: resolvedSourceId };
     }
 
-    if (category === 'STOCK_PURCHASE') {
+    if (normalizedCategory === 'STOCK_PURCHASE') {
       const directPaymentId = Number(movement.stock_purchase_payment_id ?? 0) || null;
       if (directPaymentId) {
-        return { type: 'STOCK_PURCHASE', sourceId: directPaymentId };
+        resolvedWorkflowType = 'STOCK_PURCHASE';
+        resolvedSourceId = directPaymentId;
+        logCashTrashResolution();
+        return { type: resolvedWorkflowType, sourceId: resolvedSourceId };
       }
       const paymentResult = await client.query(
         `SELECT id
@@ -2329,16 +2361,22 @@ export class SaasService {
          FOR UPDATE`,
         [this.context.organizationId(), cashMovementId],
       );
+      resolvedWorkflowType = 'STOCK_PURCHASE';
+      resolvedSourceId = paymentResult.rows[0] ? Number(paymentResult.rows[0].id) : null;
+      logCashTrashResolution();
       return {
-        type: 'STOCK_PURCHASE',
-        sourceId: paymentResult.rows[0] ? Number(paymentResult.rows[0].id) : null,
+        type: resolvedWorkflowType,
+        sourceId: resolvedSourceId,
       };
     }
 
-    if (category === 'TENANT_CREDIT') {
+    if (normalizedCategory === 'TENANT_CREDIT') {
       const directCreditId = Number(movement.tenant_credit_id ?? 0) || null;
       if (directCreditId) {
-        return { type: 'TENANT_CREDIT', sourceId: directCreditId };
+        resolvedWorkflowType = 'TENANT_CREDIT';
+        resolvedSourceId = directCreditId;
+        logCashTrashResolution();
+        return { type: resolvedWorkflowType, sourceId: resolvedSourceId };
       }
       const paymentId = Number(movement.payment_id ?? 0) || null;
       if (paymentId) {
@@ -2352,15 +2390,21 @@ export class SaasService {
            FOR UPDATE`,
           [this.context.organizationId(), paymentId],
         );
+        resolvedWorkflowType = 'TENANT_CREDIT';
+        resolvedSourceId = creditResult.rows[0] ? Number(creditResult.rows[0].id) : null;
+        logCashTrashResolution();
         return {
-          type: 'TENANT_CREDIT',
-          sourceId: creditResult.rows[0] ? Number(creditResult.rows[0].id) : null,
+          type: resolvedWorkflowType,
+          sourceId: resolvedSourceId,
         };
       }
-      return { type: 'TENANT_CREDIT', sourceId: null };
+      resolvedWorkflowType = 'TENANT_CREDIT';
+      resolvedSourceId = null;
+      logCashTrashResolution();
+      return { type: resolvedWorkflowType, sourceId: resolvedSourceId };
     }
 
-    if (category === 'TENANT_CREDIT_REFUND') {
+    if (normalizedCategory === 'TENANT_CREDIT_REFUND') {
       const refundResult = await client.query(
         `SELECT id
          FROM tenant_credit_refunds
@@ -2371,16 +2415,22 @@ export class SaasService {
          FOR UPDATE`,
         [this.context.organizationId(), cashMovementId],
       );
+      resolvedWorkflowType = 'TENANT_CREDIT_REFUND';
+      resolvedSourceId = refundResult.rows[0] ? Number(refundResult.rows[0].id) : null;
+      logCashTrashResolution();
       return {
-        type: 'TENANT_CREDIT_REFUND',
-        sourceId: refundResult.rows[0] ? Number(refundResult.rows[0].id) : null,
+        type: resolvedWorkflowType,
+        sourceId: resolvedSourceId,
       };
     }
 
-    if (category === 'BANK_DEPOSIT' || category === 'BANK_WITHDRAWAL' || Number(movement.treasury_transfer_id ?? 0) > 0) {
+    if (normalizedCategory === 'BANK_DEPOSIT' || normalizedCategory === 'BANK_WITHDRAWAL' || Number(movement.treasury_transfer_id ?? 0) > 0) {
       const transferId = Number(movement.treasury_transfer_id ?? 0) || null;
       if (transferId) {
-        return { type: 'TREASURY_TRANSFER', sourceId: transferId };
+        resolvedWorkflowType = 'TREASURY_TRANSFER';
+        resolvedSourceId = transferId;
+        logCashTrashResolution();
+        return { type: resolvedWorkflowType, sourceId: resolvedSourceId };
       }
       const transferResult = await client.query(
         `SELECT id
@@ -2390,20 +2440,29 @@ export class SaasService {
          LIMIT 1`,
         [this.context.organizationId(), cashMovementId],
       );
+      resolvedWorkflowType = 'TREASURY_TRANSFER';
+      resolvedSourceId = transferResult.rows[0] ? Number(transferResult.rows[0].id) : null;
+      logCashTrashResolution();
       return {
-        type: 'TREASURY_TRANSFER',
-        sourceId: transferResult.rows[0] ? Number(transferResult.rows[0].id) : null,
+        type: resolvedWorkflowType,
+        sourceId: resolvedSourceId,
       };
     }
 
-    if (['INVOICE_PAYMENT', 'PAYMENT_REFUND', 'LEASE_GUARANTEE'].includes(category) || Number(movement.payment_id ?? 0) > 0) {
-      return { type: 'PAYMENT', sourceId: Number(movement.payment_id ?? 0) || null };
+    if (['INVOICE_PAYMENT', 'PAYMENT_REFUND', 'LEASE_GUARANTEE'].includes(normalizedCategory) || Number(movement.payment_id ?? 0) > 0) {
+      resolvedWorkflowType = 'PAYMENT';
+      resolvedSourceId = Number(movement.payment_id ?? 0) || null;
+      logCashTrashResolution();
+      return { type: resolvedWorkflowType, sourceId: resolvedSourceId };
     }
 
-    if (category === 'LEASE_GUARANTEE_REFUND') {
+    if (normalizedCategory === 'LEASE_GUARANTEE_REFUND') {
       const paymentId = Number(movement.payment_id ?? 0) || null;
       if (paymentId) {
-        return { type: 'GUARANTEE_REFUND', sourceId: paymentId };
+        resolvedWorkflowType = 'GUARANTEE_REFUND';
+        resolvedSourceId = paymentId;
+        logCashTrashResolution();
+        return { type: resolvedWorkflowType, sourceId: resolvedSourceId };
       }
       const guaranteeRefundResult = await client.query(
         `SELECT p.id
@@ -2416,17 +2475,26 @@ export class SaasService {
          FOR UPDATE`,
         [this.context.organizationId(), cashMovementId],
       );
+      resolvedWorkflowType = 'GUARANTEE_REFUND';
+      resolvedSourceId = guaranteeRefundResult.rows[0] ? Number(guaranteeRefundResult.rows[0].id) : null;
+      logCashTrashResolution();
       return {
-        type: 'GUARANTEE_REFUND',
-        sourceId: guaranteeRefundResult.rows[0] ? Number(guaranteeRefundResult.rows[0].id) : null,
+        type: resolvedWorkflowType,
+        sourceId: resolvedSourceId,
       };
     }
 
-    if (['SALARY_ADVANCE', 'SALARY_PAYMENT'].includes(category)) {
-      return { type: 'PAYROLL', sourceId: null };
+    if (['SALARY_ADVANCE', 'SALARY_PAYMENT'].includes(normalizedCategory)) {
+      resolvedWorkflowType = 'PAYROLL';
+      resolvedSourceId = null;
+      logCashTrashResolution();
+      return { type: resolvedWorkflowType, sourceId: resolvedSourceId };
     }
 
-    return { type: category || 'AUTRE', sourceId: null };
+    resolvedWorkflowType = normalizedCategory || 'AUTRE';
+    resolvedSourceId = null;
+    logCashTrashResolution();
+    return { type: resolvedWorkflowType, sourceId: resolvedSourceId };
   }
 
   async trashExpense(
@@ -15805,16 +15873,22 @@ export class SaasService {
     }
   }
 
-  private async cashExpenseCategoryExists(code: string) {
+  private async findCashExpenseCategoryForTrash(code: string) {
+    const normalizedCode = String(code ?? '').trim().toUpperCase();
     const { rows } = await this.db.query(
-      `SELECT 1
+      `SELECT id, code, status
        FROM cash_expense_categories
        WHERE organization_id = $1
-         AND code = $2
+         AND deleted_at IS NULL
+         AND UPPER(TRIM(code)) = $2
        LIMIT 1`,
-      [this.context.organizationId(), code],
+      [this.context.organizationId(), normalizedCode],
     );
-    return Boolean(rows[0]);
+    return {
+      matchedCategory: rows[0] ?? null,
+      normalizedCode,
+      exists: Boolean(rows[0] && String(rows[0].status ?? '').toUpperCase() === 'ACTIVE'),
+    };
   }
 
   private async createHrCatalogRow(table: 'hr_services' | 'hr_positions', body: Record<string, unknown>) {
