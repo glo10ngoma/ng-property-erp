@@ -265,11 +265,6 @@ export function CashPage() {
 
   async function deleteMovement(movement: CashMovement, reason: string) {
     setError('');
-    if (movement.is_locked) {
-      setError(movement.locked_reason || 'Ce mouvement ne peut pas etre supprime.');
-      setDeleteTarget(null);
-      return;
-    }
     await api.delete(`/cash/movements/${movement.id}`, { data: { reason } });
     setDeleteTarget(null);
     setSuccess('Mouvement de caisse déplacé dans la corbeille.');
@@ -577,18 +572,14 @@ export function CashPage() {
                     {can('cash_movements.delete') ? (
                       <button
                         type="button"
-                        className="icon-btn danger"
-                        title="Supprimer le mouvement"
-                        aria-label="Supprimer le mouvement"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (movement.is_locked) {
-                            setError(movement.locked_reason || 'Ce mouvement ne peut pas etre supprime.');
-                            return;
-                          }
-                          setDeleteTarget(movement);
-                        }}
-                      >
+                      className="icon-btn danger"
+                      title="Supprimer le mouvement"
+                      aria-label="Supprimer le mouvement"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setDeleteTarget(movement);
+                      }}
+                    >
                         <Trash2 size={16} />
                       </button>
                     ) : null}
@@ -857,13 +848,7 @@ export function CashDetailPage() {
             <button
               type="button"
               className="danger"
-              onClick={() => {
-                if (movement.is_locked) {
-                  window.alert(movement.locked_reason || 'Ce mouvement ne peut pas etre supprime.');
-                  return;
-                }
-                setDeleteOpen(true);
-              }}
+              onClick={() => setDeleteOpen(true)}
             >
               Supprimer
             </button>
@@ -993,8 +978,8 @@ export function CashDetailPage() {
         <CashDeleteMovementModal
           movement={movement}
           onClose={() => setDeleteOpen(false)}
-          onConfirm={async () => {
-            await api.delete(`/cash/movements/${movement.id}`);
+          onConfirm={async (reason) => {
+            await api.delete(`/cash/movements/${movement.id}`, { data: { reason } });
             navigate('/cash');
           }}
         />

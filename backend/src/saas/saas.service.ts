@@ -1978,28 +1978,8 @@ export class SaasService {
              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
              CONCAT(e.first_name, ' ', e.last_name) AS employee_name
              ${shareholderSelect},
-             CASE
-               WHEN cm.payment_id IS NOT NULL THEN TRUE
-               WHEN cm.invoice_id IS NOT NULL THEN TRUE
-               ${supportsStockPurchaseId ? `WHEN cm.stock_purchase_id IS NOT NULL THEN TRUE` : ''}
-               WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND', 'TENANT_CREDIT_REFUND', 'BANK_DEPOSIT', 'BANK_WITHDRAWAL') THEN TRUE
-               ELSE FALSE
-             END AS is_locked,
-             CASE
-               WHEN cm.payment_id IS NOT NULL THEN 'Ce mouvement est lié à un paiement.'
-               WHEN cm.invoice_id IS NOT NULL THEN 'Ce mouvement est lié à une facture.'
-               ${supportsStockPurchaseId ? `WHEN cm.stock_purchase_id IS NOT NULL THEN 'Ce mouvement est lié à un achat fournisseur.'` : ''}
-               WHEN cm.category = 'TENANT_CREDIT_REFUND' THEN 'Ce mouvement est lié à un remboursement de crédit locataire.'
-               WHEN cm.category = 'SHAREHOLDER_PAYOUT' AND spl.id IS NULL THEN 'Ce mouvement de remboursement actionnaire ne peut pas être supprimé automatiquement, car sa source n’a pas été identifiée.'
-               WHEN cm.category = 'BANK_DEPOSIT' THEN 'Ce mouvement est généré automatiquement par un dépôt en banque.'
-               WHEN cm.category = 'BANK_WITHDRAWAL' THEN 'Ce mouvement est généré automatiquement par un retrait bancaire.'
-               WHEN cm.category IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND') THEN 'Ce mouvement est généré automatiquement pour une garantie.'
-               WHEN cm.category IN ('SALARY_ADVANCE', 'SALARY_PAYMENT') THEN 'Ce mouvement est généré automatiquement pour la paie.'
-               WHEN cm.category = 'MAINTENANCE_EXPENSE' THEN 'Ce mouvement est lié à une dépense de maintenance.'
-               WHEN cm.category IN ('INVOICE_PAYMENT', 'PAYMENT_REFUND') THEN 'Ce mouvement est généré automatiquement pour un paiement.'
-               WHEN cm.category = 'STOCK_PURCHASE' THEN 'Ce mouvement est lié à un achat fournisseur.'
-               ELSE NULL
-             END AS locked_reason
+             FALSE AS is_locked,
+             NULL::VARCHAR AS locked_reason
       FROM cash_movements cm
       JOIN cash_sessions cs ON cs.id = cm.cash_session_id
       LEFT JOIN payments p ON p.id = cm.payment_id AND p.organization_id = cm.organization_id
@@ -2046,27 +2026,8 @@ export class SaasService {
               CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
               u.number AS unit_number, b.name AS building_name
               ${shareholderSelect},
-              CASE
-                WHEN cm.payment_id IS NOT NULL THEN TRUE
-                WHEN cm.invoice_id IS NOT NULL THEN TRUE
-                ${supportsStockPurchaseId ? `WHEN cm.stock_purchase_id IS NOT NULL THEN TRUE` : ''}
-                WHEN cm.category IN ('INVOICE_PAYMENT', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND', 'SALARY_ADVANCE', 'SALARY_PAYMENT', 'MAINTENANCE_EXPENSE', 'STOCK_PURCHASE', 'PAYMENT_REFUND', 'BANK_DEPOSIT', 'BANK_WITHDRAWAL') THEN TRUE
-                ELSE FALSE
-              END AS is_locked,
-              CASE
-                WHEN cm.payment_id IS NOT NULL THEN 'Ce mouvement est lié à un paiement.'
-                WHEN cm.invoice_id IS NOT NULL THEN 'Ce mouvement est lié à une facture.'
-                ${supportsStockPurchaseId ? `WHEN cm.stock_purchase_id IS NOT NULL THEN 'Ce mouvement est lié à un achat fournisseur.'` : ''}
-                WHEN cm.category = 'SHAREHOLDER_PAYOUT' AND spl.id IS NULL THEN 'Ce mouvement de remboursement actionnaire ne peut pas être supprimé automatiquement, car sa source n’a pas été identifiée.'
-                WHEN cm.category = 'BANK_DEPOSIT' THEN 'Ce mouvement est généré automatiquement par un dépôt en banque.'
-                WHEN cm.category = 'BANK_WITHDRAWAL' THEN 'Ce mouvement est généré automatiquement par un retrait bancaire.'
-                WHEN cm.category IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND') THEN 'Ce mouvement est généré automatiquement pour une garantie.'
-                WHEN cm.category IN ('SALARY_ADVANCE', 'SALARY_PAYMENT') THEN 'Ce mouvement est généré automatiquement pour la paie.'
-                WHEN cm.category = 'MAINTENANCE_EXPENSE' THEN 'Ce mouvement est lié à une dépense de maintenance.'
-                WHEN cm.category IN ('INVOICE_PAYMENT', 'PAYMENT_REFUND') THEN 'Ce mouvement est généré automatiquement pour un paiement.'
-                WHEN cm.category = 'STOCK_PURCHASE' THEN 'Ce mouvement est lié à un achat fournisseur.'
-                ELSE NULL
-              END AS locked_reason,
+              FALSE AS is_locked,
+              NULL::VARCHAR AS locked_reason,
               al.action AS audit_action, al.created_at AS audit_date, al.metadata AS audit_metadata
        FROM cash_movements cm
        JOIN cash_sessions cs ON cs.id = cm.cash_session_id
@@ -2156,6 +2117,7 @@ export class SaasService {
     }
     const supportsStockPurchaseId = await this.columnExists('cash_movements', 'stock_purchase_id');
     const supportsTreasuryTransferId = await this.columnExists('cash_movements', 'treasury_transfer_id');
+    const supportsTenantCreditId = await this.columnExists('cash_movements', 'tenant_credit_id');
     const supportsShareholderPayoutLineId = await this.columnExists('cash_movements', 'shareholder_payout_line_id');
     const hasShareholderSchema = await this.hasShareholderPayoutSchema();
     const supportsShareholderTrash = hasShareholderSchema
@@ -2169,6 +2131,7 @@ export class SaasService {
         `SELECT id, payment_id, invoice_id, category, piece_number, amount, currency, reference, movement_date
                 ${supportsStockPurchaseId ? ', stock_purchase_id' : ', NULL::INT AS stock_purchase_id'}
                 ${supportsTreasuryTransferId ? ', treasury_transfer_id' : ', NULL::INT AS treasury_transfer_id'}
+                ${supportsTenantCreditId ? ', tenant_credit_id' : ', NULL::INT AS tenant_credit_id'}
                 ${supportsShareholderPayoutLineId ? ', shareholder_payout_line_id' : ', NULL::INT AS shareholder_payout_line_id'}
          FROM cash_movements
          WHERE id = $1
@@ -2184,74 +2147,184 @@ export class SaasService {
       this.logger.log(
         `cash delete resolved | requestedCashMovementId=${id} organizationId=${this.context.organizationId()} sourceType=${String(movement.category ?? 'UNKNOWN')} sourceId=${movement.payment_id ?? movement.invoice_id ?? null}`,
       );
-
-      if (movement.payment_id) {
-        return this.trashPaymentInTransaction(client, Number(movement.payment_id), deletionReason, {
-          auditAction: 'CASH_PAYMENT_MOVED_TO_TRASH',
-          auditResource: 'cash',
-          auditResourceId: String(id),
-          sourceMovementId: id,
-        });
-      }
-
-      if (String(movement.category ?? '').toUpperCase() === 'SHAREHOLDER_PAYOUT') {
-        if (supportsShareholderTrash) {
-          // Preferred resolution:
-          // cash_movements.shareholder_payout_line_id
-          // Fallback:
-          // shareholder_payout_lines.cash_movement_id
-          // for backward compatibility.
-          const preferredPayoutLineId = Number(movement.shareholder_payout_line_id ?? 0) || null;
-          const payoutLineResult = preferredPayoutLineId
-            ? await client.query(
-                `SELECT id
-                 FROM shareholder_payout_lines
-                 WHERE id = $1
-                   AND organization_id = $2
-                   AND deleted_at IS NULL
-                 LIMIT 1
-                 FOR UPDATE`,
-                [preferredPayoutLineId, this.context.organizationId()],
-              )
-            : await client.query(
-                `SELECT id
-                 FROM shareholder_payout_lines
-                 WHERE organization_id = $1
-                   AND cash_movement_id = $2
-                   AND deleted_at IS NULL
-                 LIMIT 1
-                 FOR UPDATE`,
-                [this.context.organizationId(), id],
-              );
-          this.logger.log(
-            `cash delete shareholder lookup | requestedCashMovementId=${id} organizationId=${this.context.organizationId()} payoutLineFound=${Boolean(payoutLineResult.rows[0])} payoutLineId=${payoutLineResult.rows[0]?.id ?? null}`,
-          );
-          if (payoutLineResult.rows[0]) {
-            return this.trashShareholderPayoutInTransaction(client, Number(payoutLineResult.rows[0].id), deletionReason, {
-              auditAction: 'SHAREHOLDER_PAYOUT_MOVED_TO_TRASH_FROM_CASH',
-              auditResource: 'cash',
-              auditResourceId: String(id),
-              sourceMovementId: id,
-            });
+      const workflow = await this.resolveCashMovementTrashWorkflow(client, id, movement, { supportsShareholderTrash });
+      switch (workflow.type) {
+        case 'PAYMENT':
+          if (!workflow.sourceId) {
+            this.throwCashMovementWorkflowNotImplemented(id, movement, workflow.type, workflow.sourceId);
           }
-        }
-        throw new ConflictException(
-          'Ce mouvement de remboursement actionnaire ne peut pas être supprimé automatiquement, car sa source n’a pas été identifiée.',
-        );
+          return this.trashPaymentInTransaction(client, workflow.sourceId, deletionReason, {
+            auditAction: 'CASH_PAYMENT_MOVED_TO_TRASH',
+            auditResource: 'cash',
+            auditResourceId: String(id),
+            sourceMovementId: id,
+          });
+        case 'SHAREHOLDER_PAYOUT':
+          if (!workflow.sourceId) {
+            this.throwCashMovementWorkflowNotImplemented(id, movement, workflow.type, workflow.sourceId);
+          }
+          return this.trashShareholderPayoutInTransaction(client, workflow.sourceId, deletionReason, {
+            auditAction: 'SHAREHOLDER_PAYOUT_MOVED_TO_TRASH_FROM_CASH',
+            auditResource: 'cash',
+            auditResourceId: String(id),
+            sourceMovementId: id,
+          });
+        default:
+          this.throwCashMovementWorkflowNotImplemented(id, movement, workflow.type, workflow.sourceId);
       }
-
-      const protectionReason = this.cashMovementProtectionReason(movement);
-      if (protectionReason) {
-        throw new ConflictException(protectionReason);
-      }
-      await this.softDeleteFinanceRows(client, 'cash_movements', 'id', id, deletionReason);
-      await this.writeFinanceTrashAudit(client, 'CASH_MOVEMENT_MOVED_TO_TRASH', 'cash', String(id), {
-        reason: deletionReason,
-        category: movement.category ?? null,
-        reference: movement.reference ?? null,
-      });
-      return { deleted: true };
     });
+  }
+
+  private async resolveCashMovementTrashWorkflow(
+    client: PoolClient,
+    cashMovementId: number,
+    movement: Record<string, unknown>,
+    options: { supportsShareholderTrash: boolean },
+  ): Promise<{ type: string; sourceId: number | null }> {
+    const category = String(movement.category ?? '').trim().toUpperCase();
+
+    if (category === 'SHAREHOLDER_PAYOUT') {
+      if (!options.supportsShareholderTrash) {
+        return { type: 'SHAREHOLDER_PAYOUT', sourceId: null };
+      }
+      // Preferred resolution:
+      // cash_movements.shareholder_payout_line_id
+      // Fallback:
+      // shareholder_payout_lines.cash_movement_id
+      // for backward compatibility.
+      const preferredPayoutLineId = Number(movement.shareholder_payout_line_id ?? 0) || null;
+      const payoutLineResult = preferredPayoutLineId
+        ? await client.query(
+            `SELECT id
+             FROM shareholder_payout_lines
+             WHERE id = $1
+               AND organization_id = $2
+               AND deleted_at IS NULL
+             LIMIT 1
+             FOR UPDATE`,
+            [preferredPayoutLineId, this.context.organizationId()],
+          )
+        : await client.query(
+            `SELECT id
+             FROM shareholder_payout_lines
+             WHERE organization_id = $1
+               AND cash_movement_id = $2
+               AND deleted_at IS NULL
+             LIMIT 1
+             FOR UPDATE`,
+            [this.context.organizationId(), cashMovementId],
+          );
+      this.logger.log(
+        `cash delete shareholder lookup | requestedCashMovementId=${cashMovementId} organizationId=${this.context.organizationId()} payoutLineFound=${Boolean(payoutLineResult.rows[0])} payoutLineId=${payoutLineResult.rows[0]?.id ?? null}`,
+      );
+      return {
+        type: 'SHAREHOLDER_PAYOUT',
+        sourceId: payoutLineResult.rows[0] ? Number(payoutLineResult.rows[0].id) : null,
+      };
+    }
+
+    if (category === 'TENANT_CREDIT') {
+      return { type: 'TENANT_CREDIT', sourceId: Number(movement.tenant_credit_id ?? 0) || null };
+    }
+
+    if (category === 'TENANT_CREDIT_REFUND') {
+      const refundResult = await client.query(
+        `SELECT id, tenant_credit_id
+         FROM tenant_credit_refunds
+         WHERE organization_id = $1
+           AND cash_movement_id = $2
+           AND deleted_at IS NULL
+         LIMIT 1
+         FOR UPDATE`,
+        [this.context.organizationId(), cashMovementId],
+      );
+      return {
+        type: 'TENANT_CREDIT_REFUND',
+        sourceId: refundResult.rows[0]
+          ? Number(refundResult.rows[0].id)
+          : Number(movement.tenant_credit_id ?? 0) || null,
+      };
+    }
+
+    if (category === 'MAINTENANCE_EXPENSE') {
+      const expenseResult = await client.query(
+        `SELECT id
+         FROM maintenance_expenses
+         WHERE organization_id = $1
+           AND cash_movement_id = $2
+         LIMIT 1`,
+        [this.context.organizationId(), cashMovementId],
+      );
+      return {
+        type: 'EXPENSE',
+        sourceId: expenseResult.rows[0] ? Number(expenseResult.rows[0].id) : null,
+      };
+    }
+
+    if (category === 'STOCK_PURCHASE' || Number(movement.stock_purchase_id ?? 0) > 0) {
+      const stockPurchaseId = Number(movement.stock_purchase_id ?? 0) || null;
+      if (stockPurchaseId) {
+        return { type: 'PURCHASE_PAYMENT', sourceId: stockPurchaseId };
+      }
+      const paymentResult = await client.query(
+        `SELECT stock_purchase_id
+         FROM stock_purchase_payments
+         WHERE organization_id = $1
+           AND cash_movement_id = $2
+           AND deleted_at IS NULL
+         LIMIT 1`,
+        [this.context.organizationId(), cashMovementId],
+      );
+      return {
+        type: 'PURCHASE_PAYMENT',
+        sourceId: paymentResult.rows[0] ? Number(paymentResult.rows[0].stock_purchase_id) : null,
+      };
+    }
+
+    if (category === 'BANK_DEPOSIT' || category === 'BANK_WITHDRAWAL' || Number(movement.treasury_transfer_id ?? 0) > 0) {
+      const transferId = Number(movement.treasury_transfer_id ?? 0) || null;
+      if (transferId) {
+        return { type: 'TREASURY_TRANSFER', sourceId: transferId };
+      }
+      const transferResult = await client.query(
+        `SELECT id
+         FROM treasury_transfers
+         WHERE organization_id = $1
+           AND (source_cash_movement_id = $2 OR destination_cash_movement_id = $2)
+         LIMIT 1`,
+        [this.context.organizationId(), cashMovementId],
+      );
+      return {
+        type: 'TREASURY_TRANSFER',
+        sourceId: transferResult.rows[0] ? Number(transferResult.rows[0].id) : null,
+      };
+    }
+
+    if (['INVOICE_PAYMENT', 'PAYMENT_REFUND', 'LEASE_GUARANTEE'].includes(category) || Number(movement.payment_id ?? 0) > 0) {
+      return { type: 'PAYMENT', sourceId: Number(movement.payment_id ?? 0) || null };
+    }
+
+    if (category === 'LEASE_GUARANTEE_REFUND') {
+      return { type: 'GUARANTEE_REFUND', sourceId: null };
+    }
+
+    if (['SALARY_ADVANCE', 'SALARY_PAYMENT'].includes(category)) {
+      return { type: 'PAYROLL', sourceId: null };
+    }
+
+    return { type: category || 'AUTRE', sourceId: null };
+  }
+
+  private throwCashMovementWorkflowNotImplemented(
+    cashMovementId: number,
+    movement: Record<string, unknown>,
+    workflowType: string,
+    sourceId: number | null,
+  ): never {
+    this.logger.warn(
+      `cash delete workflow not implemented | requestedCashMovementId=${cashMovementId} organizationId=${this.context.organizationId()} category=${String(movement.category ?? 'UNKNOWN')} workflowType=${workflowType} sourceId=${sourceId ?? null}`,
+    );
+    throw new ConflictException("Le workflow de suppression de ce type de mouvement n'est pas encore implémenté.");
   }
 
   async trashPayment(
@@ -14483,38 +14556,6 @@ export class SaasService {
       throw new BadRequestException('Code de catégorie de dépense invalide.');
     }
     return normalized;
-  }
-
-  private cashMovementProtectionReason(movement: Record<string, unknown>) {
-    if (movement.payment_id) return 'Ce mouvement est lié à un paiement et ne peut pas être supprimé.';
-    if (movement.invoice_id) return 'Ce mouvement est lié à une facture et ne peut pas être supprimé.';
-    if (movement.stock_purchase_id) return 'Ce mouvement est lié à un achat fournisseur et ne peut pas être supprimé.';
-    const category = String(movement.category ?? '');
-    if (['LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND'].includes(category)) {
-      return 'Ce mouvement de garantie est généré automatiquement et ne peut pas être supprimé.';
-    }
-    if (['SALARY_ADVANCE', 'SALARY_PAYMENT'].includes(category)) {
-      return 'Ce mouvement de paie est généré automatiquement et ne peut pas être supprimé.';
-    }
-    if (category === 'MAINTENANCE_EXPENSE') {
-      return 'Ce mouvement est lié à une dépense de maintenance et ne peut pas être supprimé.';
-    }
-    if (category === 'SHAREHOLDER_PAYOUT') {
-      return 'Ce mouvement de remboursement actionnaire ne peut pas être supprimé automatiquement, car sa source n’a pas été identifiée.';
-    }
-    if (category === 'BANK_DEPOSIT') {
-      return 'Ce mouvement est lié à un dépôt en banque et ne peut pas être supprimé.';
-    }
-    if (category === 'BANK_WITHDRAWAL') {
-      return 'Ce mouvement est lié à un retrait bancaire et ne peut pas être supprimé.';
-    }
-    if (['INVOICE_PAYMENT', 'PAYMENT_REFUND'].includes(category)) {
-      return 'Ce mouvement de paiement est généré automatiquement et ne peut pas être supprimé.';
-    }
-    if (category === 'STOCK_PURCHASE') {
-      return 'Ce mouvement est lié à un achat fournisseur et ne peut pas être supprimé.';
-    }
-    return null;
   }
 
   private handleCashExpenseCategorySchemaError(error: any) {
