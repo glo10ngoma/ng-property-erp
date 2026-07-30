@@ -2657,7 +2657,7 @@ export class SaasService {
 
     if (!expense) {
       const cashMovementResult = await client.query(
-        `SELECT id, category, amount, movement_date, description, reference, supplier, payment_method,
+        `SELECT id, category, amount, movement_date, description, reference, supplier,
                 attachment_file_name, attachment_file_url, deleted_at
          FROM cash_movements
          WHERE id = $1
