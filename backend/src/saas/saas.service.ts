@@ -2121,6 +2121,7 @@ export class SaasService {
     const supportsTreasuryTransferId = await this.columnExists('cash_movements', 'treasury_transfer_id');
     const supportsTenantCreditId = await this.columnExists('cash_movements', 'tenant_credit_id');
     const supportsShareholderPayoutLineId = await this.columnExists('cash_movements', 'shareholder_payout_line_id');
+    const supportsCashExpenseCategories = await this.tableExists('cash_expense_categories');
     const hasShareholderSchema = await this.hasShareholderPayoutSchema();
     const supportsShareholderTrash = hasShareholderSchema
       && (await this.columnExists('shareholder_payout_lines', 'deleted_at'))
@@ -2151,7 +2152,10 @@ export class SaasService {
       this.logger.log(
         `cash delete resolved | requestedCashMovementId=${id} organizationId=${this.context.organizationId()} sourceType=${String(movement.category ?? 'UNKNOWN')} sourceId=${movement.payment_id ?? movement.invoice_id ?? movement.maintenance_expense_id ?? movement.stock_purchase_payment_id ?? movement.stock_purchase_id ?? null}`,
       );
-      const workflow = await this.resolveCashMovementTrashWorkflow(client, id, movement, { supportsShareholderTrash });
+      const workflow = await this.resolveCashMovementTrashWorkflow(client, id, movement, {
+        supportsShareholderTrash,
+        supportsCashExpenseCategories,
+      });
       switch (workflow.type) {
         case 'PAYMENT':
           if (!workflow.sourceId) {
@@ -2174,12 +2178,15 @@ export class SaasService {
             sourceMovementId: id,
           });
         case 'MAINTENANCE_EXPENSE':
+        case 'EXPENSE':
           if (!workflow.sourceId) {
             this.throwCashMovementWorkflowNotImplemented(id, movement, workflow.type, workflow.sourceId);
           }
           return this.trashExpenseInTransaction(client, workflow.sourceId, deletionReason, {
-            auditAction: 'MAINTENANCE_EXPENSE_MOVED_TO_TRASH_FROM_CASH',
-            auditResource: 'cash',
+            auditAction: workflow.type === 'EXPENSE'
+              ? 'CASH_EXPENSE_MOVED_TO_TRASH_FROM_CASH'
+              : 'MAINTENANCE_EXPENSE_MOVED_TO_TRASH_FROM_CASH',
+            auditResource: workflow.type === 'EXPENSE' ? 'cash' : 'cash',
             auditResourceId: String(id),
             sourceMovementId: id,
           });
@@ -2237,6 +2244,7 @@ export class SaasService {
       supportsShareholderTrash: boolean;
       supportsMaintenanceExpenseId?: boolean;
       supportsStockPurchasePaymentId?: boolean;
+      supportsCashExpenseCategories?: boolean;
     },
   ): Promise<{ type: string; sourceId: number | null }> {
     const category = String(movement.category ?? '').trim().toUpperCase();
@@ -2300,6 +2308,10 @@ export class SaasService {
         type: 'MAINTENANCE_EXPENSE',
         sourceId: expenseResult.rows[0] ? Number(expenseResult.rows[0].id) : null,
       };
+    }
+
+    if (movement.type === 'OUT' && options.supportsCashExpenseCategories && await this.cashExpenseCategoryExists(category)) {
+      return { type: 'EXPENSE', sourceId: cashMovementId };
     }
 
     if (category === 'STOCK_PURCHASE') {
@@ -2541,7 +2553,8 @@ export class SaasService {
       sourceMovementId?: number | null;
     },
   ) {
-    const expenseResult = await client.query(
+    const organizationId = this.context.organizationId();
+    const maintenanceExpenseResult = await client.query(
       `SELECT me.id, me.maintenance_request_id, me.amount, me.expense_date, me.category, me.description,
               me.status, me.cash_movement_id, me.supplier, me.payment_method, me.reference,
               me.attachment_file_name, me.attachment_file_url, me.observation, me.deleted_at
@@ -2549,21 +2562,59 @@ export class SaasService {
        WHERE me.id = $1
          AND me.organization_id = $2
        FOR UPDATE`,
-      [expenseId, this.context.organizationId()],
+      [expenseId, organizationId],
     );
-    const expense = requireRow(expenseResult.rows[0], 'Maintenance expense') as Record<string, unknown>;
-    if (expense.deleted_at) {
+    let expense = maintenanceExpenseResult.rows[0] ? (requireRow(maintenanceExpenseResult.rows[0], 'Maintenance expense') as Record<string, unknown>) : null;
+    let cashMovementId = Number(expense?.cash_movement_id ?? 0) || null;
+    let maintenanceRequestId = Number(expense?.maintenance_request_id ?? 0) || null;
+    let directCashExpense = false;
+
+    if (!expense) {
+      const linkedExpenseResult = await client.query(
+        `SELECT me.id, me.maintenance_request_id, me.amount, me.expense_date, me.category, me.description,
+                me.status, me.cash_movement_id, me.supplier, me.payment_method, me.reference,
+                me.attachment_file_name, me.attachment_file_url, me.observation, me.deleted_at
+         FROM maintenance_expenses me
+         WHERE me.cash_movement_id = $1
+           AND me.organization_id = $2
+         FOR UPDATE`,
+        [expenseId, organizationId],
+      );
+      if (linkedExpenseResult.rows[0]) {
+        expense = requireRow(linkedExpenseResult.rows[0], 'Maintenance expense') as Record<string, unknown>;
+        cashMovementId = Number(expense.cash_movement_id ?? 0) || null;
+        maintenanceRequestId = Number(expense.maintenance_request_id ?? 0) || null;
+      }
+    }
+
+    if (!expense) {
+      const cashMovementResult = await client.query(
+        `SELECT id, category, amount, movement_date, description, reference, supplier, payment_method,
+                attachment_file_name, attachment_file_url, deleted_at
+         FROM cash_movements
+         WHERE id = $1
+           AND organization_id = $2
+         FOR UPDATE`,
+        [expenseId, organizationId],
+      );
+      expense = requireRow(cashMovementResult.rows[0], 'Cash movement expense') as Record<string, unknown>;
+      if (expense.deleted_at) {
+        throw new ConflictException('Ce mouvement est déjà dans la corbeille.');
+      }
+      cashMovementId = Number(expense.id ?? expenseId) || expenseId;
+      directCashExpense = true;
+    } else if (expense.deleted_at) {
       throw new ConflictException('Cette dépense est déjà dans la corbeille.');
     }
 
-    const cashMovementId = Number(expense.cash_movement_id ?? 0) || null;
     if (cashMovementId) {
       await this.softDeleteFinanceRows(client, 'cash_movements', 'id', cashMovementId, reason);
     }
 
-    await this.softDeleteFinanceRows(client, 'maintenance_expenses', 'id', expenseId, reason);
+    if (!directCashExpense) {
+      await this.softDeleteFinanceRows(client, 'maintenance_expenses', 'id', Number(expense.id ?? expenseId), reason);
+    }
 
-    const maintenanceRequestId = Number(expense.maintenance_request_id ?? 0) || null;
     if (maintenanceRequestId) {
       await this.addMaintenanceTimeline(
         client,
@@ -2576,24 +2627,24 @@ export class SaasService {
 
     await this.writeFinanceTrashAudit(
       client,
-      options?.auditAction ?? 'MAINTENANCE_EXPENSE_MOVED_TO_TRASH',
-      options?.auditResource ?? 'maintenance_expenses',
+      options?.auditAction ?? (directCashExpense ? 'CASH_EXPENSE_MOVED_TO_TRASH' : 'MAINTENANCE_EXPENSE_MOVED_TO_TRASH'),
+      options?.auditResource ?? (directCashExpense ? 'cash' : 'maintenance_expenses'),
       options?.auditResourceId ?? String(expenseId),
       {
         reason,
-        maintenance_expense_id: expenseId,
+        maintenance_expense_id: directCashExpense ? null : Number(expense.id ?? expenseId),
         maintenance_request_id: maintenanceRequestId,
         cash_movement_id: cashMovementId,
         category: expense.category ?? null,
         amount: Number(expense.amount ?? 0),
         expense_date: expense.expense_date ?? null,
-        source_movement_id: options?.sourceMovementId ?? cashMovementId,
+        source_movement_id: options?.sourceMovementId ?? cashMovementId ?? expenseId,
       },
     );
 
     return {
       deleted: true,
-      maintenance_expense_id: expenseId,
+      maintenance_expense_id: directCashExpense ? null : Number(expense.id ?? expenseId),
       maintenance_request_id: maintenanceRequestId,
       cash_movement_id: cashMovementId,
     };
@@ -15752,6 +15803,18 @@ export class SaasService {
         'Le référentiel des catégories de dépense n’est pas disponible. Appliquez la migration 20260717_cash_expense_categories.sql.',
       );
     }
+  }
+
+  private async cashExpenseCategoryExists(code: string) {
+    const { rows } = await this.db.query(
+      `SELECT 1
+       FROM cash_expense_categories
+       WHERE organization_id = $1
+         AND code = $2
+       LIMIT 1`,
+      [this.context.organizationId(), code],
+    );
+    return Boolean(rows[0]);
   }
 
   private async createHrCatalogRow(table: 'hr_services' | 'hr_positions', body: Record<string, unknown>) {
