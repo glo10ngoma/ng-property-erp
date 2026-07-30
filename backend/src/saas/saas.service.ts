@@ -3313,9 +3313,21 @@ export class SaasService {
     if (!deletionReason) {
       throw new BadRequestException('Le motif de suppression est obligatoire.');
     }
-    return this.db.transaction((client) =>
-      this.trashShareholderPayoutInTransaction(client, payoutLineId, deletionReason, options),
+    this.logger.log(
+      `shareholder payout trash transaction start | payoutLineId=${payoutLineId} organizationId=${this.context.organizationId()} sourceMovementId=${options?.sourceMovementId ?? null}`,
     );
+    try {
+      const result = await this.db.transaction((client) =>
+        this.trashShareholderPayoutInTransaction(client, payoutLineId, deletionReason, options),
+      );
+      this.logger.log(
+        `shareholder payout trash transaction commit OK | payoutLineId=${payoutLineId} organizationId=${this.context.organizationId()} sourceMovementId=${options?.sourceMovementId ?? null}`,
+      );
+      return result;
+    } catch (error) {
+      this.logShareholderPayoutTrashError('transaction', payoutLineId, error);
+      throw error;
+    }
   }
 
   async stockCategories() {
@@ -10227,161 +10239,239 @@ export class SaasService {
       sourceMovementId?: number | null;
     },
   ) {
-    this.logger.log(
-      `shareholder payout trash requested | payoutLineId=${payoutLineId} organizationId=${this.context.organizationId()} sourceMovementId=${options?.sourceMovementId ?? null}`,
-    );
-    const lineResult = await client.query(
-      `SELECT spl.id,
-              spl.batch_id,
-              spl.shareholder_id,
-              spl.amount,
-              spl.currency,
-              spl.reference,
-              spl.receipt_number,
-              spl.cash_movement_id,
-              spl.guarantee_cash_movement_id,
-              spl.bank_transaction_id,
-              spl.deleted_at,
-              spb.reference AS batch_reference,
-              spb.source_register,
-              spb.status AS batch_status,
-              spb.deleted_at AS batch_deleted_at,
-              sh.display_name AS shareholder_name
-       FROM shareholder_payout_lines spl
-       JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
-       JOIN shareholders sh ON sh.id = spl.shareholder_id AND sh.organization_id = spl.organization_id
-       WHERE spl.id = $1
-         AND spl.organization_id = $2
-       FOR UPDATE`,
-      [payoutLineId, this.context.organizationId()],
-    );
-    this.logger.log(
-      `shareholder payout trash lookup | payoutLineId=${payoutLineId} organizationId=${this.context.organizationId()} payoutFound=${Boolean(lineResult.rows[0])}`,
-    );
-    const line = requireRow(lineResult.rows[0], 'Shareholder payout') as Record<string, unknown>;
-    if (line.deleted_at) {
-      throw new ConflictException('Ce remboursement actionnaire est déjà dans la corbeille.');
-    }
-    if (line.batch_deleted_at) {
-      throw new ConflictException('Le lot de remboursement actionnaire est déjà dans la corbeille.');
-    }
-    if (line.bank_transaction_id) {
-      throw new ConflictException(
-        'Ce remboursement actionnaire bancaire ne peut pas encore être supprimé automatiquement depuis ce workflow.',
+    const trace = (step: string, status: 'START' | 'OK' | 'FAIL', extra = '') => {
+      this.logger.log(
+        `shareholder payout trash ${step} ${status} | payoutLineId=${payoutLineId} organizationId=${this.context.organizationId()} sourceMovementId=${options?.sourceMovementId ?? null}${extra ? ` ${extra}` : ''}`,
       );
-    }
+    };
+    const logPgError = (error: unknown) => {
+      const pgError = error as {
+        code?: string;
+        detail?: string;
+        constraint?: string;
+        table?: string;
+        column?: string;
+      };
+      this.logger.error(
+        `shareholder payout trash error | payoutLineId=${payoutLineId} organizationId=${this.context.organizationId()} message=${error instanceof Error ? error.message : String(error)} pgCode=${pgError?.code ?? null} pgDetail=${pgError?.detail ?? null} pgConstraint=${pgError?.constraint ?? null} pgTable=${pgError?.table ?? null} pgColumn=${pgError?.column ?? null}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    };
 
-    const cashMovementId = Number(line.cash_movement_id ?? 0) || null;
-    const guaranteeCashMovementId = Number(line.guarantee_cash_movement_id ?? 0) || null;
-    if (cashMovementId) {
-      await this.softDeleteFinanceRows(client, 'cash_movements', 'id', cashMovementId, reason);
-    }
-    if (guaranteeCashMovementId) {
-      await this.softDeleteFinanceRows(client, 'guarantee_cash_movements', 'id', guaranteeCashMovementId, reason);
-    }
+    let line: Record<string, unknown>;
+    let cashMovementId: number | null = null;
+    let guaranteeCashMovementId: number | null = null;
+    let remainingLineCount = 0;
+    let remainingTotalAmount = 0;
+    let nextBatchStatus: 'VALIDATED' | 'CANCELLED' = 'VALIDATED';
+    let shareholderTotals: { rows: Array<{ total_usd?: number; total_cdf?: number; payout_count?: number }> } = { rows: [] };
 
-    await client.query(
-      `UPDATE shareholder_payout_lines
-       SET deleted_at = NOW(),
-           deleted_by = $2,
-           deletion_reason = $3
-       WHERE id = $1
-         AND organization_id = $4
-         AND deleted_at IS NULL`,
-      [payoutLineId, this.context.userId() ?? null, reason, this.context.organizationId()],
-    );
+    try {
+      trace('entry', 'START');
+      trace('payout line read', 'START');
+      const lineResult = await client.query(
+        `SELECT spl.id,
+                spl.batch_id,
+                spl.shareholder_id,
+                spl.amount,
+                spl.currency,
+                spl.reference,
+                spl.receipt_number,
+                spl.cash_movement_id,
+                spl.guarantee_cash_movement_id,
+                spl.bank_transaction_id,
+                spl.deleted_at,
+                spb.reference AS batch_reference,
+                spb.source_register,
+                spb.status AS batch_status,
+                spb.deleted_at AS batch_deleted_at,
+                sh.display_name AS shareholder_name
+         FROM shareholder_payout_lines spl
+         JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
+         JOIN shareholders sh ON sh.id = spl.shareholder_id AND sh.organization_id = spl.organization_id
+         WHERE spl.id = $1
+           AND spl.organization_id = $2
+         FOR UPDATE`,
+        [payoutLineId, this.context.organizationId()],
+      );
+      trace('payout line read', 'OK', `payoutFound=${Boolean(lineResult.rows[0])}`);
+      line = requireRow(lineResult.rows[0], 'Shareholder payout') as Record<string, unknown>;
 
-    const remainingResult = await client.query(
-      `SELECT COUNT(*)::INT AS line_count,
-              COALESCE(SUM(amount), 0)::NUMERIC(14,2) AS total_amount
-       FROM shareholder_payout_lines
-       WHERE organization_id = $1
-         AND batch_id = $2
-         AND deleted_at IS NULL`,
-      [this.context.organizationId(), Number(line.batch_id)],
-    );
-    const remainingLineCount = Number(remainingResult.rows[0]?.line_count ?? 0);
-    const remainingTotalAmount = Number(remainingResult.rows[0]?.total_amount ?? 0);
-    const nextBatchStatus = remainingLineCount > 0 ? 'VALIDATED' : 'CANCELLED';
+      trace('batch read', 'OK', `batchId=${Number(line.batch_id)} batchDeleted=${Boolean(line.batch_deleted_at)}`);
+      trace('shareholder read', 'OK', `shareholderId=${Number(line.shareholder_id)}`);
 
-    if (remainingLineCount > 0) {
+      if (line.deleted_at) {
+        trace('payout line validation', 'FAIL', 'reason=already_in_trash');
+        throw new ConflictException('Ce remboursement actionnaire est déjà dans la corbeille.');
+      }
+      if (line.batch_deleted_at) {
+        trace('batch validation', 'FAIL', 'reason=batch_already_in_trash');
+        throw new ConflictException('Le lot de remboursement actionnaire est déjà dans la corbeille.');
+      }
+      if (line.bank_transaction_id) {
+        trace('bank transaction validation', 'FAIL', 'reason=bank_transaction_linked');
+        throw new ConflictException(
+          'Ce remboursement actionnaire bancaire ne peut pas encore être supprimé automatiquement depuis ce workflow.',
+        );
+      }
+
+      cashMovementId = Number(line.cash_movement_id ?? 0) || null;
+      guaranteeCashMovementId = Number(line.guarantee_cash_movement_id ?? 0) || null;
+      if (cashMovementId) {
+        trace('cash_movements soft delete', 'START', `cashMovementId=${cashMovementId}`);
+        await this.softDeleteFinanceRows(client, 'cash_movements', 'id', cashMovementId, reason);
+        trace('cash_movements soft delete', 'OK', `cashMovementId=${cashMovementId}`);
+      } else {
+        trace('cash_movements soft delete', 'OK', 'cashMovementId=null');
+      }
+      if (guaranteeCashMovementId) {
+        trace('guarantee_cash_movements soft delete', 'START', `guaranteeCashMovementId=${guaranteeCashMovementId}`);
+        await this.softDeleteFinanceRows(client, 'guarantee_cash_movements', 'id', guaranteeCashMovementId, reason);
+        trace('guarantee_cash_movements soft delete', 'OK', `guaranteeCashMovementId=${guaranteeCashMovementId}`);
+      } else {
+        trace('guarantee_cash_movements soft delete', 'OK', 'guaranteeCashMovementId=null');
+      }
+
+      trace('shareholder_payout_lines update', 'START');
       await client.query(
-        `UPDATE shareholder_payout_batches
-         SET total_amount = $3,
-             beneficiary_count = $4,
-             status = $5
+        `UPDATE shareholder_payout_lines
+         SET deleted_at = NOW(),
+             deleted_by = $2,
+             deletion_reason = $3
          WHERE id = $1
-           AND organization_id = $2`,
-        [Number(line.batch_id), this.context.organizationId(), remainingTotalAmount, remainingLineCount, nextBatchStatus],
+           AND organization_id = $4
+           AND deleted_at IS NULL`,
+        [payoutLineId, this.context.userId() ?? null, reason, this.context.organizationId()],
       );
-    } else {
-      await client.query(
-        `UPDATE shareholder_payout_batches
-         SET total_amount = 0,
-             beneficiary_count = 0,
-             status = $3,
-             deleted_at = NOW(),
-             deleted_by = $4,
-             deletion_reason = $5
-         WHERE id = $1
-           AND organization_id = $2`,
-        [Number(line.batch_id), this.context.organizationId(), nextBatchStatus, this.context.userId() ?? null, reason],
+      trace('shareholder_payout_lines update', 'OK');
+
+      trace('batch recalculation', 'START');
+      const remainingResult = await client.query(
+        `SELECT COUNT(*)::INT AS line_count,
+                COALESCE(SUM(amount), 0)::NUMERIC(14,2) AS total_amount
+         FROM shareholder_payout_lines
+         WHERE organization_id = $1
+           AND batch_id = $2
+           AND deleted_at IS NULL`,
+        [this.context.organizationId(), Number(line.batch_id)],
       );
-    }
+      remainingLineCount = Number(remainingResult.rows[0]?.line_count ?? 0);
+      remainingTotalAmount = Number(remainingResult.rows[0]?.total_amount ?? 0);
+      nextBatchStatus = remainingLineCount > 0 ? 'VALIDATED' : 'CANCELLED';
 
-    const shareholderTotals = await client.query(
-      `SELECT COALESCE(SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'USD' THEN spl.amount ELSE 0 END), 0)::NUMERIC(14,2) AS total_usd,
-              COALESCE(SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'CDF' THEN spl.amount ELSE 0 END), 0)::NUMERIC(14,2) AS total_cdf,
-              COUNT(*) FILTER (WHERE spb.status = 'VALIDATED')::INT AS payout_count
-       FROM shareholder_payout_lines spl
-       JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
-       WHERE spl.organization_id = $1
-         AND spl.shareholder_id = $2
-         AND spl.deleted_at IS NULL
-         AND spb.deleted_at IS NULL`,
-      [this.context.organizationId(), Number(line.shareholder_id)],
-    );
+      if (remainingLineCount > 0) {
+        trace('batch recalculation', 'OK', `remainingLineCount=${remainingLineCount} totalAmount=${remainingTotalAmount} status=${nextBatchStatus}`);
+        trace('shareholder_payout_batches update', 'START');
+        await client.query(
+          `UPDATE shareholder_payout_batches
+           SET total_amount = $3,
+               beneficiary_count = $4,
+               status = $5
+           WHERE id = $1
+             AND organization_id = $2`,
+          [Number(line.batch_id), this.context.organizationId(), remainingTotalAmount, remainingLineCount, nextBatchStatus],
+        );
+        trace('shareholder_payout_batches update', 'OK', `remainingLineCount=${remainingLineCount}`);
+      } else {
+        trace('batch recalculation', 'OK', `remainingLineCount=0 totalAmount=0 status=${nextBatchStatus}`);
+        trace('shareholder_payout_batches update', 'START');
+        await client.query(
+          `UPDATE shareholder_payout_batches
+           SET total_amount = 0,
+               beneficiary_count = 0,
+               status = $3,
+               deleted_at = NOW(),
+               deleted_by = $4,
+               deletion_reason = $5
+           WHERE id = $1
+             AND organization_id = $2`,
+          [Number(line.batch_id), this.context.organizationId(), nextBatchStatus, this.context.userId() ?? null, reason],
+        );
+        trace('shareholder_payout_batches update', 'OK', 'batchMarkedDeleted=true');
+      }
 
-    await this.writeFinanceTrashAudit(
-      client,
-      options?.auditAction ?? 'SHAREHOLDER_PAYOUT_MOVED_TO_TRASH',
-      options?.auditResource ?? 'shareholder_payouts',
-      options?.auditResourceId ?? String(payoutLineId),
-      {
-        reason,
+      trace('shareholder totals recalculation', 'START');
+      const shareholderTotalsResult = await client.query(
+        `SELECT COALESCE(SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'USD' THEN spl.amount ELSE 0 END), 0)::NUMERIC(14,2) AS total_usd,
+                COALESCE(SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'CDF' THEN spl.amount ELSE 0 END), 0)::NUMERIC(14,2) AS total_cdf,
+                COUNT(*) FILTER (WHERE spb.status = 'VALIDATED')::INT AS payout_count
+         FROM shareholder_payout_lines spl
+         JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
+         WHERE spl.organization_id = $1
+           AND spl.shareholder_id = $2
+           AND spl.deleted_at IS NULL
+           AND spb.deleted_at IS NULL`,
+        [this.context.organizationId(), Number(line.shareholder_id)],
+      );
+      shareholderTotals = shareholderTotalsResult;
+      trace(
+        'shareholder totals recalculation',
+        'OK',
+        `totalUsd=${Number(shareholderTotals.rows[0]?.total_usd ?? 0)} totalCdf=${Number(shareholderTotals.rows[0]?.total_cdf ?? 0)} payoutCount=${Number(shareholderTotals.rows[0]?.payout_count ?? 0)}`,
+      );
+
+      trace('audit', 'START');
+      await this.writeFinanceTrashAudit(
+        client,
+        options?.auditAction ?? 'SHAREHOLDER_PAYOUT_MOVED_TO_TRASH',
+        options?.auditResource ?? 'shareholder_payouts',
+        options?.auditResourceId ?? String(payoutLineId),
+        {
+          reason,
+          shareholder_payout_line_id: payoutLineId,
+          shareholder_id: Number(line.shareholder_id),
+          shareholder_name: line.shareholder_name ?? null,
+          shareholder_batch_id: Number(line.batch_id),
+          batch_reference: line.batch_reference ?? null,
+          source_register: line.source_register ?? null,
+          amount: Number(line.amount ?? 0),
+          currency: String(line.currency ?? 'USD'),
+          receipt_number: line.receipt_number ?? null,
+          cash_movement_id: cashMovementId,
+          guarantee_cash_movement_id: guaranteeCashMovementId,
+          source_movement_id: options?.sourceMovementId ?? cashMovementId ?? guaranteeCashMovementId,
+          remaining_batch_lines: remainingLineCount,
+          batch_total_amount: remainingTotalAmount,
+          batch_status: nextBatchStatus,
+          shareholder_total_usd: Number(shareholderTotals.rows[0]?.total_usd ?? 0),
+          shareholder_total_cdf: Number(shareholderTotals.rows[0]?.total_cdf ?? 0),
+          shareholder_payout_count: Number(shareholderTotals.rows[0]?.payout_count ?? 0),
+        },
+      );
+      trace('audit', 'OK');
+
+      trace('return payload', 'OK');
+      return {
+        deleted: true,
         shareholder_payout_line_id: payoutLineId,
+        batch_id: Number(line.batch_id),
         shareholder_id: Number(line.shareholder_id),
-        shareholder_name: line.shareholder_name ?? null,
-        shareholder_batch_id: Number(line.batch_id),
-        batch_reference: line.batch_reference ?? null,
-        source_register: line.source_register ?? null,
-        amount: Number(line.amount ?? 0),
-        currency: String(line.currency ?? 'USD'),
-        receipt_number: line.receipt_number ?? null,
-        cash_movement_id: cashMovementId,
-        guarantee_cash_movement_id: guaranteeCashMovementId,
-        source_movement_id: options?.sourceMovementId ?? cashMovementId ?? guaranteeCashMovementId,
         remaining_batch_lines: remainingLineCount,
-        batch_total_amount: remainingTotalAmount,
+        batch_deleted: remainingLineCount === 0,
         batch_status: nextBatchStatus,
         shareholder_total_usd: Number(shareholderTotals.rows[0]?.total_usd ?? 0),
         shareholder_total_cdf: Number(shareholderTotals.rows[0]?.total_cdf ?? 0),
         shareholder_payout_count: Number(shareholderTotals.rows[0]?.payout_count ?? 0),
-      },
-    );
+      };
+    } catch (error) {
+      trace('workflow', 'FAIL', `step=exception`);
+      this.logShareholderPayoutTrashError('workflow', payoutLineId, error);
+      throw error;
+    }
+  }
 
-    return {
-      deleted: true,
-      shareholder_payout_line_id: payoutLineId,
-      batch_id: Number(line.batch_id),
-      shareholder_id: Number(line.shareholder_id),
-      remaining_batch_lines: remainingLineCount,
-      batch_deleted: remainingLineCount === 0,
-      batch_status: nextBatchStatus,
-      shareholder_total_usd: Number(shareholderTotals.rows[0]?.total_usd ?? 0),
-      shareholder_total_cdf: Number(shareholderTotals.rows[0]?.total_cdf ?? 0),
-      shareholder_payout_count: Number(shareholderTotals.rows[0]?.payout_count ?? 0),
+  private logShareholderPayoutTrashError(stage: string, payoutLineId: number, error: unknown) {
+    const pgError = error as {
+      code?: string;
+      detail?: string;
+      constraint?: string;
+      table?: string;
+      column?: string;
     };
+    this.logger.error(
+      `shareholder payout trash ${stage} error | payoutLineId=${payoutLineId} organizationId=${this.context.organizationId()} message=${error instanceof Error ? error.message : String(error)} pgCode=${pgError?.code ?? null} pgDetail=${pgError?.detail ?? null} pgConstraint=${pgError?.constraint ?? null} pgTable=${pgError?.table ?? null} pgColumn=${pgError?.column ?? null}`,
+      error instanceof Error ? error.stack : undefined,
+    );
   }
 
   private async writeFinanceTrashAudit(
