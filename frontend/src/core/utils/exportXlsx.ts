@@ -48,23 +48,26 @@ export async function exportXlsxWorkbook(filename: string, sheets: XlsxSheet[]) 
   const usedNames = new Set<string>();
   const safeSheets = sheets.length ? sheets : [{ name: 'Feuille 1', rows: [] }];
 
-  safeSheets.forEach((sheet, index) => {
+  for (const [index, sheet] of safeSheets.entries()) {
     const title = sheet.title || sheet.name || `Feuille ${index + 1}`;
-    const worksheet = workbook.addWorksheet(uniqueSheetName(sheet.name || `Feuille ${index + 1}`, usedNames));
-    addWorksheetContent(worksheet, title, sheet);
-  });
+    const worksheetName = uniqueSheetName(sheet.name || `Feuille ${index + 1}`, usedNames);
+    const worksheet = workbook.addWorksheet(worksheetName);
+    const resolved = resolveSheetPayload(sheet);
+
+    addWorksheetContent(worksheet, title, resolved);
+  }
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: XLSX_MIME_TYPE });
   downloadBlob(filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`, blob);
 }
 
-function addWorksheetContent(worksheet: ExcelJS.Worksheet, title: string, sheet: XlsxSheet) {
-  const resolvedRows = resolveSheetRows(sheet);
-  const resolvedColumns = resolveSheetColumns(sheet, resolvedRows);
-  const headers = resolveHeaders(resolvedRows, resolvedColumns, sheet);
+function addWorksheetContent(worksheet: ExcelJS.Worksheet, title: string, resolved: ResolvedSheetPayload) {
+  const resolvedRows = resolved.rows;
+  const resolvedColumns = resolveSheetColumns(resolved, resolvedRows);
+  const headers = resolveHeaders(resolved, resolvedRows, resolvedColumns);
   const dataRows = resolvedRows.length ? resolvedRows : [fallbackRow(headers)];
-  const columnCount = Math.max(headers.length, ...dataRows.map((row) => rowLength(row)), 1);
+  const columnCount = Math.max(headers.length, resolvedColumns.length, ...dataRows.map((row) => rowLength(row)), 1);
   const paddedHeaders = padHeaders(headers, columnCount);
   const columnKeys = Array.from({ length: columnCount }, (_, index) => resolvedColumns[index]?.key ?? `column_${index + 1}`);
 
@@ -100,41 +103,78 @@ function addWorksheetContent(worksheet: ExcelJS.Worksheet, title: string, sheet:
   for (let index = 0; index < columnCount; index += 1) {
     worksheet.getColumn(index + 1).width = Math.min(42, Math.max(12, (maxLengths[index] ?? 0) + 2));
   }
-
-  logDiagnostics({
-    title,
-    sheet,
-    resolvedRows,
-    resolvedColumns,
-    headers: paddedHeaders,
-    columnCount,
-    worksheet,
-  });
 }
 
-function resolveSheetRows(sheet: XlsxSheet): XlsxRowValue[] {
-  if (Array.isArray(sheet.rows)) return cloneRows(sheet.rows);
-  if (Array.isArray(sheet.data)) return cloneRows(sheet.data);
-  if (Array.isArray(sheet.values)) return cloneRows(sheet.values);
+type ResolvedSheetPayload = {
+  rows: XlsxRowValue[];
+  columns: NormalizedColumn[];
+  headers: string[];
+  source: 'rows' | 'data' | 'values' | 'sections' | 'empty';
+  sectionsCount: number;
+};
+
+function resolveSheetPayload(sheet: XlsxSheet): ResolvedSheetPayload {
+  if (Array.isArray(sheet.rows)) {
+    return {
+      rows: cloneRows(sheet.rows),
+      columns: resolveSheetColumnsFromExplicit(sheet.columns, sheet.headers, sheet.rows),
+      headers: resolveHeadersFromExplicit(sheet.headers, sheet.rows, sheet.columns),
+      source: 'rows',
+      sectionsCount: Array.isArray(sheet.sections) ? sheet.sections.length : 0,
+    };
+  }
+
+  if (Array.isArray(sheet.data)) {
+    return {
+      rows: cloneRows(sheet.data),
+      columns: resolveSheetColumnsFromExplicit(sheet.columns, sheet.headers, sheet.data),
+      headers: resolveHeadersFromExplicit(sheet.headers, sheet.data, sheet.columns),
+      source: 'data',
+      sectionsCount: Array.isArray(sheet.sections) ? sheet.sections.length : 0,
+    };
+  }
+
+  if (Array.isArray(sheet.values)) {
+    return {
+      rows: cloneRows(sheet.values),
+      columns: resolveSheetColumnsFromExplicit(sheet.columns, sheet.headers, sheet.values),
+      headers: resolveHeadersFromExplicit(sheet.headers, sheet.values, sheet.columns),
+      source: 'values',
+      sectionsCount: Array.isArray(sheet.sections) ? sheet.sections.length : 0,
+    };
+  }
 
   if (Array.isArray(sheet.sections)) {
-    return sheet.sections.flatMap((section) => {
+    const rows = sheet.sections.flatMap((section) => {
       const sectionRows = section.rows ?? section.data ?? section.values ?? [];
       const label = sanitizeText(String(section.title ?? section.name ?? '').trim());
       const cloned = cloneRows(sectionRows);
       if (!label) return cloned;
       return cloned.map((row) => (isPlainObject(row) ? { Section: label, ...row } : row));
     });
+    return {
+      rows,
+      columns: resolveSheetColumnsFromExplicit(sheet.columns, sheet.headers, rows),
+      headers: resolveHeadersFromExplicit(sheet.headers, rows, sheet.columns),
+      source: 'sections',
+      sectionsCount: sheet.sections.length,
+    };
   }
 
-  return [];
+  return {
+    rows: [],
+    columns: resolveSheetColumnsFromExplicit(sheet.columns, sheet.headers, []),
+    headers: resolveHeadersFromExplicit(sheet.headers, [], sheet.columns),
+    source: 'empty',
+    sectionsCount: 0,
+  };
 }
 
-function resolveSheetColumns(sheet: XlsxSheet, rows: XlsxRowValue[]): NormalizedColumn[] {
-  const source = Array.isArray(sheet.columns) && sheet.columns.length
-    ? sheet.columns
-    : Array.isArray(sheet.headers) && sheet.headers.length
-      ? sheet.headers
+function resolveSheetColumnsFromExplicit(columns: XlsxSheet['columns'], headers: XlsxSheet['headers'], rows: XlsxRowValue[]) {
+  const source = Array.isArray(columns) && columns.length
+    ? columns
+    : Array.isArray(headers) && headers.length
+      ? headers
       : [];
 
   if (source.length) return source.map((column, index) => normalizeColumn(column, index));
@@ -150,11 +190,27 @@ function resolveSheetColumns(sheet: XlsxSheet, rows: XlsxRowValue[]): Normalized
   return [{ header: 'Information', key: 'Information' }];
 }
 
-function resolveHeaders(rows: XlsxRowValue[], columns: NormalizedColumn[], sheet: XlsxSheet) {
-  if (columns.length) return columns.map((column) => column.header || column.key);
+function resolveHeadersFromExplicit(headers: XlsxSheet['headers'], rows: XlsxRowValue[], columns: XlsxSheet['columns']) {
+  if (Array.isArray(headers) && headers.length) return headers.filter(Boolean) as string[];
+  if (Array.isArray(columns) && columns.length) return columns.map((column, index) => normalizeColumn(column, index).header);
 
-  const legacyHeaders = Array.isArray(sheet.headers) ? sheet.headers.filter(Boolean) : [];
-  if (legacyHeaders.length) return legacyHeaders;
+  const objectHeaders = Array.from(new Set(rows.filter(isPlainObject).flatMap((row) => Object.keys(row as Record<string, unknown>))));
+  if (objectHeaders.length) return objectHeaders;
+
+  const arrayLength = rows.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0);
+  if (arrayLength > 0) return Array.from({ length: arrayLength }, (_, index) => `Colonne ${index + 1}`);
+
+  return ['Information'];
+}
+
+
+function resolveSheetColumns(sheet: ResolvedSheetPayload, rows: XlsxRowValue[]): NormalizedColumn[] {
+  return sheet.columns.length ? sheet.columns : resolveSheetColumnsFromExplicit(undefined, undefined, rows);
+}
+
+function resolveHeaders(sheet: ResolvedSheetPayload, rows: XlsxRowValue[], columns: NormalizedColumn[]) {
+  if (sheet.headers.length) return sheet.headers;
+  if (columns.length) return columns.map((column) => column.header || column.key);
 
   const headers = Array.from(new Set(rows.filter(isPlainObject).flatMap((row) => Object.keys(row as Record<string, unknown>))));
   if (headers.length) return headers;
@@ -241,42 +297,6 @@ function rowLength(row: XlsxRowValue) {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date);
-}
-
-function logDiagnostics(payload: {
-  title: string;
-  sheet: XlsxSheet;
-  resolvedRows: XlsxRowValue[];
-  resolvedColumns: NormalizedColumn[];
-  headers: string[];
-  columnCount: number;
-  worksheet: ExcelJS.Worksheet;
-}) {
-  if (!(globalThis as typeof globalThis & { __XLSX_EXPORT_DEBUG__?: boolean }).__XLSX_EXPORT_DEBUG__) return;
-
-  const firstRow = payload.resolvedRows[0];
-  const firstRowKeys = isPlainObject(firstRow) ? Object.keys(firstRow) : Array.isArray(firstRow) ? firstRow.map((_value, index) => String(index)) : [];
-
-  console.info('[XLSX runtime]', {
-    sheetName: payload.title,
-    sheetKeys: Object.keys(payload.sheet),
-    rowsIsArray: Array.isArray(payload.sheet.rows),
-    dataIsArray: Array.isArray(payload.sheet.data),
-    valuesIsArray: Array.isArray(payload.sheet.values),
-    rowsLength: payload.sheet.rows?.length ?? 0,
-    dataLength: payload.sheet.data?.length ?? 0,
-    valuesLength: payload.sheet.values?.length ?? 0,
-    sectionsLength: payload.sheet.sections?.length ?? 0,
-    resolvedRowsLength: payload.resolvedRows.length,
-    resolvedColumnsLength: payload.resolvedColumns.length,
-    headers: payload.headers,
-    firstRowType: Array.isArray(firstRow) ? 'array' : typeof firstRow,
-    firstRowKeys,
-    columnCount: payload.columnCount,
-    worksheetRowCount: payload.worksheet.rowCount,
-    worksheetActualRowCount: payload.worksheet.actualRowCount,
-    worksheetColumnCount: payload.worksheet.columnCount,
-  });
 }
 
 function sanitizeExcelValue(value: unknown): string | number | boolean | Date {
