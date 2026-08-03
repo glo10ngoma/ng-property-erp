@@ -55,15 +55,38 @@ vm.runInContext(compiled, context);
 const { exportXlsxWorkbook } = context.module.exports;
 
 const workbooks = [
-  ['immeubles.xlsx', [{ name: 'Immeubles', rows: [{ nom: 'Immeuble A', adresse: 'Kinshasa Centre', statut: 'Actif', valeur: 123.45 }] }]],
-  ['Locataires.xlsx', [{ name: 'Locataires', rows: [{ nom: 'Elise', telephone: '+243000000', email: 'test@example.com', actif: true }] }]],
-  ['Baux.xlsx', [{ name: 'Baux', rows: [{ reference: 'BAIL-2026-001', locataire: 'Marie Mukendi', debut: new Date('2026-07-17T00:00:00Z'), montant: 650 }] }]],
-  ['Situation.xlsx', [
-    { name: 'Informations', rows: [{ compte: 'Locataire', solde: 1000, actif: false, date: new Date('2026-08-03T10:00:00Z') }] },
-    { name: 'Timeline', rows: [{ date: new Date('2026-08-03T10:00:00Z'), evenement: 'Paiement', montant: 250 }] },
-    { name: 'Vide', rows: [] },
-  ]],
-  ['Bail.xlsx', [{ name: 'Informations', rows: [{ reference: 'BAIL-2026-XYZ', clause: 'Texte accentue, apostrophe, & et < >', date: new Date('2026-08-03T10:00:00Z') }] }]],
+  [
+    'immeubles.xlsx',
+    [
+      { name: 'Immeubles', rows: [{ nom: 'Immeuble A', adresse: 'Kinshasa Centre', statut: 'Actif', valeur: 123.45 }] },
+    ],
+  ],
+  [
+    'Locataires.xlsx',
+    [
+      { name: 'Locataires', rows: [{ nom: 'Elise', telephone: '+243000000', email: 'test@example.com', actif: true }] },
+    ],
+  ],
+  [
+    'Baux.xlsx',
+    [
+      { name: 'Baux', rows: [{ reference: 'BAIL-2026-001', locataire: 'Marie Mukendi', debut: new Date('2026-07-17T00:00:00Z'), montant: 650 }] },
+    ],
+  ],
+  [
+    'Situation.xlsx',
+    [
+      { name: 'Informations', columns: [{ header: 'Compte', key: 'compte' }, { header: 'Solde', key: 'solde' }], data: [{ compte: 'Locataire', solde: 1000 }] },
+      { name: 'Timeline', headers: ['Date', 'Evenement', 'Montant'], values: [['2026-08-03', 'Paiement', 250]] },
+      { name: 'Sections', sections: [{ title: 'Actifs', rows: [{ bail: 'BAIL-2026-001', statut: 'Actif' }] }, { title: 'Archives', rows: [{ bail: 'BAIL-2025-009', statut: 'Archive' }] }] },
+    ],
+  ],
+  [
+    'Bail.xlsx',
+    [
+      { name: 'Informations', rows: [{ reference: 'BAIL-2026-XYZ', clause: 'Texte accentue, apostrophe, & et < >', date: new Date('2026-08-03T10:00:00Z') }] },
+    ],
+  ],
 ];
 
 async function generate(filename, sheets) {
@@ -83,7 +106,21 @@ for (const file of files) {
   await workbook.xlsx.readFile(file);
   if (!workbook.worksheets.length) throw new Error(`No worksheets found in ${path.basename(file)}`);
   for (const sheet of workbook.worksheets) {
-    if (sheet.rowCount <= 0 || sheet.columnCount <= 0) throw new Error(`Empty sheet detected in ${path.basename(file)} / ${sheet.name}`);
+    const actualRowCount = sheet.actualRowCount ?? sheet.rowCount;
+    const actualColumnCount = sheet.actualColumnCount ?? sheet.columnCount;
+    if (sheet.rowCount <= 0 || actualRowCount <= 0 || actualColumnCount <= 0) {
+      throw new Error(`Empty sheet detected in ${path.basename(file)} / ${sheet.name}`);
+    }
+    let firstNonEmptyCell = null;
+    for (let rowNumber = 1; rowNumber <= actualRowCount && !firstNonEmptyCell; rowNumber += 1) {
+      for (let columnNumber = 1; columnNumber <= actualColumnCount; columnNumber += 1) {
+        const cell = sheet.getCell(rowNumber, columnNumber);
+        if (cell.value === null || cell.value === undefined || cell.value === '') continue;
+        firstNonEmptyCell = `${cell.address}:${String(cell.value)}`;
+        break;
+      }
+    }
+    if (!firstNonEmptyCell) throw new Error(`No non-empty cell found in ${path.basename(file)} / ${sheet.name}`);
   }
 }
 
