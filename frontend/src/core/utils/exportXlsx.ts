@@ -5,10 +5,29 @@ export type XlsxSheet = {
 
 export function exportXlsxWorkbook(filename: string, sheets: XlsxSheet[]) {
   const safeSheets = sheets.map((sheet, index) => ({
-    name: sanitizeSheetName(sheet.name || `Feuille ${index + 1}`),
+    name: sheet.name || `Feuille ${index + 1}`,
     title: sheet.name || `Feuille ${index + 1}`,
-    rows: sheet.rows.length ? sheet.rows : [{ Information: 'Aucune donnée' }],
+    rows: sheet.rows.length ? sheet.rows : [{ Information: 'Aucune donnee' }],
   }));
+
+  const usedNames = new Set<string>();
+  for (const sheet of safeSheets) {
+    const baseName = sanitizeSheetName(sheet.name);
+    let finalName = baseName;
+    let counter = 2;
+
+    while (usedNames.has(finalName)) {
+      const suffix = ` (${counter})`;
+      const maxBaseLength = Math.max(1, 31 - suffix.length);
+      finalName = `${baseName.slice(0, maxBaseLength)}${suffix}`;
+      counter += 1;
+    }
+
+    usedNames.add(finalName);
+    sheet.name = finalName;
+    sheet.title = sheet.title || finalName;
+  }
+
   const files: Array<{ path: string; content: string | Uint8Array }> = [
     { path: '[Content_Types].xml', content: contentTypes(safeSheets.length) },
     { path: '_rels/.rels', content: rootRels() },
@@ -22,12 +41,26 @@ export function exportXlsxWorkbook(filename: string, sheets: XlsxSheet[]) {
 }
 
 function worksheet(sheet: { title: string; rows: Array<Record<string, unknown>> }) {
-  const rows = sheet.rows;
-  const headers = Object.keys(rows[0] ?? { Information: 'Aucune donnée' });
-  const normalizedRows = rows.map((row) => headers.map((header) => sanitizeExcelValue(row[header])));
-  const allRows = [[sheet.title, ...Array(Math.max(headers.length - 1, 0)).fill('')], headers, ...normalizedRows];
-  const filterRef = `A2:${cellRef(headers.length, allRows.length)}`;
-  const cols = headers.map((header, index) => {
+  const rows = sheet.rows.length ? sheet.rows : [{ Information: 'Aucune donnee' }];
+  const rawHeaders = Array.from(
+    new Set(
+      rows.flatMap((row) => {
+        if (row && typeof row === 'object' && !(row instanceof Date)) return Object.keys(row);
+        return ['Information'];
+      }),
+    ),
+  );
+  const headers = rawHeaders.length ? rawHeaders : ['Information'];
+  const columnCount = Math.max(1, headers.length);
+  const normalizedRows = rows.map((row) =>
+    headers.map((header) => {
+      if (!row || typeof row !== 'object' || row instanceof Date) return '';
+      return sanitizeExcelValue(row[header]);
+    }),
+  );
+  const allRows = [[sheet.title, ...Array(Math.max(columnCount - 1, 0)).fill('')], headers, ...normalizedRows];
+  const filterRef = `A2:${cellRef(columnCount, allRows.length)}`;
+  const cols = headers.slice(0, columnCount).map((header, index) => {
     const width = Math.min(42, Math.max(12, ...allRows.map((row) => String(row[index] ?? '').length + 2)));
     return `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`;
   }).join('');
@@ -42,7 +75,7 @@ function worksheet(sheet: { title: string; rows: Array<Record<string, unknown>> 
     }).join('');
     return `<row r="${rowIndex + 1}">${cells}</row>`;
   }).join('');
-  const mergeCells = headers.length > 1 ? `<mergeCells count="1"><mergeCell ref="A1:${cellRef(headers.length, 1)}"/></mergeCells>` : '';
+  const mergeCells = headers.length > 1 ? `<mergeCells count="1"><mergeCell ref="A1:${cellRef(columnCount, 1)}"/></mergeCells>` : '';
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <sheetViews><sheetView workbookViewId="0"><pane ySplit="2" topLeftCell="A3" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
@@ -182,7 +215,11 @@ function xml(value: unknown) {
 }
 
 function sanitizeSheetName(name: string) {
-  return name.replace(/[\\/*?:[\]]/g, ' ').slice(0, 31);
+  const sanitized = name
+    .replace(/[\\/*?:[\]]/g, ' ')
+    .trim()
+    .slice(0, 31);
+  return sanitized || 'Feuille';
 }
 
 function sanitizeExcelValue(value: unknown): string | number {
