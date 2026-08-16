@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { NavLink } from 'react-router-dom';
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
+import { NavLink, useNavigate } from 'react-router-dom';
 import '../sales.css';
 
 export type SalesTabKey = 'overview' | 'buyers' | 'projects' | 'catalog';
@@ -167,15 +167,56 @@ export function SalesEntityCard({
   status,
   children,
   footer,
+  to,
+  onClick,
+  ariaLabel,
 }: {
   title: string;
   subtitle?: string;
   status?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
+  to?: string;
+  onClick?: () => void;
+  ariaLabel?: string;
 }) {
+  const navigate = useNavigate();
+  const interactive = Boolean(to || onClick);
+
+  const activate = () => {
+    if (to) {
+      navigate(to);
+      return;
+    }
+    onClick?.();
+  };
+
+  const handleClick = (event: MouseEvent<HTMLElement>) => {
+    if (!interactive) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('[data-row-action="true"]')) return;
+    activate();
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (!interactive) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('[data-row-action="true"]')) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      activate();
+    }
+  };
+
   return (
-    <article className="sales-v21-entity-card">
+    <article
+      className={['sales-v21-entity-card', interactive ? 'is-interactive' : ''].filter(Boolean).join(' ')}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      role={interactive ? 'link' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      aria-label={interactive ? ariaLabel ?? title : undefined}
+    >
       <div className="sales-v21-entity-head">
         <div>
           <h3>{title}</h3>
@@ -248,11 +289,30 @@ export function SalesDataTable<T>({
   columns,
   rows,
   rowKey,
+  rowHref,
+  onRowClick,
+  rowClassName,
+  rowAriaLabel,
 }: {
   columns: Array<{ key: string; label: string; render: (row: T) => ReactNode; className?: string }>;
   rows: T[];
   rowKey: (row: T) => string | number;
+  rowHref?: (row: T) => string | undefined;
+  onRowClick?: (row: T) => void;
+  rowClassName?: (row: T) => string | undefined;
+  rowAriaLabel?: (row: T) => string | undefined;
 }) {
+  const navigate = useNavigate();
+
+  const activateRow = (row: T) => {
+    const href = rowHref?.(row);
+    if (href) {
+      navigate(href);
+      return;
+    }
+    onRowClick?.(row);
+  };
+
   return (
     <div className="sales-v21-table-wrap">
       <table className="sales-v21-table">
@@ -266,15 +326,48 @@ export function SalesDataTable<T>({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={rowKey(row)}>
+          {rows.map((row) => {
+            const href = rowHref?.(row);
+            const interactive = Boolean(href || onRowClick);
+            const className = ['sales-v21-table-row', interactive ? 'is-interactive' : '', rowClassName?.(row) ?? '']
+              .filter(Boolean)
+              .join(' ');
+
+            const handleRowClick = (event: MouseEvent<HTMLTableRowElement>) => {
+              if (!interactive) return;
+              const target = event.target as HTMLElement | null;
+              if (target?.closest('[data-row-action="true"]')) return;
+              activateRow(row);
+            };
+
+            const handleRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>) => {
+              if (!interactive) return;
+              const target = event.target as HTMLElement | null;
+              if (target?.closest('[data-row-action="true"]')) return;
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                activateRow(row);
+              }
+            };
+
+            return (
+            <tr
+              key={rowKey(row)}
+              className={className}
+              onClick={handleRowClick}
+              onKeyDown={handleRowKeyDown}
+              role={interactive ? 'link' : undefined}
+              tabIndex={interactive ? 0 : undefined}
+              aria-label={interactive ? rowAriaLabel?.(row) : undefined}
+            >
               {columns.map((column) => (
                 <td key={column.key} className={column.className}>
                   {column.render(row)}
                 </td>
               ))}
             </tr>
-          ))}
+          );
+          })}
         </tbody>
       </table>
     </div>

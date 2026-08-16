@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ConfirmDialog } from '../../../core/components/ConfirmDialog';
+import { useAuth } from '../../../core/auth/AuthContext';
 import {
   archiveSalesBuyer,
   archiveSalesCatalogItem,
@@ -307,6 +308,10 @@ function getErrorMessage(error: unknown) {
   return 'Une erreur est survenue. Réessayez.';
 }
 
+function stopRowAction(event: { stopPropagation: () => void }) {
+  event.stopPropagation();
+}
+
 function validateBuyerForm(form: BuyerFormState) {
   const errors: Partial<Record<keyof BuyerFormState, string>> = {};
   if (!form.buyer_ref.trim()) errors.buyer_ref = 'La référence est obligatoire.';
@@ -532,6 +537,7 @@ export function SalesHomePage() {
 }
 
 export function SalesBuyersPage() {
+  const { can } = useAuth();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [buyers, setBuyers] = useState<SalesBuyer[]>([]);
@@ -574,6 +580,9 @@ export function SalesBuyersPage() {
     setBuyers(response.items);
   }
 
+  const canEditBuyers = can('sales_buyers.update');
+  const canArchiveBuyers = can('sales_buyers.archive');
+
   return (
     <SalesModulePage
       title="Acquéreurs"
@@ -614,13 +623,15 @@ export function SalesBuyersPage() {
             <SalesDataTable
               rowKey={(buyer) => buyer.id}
               rows={buyers}
+              rowHref={(buyer) => `/sales/buyers/${buyer.id}`}
+              rowAriaLabel={(buyer) => `Ouvrir le dossier acquéreur ${getBuyerLabel(buyer)}`}
               columns={[
                 {
                   key: 'identity',
                   label: 'Acquéreur',
                   render: (buyer) => (
-                    <div>
-                      <strong>{getBuyerLabel(buyer)}</strong>
+                    <div className="sales-v21-cell-stack">
+                      <strong className="sales-v21-cell-primary">{getBuyerLabel(buyer)}</strong>
                       <p className="sales-v21-cell-subtitle">{buyer.buyer_ref} ⬢ {BUYER_TYPE_LABELS[buyer.buyer_type] || buyer.buyer_type}</p>
                     </div>
                   ),
@@ -628,7 +639,12 @@ export function SalesBuyersPage() {
                 {
                   key: 'contact',
                   label: 'Coordonnées',
-                  render: (buyer) => <span>{getBuyerSecondary(buyer)}</span>,
+                  render: (buyer) => (
+                    <div className="sales-v21-cell-stack">
+                      <strong className="sales-v21-cell-primary">{formatOptional(buyer.phone)}</strong>
+                      <p className="sales-v21-cell-subtitle">{buyer.city || 'Ville non renseignée'}</p>
+                    </div>
+                  ),
                 },
                 {
                   key: 'status',
@@ -648,11 +664,29 @@ export function SalesBuyersPage() {
                   className: 'sales-v21-actions-cell',
                   render: (buyer) => (
                     <div className="sales-v21-table-actions">
-                      <Link className="sales-v21-btn sales-v21-btn-ghost" to={`/sales/buyers/${buyer.id}`}>Voir</Link>
-                      <Link className="sales-v21-btn sales-v21-btn-secondary" to={`/sales/buyers/${buyer.id}/edit`}>Modifier</Link>
-                      <button className="sales-v21-btn sales-v21-btn-danger" type="button" onClick={() => setPendingArchive({ scope: 'buyer', id: buyer.id, label: getBuyerLabel(buyer) })}>
-                        Archiver
-                      </button>
+                      {canEditBuyers ? (
+                        <Link
+                          className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact"
+                          to={`/sales/buyers/${buyer.id}/edit`}
+                          data-row-action="true"
+                          onClick={stopRowAction}
+                        >
+                          Modifier
+                        </Link>
+                      ) : null}
+                      {canArchiveBuyers && !buyer.archived_at ? (
+                        <button
+                          className="sales-v21-btn sales-v21-btn-danger sales-v21-btn-compact"
+                          type="button"
+                          data-row-action="true"
+                          onClick={(event) => {
+                            stopRowAction(event);
+                            setPendingArchive({ scope: 'buyer', id: buyer.id, label: getBuyerLabel(buyer) });
+                          }}
+                        >
+                          Archiver
+                        </button>
+                      ) : null}
                     </div>
                   ),
                 },
@@ -666,10 +700,33 @@ export function SalesBuyersPage() {
                   title={getBuyerLabel(buyer)}
                   subtitle={`${buyer.buyer_ref} ⬢ ${BUYER_TYPE_LABELS[buyer.buyer_type] || buyer.buyer_type}`}
                   status={<SalesStatusBadge label={BUYER_STATUS_LABELS[buyer.status] || buyer.status} tone={getStatusTone(buyer.status)} />}
+                  to={`/sales/buyers/${buyer.id}`}
+                  ariaLabel={`Ouvrir le dossier acquéreur ${getBuyerLabel(buyer)}`}
                   footer={
                     <div className="sales-v21-table-actions">
-                      <Link className="sales-v21-btn sales-v21-btn-ghost" to={`/sales/buyers/${buyer.id}`}>Voir</Link>
-                      <Link className="sales-v21-btn sales-v21-btn-secondary" to={`/sales/buyers/${buyer.id}/edit`}>Modifier</Link>
+                      {canEditBuyers ? (
+                        <Link
+                          className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact"
+                          to={`/sales/buyers/${buyer.id}/edit`}
+                          data-row-action="true"
+                          onClick={stopRowAction}
+                        >
+                          Modifier
+                        </Link>
+                      ) : null}
+                      {canArchiveBuyers && !buyer.archived_at ? (
+                        <button
+                          className="sales-v21-btn sales-v21-btn-danger sales-v21-btn-compact"
+                          type="button"
+                          data-row-action="true"
+                          onClick={(event) => {
+                            stopRowAction(event);
+                            setPendingArchive({ scope: 'buyer', id: buyer.id, label: getBuyerLabel(buyer) });
+                          }}
+                        >
+                          Archiver
+                        </button>
+                      ) : null}
                     </div>
                   }
                 >
@@ -915,6 +972,7 @@ export function SalesBuyerDetailPage() {
 }
 
 export function SalesProjectsPage() {
+  const { can } = useAuth();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [projects, setProjects] = useState<SalesProject[]>([]);
@@ -957,6 +1015,9 @@ export function SalesProjectsPage() {
     setProjects(response.items);
   }
 
+  const canEditProjects = can('sales_projects.update');
+  const canArchiveProjects = can('sales_projects.archive');
+
   return (
     <SalesModulePage
       title="Projets commerciaux"
@@ -990,13 +1051,15 @@ export function SalesProjectsPage() {
             <SalesDataTable
               rowKey={(project) => project.id}
               rows={projects}
+              rowHref={(project) => `/sales/projects/${project.id}`}
+              rowAriaLabel={(project) => `Ouvrir le détail du projet ${project.name}`}
               columns={[
                 {
                   key: 'project',
                   label: 'Projet',
                   render: (project) => (
-                    <div>
-                      <strong>{project.name}</strong>
+                    <div className="sales-v21-cell-stack">
+                      <strong className="sales-v21-cell-primary">{project.name}</strong>
                       <p className="sales-v21-cell-subtitle">{project.project_ref}</p>
                     </div>
                   ),
@@ -1009,7 +1072,12 @@ export function SalesProjectsPage() {
                 {
                   key: 'period',
                   label: 'Période',
-                  render: (project) => `${formatDate(project.launch_date)}  ·  ${formatDate(project.closing_date)}`,
+                  render: (project) => (
+                    <div className="sales-v21-cell-stack">
+                      <strong className="sales-v21-cell-primary">{formatDate(project.launch_date)}</strong>
+                      <p className="sales-v21-cell-subtitle">{formatDate(project.closing_date)}</p>
+                    </div>
+                  ),
                 },
                 {
                   key: 'status',
@@ -1022,11 +1090,29 @@ export function SalesProjectsPage() {
                   className: 'sales-v21-actions-cell',
                   render: (project) => (
                     <div className="sales-v21-table-actions">
-                      <Link className="sales-v21-btn sales-v21-btn-ghost" to={`/sales/projects/${project.id}`}>Voir</Link>
-                      <Link className="sales-v21-btn sales-v21-btn-secondary" to={`/sales/projects/${project.id}/edit`}>Modifier</Link>
-                      <button className="sales-v21-btn sales-v21-btn-danger" type="button" onClick={() => setPendingArchive({ scope: 'project', id: project.id, label: project.name })}>
-                        Archiver
-                      </button>
+                      {canEditProjects ? (
+                        <Link
+                          className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact"
+                          to={`/sales/projects/${project.id}/edit`}
+                          data-row-action="true"
+                          onClick={stopRowAction}
+                        >
+                          Modifier
+                        </Link>
+                      ) : null}
+                      {canArchiveProjects && !project.archived_at ? (
+                        <button
+                          className="sales-v21-btn sales-v21-btn-danger sales-v21-btn-compact"
+                          type="button"
+                          data-row-action="true"
+                          onClick={(event) => {
+                            stopRowAction(event);
+                            setPendingArchive({ scope: 'project', id: project.id, label: project.name });
+                          }}
+                        >
+                          Archiver
+                        </button>
+                      ) : null}
                     </div>
                   ),
                 },
@@ -1040,10 +1126,33 @@ export function SalesProjectsPage() {
                   title={project.name}
                   subtitle={project.project_ref}
                   status={<SalesStatusBadge label={PROJECT_STATUS_LABELS[project.status] || project.status} tone={getStatusTone(project.status)} />}
+                  to={`/sales/projects/${project.id}`}
+                  ariaLabel={`Ouvrir le détail du projet ${project.name}`}
                   footer={
                     <div className="sales-v21-table-actions">
-                      <Link className="sales-v21-btn sales-v21-btn-ghost" to={`/sales/projects/${project.id}`}>Voir</Link>
-                      <Link className="sales-v21-btn sales-v21-btn-secondary" to={`/sales/projects/${project.id}/edit`}>Modifier</Link>
+                      {canEditProjects ? (
+                        <Link
+                          className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact"
+                          to={`/sales/projects/${project.id}/edit`}
+                          data-row-action="true"
+                          onClick={stopRowAction}
+                        >
+                          Modifier
+                        </Link>
+                      ) : null}
+                      {canArchiveProjects && !project.archived_at ? (
+                        <button
+                          className="sales-v21-btn sales-v21-btn-danger sales-v21-btn-compact"
+                          type="button"
+                          data-row-action="true"
+                          onClick={(event) => {
+                            stopRowAction(event);
+                            setPendingArchive({ scope: 'project', id: project.id, label: project.name });
+                          }}
+                        >
+                          Archiver
+                        </button>
+                      ) : null}
                     </div>
                   }
                 >
@@ -1253,6 +1362,7 @@ export function SalesProjectDetailPage() {
 }
 
 export function SalesCatalogPage() {
+  const { can } = useAuth();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [catalog, setCatalog] = useState<SalesCatalogItem[]>([]);
@@ -1295,6 +1405,9 @@ export function SalesCatalogPage() {
     setCatalog(response.items);
   }
 
+  const canEditCatalog = can('sales_catalog.update');
+  const canArchiveCatalog = can('sales_catalog.archive');
+
   return (
     <SalesModulePage
       title="Biens à vendre"
@@ -1328,26 +1441,37 @@ export function SalesCatalogPage() {
             <SalesDataTable
               rowKey={(item) => item.id}
               rows={catalog}
+              rowHref={(item) => `/sales/catalog/${item.id}`}
+              rowAriaLabel={(item) => `Ouvrir le détail du bien ${item.title}`}
               columns={[
                 {
                   key: 'asset',
                   label: 'Bien',
                   render: (item) => (
-                    <div>
-                      <strong>{item.title}</strong>
+                    <div className="sales-v21-cell-stack">
+                      <strong className="sales-v21-cell-primary">{item.title}</strong>
                       <p className="sales-v21-cell-subtitle">{item.catalog_ref} ⬢ {item.property_type}</p>
                     </div>
                   ),
                 },
                 {
-                  key: 'context',
-                  label: 'Contexte',
+                  key: 'project',
+                  label: 'Projet',
                   render: (item) => (
-                    <span>
-                      {[item.project_name, item.building_name, item.unit_number ? `Unité ${item.unit_number}` : null, item.location_label]
-                        .filter(Boolean)
-                        .join(' ⬢ ') || 'Donnée non disponible'}
-                    </span>
+                    <div className="sales-v21-cell-stack">
+                      <strong className="sales-v21-cell-primary">{item.project_name || 'Donnée non disponible'}</strong>
+                      <p className="sales-v21-cell-subtitle">{item.location_label || 'Localisation non renseignée'}</p>
+                    </div>
+                  ),
+                },
+                {
+                  key: 'type-surface',
+                  label: 'Type / surface',
+                  render: (item) => (
+                    <div className="sales-v21-cell-stack">
+                      <strong className="sales-v21-cell-primary">{item.property_type}</strong>
+                      <p className="sales-v21-cell-subtitle">{item.surface_area ? `${item.surface_area} m²` : 'Surface non renseignée'}</p>
+                    </div>
                   ),
                 },
                 {
@@ -1371,11 +1495,29 @@ export function SalesCatalogPage() {
                   className: 'sales-v21-actions-cell',
                   render: (item) => (
                     <div className="sales-v21-table-actions">
-                      <Link className="sales-v21-btn sales-v21-btn-ghost" to={`/sales/catalog/${item.id}`}>Voir</Link>
-                      <Link className="sales-v21-btn sales-v21-btn-secondary" to={`/sales/catalog/${item.id}/edit`}>Modifier</Link>
-                      <button className="sales-v21-btn sales-v21-btn-danger" type="button" onClick={() => setPendingArchive({ scope: 'catalog', id: item.id, label: item.title })}>
-                        Archiver
-                      </button>
+                      {canEditCatalog ? (
+                        <Link
+                          className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact"
+                          to={`/sales/catalog/${item.id}/edit`}
+                          data-row-action="true"
+                          onClick={stopRowAction}
+                        >
+                          Modifier
+                        </Link>
+                      ) : null}
+                      {canArchiveCatalog && !item.archived_at ? (
+                        <button
+                          className="sales-v21-btn sales-v21-btn-danger sales-v21-btn-compact"
+                          type="button"
+                          data-row-action="true"
+                          onClick={(event) => {
+                            stopRowAction(event);
+                            setPendingArchive({ scope: 'catalog', id: item.id, label: item.title });
+                          }}
+                        >
+                          Archiver
+                        </button>
+                      ) : null}
                     </div>
                   ),
                 },
@@ -1389,10 +1531,33 @@ export function SalesCatalogPage() {
                   title={item.title}
                   subtitle={`${item.catalog_ref} ⬢ ${item.property_type}`}
                   status={<SalesStatusBadge label={CATALOG_STATUS_LABELS[item.commercial_status] || item.commercial_status} tone={getStatusTone(item.commercial_status)} />}
+                  to={`/sales/catalog/${item.id}`}
+                  ariaLabel={`Ouvrir le détail du bien ${item.title}`}
                   footer={
                     <div className="sales-v21-table-actions">
-                      <Link className="sales-v21-btn sales-v21-btn-ghost" to={`/sales/catalog/${item.id}`}>Voir</Link>
-                      <Link className="sales-v21-btn sales-v21-btn-secondary" to={`/sales/catalog/${item.id}/edit`}>Modifier</Link>
+                      {canEditCatalog ? (
+                        <Link
+                          className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact"
+                          to={`/sales/catalog/${item.id}/edit`}
+                          data-row-action="true"
+                          onClick={stopRowAction}
+                        >
+                          Modifier
+                        </Link>
+                      ) : null}
+                      {canArchiveCatalog && !item.archived_at ? (
+                        <button
+                          className="sales-v21-btn sales-v21-btn-danger sales-v21-btn-compact"
+                          type="button"
+                          data-row-action="true"
+                          onClick={(event) => {
+                            stopRowAction(event);
+                            setPendingArchive({ scope: 'catalog', id: item.id, label: item.title });
+                          }}
+                        >
+                          Archiver
+                        </button>
+                      ) : null}
                     </div>
                   }
                 >
