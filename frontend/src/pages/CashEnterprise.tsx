@@ -1,4 +1,4 @@
-﻿import { ArrowLeft, Eye, FileSpreadsheet, Pencil, Printer } from 'lucide-react';
+import { ArrowLeft, Eye, FileSpreadsheet, Pencil, Printer } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, includesText, shortDate } from '../api';

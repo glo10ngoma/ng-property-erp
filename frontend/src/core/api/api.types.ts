@@ -25,6 +25,7 @@ export type AuthUser = {
   organization_slug?: string;
   created_at?: string | null;
   last_login_at?: string | null;
+  active_modules?: string[];
   organizations?: Array<{
     organization_id: number;
     organization_name: string;

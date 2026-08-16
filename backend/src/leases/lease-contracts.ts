@@ -1,4 +1,4 @@
-﻿import * as fs from 'fs';
+import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { BadRequestException } from '@nestjs/common';
@@ -39,7 +39,7 @@ const DOCX_TEMPLATE_CANDIDATES = [
   path.resolve(process.cwd(), 'templates', 'leases', DOCX_TEMPLATE_NAME),
   path.resolve(__dirname, '..', '..', 'templates', 'leases', DOCX_TEMPLATE_NAME),
 ];
-const DOCX_TEMPLATE_FORBIDDEN_SEQUENCES = ['ÃƒÆ’', 'Ãƒâ€š', 'Ã¢â‚¬â„¢', 'Ã¢â‚¬Å“', 'Ã¢â‚¬\u009d', 'Ã¯Â¿Â½'];
+const DOCX_TEMPLATE_FORBIDDEN_SEQUENCES = ['\u00c3\u0192\u00c6\u2019', '\u00c3\u0192\u00e2\u20ac\u0161', '\u00c3\u00a2\u00e2\u201a\u00ac\u00e2\u201e\u00a2', '\u00c3\u00a2\u00e2\u201a\u00ac\u00c5\u201c', '\u00c3\u00a2\u00e2\u201a\u00ac\u009d', '\u00c3\u00af\u00c2\u00bf\u00c2\u00bd'];
 
 const winAnsiMap: Record<string, number> = {
   '\u20ac': 128,

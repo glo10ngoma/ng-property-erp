@@ -1,4 +1,4 @@
-﻿import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { ForbiddenException, forwardRef, HttpException, Inject, InternalServerErrorException, Logger } from '@nestjs/common';
 import { NotFoundException } from '@nestjs/common';
@@ -4288,7 +4288,7 @@ export class SaasService {
       );
       const row = history.rows[0] ?? {};
       if (row.has_movements || row.has_inventory || row.has_purchases || row.has_documents) {
-        throw new ConflictException("Cet article possÃ¨de un historique et ne peut pas Ãªtre supprimÃ©. Vous pouvez le dÃ©sactiver.");
+        throw new ConflictException("Cet article possède un historique et ne peut pas être supprimé. Vous pouvez le désactiver.");
       }
 
       await client.query(`DELETE FROM stock_items WHERE id = $1 AND organization_id = $2`, [id, this.context.organizationId()]);
@@ -5466,7 +5466,7 @@ export class SaasService {
       );
       const row = requireRow(inventory.rows[0], 'Inventory');
       if (row.status === 'VALIDATED' || row.status === 'CANCELLED') {
-        throw new BadRequestException('Cet inventaire est verrouillÃ©');
+        throw new BadRequestException('Cet inventaire est verrouillé');
       }
       const lines = Array.isArray(body.lines) ? body.lines as Array<Record<string, unknown>> : [];
       let counted = 0;
@@ -13251,14 +13251,14 @@ export class SaasService {
     const alerts = await this.stockAlerts();
     const purchases = await this.stockPurchases();
     const byCategory = Object.values(items.reduce((acc: Record<string, { category: string; quantity: number; value: number }>, item) => {
-      const key = String(item.category ?? 'Sans catÃ©gorie');
+      const key = String(item.category ?? 'Sans catégorie');
       acc[key] ??= { category: key, quantity: 0, value: 0 };
       acc[key].quantity += Number(item.current_quantity ?? 0);
       acc[key].value += Number(item.current_quantity ?? 0) * Number(item.average_purchase_price ?? item.purchase_price ?? 0);
       return acc;
     }, {}));
     const byStore = Object.values(items.reduce((acc: Record<string, { store: string; quantity: number; value: number }>, item) => {
-      const key = String(item.store ?? 'Non renseignÃ©');
+      const key = String(item.store ?? 'Non renseigné');
       acc[key] ??= { store: key, quantity: 0, value: 0 };
       acc[key].quantity += Number(item.current_quantity ?? 0);
       acc[key].value += Number(item.current_quantity ?? 0) * Number(item.average_purchase_price ?? item.purchase_price ?? 0);
@@ -13529,7 +13529,7 @@ export class SaasService {
     );
     const message = level === 'OUT_OF_STOCK'
       ? `L'article ${item.name} est en rupture de stock.`
-      : `L'article ${item.name} est sous le seuil de sÃ©curitÃ©. Stock actuel : ${quantity} ${item.unit}. Seuil : ${minimum}.`;
+      : `L'article ${item.name} est sous le seuil de sécurité. Stock actuel : ${quantity} ${item.unit}. Seuil : ${minimum}.`;
     const responsible = await client.query(
       `SELECT id, email FROM app_users
        WHERE organization_id = $1 AND deleted_at IS NULL AND status = 'ACTIVE'

@@ -54,6 +54,8 @@ export class OrganizationAccessService {
       platformRole,
       user.organization_id ?? undefined,
     );
+    const permissions = permissionSetForRole(platformRole ?? activeOrganization.role_code);
+    const activeModules = await this.loadActiveModules(activeOrganization.organization_id);
 
     return {
       sub: user.id,
@@ -64,7 +66,8 @@ export class OrganizationAccessService {
       organization_id: activeOrganization.organization_id,
       organization_name: activeOrganization.organization_name,
       organization_slug: activeOrganization.organization_slug,
-      permissions: permissionSetForRole(platformRole ?? activeOrganization.role_code),
+      permissions,
+      active_modules: activeModules,
       organizations: memberships,
     };
   }
@@ -86,8 +89,27 @@ export class OrganizationAccessService {
       created_at: user?.created_at ?? null,
       last_login_at: null,
       organizations: context.organizations,
+      active_modules: context.active_modules,
       permissions: context.permissions,
     };
+  }
+
+  private async loadActiveModules(organizationId: number) {
+    try {
+      const { rows } = await this.db.query<{ module_code: string }>(
+        `SELECT module_code
+         FROM organization_modules
+         WHERE organization_id = $1 AND is_enabled = TRUE
+         ORDER BY module_code ASC`,
+        [organizationId],
+      );
+      return rows.map((row) => String(row.module_code).trim().toUpperCase());
+    } catch (error: any) {
+      if (error?.code === '42P01') {
+        return [];
+      }
+      throw error;
+    }
   }
 
   private async findUser(userId: number) {

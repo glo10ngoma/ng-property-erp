@@ -1,4 +1,4 @@
-﻿import { ArrowLeft, FileSpreadsheet, Mail, MessageCircle, Pencil, Printer, Smartphone, Trash2, Wallet } from 'lucide-react';
+import { ArrowLeft, FileSpreadsheet, Mail, MessageCircle, Pencil, Printer, Smartphone, Trash2, Wallet } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, exportXlsxWorkbook, money, paymentMethodLabel, shortDate } from '../api';

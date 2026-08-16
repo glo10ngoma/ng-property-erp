@@ -16,6 +16,7 @@ import { EmailModule } from './email/email.module';
 import { HealthModule } from './health/health.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { PaymentsModule } from './payments/payments.module';
+import { SalesModule } from './sales/sales.module';
 import { SaasModule } from './saas/saas.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { UnitsModule } from './units/units.module';
@@ -36,6 +37,7 @@ import { UnitsModule } from './units/units.module';
     TenantsModule,
     InvoicesModule,
     PaymentsModule,
+    SalesModule,
     SaasModule,
     AutomationsModule,
   ],

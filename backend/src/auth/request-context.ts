@@ -12,6 +12,7 @@ export type AuthPayload = {
   organization_name?: string | null;
   organization_slug?: string | null;
   permissions: string[];
+  active_modules?: string[];
   organizations?: UserOrganizationMembership[];
 };
 

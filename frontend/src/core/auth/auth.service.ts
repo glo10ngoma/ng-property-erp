@@ -10,13 +10,12 @@ export type LoginResponse = {
 
 export async function login(email: string, password: string) {
   const response = await api.post<LoginResponse>(endpoints.auth.login, { email, password });
-  persistSession(response.data.token, response.data.user);
   return response.data;
 }
 
 export async function me() {
-  const response = await api.get<AuthUser & { organization_id: number }>('/auth/me');
-  return response.data;
+  const response = await api.get<{ user?: AuthUser } | AuthUser>('/auth/me');
+  return ((response.data as { user?: AuthUser }).user ?? response.data) as AuthUser;
 }
 
 export async function switchOrganization(organizationId: number) {
@@ -39,20 +38,16 @@ export async function logoutRequest() {
   await api.post('/auth/logout');
 }
 
-export function persistSession(token: string, user: AuthUser) {
+export function persistSession(token: string, user: AuthUser, options?: { activeOrganizationId?: number | null }) {
   localStorage.setItem(appConfig.tokenStorageKey, token);
   localStorage.setItem(appConfig.userStorageKey, JSON.stringify(user));
-  if (user.organization_id) {
-    localStorage.setItem(appConfig.activeOrganizationStorageKey, String(user.organization_id));
-  }
+  writeOrganizationStorage(options?.activeOrganizationId ?? user.organization_id ?? null);
   setAuthToken(token);
 }
 
-export function persistUser(user: AuthUser) {
+export function persistUser(user: AuthUser, options?: { activeOrganizationId?: number | null }) {
   localStorage.setItem(appConfig.userStorageKey, JSON.stringify(user));
-  if (user.organization_id) {
-    localStorage.setItem(appConfig.activeOrganizationStorageKey, String(user.organization_id));
-  }
+  writeOrganizationStorage(options?.activeOrganizationId ?? user.organization_id ?? null);
 }
 
 export function readSession() {
@@ -82,11 +77,7 @@ export function readActiveOrganizationId() {
 }
 
 export function writeActiveOrganizationId(organizationId: number | null) {
-  if (!organizationId) {
-    localStorage.removeItem(appConfig.activeOrganizationStorageKey);
-    return;
-  }
-  localStorage.setItem(appConfig.activeOrganizationStorageKey, String(organizationId));
+  writeOrganizationStorage(organizationId);
 }
 
 export function readSessionStartedAt() {
@@ -117,6 +108,50 @@ export function writeOrganizationSelectionRequired(required: boolean) {
   localStorage.setItem(appConfig.organizationSelectionRequiredStorageKey, 'true');
 }
 
+export function canAccessSales(user: AuthUser | null) {
+  if (!user) return false;
+  const activeModules = user.active_modules ?? [];
+  const permissions = user.permissions ?? [];
+  return activeModules.includes('SALES') && (permissions.includes('*') || permissions.includes('sales.read'));
+}
+
+export function resolvePostAuthDestination(user: AuthUser | null, preferredPath?: string | null) {
+  const sanitizedPreferredPath = preferredPath && !['/', '/login', '/select-organization'].includes(preferredPath)
+    ? preferredPath
+    : null;
+
+  if (sanitizedPreferredPath) {
+    if (!sanitizedPreferredPath.startsWith('/sales') || canAccessSales(user)) {
+      return sanitizedPreferredPath;
+    }
+  }
+
+  if (canAccessSales(user)) return '/sales';
+
+  const permissions = user?.permissions ?? [];
+  const hasPermission = (permission: string) => permissions.includes('*') || permissions.includes(permission);
+
+  const fallbackRoutes: Array<{ path: string; permission: string | null }> = [
+    { path: '/dashboard', permission: 'dashboard.read' },
+    { path: '/activity', permission: 'activity.read' },
+    { path: '/buildings', permission: 'buildings.read' },
+    { path: '/rental-units', permission: 'units.read' },
+    { path: '/tenants', permission: 'tenants.read' },
+    { path: '/leases', permission: 'documents.read' },
+    { path: '/invoices', permission: 'invoices.read' },
+    { path: '/payments', permission: 'payments.read' },
+    { path: '/cash', permission: 'cash.read' },
+    { path: '/maintenance/dashboard', permission: 'maintenance.read' },
+    { path: '/stock', permission: 'stock.read' },
+    { path: '/reports', permission: 'reports.read' },
+    { path: '/settings', permission: 'settings.read' },
+    { path: '/profile', permission: null },
+  ];
+
+  const firstAllowed = fallbackRoutes.find((candidate) => !candidate.permission || hasPermission(candidate.permission));
+  return firstAllowed?.path ?? '/unauthorized';
+}
+
 function readNumberStorageValue(key: string) {
   const stored = localStorage.getItem(key);
   if (!stored) return null;
@@ -130,4 +165,12 @@ function writeNumberStorageValue(key: string, value: number | null) {
     return;
   }
   localStorage.setItem(key, String(Math.round(value)));
+}
+
+function writeOrganizationStorage(organizationId: number | null) {
+  if (!organizationId) {
+    localStorage.removeItem(appConfig.activeOrganizationStorageKey);
+    return;
+  }
+  localStorage.setItem(appConfig.activeOrganizationStorageKey, String(organizationId));
 }

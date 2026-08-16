@@ -1,0 +1,1 @@
+export { SalesHomePage } from './SalesPages';

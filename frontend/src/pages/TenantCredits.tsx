@@ -1,4 +1,4 @@
-﻿import { AlertCircle, ArrowLeft, Ban, FileText, Mail, Plus, Printer, RefreshCw, Search, Wallet, X } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Ban, FileText, Mail, Plus, Printer, RefreshCw, Search, Wallet, X } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
