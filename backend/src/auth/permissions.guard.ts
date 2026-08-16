@@ -1,6 +1,9 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
 import { createHmac } from 'crypto';
+import { ORGANIZATION_MODULE_METADATA_KEY } from '../sales/sales-module.decorator';
+import { OrganizationModulesService } from '../sales/organization-modules.service';
 import { OrganizationAccessService } from './organization-access.service';
 import { AuthPayload } from './request-context';
 
@@ -49,6 +52,7 @@ const routePermissions: Array<[RegExp, string]> = [
   [/^\/api\/reference-data/, 'reference_data'],
   [/^\/api\/reports/, 'reports'],
   [/^\/api\/leases/, 'documents'],
+  [/^\/api\/sales(?:\/|$)/, 'sales'],
 ];
 
 @Injectable()
@@ -57,6 +61,8 @@ export class PermissionsGuard implements CanActivate {
 
   constructor(
     private readonly organizationAccess: OrganizationAccessService,
+    private readonly organizationModules: OrganizationModulesService,
+    private readonly reflector: Reflector,
     config: ConfigService,
   ) {
     this.jwtSecret = config.get<string>('JWT_SECRET') ?? 'local-demo-secret';
@@ -80,6 +86,20 @@ export class PermissionsGuard implements CanActivate {
 
     if (!tokenPayload.organization_confirmed && !this.isPreSelectionRoute(request.path)) {
       throw new ForbiddenException('Sélectionnez une organisation pour terminer la connexion.');
+    }
+
+    const requiredModule = this.reflector.getAllAndOverride<string>(ORGANIZATION_MODULE_METADATA_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (requiredModule) {
+      const enabled = await this.organizationModules.isEnabledForOrganization(user.organization_id, requiredModule);
+      if (!enabled) {
+        throw new ForbiddenException({
+          code: 'MODULE_NOT_ENABLED',
+          message: `Module ${requiredModule} is not enabled for the current organization.`,
+        });
+      }
     }
 
     const permission = this.permissionFor(request.path, request.method);
@@ -113,6 +133,42 @@ export class PermissionsGuard implements CanActivate {
   }
 
   private permissionFor(path: string, method: string) {
+    if (/^\/api\/sales\/bootstrap$/.test(path)) {
+      return 'sales.read';
+    }
+    if (/^\/api\/sales\/settings$/.test(path)) {
+      return method === 'GET' ? 'sales.settings.read' : 'sales.settings.manage';
+    }
+    if (/^\/api\/sales\/buyers\/\d+\/archive$/.test(path)) {
+      return 'sales_buyers.archive';
+    }
+    if (/^\/api\/sales\/buyers\/\d+$/.test(path)) {
+      return method === 'GET' ? 'sales_buyers.read' : 'sales_buyers.update';
+    }
+    if (/^\/api\/sales\/buyers$/.test(path)) {
+      return method === 'GET' ? 'sales_buyers.read' : 'sales_buyers.create';
+    }
+    if (/^\/api\/sales\/projects\/\d+\/archive$/.test(path)) {
+      return 'sales_projects.archive';
+    }
+    if (/^\/api\/sales\/projects\/\d+$/.test(path)) {
+      return method === 'GET' ? 'sales_projects.read' : 'sales_projects.update';
+    }
+    if (/^\/api\/sales\/projects$/.test(path)) {
+      return method === 'GET' ? 'sales_projects.read' : 'sales_projects.create';
+    }
+    if (/^\/api\/sales\/catalog\/\d+\/archive$/.test(path)) {
+      return 'sales_catalog.archive';
+    }
+    if (/^\/api\/sales\/catalog\/\d+\/status$/.test(path)) {
+      return 'sales_catalog.update';
+    }
+    if (/^\/api\/sales\/catalog\/\d+$/.test(path)) {
+      return method === 'GET' ? 'sales_catalog.read' : 'sales_catalog.update';
+    }
+    if (/^\/api\/sales\/catalog$/.test(path)) {
+      return method === 'GET' ? 'sales_catalog.read' : 'sales_catalog.create';
+    }
     if (/^\/api\/bank-dashboard/.test(path)) {
       return 'bank_accounts.read';
     }
@@ -242,6 +298,7 @@ export class PermissionsGuard implements CanActivate {
     }
     const resource = routePermissions.find(([pattern]) => pattern.test(path))?.[1];
     if (!resource) return undefined;
+    if (resource === 'sales') return 'sales.read';
     if (resource === 'reports') return method === 'GET' ? 'reports.read' : 'reports.export';
     if (resource === 'maintenance') {
       if (method === 'GET') return 'maintenance.read';

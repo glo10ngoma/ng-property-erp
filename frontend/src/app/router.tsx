@@ -2,6 +2,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from '../core/layout/AppLayout';
 import { PermissionGuard } from '../core/auth/PermissionGuard';
 import { ProtectedRoute } from '../core/auth/ProtectedRoute';
+import { useAuth } from '../core/auth/AuthContext';
+import { resolvePostAuthDestination } from '../core/auth/auth.service';
 import { PlatformRoute, SuperAdminRoute } from '../core/auth/PlatformRoute';
 import { ActivityPage } from '../modules/activity/pages/ActivityPage';
 import { BuildingsPage } from '../modules/buildings/pages/BuildingsPage';
@@ -16,6 +18,19 @@ import { MaintenanceDetailPage, MaintenancePage } from '../modules/maintenance/p
 import { PaymentsPage } from '../modules/payments/pages/PaymentsPage';
 import { RentalUnitsPage } from '../modules/rental-units/pages/RentalUnitsPage';
 import { ReportsPage } from '../modules/reports/pages/ReportsPage';
+import { SalesModuleGuard } from '../modules/sales/components/SalesModuleGuard';
+import {
+  SalesBuyerDetailPage,
+  SalesBuyerFormPage,
+  SalesBuyersPage,
+  SalesCatalogDetailPage,
+  SalesCatalogFormPage,
+  SalesCatalogPage,
+  SalesHomePage,
+  SalesProjectDetailPage,
+  SalesProjectFormPage,
+  SalesProjectsPage,
+} from '../modules/sales/pages/SalesPages';
 import { ModulePlaceholder } from '../modules/shared/ModulePlaceholder';
 import { SettingsPage } from '../modules/settings/pages/SettingsPage';
 import { AdvancesPage, AttendanceMonthlyEntryPage, AttendancePage, ContractsPage, EmployeeDetailPage, EmployeesPage, HrReportsPage, LeavesPage, PayrollDetailPage, PayrollPage, PositionsPage, ServicesPage, StaffPage } from '../modules/staff/pages/StaffPage';
@@ -69,6 +84,16 @@ const guarded = (permission: string, element: JSX.Element) => (
   <PermissionGuard permission={permission}>{element}</PermissionGuard>
 );
 
+const salesGuarded = (element: JSX.Element) => (
+  <SalesModuleGuard>{element}</SalesModuleGuard>
+);
+
+const salesPermissionGuarded = (permission: string, element: JSX.Element) => (
+  <SalesModuleGuard>
+    <PermissionGuard permission={permission}>{element}</PermissionGuard>
+  </SalesModuleGuard>
+);
+
 export function AppRouter() {
   return (
     <Routes>
@@ -90,7 +115,7 @@ export function AppRouter() {
           </Route>
         </Route>
         <Route element={<AppLayout />}>
-          <Route index element={<Navigate to="/activity" replace />} />
+          <Route index element={<AuthLandingRedirect />} />
           <Route path="/dashboard" element={guarded('dashboard.read', <DashboardPage />)} />
           <Route path="/activity" element={guarded('activity.read', <ActivityPage />)} />
           <Route path="/buildings" element={guarded('buildings.read', <BuildingsPage />)} />
@@ -170,15 +195,43 @@ export function AppRouter() {
           <Route path="/documents" element={guarded('documents.read', <DocumentsPage />)} />
           <Route path="/communications" element={guarded('communication.read', <CommunicationsPage />)} />
           <Route path="/workflows" element={guarded('workflow.read', <WorkflowsPage />)} />
+          <Route path="/sales" element={salesGuarded(<SalesHomePage />)} />
+          <Route path="/sales/buyers" element={salesGuarded(<SalesBuyersPage />)} />
+          <Route path="/sales/buyers/new" element={salesPermissionGuarded('sales_buyers.create', <SalesBuyerFormPage />)} />
+          <Route path="/sales/buyers/:id" element={salesGuarded(<SalesBuyerDetailPage />)} />
+          <Route path="/sales/buyers/:id/edit" element={salesPermissionGuarded('sales_buyers.update', <SalesBuyerFormPage />)} />
+          <Route path="/sales/projects" element={salesGuarded(<SalesProjectsPage />)} />
+          <Route path="/sales/projects/new" element={salesPermissionGuarded('sales_projects.create', <SalesProjectFormPage />)} />
+          <Route path="/sales/projects/:id" element={salesGuarded(<SalesProjectDetailPage />)} />
+          <Route path="/sales/projects/:id/edit" element={salesPermissionGuarded('sales_projects.update', <SalesProjectFormPage />)} />
+          <Route path="/sales/catalog" element={salesGuarded(<SalesCatalogPage />)} />
+          <Route path="/sales/catalog/new" element={salesPermissionGuarded('sales_catalog.create', <SalesCatalogFormPage />)} />
+          <Route path="/sales/catalog/:id" element={salesGuarded(<SalesCatalogDetailPage />)} />
+          <Route path="/sales/catalog/:id/edit" element={salesPermissionGuarded('sales_catalog.update', <SalesCatalogFormPage />)} />
           <Route element={<SuperAdminRoute />}>
             <Route path="/users" element={guarded('users.read', <UsersPage />)} />
           </Route>
           <Route path="/settings" element={guarded('settings.read', <SettingsPage />)} />
+          <Route path="/unauthorized" element={<UnauthorizedPage />} />
         </Route>
       </Route>
       <Route path="/app/*" element={<ClientAppRedirect />} />
       <Route path="*" element={<Navigate to="/activity" replace />} />
     </Routes>
+  );
+}
+
+function AuthLandingRedirect() {
+  const { user } = useAuth();
+  return <Navigate to={resolvePostAuthDestination(user)} replace />;
+}
+
+function UnauthorizedPage() {
+  return (
+    <section className="module-placeholder">
+      <h1>Accès non autorisé</h1>
+      <p>Vous n’avez accès à aucun module disponible pour cette organisation.</p>
+    </section>
   );
 }
 

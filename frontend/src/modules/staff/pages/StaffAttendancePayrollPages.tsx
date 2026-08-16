@@ -1,4 +1,4 @@
-﻿import { ArrowLeft, Eye, FileSpreadsheet, Plus, Printer, RotateCcw, WalletCards } from 'lucide-react';
+import { ArrowLeft, Eye, FileSpreadsheet, Plus, Printer, RotateCcw, WalletCards } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { api, exportXlsxWorkbook, includesText, money } from '../../../api';
 import { useAuth } from '../../../auth';

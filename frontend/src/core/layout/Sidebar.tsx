@@ -1,4 +1,4 @@
-﻿import {
+import {
   Activity,
   Archive,
   Boxes,
@@ -12,6 +12,7 @@
   Gauge,
   Home,
   Layers,
+  LineChart,
   MessageSquare,
   ReceiptText,
   ScrollText,
@@ -37,6 +38,7 @@ type NavLinkItem = {
   label: string;
   icon: LucideIcon;
   permission?: string;
+  moduleCode?: string;
   soon?: boolean;
   superAdminOnly?: boolean;
 };
@@ -102,6 +104,13 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: 'Commercial',
+    icon: LineChart,
+    items: [
+      { to: '/sales', label: 'Ventes immobilières', icon: LineChart, permission: 'sales.read', moduleCode: 'SALES' },
+    ],
+  },
+  {
     label: 'Opérations',
     icon: Wrench,
     items: [
@@ -145,10 +154,20 @@ const navGroups: NavGroup[] = [
 const defaultOpenGroups = ['Tableau de bord', 'Gestion immobilière', 'Finance', 'Opérations', 'Ressources humaines'];
 
 export function Sidebar() {
-  const { can, user } = useAuth();
+  const { can, user, hasModule } = useAuth();
   const location = useLocation();
   const paymentsBranding = getPaymentsBranding(user?.organization_id);
+  const canAccessSales = Boolean(
+    user?.active_modules?.includes('SALES')
+    && (user.permissions.includes('sales.read') || user.permissions.includes('*')),
+  );
   const hasPermission = (permission?: string) => !permission || can(permission);
+  const hasRequiredModule = (moduleCode?: string, permission?: string) => {
+    if (moduleCode === 'SALES' || permission === 'sales.read') {
+      return canAccessSales;
+    }
+    return !moduleCode || hasModule(moduleCode);
+  };
   const superAdmin = isPlatformSuperAdmin(user);
   const [openGroups, setOpenGroups] = useState<string[]>(() => {
     if (typeof window === 'undefined') return defaultOpenGroups;
@@ -167,10 +186,10 @@ export function Sidebar() {
       navGroups
         .map((group) => ({
           ...group,
-          items: filterEntries(group.items, hasPermission, superAdmin),
+          items: filterEntries(group.items, hasPermission, hasRequiredModule, superAdmin),
         }))
         .filter((group) => group.items.length > 0),
-    [can, superAdmin],
+    [canAccessSales, can, hasModule, superAdmin],
   );
 
   const requiredOpenGroups = useMemo(
@@ -307,11 +326,16 @@ function SidebarLink({ item, pathname, nested = false, paymentsLabel }: { item: 
   );
 }
 
-function filterEntries(entries: NavEntry[], can: (permission?: string) => boolean, superAdmin: boolean): NavEntry[] {
+function filterEntries(
+  entries: NavEntry[],
+  can: (permission?: string) => boolean,
+  hasModule: (moduleCode?: string, permission?: string) => boolean,
+  superAdmin: boolean,
+): NavEntry[] {
   return entries
     .map((entry) => {
       if (entry.type === 'subgroup') {
-        const items = entry.items.filter((item) => (!item.permission || can(item.permission)) && (!item.superAdminOnly || superAdmin));
+        const items = entry.items.filter((item) => (!item.permission || can(item.permission)) && hasModule(item.moduleCode, item.permission) && (!item.superAdminOnly || superAdmin));
         return { ...entry, items };
       }
       return entry;
@@ -319,7 +343,7 @@ function filterEntries(entries: NavEntry[], can: (permission?: string) => boolea
     .filter((entry) =>
       entry.type === 'subgroup'
         ? entry.items.length > 0
-        : (!entry.permission || can(entry.permission)) && (!entry.superAdminOnly || superAdmin),
+        : (!entry.permission || can(entry.permission)) && hasModule(entry.moduleCode, entry.permission) && (!entry.superAdminOnly || superAdmin),
     );
 }
 
@@ -364,4 +388,3 @@ function isEndRoute(route: string) {
 function isRouteActive(pathname: string, route: string) {
   return pathname === route || pathname.startsWith(`${route}/`);
 }
-

@@ -1,4 +1,4 @@
-﻿import ExcelJS from 'exceljs';
+import ExcelJS from 'exceljs';
 
 export type XlsxRowValue = Record<string, unknown> | unknown[];
 

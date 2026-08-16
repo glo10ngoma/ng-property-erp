@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, LockKeyhole, Mail } from 'lucide-react';
 import { useAuth } from '../auth';
-import { appConfig } from '../app/config';
+import { resolvePostAuthDestination } from '../core/auth/auth.service';
 
 export function Login() {
   const { login, user, requiresOrganizationSelection } = useAuth();
@@ -22,7 +22,7 @@ export function Login() {
       return;
     }
     const nextPath = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
-    navigate(nextPath && nextPath !== '/login' ? nextPath : appConfig.defaultRoute, { replace: true });
+    navigate(resolvePostAuthDestination(user, nextPath), { replace: true });
   }, [location.state, navigate, requiresOrganizationSelection, user]);
 
   async function submit(event: React.FormEvent) {
@@ -37,7 +37,7 @@ export function Login() {
         return;
       }
       const nextPath = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
-      navigate(nextPath && nextPath !== '/login' ? nextPath : appConfig.defaultRoute, { replace: true });
+      navigate(resolvePostAuthDestination(authenticatedUser, nextPath), { replace: true });
     } catch (nextError) {
       setError((nextError as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Adresse e-mail ou mot de passe incorrect.');
     } finally {

@@ -5,3 +5,5 @@ dist/
 *.log
 npm-debug.log*
 .local-postgres/
+/stitch-reference-sales/
+/captures/

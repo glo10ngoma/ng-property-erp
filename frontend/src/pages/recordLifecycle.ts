@@ -336,7 +336,7 @@ const tenantCreditRefundTrashProvider: TrashEntityProvider = {
       associatedInfo: [
         record.credit_reference ?? '',
         record.currency ? `${record.amount ?? 0} ${record.currency}` : '',
-      ].filter(Boolean).join(' Â· '),
+      ].filter(Boolean).join(' · '),
       deletedAt: record.deleted_at,
       deletedBy: record.deleted_by_name,
       reason: record.deletion_reason,

@@ -136,6 +136,79 @@ const viewerPermissions = [
   'workflow.read',
 ];
 
+const additionalPermissions = [
+  'sales.read',
+  'sales.admin',
+  'sales.settings.read',
+  'sales.settings.manage',
+  'sales_buyers.read',
+  'sales_buyers.create',
+  'sales_buyers.update',
+  'sales_buyers.archive',
+  'sales_projects.read',
+  'sales_projects.create',
+  'sales_projects.update',
+  'sales_projects.archive',
+  'sales_catalog.read',
+  'sales_catalog.create',
+  'sales_catalog.update',
+  'sales_catalog.archive',
+  'sales_reservations.read',
+  'sales_reservations.create',
+  'sales_reservations.update',
+  'sales_reservations.cancel',
+  'sales_contracts.read',
+  'sales_contracts.create',
+  'sales_contracts.update',
+  'sales_contracts.approve',
+  'sales_schedules.read',
+  'sales_schedules.create',
+  'sales_schedules.update',
+  'sales_payments.read',
+  'sales_payments.create',
+  'sales_payments.allocate',
+  'sales_recovery.read',
+  'sales_recovery.create',
+  'sales_documents.read',
+  'sales_documents.create',
+  'sales_documents.download',
+  'sales_reports.read',
+];
+
+const salesManagerPermissions = [...additionalPermissions];
+
+const salesAgentPermissions = [
+  'sales.read',
+  'sales_buyers.read',
+  'sales_buyers.create',
+  'sales_buyers.update',
+  'sales_projects.read',
+  'sales_catalog.read',
+  'sales_reservations.read',
+  'sales_reservations.create',
+  'sales_contracts.read',
+  'sales_contracts.create',
+];
+
+const salesAccountantPermissions = [
+  'sales.read',
+  'sales_buyers.read',
+  'sales_projects.read',
+  'sales_catalog.read',
+  'sales_schedules.read',
+  'sales_payments.read',
+  'sales_recovery.read',
+  'sales_reports.read',
+];
+
+const salesViewerPermissions = [
+  'sales.read',
+  'sales_buyers.read',
+  'sales_projects.read',
+  'sales_catalog.read',
+  'sales_reports.read',
+];
+
 export const ROLE_ALIASES: Record<string, CanonicalRole> = {
   SUPER_ADMIN: 'ADMIN',
   ADMIN: 'ADMIN',
@@ -152,6 +225,10 @@ export const ROLE_ALIASES: Record<string, CanonicalRole> = {
   COMPTABLE: 'EDITOR',
   DIRECTOR: 'VIEWER',
   DIRECTEUR: 'VIEWER',
+  SALES_MANAGER: 'EDITOR',
+  SALES_AGENT: 'EDITOR',
+  SALES_ACCOUNTANT: 'VIEWER',
+  SALES_VIEWER: 'VIEWER',
 };
 
 export const ROLE_LABELS: Record<string, string> = {
@@ -170,6 +247,10 @@ export const ROLE_LABELS: Record<string, string> = {
   COMPTABLE: 'Utilisateur en écriture',
   DIRECTOR: 'Lecture seule',
   DIRECTEUR: 'Lecture seule',
+  SALES_MANAGER: 'Manager commercial',
+  SALES_AGENT: 'Agent commercial',
+  SALES_ACCOUNTANT: 'Comptable commercial',
+  SALES_VIEWER: 'Lecture commerciale',
 };
 
 export function normalizeRole(role?: string | null): CanonicalRole {
@@ -198,9 +279,18 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
   COMPTABLE: editorPermissions,
   DIRECTOR: viewerPermissions,
   DIRECTEUR: viewerPermissions,
+  SALES_MANAGER: salesManagerPermissions,
+  SALES_AGENT: salesAgentPermissions,
+  SALES_ACCOUNTANT: salesAccountantPermissions,
+  SALES_VIEWER: salesViewerPermissions,
 };
 
-export const PERMISSIONS = Array.from(new Set(Object.values(ROLE_PERMISSIONS).flat().filter((item) => item !== '*')));
+export const PERMISSIONS = Array.from(
+  new Set([
+    ...Object.values(ROLE_PERMISSIONS).flat().filter((item) => item !== '*'),
+    ...additionalPermissions,
+  ]),
+);
 
 export function permissionSetForRole(role?: string | null) {
   const value = String(role ?? '').toUpperCase();

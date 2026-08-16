@@ -1,4 +1,4 @@
-﻿import { Building2, FileCog, Image as ImageIcon, Mail, MapPin, Percent, Save, Settings2, ShieldCheck, Trash2, Upload, User } from 'lucide-react';
+import { Building2, FileCog, Image as ImageIcon, Mail, MapPin, Percent, Save, Settings2, ShieldCheck, Trash2, Upload, User } from 'lucide-react';
 import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { api, shortDate } from '../../../api';
 import { useAuth } from '../../../auth';

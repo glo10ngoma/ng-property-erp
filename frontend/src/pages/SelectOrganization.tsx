@@ -1,7 +1,8 @@
 import { Building2, CheckCircle2, LogOut, ShieldCheck } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
+import { resolvePostAuthDestination } from '../core/auth/auth.service';
 
 function roleLabel(roleCode: string) {
   return (
@@ -15,12 +16,16 @@ function roleLabel(roleCode: string) {
       ACCOUNTANT: 'Comptable',
       DIRECTOR: 'Direction',
       STAFF: 'Équipe',
+      SALES_VIEWER: 'Consultation commerciale',
+      SALES_AGENT: 'Agent commercial',
+      SALES_MANAGER: 'Responsable commercial',
     }[String(roleCode).toUpperCase()] ?? roleCode
   );
 }
 
 export function SelectOrganization() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, logout, setActiveOrganization } = useAuth();
   const [selectedOrganizationId, setSelectedOrganizationId] = useState<number | null>(user?.organization_id ?? null);
   const [submitting, setSubmitting] = useState(false);
@@ -39,9 +44,12 @@ export function SelectOrganization() {
     setSubmitting(true);
     setError('');
     try {
-      await setActiveOrganization(selectedOrganizationId);
+      const refreshedUser = await setActiveOrganization(selectedOrganizationId);
+      const requestedPath = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? null;
+      navigate(resolvePostAuthDestination(refreshedUser, requestedPath), { replace: true });
     } catch (nextError) {
       setError((nextError as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Impossible d’activer cette organisation.');
+    } finally {
       setSubmitting(false);
     }
   }
@@ -77,6 +85,7 @@ export function SelectOrganization() {
                 type="button"
                 onClick={() => setSelectedOrganizationId(organization.organization_id)}
                 aria-pressed={selected}
+                disabled={submitting}
               >
                 <div className="organization-option-mark">
                   {selected ? <CheckCircle2 size={18} /> : <Building2 size={18} />}
@@ -95,7 +104,7 @@ export function SelectOrganization() {
         </div>
 
         <div className="organization-select-actions">
-          <button className="secondary" type="button" onClick={logout}>
+          <button className="secondary" type="button" onClick={logout} disabled={submitting}>
             <LogOut size={16} /> Se déconnecter
           </button>
           <button type="button" onClick={() => void handleContinue()} disabled={submitting || !selectedOrganizationId}>

@@ -30,11 +30,12 @@ type AuthState = {
   requiresOrganizationSelection: boolean;
   login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => void;
-  setActiveOrganization: (organizationId: number) => Promise<void>;
+  setActiveOrganization: (organizationId: number) => Promise<AuthUser>;
   changePassword: (payload: { currentPassword: string; newPassword: string; confirmPassword: string }) => Promise<{ message: string; forceLogout?: boolean }>;
   refreshUser: () => Promise<void>;
   continueSession: () => void;
   can: (permission: string) => boolean;
+  hasModule: (moduleCode: string) => boolean;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -42,6 +43,23 @@ const AuthContext = createContext<AuthState | null>(null);
 const ACTIVITY_EVENTS: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'touchstart', 'mousemove'];
 const ACTIVITY_THROTTLE_MS = 15_000;
 const SESSION_RECHECK_MS = 30_000;
+
+let authMeSingleFlightPromise: Promise<AuthUser> | null = null;
+let authMeSingleFlightKey = '';
+
+function devLog(message: string, payload: Record<string, unknown>) {
+  if (!import.meta.env.DEV) return;
+  console.info(message, payload);
+}
+
+function isAbortLikeError(error: unknown) {
+  const candidate = error as { code?: string; name?: string; message?: string } | null;
+  return candidate?.code === 'ERR_CANCELED' || candidate?.name === 'CanceledError' || candidate?.message === 'canceled';
+}
+
+function getActiveOrganizations(nextUser: AuthUser) {
+  return (nextUser.organizations ?? []).filter((organization) => organization.is_active);
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -58,16 +76,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const lastPersistedActivityRef = useRef(0);
   const lastServerVerificationRef = useRef(0);
   const hiddenAtRef = useRef<number | null>(null);
+  const latestPathnameRef = useRef(location.pathname);
+  const latestUserRef = useRef<AuthUser | null>(initial.user);
+  const authEpochRef = useRef(0);
+  const skipNextTokenBootstrapRef = useRef(false);
 
-  const applySelectionRequirement = useCallback((nextUser: AuthUser, forceSelection = false) => {
-    const activeOrganizations = (nextUser.organizations ?? []).filter((organization) => organization.is_active);
-    const nextValue = activeOrganizations.length > 1
-      ? (forceSelection || readOrganizationSelectionRequired())
-      : false;
+  latestPathnameRef.current = location.pathname;
+  latestUserRef.current = user;
+
+  const applySelectionRequirement = useCallback((nextUser: AuthUser, forceSelection = false, activeOrganizationId?: number | null) => {
+    const activeOrganizations = getActiveOrganizations(nextUser);
+    const resolvedOrganizationId = activeOrganizationId ?? readActiveOrganizationId();
+    const nextValue = forceSelection || (activeOrganizations.length > 1 && !resolvedOrganizationId);
     writeOrganizationSelectionRequired(nextValue);
     setRequiresOrganizationSelection(nextValue);
     return nextValue;
   }, []);
+
+  const applyAuthSnapshot = useCallback((nextToken: string | null, nextUser: AuthUser | null, options?: { persist?: boolean; activeOrganizationId?: number | null; forceSelection?: boolean }) => {
+    setAuthToken(nextToken ?? undefined);
+    setToken(nextToken);
+    setUser(nextUser);
+
+    if (!nextToken || !nextUser) return;
+
+    const requiresSelection = applySelectionRequirement(nextUser, options?.forceSelection ?? false, options?.activeOrganizationId);
+    const nextOrganizationId = requiresSelection ? null : (options?.activeOrganizationId ?? nextUser.organization_id ?? null);
+
+    if (options?.persist !== false) {
+      persistSession(nextToken, nextUser, { activeOrganizationId: nextOrganizationId });
+    } else {
+      persistUser(nextUser, { activeOrganizationId: nextOrganizationId });
+      setAuthToken(nextToken);
+    }
+
+    if (requiresSelection) {
+      writeActiveOrganizationId(null);
+    }
+  }, [applySelectionRequirement]);
 
   const initializeSessionTracking = useCallback((forceNewSession = false) => {
     const now = Date.now();
@@ -81,10 +127,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logoutInternal = useCallback((options?: { remote?: boolean; skipServer?: boolean }) => {
+    authEpochRef.current += 1;
+    skipNextTokenBootstrapRef.current = false;
     if (!options?.skipServer) {
       void logoutRequest().catch(() => undefined);
     }
     clearSession();
+    authMeSingleFlightPromise = null;
+    authMeSingleFlightKey = '';
     setAuthToken(undefined);
     setToken(null);
     setUser(null);
@@ -92,30 +142,162 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setShowSessionWarning(false);
     setWarningBusy(false);
     setIsBootstrapping(false);
+    devLog('[AUTH_CONTEXT_DEV]', {
+      pathname: latestPathnameRef.current,
+      authStatus: 'unauthenticated',
+      organizationId: null,
+      activeModules: [],
+      permissionsCount: 0,
+      requestEnd: 'logout',
+    });
   }, []);
 
-  const syncCurrentUser = useCallback(async () => {
-    try {
-      const nextUser = await meRequest();
-      setUser(nextUser);
-      persistUser(nextUser);
-      writeActiveOrganizationId(nextUser.organization_id ?? null);
-      applySelectionRequirement(nextUser, false);
-      return nextUser;
-    } catch (error) {
-      const status = (error as { response?: { status?: number } })?.response?.status;
-      if (status === 403 && readActiveOrganizationId()) {
-        writeActiveOrganizationId(null);
-        const fallbackUser = await meRequest();
-        setUser(fallbackUser);
-        persistUser(fallbackUser);
-        writeActiveOrganizationId(fallbackUser.organization_id ?? null);
-        applySelectionRequirement(fallbackUser, false);
-        return fallbackUser;
-      }
-      throw error;
+  const syncCurrentUser = useCallback(async (reason: string) => {
+    const currentToken = localStorage.getItem(appConfig.tokenStorageKey);
+    const activeOrganizationId = readActiveOrganizationId();
+    const requestKey = `${currentToken ?? ''}:${activeOrganizationId ?? ''}`;
+    const requestEpoch = authEpochRef.current;
+    const currentUser = latestUserRef.current;
+
+    if (authMeSingleFlightPromise && authMeSingleFlightKey === requestKey) {
+      devLog('[AUTH_CONTEXT_DEV]', {
+        pathname: latestPathnameRef.current,
+        authStatus: currentToken ? 'loading' : 'unauthenticated',
+        organizationId: activeOrganizationId,
+        activeModules: currentUser?.active_modules ?? [],
+        permissionsCount: currentUser?.permissions.length ?? 0,
+        requestStart: reason,
+        singleFlight: true,
+      });
+      return authMeSingleFlightPromise;
     }
-  }, [applySelectionRequirement]);
+
+    devLog('[AUTH_CONTEXT_DEV]', {
+      pathname: latestPathnameRef.current,
+      authStatus: currentToken ? 'loading' : 'unauthenticated',
+      organizationId: activeOrganizationId,
+      activeModules: currentUser?.active_modules ?? [],
+      permissionsCount: currentUser?.permissions.length ?? 0,
+      requestStart: reason,
+      singleFlight: false,
+    });
+
+    const requestPromise = (async () => {
+      try {
+        const nextUser = await meRequest();
+        const latestToken = localStorage.getItem(appConfig.tokenStorageKey);
+        const latestOrganizationId = readActiveOrganizationId();
+        const latestKey = `${latestToken ?? ''}:${latestOrganizationId ?? ''}`;
+
+        if (requestEpoch !== authEpochRef.current || latestKey !== requestKey) {
+          devLog('[AUTH_CONTEXT_DEV]', {
+            pathname: latestPathnameRef.current,
+            authStatus: latestToken ? 'authenticated' : 'unauthenticated',
+            organizationId: latestOrganizationId,
+            activeModules: latestUserRef.current?.active_modules ?? [],
+            permissionsCount: latestUserRef.current?.permissions.length ?? 0,
+            requestEnd: reason,
+            stale: true,
+          });
+          return latestUserRef.current ?? nextUser;
+        }
+
+        applyAuthSnapshot(currentToken, nextUser, {
+          persist: false,
+          activeOrganizationId: activeOrganizationId ?? null,
+          forceSelection: false,
+        });
+        devLog('[AUTH_CONTEXT_DEV]', {
+          pathname: latestPathnameRef.current,
+          authStatus: 'authenticated',
+          organizationId: nextUser.organization_id ?? activeOrganizationId ?? null,
+          activeModules: nextUser.active_modules ?? [],
+          permissionsCount: nextUser.permissions.length,
+          requestEnd: reason,
+          aborted: false,
+        });
+        return nextUser;
+      } catch (error) {
+        const status = (error as { response?: { status?: number } })?.response?.status;
+        const aborted = isAbortLikeError(error);
+        const latestToken = localStorage.getItem(appConfig.tokenStorageKey);
+        const latestOrganizationId = readActiveOrganizationId();
+        const latestKey = `${latestToken ?? ''}:${latestOrganizationId ?? ''}`;
+
+        if ((requestEpoch !== authEpochRef.current || latestKey !== requestKey) && latestUserRef.current) {
+          devLog('[AUTH_CONTEXT_DEV]', {
+            pathname: latestPathnameRef.current,
+            authStatus: 'authenticated',
+            organizationId: latestUserRef.current.organization_id ?? latestOrganizationId ?? null,
+            activeModules: latestUserRef.current.active_modules ?? [],
+            permissionsCount: latestUserRef.current.permissions.length,
+            requestEnd: reason,
+            stale: true,
+            status: status ?? null,
+          });
+          return latestUserRef.current;
+        }
+
+        if (aborted && latestUserRef.current) {
+          devLog('[AUTH_CONTEXT_DEV]', {
+            pathname: latestPathnameRef.current,
+            authStatus: 'authenticated',
+            organizationId: latestUserRef.current.organization_id ?? activeOrganizationId ?? null,
+            activeModules: latestUserRef.current.active_modules ?? [],
+            permissionsCount: latestUserRef.current.permissions.length,
+            requestEnd: reason,
+            aborted: true,
+            status: status ?? null,
+          });
+          return latestUserRef.current;
+        }
+
+        if (status === 403 && activeOrganizationId) {
+          writeActiveOrganizationId(null);
+          const fallbackUser = await meRequest();
+          applyAuthSnapshot(currentToken, fallbackUser, {
+            persist: false,
+            activeOrganizationId: null,
+            forceSelection: getActiveOrganizations(fallbackUser).length > 1,
+          });
+          devLog('[AUTH_CONTEXT_DEV]', {
+            pathname: latestPathnameRef.current,
+            authStatus: 'selecting-organization',
+            organizationId: null,
+            activeModules: fallbackUser.active_modules ?? [],
+            permissionsCount: fallbackUser.permissions.length,
+            requestEnd: `${reason}:fallback`,
+            aborted,
+          });
+          return fallbackUser;
+        }
+
+        devLog('[AUTH_CONTEXT_DEV]', {
+          pathname: latestPathnameRef.current,
+          authStatus: currentToken ? 'loading' : 'unauthenticated',
+          organizationId: activeOrganizationId,
+          activeModules: currentUser?.active_modules ?? [],
+          permissionsCount: currentUser?.permissions.length ?? 0,
+          requestEnd: reason,
+          aborted,
+          status: status ?? null,
+        });
+        throw error;
+      }
+    })();
+
+    authMeSingleFlightKey = requestKey;
+    authMeSingleFlightPromise = requestPromise;
+
+    try {
+      return await requestPromise;
+    } finally {
+      if (authMeSingleFlightPromise === requestPromise) {
+        authMeSingleFlightPromise = null;
+        authMeSingleFlightKey = '';
+      }
+    }
+  }, [applyAuthSnapshot]);
 
   const recordActivity = useCallback((force = false) => {
     if (!token || !user) return;
@@ -150,7 +332,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     lastServerVerificationRef.current = now;
     try {
-      await syncCurrentUser();
+      await syncCurrentUser('session-recheck');
     } catch {
       logoutInternal({ skipServer: true });
     }
@@ -166,11 +348,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    if (skipNextTokenBootstrapRef.current) {
+      skipNextTokenBootstrapRef.current = false;
+      setIsBootstrapping(false);
+      return;
+    }
+
     let cancelled = false;
     initializeSessionTracking(false);
     setIsBootstrapping(true);
 
-    void syncCurrentUser()
+    void syncCurrentUser('bootstrap')
       .catch(() => {
         if (cancelled) return;
         logoutInternal({ skipServer: true });
@@ -257,10 +445,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const nextOrganizationId = Number(event.newValue);
         if (Number.isFinite(nextOrganizationId) && nextOrganizationId !== user.organization_id) {
           setIsBootstrapping(true);
-          void syncCurrentUser()
-            .then(() => {
-              window.location.replace(appConfig.defaultRoute);
-            })
+          void syncCurrentUser('storage-organization-change')
             .catch(() => {
               logoutInternal({ remote: true, skipServer: true });
             })
@@ -282,38 +467,108 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     requiresOrganizationSelection,
     async login(email: string, password: string) {
       const response = await loginRequest(email, password);
-      setToken(response.token);
-      setUser(response.user);
+      authEpochRef.current += 1;
+      skipNextTokenBootstrapRef.current = true;
       initializeSessionTracking(true);
-      applySelectionRequirement(response.user, true);
+
+      const activeOrganizations = getActiveOrganizations(response.user);
+      const requiresSelection = activeOrganizations.length > 1;
+      let resolvedUser = response.user;
+
+      if (requiresSelection) {
+        applyAuthSnapshot(response.token, response.user, {
+          persist: true,
+          activeOrganizationId: null,
+          forceSelection: true,
+        });
+      } else if (response.user.organization_id) {
+        localStorage.setItem(appConfig.tokenStorageKey, response.token);
+        writeActiveOrganizationId(response.user.organization_id);
+        setAuthToken(response.token);
+        setToken(response.token);
+        devLog('[AUTH_CONTEXT_DEV]', {
+          pathname: latestPathnameRef.current,
+          authStatus: 'login-single-org-me-start',
+          organizationId: response.user.organization_id,
+          activeModules: response.user.active_modules ?? [],
+          permissionsCount: response.user.permissions?.length ?? 0,
+        });
+        resolvedUser = await meRequest();
+        devLog('[AUTH_CONTEXT_DEV]', {
+          pathname: latestPathnameRef.current,
+          authStatus: 'login-single-org-me-end',
+          organizationId: resolvedUser.organization_id ?? response.user.organization_id,
+          activeModules: resolvedUser.active_modules ?? [],
+          permissionsCount: resolvedUser.permissions?.length ?? 0,
+        });
+        applyAuthSnapshot(response.token, resolvedUser, {
+          persist: true,
+          activeOrganizationId: resolvedUser.organization_id ?? response.user.organization_id,
+          forceSelection: false,
+        });
+      } else {
+        applyAuthSnapshot(response.token, response.user, {
+          persist: true,
+          activeOrganizationId: null,
+          forceSelection: false,
+        });
+      }
+
       setShowSessionWarning(false);
       setWarningBusy(false);
-      return response.user;
+      return resolvedUser;
     },
     async refreshUser() {
       setIsBootstrapping(true);
       try {
-        await syncCurrentUser();
+        await syncCurrentUser('refresh-user');
       } finally {
         setIsBootstrapping(false);
       }
     },
     async setActiveOrganization(organizationId: number) {
       const previousOrganizationId = user?.organization_id ?? readActiveOrganizationId();
-      writeActiveOrganizationId(organizationId);
+      const previousSelectionRequired = readOrganizationSelectionRequired();
+      const previousUser = latestUserRef.current;
+      const previousToken = token;
+
+      authEpochRef.current += 1;
+      authMeSingleFlightPromise = null;
+      authMeSingleFlightKey = '';
+      writeActiveOrganizationId(null);
+
       try {
         const response = await switchOrganizationRequest(organizationId);
-        setToken(response.token);
-        setUser(response.user);
-        persistSession(response.token, response.user);
+        skipNextTokenBootstrapRef.current = true;
+        applyAuthSnapshot(response.token, response.user, {
+          persist: true,
+          activeOrganizationId: organizationId,
+          forceSelection: false,
+        });
+
+        const refreshedUser = await meRequest();
+        applyAuthSnapshot(response.token, refreshedUser, {
+          persist: true,
+          activeOrganizationId: refreshedUser.organization_id ?? organizationId,
+          forceSelection: false,
+        });
         writeOrganizationSelectionRequired(false);
         setRequiresOrganizationSelection(false);
         recordActivity(true);
-        window.setTimeout(() => {
-          window.location.replace(appConfig.defaultRoute);
-        }, 0);
+        return refreshedUser;
       } catch (error) {
-        writeActiveOrganizationId(previousOrganizationId ?? null);
+        authEpochRef.current += 1;
+        if (previousToken && previousUser) {
+          applyAuthSnapshot(previousToken, previousUser, {
+            persist: true,
+            activeOrganizationId: previousOrganizationId ?? null,
+            forceSelection: previousSelectionRequired,
+          });
+        } else {
+          writeActiveOrganizationId(previousOrganizationId ?? null);
+          writeOrganizationSelectionRequired(previousSelectionRequired);
+          setRequiresOrganizationSelection(previousSelectionRequired);
+        }
         throw error;
       }
     },
@@ -332,8 +587,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     can(permission: string) {
       return Boolean(user?.permissions.includes('*') || user?.permissions.includes(permission));
     },
+    hasModule(moduleCode: string) {
+      return Boolean(user?.active_modules?.includes(String(moduleCode ?? '').trim().toUpperCase()));
+    },
   }), [
-    applySelectionRequirement,
+    applyAuthSnapshot,
     initializeSessionTracking,
     isBootstrapping,
     logoutInternal,
