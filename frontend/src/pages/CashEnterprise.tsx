@@ -59,6 +59,12 @@ type CashMovementDetail = CashMovement & {
   timeline?: Array<Record<string, unknown>>;
   documents?: Array<{ name: string; exists: boolean; detail: string }>;
   history?: Array<Record<string, unknown>>;
+  editable?: boolean;
+  edit_block_reason?: string | null;
+  edit_source_type?: string | null;
+  edit_source_id?: number | null;
+  edit_source_route?: string | null;
+  edit_source_label?: string | null;
 };
 
 type CashSession = {
@@ -803,8 +809,12 @@ export function CashDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { can } = useAuth();
+  const expenseCategories = useCashExpenseCategories();
   const [movement, setMovement] = useState<CashMovementDetail | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -838,12 +848,18 @@ export function CashDetailPage() {
             <ArrowLeft size={16} />
             Retour
           </button>
-          {can('cash.update') && (
-            <button>
+          {can('cash.update') && movement.editable ? (
+            <button type="button" onClick={() => { setEditError(''); setEditOpen(true); }}>
               <Pencil size={16} />
               Modifier
             </button>
-          )}
+          ) : null}
+          {can('cash.update') && !movement.editable && movement.edit_source_route ? (
+            <button type="button" onClick={() => navigate(movement.edit_source_route!)}>
+              <Pencil size={16} />
+              {movement.edit_source_label ?? 'Corriger la source'}
+            </button>
+          ) : null}
           {can('cash.update') ? (
             <button
               type="button"
@@ -922,6 +938,12 @@ export function CashDetailPage() {
           </div>
         </div>
 
+        {can('cash.update') && !movement.editable ? (
+          <div className="info-message" style={{ marginBottom: 16 }}>
+            {movement.edit_block_reason ?? 'La modification directe de ce mouvement est indisponible.'}
+          </div>
+        ) : null}
+
             <div className="cash-summary-grid">
               <div className="mini-stat">
                 <span>Type</span>
@@ -984,7 +1006,243 @@ export function CashDetailPage() {
           }}
         />
       ) : null}
+      {editOpen ? (
+        <CashMovementEditModal
+          movement={movement}
+          categories={expenseCategories.data}
+          saving={savingEdit}
+          error={editError}
+          onClose={() => {
+            if (!savingEdit) {
+              setEditError('');
+              setEditOpen(false);
+            }
+          }}
+          onSubmit={async (payload) => {
+            if (!window.confirm('Confirmer la modification de ce mouvement de caisse ?')) return;
+            setSavingEdit(true);
+            setEditError('');
+            try {
+              const response = await api.patch<CashMovementDetail>(`/cash/movements/${movement.id}`, payload);
+              setMovement(response.data);
+              setEditOpen(false);
+            } catch (error: any) {
+              setEditError(apiErrorMessage(error, 'Impossible de modifier le mouvement de caisse.'));
+            } finally {
+              setSavingEdit(false);
+            }
+          }}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function CashMovementEditModal({
+  movement,
+  categories,
+  saving,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  movement: CashMovementDetail;
+  categories: CashExpenseCategory[];
+  saving: boolean;
+  error: string;
+  onClose: () => void;
+  onSubmit: (payload: Record<string, unknown>) => Promise<void>;
+}) {
+  const activeCategories = useMemo(
+    () => categories.filter((category) => category.status === 'ACTIVE'),
+    [categories],
+  );
+  const [attachmentName, setAttachmentName] = useState(movement.attachment_file_name ?? '');
+  const [formState, setFormState] = useState({
+    label: movement.label ?? '',
+    category: movement.category ?? '',
+    amount: String(movement.amount ?? ''),
+    movement_date: String(movement.movement_date ?? '').slice(0, 10),
+    supplier: movement.supplier ?? '',
+    reference: movement.reference ?? '',
+    description: movement.description ?? '',
+    currency: String(movement.currency ?? 'USD').toUpperCase() as 'USD' | 'CDF',
+    exchange_rate_used:
+      String(movement.currency ?? 'USD').toUpperCase() === 'CDF' && movement.exchange_rate_used
+        ? String(movement.exchange_rate_used)
+        : '',
+    exchange_rate_date:
+      String(movement.currency ?? 'USD').toUpperCase() === 'CDF'
+        ? String(movement.exchange_rate_date ?? movement.movement_date ?? '').slice(0, 10)
+        : '',
+    reason: '',
+  });
+
+  return (
+    <Modal title="Modifier le mouvement de caisse" onClose={onClose}>
+      <form
+        className="cash-modal-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void onSubmit({
+            label: formState.label,
+            category: formState.category,
+            amount: formState.amount,
+            movement_date: formState.movement_date,
+            supplier: formState.supplier || null,
+            reference: formState.reference || null,
+            description: formState.description || null,
+            attachment_file_name: attachmentName || null,
+            currency: formState.currency,
+            exchange_rate_used: formState.currency === 'CDF' ? formState.exchange_rate_used || null : null,
+            exchange_rate_date: formState.currency === 'CDF' ? formState.exchange_rate_date || formState.movement_date : null,
+            reason: formState.reason,
+          });
+        }}
+      >
+        <div className="modal-section">
+          <h3>Informations principales</h3>
+          <div className="lease-section-grid">
+            <label>
+              Libellé
+              <input
+                value={formState.label}
+                onChange={(event) => setFormState((current) => ({ ...current, label: event.target.value }))}
+              />
+            </label>
+            <label>
+              Catégorie *
+              <select
+                required
+                value={formState.category}
+                onChange={(event) => setFormState((current) => ({ ...current, category: event.target.value }))}
+              >
+                <option value="">Sélectionner</option>
+                {activeCategories.length
+                  ? activeCategories.map((category) => (
+                      <option key={category.id} value={category.code}>
+                        {category.name}
+                      </option>
+                    ))
+                  : (
+                      <option value={movement.category}>
+                        {cashCategoryLabel(movement.category)}
+                      </option>
+                    )}
+              </select>
+            </label>
+            <label>
+              Montant *
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                required
+                value={formState.amount}
+                onChange={(event) => setFormState((current) => ({ ...current, amount: event.target.value }))}
+              />
+            </label>
+            <label>
+              Devise
+              <input value={formState.currency} readOnly className="locked-field" />
+            </label>
+            <label>
+              Date *
+              <input
+                type="date"
+                required
+                value={formState.movement_date}
+                onChange={(event) => setFormState((current) => ({ ...current, movement_date: event.target.value }))}
+              />
+            </label>
+            {formState.currency === 'CDF' ? (
+              <>
+                <label>
+                  Taux de change *
+                  <input
+                    type="number"
+                    min="0.0001"
+                    step="0.0001"
+                    required
+                    value={formState.exchange_rate_used}
+                    onChange={(event) => setFormState((current) => ({ ...current, exchange_rate_used: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Date du taux
+                  <input
+                    type="date"
+                    value={formState.exchange_rate_date}
+                    onChange={(event) => setFormState((current) => ({ ...current, exchange_rate_date: event.target.value }))}
+                  />
+                </label>
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="modal-section">
+          <h3>Référence et observation</h3>
+          <div className="lease-section-grid">
+            <label>
+              Fournisseur / tiers
+              <input
+                value={formState.supplier}
+                onChange={(event) => setFormState((current) => ({ ...current, supplier: event.target.value }))}
+              />
+            </label>
+            <label>
+              Référence
+              <input
+                value={formState.reference}
+                onChange={(event) => setFormState((current) => ({ ...current, reference: event.target.value }))}
+              />
+            </label>
+            <label>
+              Pièce jointe
+              <input
+                type="file"
+                accept=".pdf,image/jpeg,image/png"
+                onChange={(event) => setAttachmentName(event.target.files?.[0]?.name ?? movement.attachment_file_name ?? '')}
+              />
+            </label>
+            <label>
+              Fichier sélectionné
+              <input value={attachmentName || '-'} readOnly className="locked-field" />
+            </label>
+            <label className="lease-field-full">
+              Observation
+              <textarea
+                rows={3}
+                value={formState.description}
+                onChange={(event) => setFormState((current) => ({ ...current, description: event.target.value }))}
+              />
+            </label>
+            <label className="lease-field-full">
+              Motif de modification *
+              <textarea
+                required
+                rows={3}
+                placeholder="Expliquez pourquoi cette correction est nécessaire"
+                value={formState.reason}
+                onChange={(event) => setFormState((current) => ({ ...current, reason: event.target.value }))}
+              />
+            </label>
+          </div>
+        </div>
+
+        {error ? <div className="error-message">{error}</div> : null}
+
+        <div className="modal-footer-sticky">
+          <button type="button" className="secondary" onClick={onClose} disabled={saving}>
+            Annuler
+          </button>
+          <button type="submit" disabled={saving}>
+            {saving ? 'Enregistrement...' : 'Enregistrer'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -1350,16 +1608,18 @@ function cashCategoryLabel(value: string, categories?: Record<string, string>) {
       INVOICE_PAYMENT: 'Paiement facture',
       SALARY_ADVANCE: 'Avance salaire',
       OTHER_INCOME: 'Autre entree',
-      OTHER_EXPENSE: 'Autre d\u00e9pense',
+      OTHER_EXPENSE: 'Autre dépense',
       LEASE_GUARANTEE: 'Garantie locative',
       LEASE_GUARANTEE_REFUND: 'Remboursement garantie',
       SALARY_PAYMENT: 'Paiement salaire',
-      MAINTENANCE_EXPENSE: 'Depense maintenance',
+      MAINTENANCE_EXPENSE: 'Dépense maintenance',
       PAYMENT_REFUND: 'Remboursement paiement',
       STOCK_PURCHASE: 'Achat fournisseur',
       SHAREHOLDER_PAYOUT: 'Actionnaires',
-      BANK_DEPOSIT: 'D\u00e9p\u00f4t en banque',
-      BANK_WITHDRAWAL: 'Retrait bancaire re\u00e7u',
+      BANK_DEPOSIT: 'Dépôt en banque',
+      BANK_WITHDRAWAL: 'Retrait bancaire reçu',
+      TENANT_CREDIT: 'Crédit locataire',
+      TENANT_CREDIT_REFUND: 'Remboursement crédit locataire',
     } as Record<string, string>
   )[value] ?? value;
 }

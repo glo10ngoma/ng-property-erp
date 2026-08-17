@@ -2053,6 +2053,7 @@ export class SaasService {
       [id, this.context.organizationId()],
     );
     const movement = requireRow(rows[0], 'Cash movement');
+    const editPolicy = await this.resolveCashMovementEditPolicy(movement as Record<string, unknown>);
     const timeline = await this.db.query(
       `SELECT id, created_at AS date, action, resource, method, path, status_code, metadata
        FROM audit_logs
@@ -2070,7 +2071,198 @@ export class SaasService {
       { name: 'QR Code', exists: true, detail: 'Placeholder' },
       { name: 'Code barre', exists: true, detail: 'Placeholder' },
     ];
-    return { ...movement, timeline: timeline.rows, documents, history: timeline.rows };
+    return {
+      ...movement,
+      editable: editPolicy.editable,
+      edit_block_reason: editPolicy.reason,
+      edit_source_type: editPolicy.sourceType,
+      edit_source_id: editPolicy.sourceId,
+      edit_source_route: editPolicy.sourceRoute,
+      edit_source_label: editPolicy.sourceLabel,
+      timeline: timeline.rows,
+      documents,
+      history: timeline.rows,
+    };
+  }
+
+  async updateCashMovement(id: number, body: Record<string, unknown>) {
+    if (!this.hasPermission('cash.update')) {
+      throw new ForbiddenException('Permission requise pour modifier un mouvement de caisse.');
+    }
+
+    const reason = String(body.reason ?? body.modification_reason ?? '').trim();
+    if (!reason) {
+      throw new BadRequestException('Le motif de modification est obligatoire.');
+    }
+
+    return this.db.transaction(async (client) => {
+      const movementResult = await client.query(
+        `SELECT cm.*, cs.status AS session_status
+         FROM cash_movements cm
+         JOIN cash_sessions cs ON cs.id = cm.cash_session_id
+         WHERE cm.id = $1
+           AND cm.organization_id = $2
+           AND cm.deleted_at IS NULL
+         FOR UPDATE`,
+        [id, this.context.organizationId()],
+      );
+      const movement = requireRow(movementResult.rows[0], 'Cash movement') as Record<string, unknown>;
+      const policy = await this.resolveCashMovementEditPolicy(movement);
+
+      if (!policy.editable) {
+        throw new ConflictException({
+          code: 'CASH_MOVEMENT_DIRECT_EDIT_FORBIDDEN',
+          message: policy.reason ?? 'La modification directe de ce mouvement de caisse est interdite.',
+          sourceType: policy.sourceType,
+          sourceId: policy.sourceId,
+          sourceRoute: policy.sourceRoute,
+          sourceLabel: policy.sourceLabel,
+        });
+      }
+
+      const originalCurrency = String(movement.currency ?? 'USD').toUpperCase();
+      const nextCurrency = body.currency === undefined
+        ? originalCurrency
+        : String(body.currency ?? '').trim().toUpperCase();
+      if (!['USD', 'CDF'].includes(nextCurrency)) {
+        throw new BadRequestException('Devise invalide. Utilisez USD ou CDF.');
+      }
+      if (nextCurrency !== originalCurrency) {
+        throw new BadRequestException('Le changement de devise est interdit pour préserver la cohérence des agrégats.');
+      }
+
+      const nextAmount = body.amount === undefined ? Number(movement.amount ?? 0) : Number(body.amount ?? 0);
+      if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+        throw new BadRequestException('Le montant doit être supérieur à zéro.');
+      }
+
+      const nextDate = body.movement_date === undefined
+        ? String(movement.movement_date ?? '').slice(0, 10)
+        : String(body.movement_date ?? '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) {
+        throw new BadRequestException('Date de mouvement invalide.');
+      }
+
+      const nextCategory = body.category === undefined
+        ? String(movement.category ?? '').trim()
+        : String(body.category ?? '').trim();
+      if (!nextCategory) {
+        throw new BadRequestException('La catégorie est obligatoire.');
+      }
+
+      const nextExchangeRate = nextCurrency === 'CDF'
+        ? Number(body.exchange_rate_used === undefined ? movement.exchange_rate_used ?? 0 : body.exchange_rate_used)
+        : null;
+      if (nextCurrency === 'CDF' && (!Number.isFinite(nextExchangeRate) || Number(nextExchangeRate) <= 0)) {
+        throw new BadRequestException('Le taux de change est obligatoire pour un mouvement en CDF.');
+      }
+
+      const nextEquivalentUsd = nextCurrency === 'CDF'
+        ? Number((nextAmount / Number(nextExchangeRate)).toFixed(2))
+        : nextAmount;
+
+      const updateSets = [
+        'label = $1',
+        'category = $2',
+        'amount = $3',
+        'movement_date = $4',
+        'supplier = $5',
+        'description = $6',
+        'reference = $7',
+        'attachment_file_name = $8',
+        'attachment_file_url = $9',
+      ];
+      const updateValues: unknown[] = [
+        body.label === undefined ? movement.label ?? null : String(body.label ?? '').trim() || null,
+        nextCategory,
+        nextAmount,
+        nextDate,
+        body.supplier === undefined ? movement.supplier ?? null : String(body.supplier ?? '').trim() || null,
+        body.description === undefined ? movement.description ?? null : String(body.description ?? '').trim() || null,
+        body.reference === undefined ? movement.reference ?? null : String(body.reference ?? '').trim() || null,
+        body.attachment_file_name === undefined ? movement.attachment_file_name ?? null : String(body.attachment_file_name ?? '').trim() || null,
+        body.attachment_file_url === undefined ? movement.attachment_file_url ?? null : String(body.attachment_file_url ?? '').trim() || null,
+      ];
+
+      if (await this.columnExists('cash_movements', 'currency')) {
+        updateValues.push(nextCurrency);
+        updateSets.push(`currency = $${updateValues.length}`);
+      }
+      if (await this.columnExists('cash_movements', 'exchange_rate_used')) {
+        updateValues.push(nextCurrency === 'CDF' ? Number(nextExchangeRate) : null);
+        updateSets.push(`exchange_rate_used = $${updateValues.length}`);
+      }
+      if (await this.columnExists('cash_movements', 'exchange_rate_date')) {
+        const nextExchangeDate = nextCurrency === 'CDF'
+          ? (body.exchange_rate_date === undefined
+              ? movement.exchange_rate_date ?? nextDate
+              : String(body.exchange_rate_date ?? '').trim() || nextDate)
+          : null;
+        updateValues.push(nextExchangeDate);
+        updateSets.push(`exchange_rate_date = $${updateValues.length}`);
+      }
+      if (await this.columnExists('cash_movements', 'equivalent_usd')) {
+        updateValues.push(nextEquivalentUsd);
+        updateSets.push(`equivalent_usd = $${updateValues.length}`);
+      }
+
+      updateValues.push(id, this.context.organizationId());
+      const updatedResult = await client.query(
+        `UPDATE cash_movements
+         SET ${updateSets.join(', ')}
+         WHERE id = $${updateValues.length - 1}
+           AND organization_id = $${updateValues.length}
+           AND deleted_at IS NULL
+         RETURNING *`,
+        updateValues,
+      );
+      const updated = requireRow(updatedResult.rows[0], 'Cash movement');
+
+      await client.query(
+        `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+         VALUES ($1, $2, $3, 'cash', $4, 'PATCH', $5, 200, $6::JSONB)`,
+        [
+          this.context.organizationId(),
+          this.context.userId() ?? null,
+          'CASH_MOVEMENT_UPDATED',
+          String(id),
+          `/api/cash/movements/${id}`,
+          JSON.stringify({
+            reason,
+            before: {
+              label: movement.label ?? null,
+              category: movement.category ?? null,
+              amount: movement.amount ?? null,
+              currency: movement.currency ?? originalCurrency,
+              movement_date: movement.movement_date ?? null,
+              supplier: movement.supplier ?? null,
+              reference: movement.reference ?? null,
+              description: movement.description ?? null,
+              attachment_file_name: movement.attachment_file_name ?? null,
+              exchange_rate_used: movement.exchange_rate_used ?? null,
+              exchange_rate_date: movement.exchange_rate_date ?? null,
+              equivalent_usd: movement.equivalent_usd ?? null,
+            },
+            after: {
+              label: updated.label ?? null,
+              category: updated.category ?? null,
+              amount: updated.amount ?? null,
+              currency: updated.currency ?? nextCurrency,
+              movement_date: updated.movement_date ?? null,
+              supplier: updated.supplier ?? null,
+              reference: updated.reference ?? null,
+              description: updated.description ?? null,
+              attachment_file_name: updated.attachment_file_name ?? null,
+              exchange_rate_used: updated.exchange_rate_used ?? null,
+              exchange_rate_date: updated.exchange_rate_date ?? null,
+              equivalent_usd: updated.equivalent_usd ?? null,
+            },
+          }),
+        ],
+      );
+
+      return this.cashMovementDetail(id);
+    });
   }
 
   async trashedCashMovements() {
@@ -2234,6 +2426,126 @@ export class SaasService {
           this.throwCashMovementWorkflowNotImplemented(id, movement, workflow.type, workflow.sourceId);
       }
     });
+  }
+
+  private async resolveCashMovementEditPolicy(movement: Record<string, unknown>) {
+    const sessionStatus = String(movement.session_status ?? '').toUpperCase();
+    if (sessionStatus && sessionStatus !== 'OPEN') {
+      return {
+        editable: false,
+        reason: 'La session de caisse est clôturée. Utilisez une écriture de correction ou une contrepassation traçable.',
+        sourceType: null,
+        sourceId: null,
+        sourceRoute: null,
+        sourceLabel: null,
+      };
+    }
+
+    if (Boolean(movement.is_locked)) {
+      return {
+        editable: false,
+        reason: String(movement.locked_reason ?? 'Ce mouvement est verrouillé ou rapproché et ne peut pas être modifié directement.'),
+        sourceType: null,
+        sourceId: null,
+        sourceRoute: null,
+        sourceLabel: null,
+      };
+    }
+
+    const category = String(movement.category ?? '').trim().toUpperCase();
+    const paymentId = Number(movement.payment_id ?? 0) || null;
+    const invoiceId = Number(movement.invoice_id ?? 0) || null;
+    const tenantCreditId = Number(movement.tenant_credit_id ?? 0) || null;
+    const stockPurchasePaymentId = Number(movement.stock_purchase_payment_id ?? 0) || null;
+    const maintenanceExpenseId = Number(movement.maintenance_expense_id ?? 0) || null;
+    const treasuryTransferId = Number(movement.treasury_transfer_id ?? 0) || null;
+    const shareholderPayoutLineId = Number(movement.shareholder_payout_line_id ?? 0) || null;
+
+    if (tenantCreditId || category === 'TENANT_CREDIT') {
+      return {
+        editable: false,
+        reason: 'Ce mouvement provient d’un crédit locataire. Corrigez l’opération source pour préserver la cohérence comptable.',
+        sourceType: 'TENANT_CREDIT',
+        sourceId: tenantCreditId,
+        sourceRoute: tenantCreditId ? `/tenant-credits?credit_id=${tenantCreditId}` : null,
+        sourceLabel: 'Corriger le crédit locataire',
+      };
+    }
+
+    if (category === 'TENANT_CREDIT_REFUND') {
+      return {
+        editable: false,
+        reason: 'Ce mouvement provient d’un remboursement de crédit locataire. La modification directe est interdite.',
+        sourceType: 'TENANT_CREDIT_REFUND',
+        sourceId: paymentId,
+        sourceRoute: paymentId ? `/payments/${paymentId}` : null,
+        sourceLabel: 'Ouvrir le reçu lié',
+      };
+    }
+
+    if (paymentId || invoiceId || ['INVOICE_PAYMENT', 'PAYMENT_REFUND', 'LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND'].includes(category)) {
+      return {
+        editable: false,
+        reason: 'Ce mouvement est généré par un paiement ou une garantie. Corrigez l’opération source au lieu de modifier la caisse directement.',
+        sourceType: 'PAYMENT',
+        sourceId: paymentId ?? invoiceId,
+        sourceRoute: paymentId ? `/payments/${paymentId}` : null,
+        sourceLabel: paymentId ? 'Corriger le paiement source' : null,
+      };
+    }
+
+    if (treasuryTransferId || category === 'BANK_DEPOSIT' || category === 'BANK_WITHDRAWAL') {
+      return {
+        editable: false,
+        reason: 'Ce mouvement provient d’un transfert de trésorerie. Utilisez la fiche du transfert source.',
+        sourceType: 'TREASURY_TRANSFER',
+        sourceId: treasuryTransferId,
+        sourceRoute: treasuryTransferId ? `/treasury-transfers/${treasuryTransferId}` : null,
+        sourceLabel: 'Corriger le transfert source',
+      };
+    }
+
+    if (shareholderPayoutLineId || category === 'SHAREHOLDER_PAYOUT') {
+      return {
+        editable: false,
+        reason: 'Ce mouvement est issu d’un remboursement actionnaire. La modification directe est interdite.',
+        sourceType: 'SHAREHOLDER_PAYOUT',
+        sourceId: shareholderPayoutLineId,
+        sourceRoute: shareholderPayoutLineId ? `/shareholder-payout-lines/${shareholderPayoutLineId}/receipt` : null,
+        sourceLabel: shareholderPayoutLineId ? 'Ouvrir le justificatif source' : null,
+      };
+    }
+
+    if (stockPurchasePaymentId || category === 'STOCK_PURCHASE') {
+      return {
+        editable: false,
+        reason: 'Ce mouvement est généré par un règlement fournisseur. Utilisez le flux source pour corriger l’écriture.',
+        sourceType: 'STOCK_PURCHASE',
+        sourceId: stockPurchasePaymentId,
+        sourceRoute: null,
+        sourceLabel: null,
+      };
+    }
+
+    if (maintenanceExpenseId || category === 'MAINTENANCE_EXPENSE') {
+      return {
+        editable: false,
+        reason: 'Ce mouvement provient d’une dépense de maintenance. Corrigez la dépense source.',
+        sourceType: 'MAINTENANCE_EXPENSE',
+        sourceId: maintenanceExpenseId,
+        sourceRoute: null,
+        sourceLabel: null,
+      };
+    }
+
+    return {
+      editable: true,
+      reason: null,
+      sourceType: null,
+      sourceId: null,
+      sourceRoute: null,
+      sourceLabel: null,
+    };
   }
 
   private async resolveCashMovementTrashWorkflow(

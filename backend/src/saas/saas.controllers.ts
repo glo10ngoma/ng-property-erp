@@ -566,6 +566,11 @@ export class CashController {
     return this.service.cashMovementDetail(id);
   }
 
+  @Patch('movements/:id')
+  updateMovement(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.updateCashMovement(id, body);
+  }
+
   @Delete('movements/:id')
   deleteMovement(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
     return this.service.deleteCashMovement(id, body);
