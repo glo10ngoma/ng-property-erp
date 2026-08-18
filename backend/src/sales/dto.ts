@@ -7,12 +7,15 @@ import {
   SALES_COMMERCIAL_STATUSES,
   SALES_COMMERCIAL_STAGES,
   SALES_DEPOSIT_TYPES,
+  SALES_DOCUMENT_GENERATION_STATUSES,
   SALES_INSTALLMENT_TYPES,
   SALES_PROJECT_STATUSES,
   SALES_RESERVATION_STATUSES,
   SALES_SCHEDULE_FREQUENCIES,
   SALES_SUBSCRIPTION_STATUSES,
+  SALES_SUBSCRIPTION_ORIGIN_MODES,
   SALES_SUPPORTED_CURRENCIES,
+  SALES_TEMPLATE_TYPES,
 } from './types';
 
 const trimString = () => Transform(({ value }) => (typeof value === 'string' ? value.trim() : value));
@@ -76,6 +79,17 @@ export class SalesCatalogListQueryDto extends SalesPaginationQueryDto {
   @IsOptional()
   @IsIn(SALES_COMMERCIAL_STATUSES)
   status?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  @IsOptional()
+  project_id?: number;
+
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsOptional()
+  @IsBoolean()
+  available_only?: boolean;
 }
 
 export class SalesReservationListQueryDto extends SalesPaginationQueryDto {
@@ -137,6 +151,41 @@ export class UpdateSalesSettingsDto {
   @IsOptional()
   @IsString()
   invoice_prefix?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  buyer_number_format?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  project_number_format?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  catalog_number_format?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  reservation_number_format?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  subscription_number_format?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  reservation_contract_number_format?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  subscription_contract_number_format?: string;
 
   @Type(() => Number)
   @IsInt()
@@ -225,8 +274,9 @@ export class UpdateSalesSettingsDto {
 
 export class CreateSalesBuyerDto {
   @trimString()
+  @IsOptional()
   @IsString()
-  buyer_ref!: string;
+  buyer_ref?: string;
 
   @trimString()
   @IsIn(SALES_BUYER_TYPES)
@@ -305,8 +355,9 @@ export class UpdateSalesBuyerDto extends PartialType(CreateSalesBuyerDto) {}
 
 export class CreateSalesProjectDto {
   @trimString()
+  @IsOptional()
   @IsString()
-  project_ref!: string;
+  project_ref?: string;
 
   @trimString()
   @IsString()
@@ -345,8 +396,9 @@ export class UpdateSalesProjectDto extends PartialType(CreateSalesProjectDto) {}
 
 export class CreateSalesCatalogItemDto {
   @trimString()
+  @IsOptional()
   @IsString()
-  catalog_ref!: string;
+  catalog_ref?: string;
 
   @trimString()
   @IsString()
@@ -533,6 +585,11 @@ export class CustomInstallmentDto {
 }
 
 export class SimulateSalesSubscriptionDto {
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_SUBSCRIPTION_ORIGIN_MODES)
+  origin_mode?: string;
+
   @Type(() => Number)
   @IsInt()
   @IsPositive()
@@ -641,3 +698,48 @@ export class CreateSalesSubscriptionDto extends SimulateSalesSubscriptionDto {
 }
 
 export class UpdateSalesSubscriptionDto extends PartialType(CreateSalesSubscriptionDto) {}
+
+export class SalesDocumentTemplateDto {
+  @trimString()
+  @IsIn(SALES_TEMPLATE_TYPES)
+  template_type!: string;
+
+  @trimString()
+  @IsString()
+  title!: string;
+
+  @trimString()
+  @IsString()
+  template_body!: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  header_html?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  footer_html?: string;
+
+  @IsArray()
+  @IsOptional()
+  variables_schema?: string[];
+
+  @IsArray()
+  @IsOptional()
+  clause_order?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  is_active?: boolean;
+}
+
+export class UpdateSalesDocumentTemplateDto extends PartialType(SalesDocumentTemplateDto) {}
+
+export class RegenerateSalesDocumentDto {
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_DOCUMENT_GENERATION_STATUSES)
+  generation_status?: string;
+}

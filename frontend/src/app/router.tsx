@@ -35,6 +35,7 @@ import {
   SalesReservationDetailPage,
   SalesReservationFormPage,
   SalesReservationsPage,
+  SalesSettingsPage,
   SalesSubscriptionDetailPage,
   SalesSubscriptionFormPage,
   SalesSubscriptionsPage,
@@ -224,6 +225,7 @@ export function AppRouter() {
           <Route path="/sales/subscriptions/new" element={salesPermissionGuarded('sales_subscriptions.create', <SalesSubscriptionFormPage />)} />
           <Route path="/sales/subscriptions/:id" element={salesGuarded(<SalesSubscriptionDetailPage />)} />
           <Route path="/sales/subscriptions/:id/edit" element={salesPermissionGuarded('sales_subscriptions.update', <SalesSubscriptionFormPage />)} />
+          <Route path="/sales/settings" element={salesPermissionGuarded('sales_settings.manage', <SalesSettingsPage />)} />
           <Route element={<SuperAdminRoute />}>
             <Route path="/users" element={guarded('users.read', <UsersPage />)} />
           </Route>

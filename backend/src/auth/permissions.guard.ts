@@ -157,6 +157,12 @@ export class PermissionsGuard implements CanActivate {
     if (/^\/api\/sales\/settings$/.test(path)) {
       return method === 'GET' ? 'sales.settings.read' : 'sales.settings.manage';
     }
+    if (/^\/api\/sales\/settings\/templates\/\d+$/.test(path)) {
+      return method === 'GET' ? 'sales_templates.read' : 'sales_templates.manage';
+    }
+    if (/^\/api\/sales\/settings\/templates$/.test(path)) {
+      return method === 'GET' ? 'sales_templates.read' : 'sales_templates.manage';
+    }
     if (/^\/api\/sales\/buyers\/\d+\/archive$/.test(path)) {
       return 'sales_buyers.archive';
     }
@@ -196,6 +202,12 @@ export class PermissionsGuard implements CanActivate {
     if (/^\/api\/sales\/reservations\/\d+\/convert$/.test(path) || /^\/api\/sales\/reservations\/\d+\/expire$/.test(path)) {
       return 'sales_reservations.update';
     }
+    if (/^\/api\/sales\/reservations\/\d+\/documents\/regenerate$/.test(path)) {
+      return 'sales_documents.regenerate';
+    }
+    if (/^\/api\/sales\/reservations\/\d+\/documents$/.test(path)) {
+      return 'sales_documents.read';
+    }
     if (/^\/api\/sales\/reservations\/\d+$/.test(path)) {
       return method === 'GET' ? 'sales_reservations.read' : 'sales_reservations.update';
     }
@@ -214,11 +226,20 @@ export class PermissionsGuard implements CanActivate {
     if (/^\/api\/sales\/subscriptions\/\d+\/cancel$/.test(path)) {
       return 'sales_subscriptions.cancel';
     }
+    if (/^\/api\/sales\/subscriptions\/\d+\/documents\/regenerate$/.test(path)) {
+      return 'sales_documents.regenerate';
+    }
+    if (/^\/api\/sales\/subscriptions\/\d+\/documents$/.test(path)) {
+      return 'sales_documents.read';
+    }
     if (/^\/api\/sales\/subscriptions\/\d+$/.test(path)) {
       return method === 'GET' ? 'sales_subscriptions.read' : 'sales_subscriptions.update';
     }
     if (/^\/api\/sales\/subscriptions$/.test(path)) {
       return method === 'GET' ? 'sales_subscriptions.read' : 'sales_subscriptions.create';
+    }
+    if (/^\/api\/sales\/documents\/\d+\/download$/.test(path)) {
+      return 'sales_documents.download';
     }
     if (/^\/api\/bank-dashboard/.test(path)) {
       return 'bank_accounts.read';

@@ -62,6 +62,13 @@ export class SalesRepository {
          contract_prefix,
          receipt_prefix,
          invoice_prefix,
+         buyer_number_format,
+         project_number_format,
+         catalog_number_format,
+         reservation_number_format,
+         subscription_number_format,
+         reservation_contract_number_format,
+         subscription_contract_number_format,
          reservation_default_duration_days,
          reservation_fee_required,
          reservation_default_fee,
@@ -83,11 +90,18 @@ export class SalesRepository {
        )
        VALUES (
          $1, $2, $3, $4, $5, $6, $7, $8,
-         COALESCE($9, 7), COALESCE($10, false), COALESCE($11, 0),
-         COALESCE($12, 'PERCENTAGE'), $13, $14, COALESCE($15, 24), COALESCE($16, 'MONTHLY'),
-         COALESCE($17, 0), COALESCE($18, 0), COALESCE($19, true), COALESCE($20::jsonb, '["USD","CDF"]'::jsonb),
-         NULLIF($21, ''), NULLIF($22, ''), NULLIF($23, ''),
-         COALESCE($24::jsonb, '{}'::jsonb), NOW(), NOW()
+         COALESCE(NULLIF($9, ''), 'ACQ-{YYYY}-{SEQ:5}'),
+         COALESCE(NULLIF($10, ''), 'PRJ-{YYYY}-{SEQ:4}'),
+         COALESCE(NULLIF($11, ''), 'BIE-{YYYY}-{SEQ:5}'),
+         COALESCE(NULLIF($12, ''), 'RSV-{YYYY}-{SEQ:5}'),
+         COALESCE(NULLIF($13, ''), 'SOU-{YYYY}-{SEQ:5}'),
+         COALESCE(NULLIF($14, ''), 'CR-{YYYY}-{SEQ:5}'),
+         COALESCE(NULLIF($15, ''), 'CV-{YYYY}-{SEQ:5}'),
+         COALESCE($16, 7), COALESCE($17, false), COALESCE($18, 0),
+         COALESCE($19, 'PERCENTAGE'), $20, $21, COALESCE($22, 24), COALESCE($23, 'MONTHLY'),
+         COALESCE($24, 0), COALESCE($25, 0), COALESCE($26, true), COALESCE($27::jsonb, '["USD","CDF"]'::jsonb),
+         NULLIF($28, ''), NULLIF($29, ''), NULLIF($30, ''),
+         COALESCE($31::jsonb, '{}'::jsonb), NOW(), NOW()
        )
        ON CONFLICT (organization_id)
        DO UPDATE SET
@@ -98,6 +112,13 @@ export class SalesRepository {
          contract_prefix = COALESCE(EXCLUDED.contract_prefix, sales_settings.contract_prefix),
          receipt_prefix = COALESCE(EXCLUDED.receipt_prefix, sales_settings.receipt_prefix),
          invoice_prefix = COALESCE(EXCLUDED.invoice_prefix, sales_settings.invoice_prefix),
+         buyer_number_format = COALESCE(EXCLUDED.buyer_number_format, sales_settings.buyer_number_format),
+         project_number_format = COALESCE(EXCLUDED.project_number_format, sales_settings.project_number_format),
+         catalog_number_format = COALESCE(EXCLUDED.catalog_number_format, sales_settings.catalog_number_format),
+         reservation_number_format = COALESCE(EXCLUDED.reservation_number_format, sales_settings.reservation_number_format),
+         subscription_number_format = COALESCE(EXCLUDED.subscription_number_format, sales_settings.subscription_number_format),
+         reservation_contract_number_format = COALESCE(EXCLUDED.reservation_contract_number_format, sales_settings.reservation_contract_number_format),
+         subscription_contract_number_format = COALESCE(EXCLUDED.subscription_contract_number_format, sales_settings.subscription_contract_number_format),
          reservation_default_duration_days = COALESCE(EXCLUDED.reservation_default_duration_days, sales_settings.reservation_default_duration_days),
          reservation_fee_required = COALESCE(EXCLUDED.reservation_fee_required, sales_settings.reservation_fee_required),
          reservation_default_fee = COALESCE(EXCLUDED.reservation_default_fee, sales_settings.reservation_default_fee),
@@ -125,6 +146,13 @@ export class SalesRepository {
         dto.contract_prefix ?? null,
         dto.receipt_prefix ?? null,
         dto.invoice_prefix ?? null,
+        dto.buyer_number_format ?? null,
+        dto.project_number_format ?? null,
+        dto.catalog_number_format ?? null,
+        dto.reservation_number_format ?? null,
+        dto.subscription_number_format ?? null,
+        dto.reservation_contract_number_format ?? null,
+        dto.subscription_contract_number_format ?? null,
         dto.reservation_default_duration_days ?? null,
         dto.reservation_fee_required ?? null,
         dto.reservation_default_fee ?? null,
@@ -461,6 +489,29 @@ export class SalesRepository {
       params.push(query.status);
       filters.push(`spc.commercial_status = $${params.length}`);
     }
+    if (query.project_id) {
+      params.push(query.project_id);
+      filters.push(`spc.project_id = $${params.length}`);
+    }
+    if (query.available_only) {
+      filters.push(`spc.commercial_status = 'AVAILABLE'`);
+      filters.push(`NOT EXISTS (
+        SELECT 1
+        FROM sales_reservations sr
+        WHERE sr.organization_id = spc.organization_id
+          AND sr.catalog_item_id = spc.id
+          AND sr.archived_at IS NULL
+          AND sr.status IN ('ACTIVE', 'CONFIRMED')
+      )`);
+      filters.push(`NOT EXISTS (
+        SELECT 1
+        FROM sales_subscriptions ss
+        WHERE ss.organization_id = spc.organization_id
+          AND ss.catalog_item_id = spc.id
+          AND ss.archived_at IS NULL
+          AND ss.status IN ('DRAFT', 'SUBMITTED', 'APPROVED', 'CONVERTED')
+      )`);
+    }
     if (search) {
       params.push(search);
       filters.push(`(
@@ -681,14 +732,14 @@ export class SalesRepository {
     prefix: string,
     client: PoolClient,
   ) {
-    const safePrefix = prefix.trim() || (tableName === 'sales_reservations' ? 'RSV' : 'SUB');
-    const { rows } = await client.query<{ next_value: number }>(
-      `SELECT COALESCE(COUNT(*), 0)::int + 1 AS next_value
-       FROM ${tableName}
-       WHERE organization_id = $1`,
-      [organizationId],
+    const year = new Date().getUTCFullYear();
+    const sequence = await this.nextSequenceValue(
+      organizationId,
+      tableName === 'sales_reservations' ? 'RESERVATION' : 'SUBSCRIPTION',
+      year,
+      client,
     );
-    return `${safePrefix}-${String(rows[0]?.next_value ?? 1).padStart(5, '0')}`;
+    return this.formatSequence(`${prefix.trim() || (tableName === 'sales_reservations' ? 'RSV' : 'SUB')}-{SEQ:5}`, sequence, year);
   }
 
   async listReservations(organizationId: number, query: SalesReservationListQueryDto, client?: PoolClient) {
@@ -793,6 +844,45 @@ export class SalesRepository {
        LIMIT 1`,
       params,
       client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async findActiveSubscriptionForCatalog(organizationId: number, catalogItemId: number, client?: PoolClient, excludeId?: number) {
+    const params: unknown[] = [organizationId, catalogItemId];
+    let excludeClause = '';
+    if (excludeId) {
+      params.push(excludeId);
+      excludeClause = ` AND id <> $${params.length}`;
+    }
+    const { rows } = await this.query(
+      `SELECT *
+       FROM sales_subscriptions
+       WHERE organization_id = $1
+         AND catalog_item_id = $2
+         AND archived_at IS NULL
+         AND status IN ('DRAFT', 'SUBMITTED', 'APPROVED', 'CONVERTED')
+         ${excludeClause}
+       LIMIT 1`,
+      params,
+      client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async lockCatalogItem(organizationId: number, catalogItemId: number, client: PoolClient) {
+    const { rows } = await client.query(
+      `SELECT spc.*,
+              sp.name AS project_name,
+              b.name AS building_name,
+              u.number AS unit_number
+       FROM sales_property_catalog spc
+       LEFT JOIN sales_projects sp ON sp.id = spc.project_id AND sp.organization_id = spc.organization_id
+       LEFT JOIN buildings b ON b.id = spc.building_id AND b.organization_id = spc.organization_id
+       LEFT JOIN units u ON u.id = spc.unit_id AND u.organization_id = spc.organization_id
+       WHERE spc.id = $1 AND spc.organization_id = $2 AND spc.deleted_at IS NULL
+       FOR UPDATE OF spc`,
+      [catalogItemId, organizationId],
     );
     return rows[0] ?? null;
   }
@@ -1261,5 +1351,302 @@ export class SalesRepository {
         JSON.stringify({ source: 'sales-module-v1.1' }),
       ],
     );
+  }
+
+  async nextSequenceValue(
+    organizationId: number,
+    documentType: string,
+    sequenceYear: number | null,
+    client?: PoolClient,
+  ) {
+    const execute = async (sql: string, params: unknown[]) =>
+      client
+        ? client.query(sql, params)
+        : this.query(sql, params);
+
+    await execute(
+      `INSERT INTO sales_number_sequences (organization_id, document_type, sequence_year, current_value, created_at, updated_at)
+       VALUES ($1, $2, $3, 0, NOW(), NOW())
+       ON CONFLICT (organization_id, document_type, sequence_year) DO NOTHING`,
+      [organizationId, documentType, sequenceYear],
+    );
+    const { rows } = await execute(
+      `UPDATE sales_number_sequences
+       SET current_value = current_value + 1,
+           updated_at = NOW()
+       WHERE organization_id = $1
+         AND document_type = $2
+         AND sequence_year IS NOT DISTINCT FROM $3
+       RETURNING current_value`,
+      [organizationId, documentType, sequenceYear],
+    );
+    return Number(rows[0]?.current_value ?? 1);
+  }
+
+  formatSequence(format: string, sequenceValue: number, year: number) {
+    return String(format || '{SEQ:5}')
+      .replace(/\{YYYY\}/g, String(year))
+      .replace(/\{SEQ:(\d+)\}/g, (_, size: string) => String(sequenceValue).padStart(Number(size), '0'))
+      .replace(/\{SEQ\}/g, String(sequenceValue));
+  }
+
+  async listDocumentTemplates(organizationId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT *
+       FROM sales_document_templates
+       WHERE organization_id = $1
+         AND archived_at IS NULL
+       ORDER BY template_type ASC, version DESC, id DESC`,
+      [organizationId],
+      client,
+    );
+    return rows;
+  }
+
+  async createDocumentTemplate(organizationId: number, userId: number | null, payload: Record<string, unknown>, client?: PoolClient) {
+    const runner: any = this.runner(client);
+    const { rows } = await runner.query(
+      `INSERT INTO sales_document_templates (
+         organization_id, template_type, title, template_body, header_html, footer_html,
+         variables_schema, clause_order, version, is_active, created_by, updated_by, created_at, updated_at
+       )
+       VALUES (
+         $1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''),
+         COALESCE($7::jsonb, '[]'::jsonb), COALESCE($8::jsonb, '[]'::jsonb), COALESCE($9, 1), COALESCE($10, TRUE),
+         $11, $11, NOW(), NOW()
+       )
+       RETURNING *`,
+      [
+        organizationId,
+        payload.template_type,
+        payload.title,
+        payload.template_body,
+        payload.header_html ?? null,
+        payload.footer_html ?? null,
+        JSON.stringify(payload.variables_schema ?? []),
+        JSON.stringify(payload.clause_order ?? []),
+        payload.version ?? 1,
+        payload.is_active ?? true,
+        userId,
+      ],
+    );
+    return rows[0];
+  }
+
+  async updateDocumentTemplate(organizationId: number, id: number, userId: number | null, payload: Record<string, unknown>, client?: PoolClient) {
+    const runner: any = this.runner(client);
+    const { rows } = await runner.query(
+      `UPDATE sales_document_templates
+       SET title = COALESCE($3, title),
+           template_body = COALESCE($4, template_body),
+           header_html = COALESCE($5, header_html),
+           footer_html = COALESCE($6, footer_html),
+           variables_schema = COALESCE($7::jsonb, variables_schema),
+           clause_order = COALESCE($8::jsonb, clause_order),
+           is_active = COALESCE($9, is_active),
+           updated_by = $10,
+           updated_at = NOW()
+       WHERE id = $1 AND organization_id = $2 AND archived_at IS NULL
+       RETURNING *`,
+      [
+        id,
+        organizationId,
+        payload.title ?? null,
+        payload.template_body ?? null,
+        payload.header_html ?? null,
+        payload.footer_html ?? null,
+        payload.variables_schema ? JSON.stringify(payload.variables_schema) : null,
+        payload.clause_order ? JSON.stringify(payload.clause_order) : null,
+        payload.is_active ?? null,
+        userId,
+      ],
+    );
+    return rows[0] ?? null;
+  }
+
+  async ensureDefaultTemplate(
+    organizationId: number,
+    templateType: string,
+    userId: number | null,
+    templateSeed: { title: string; template_body: string },
+    availableVariables: string[],
+    client?: PoolClient,
+  ) {
+    const { rows } = await this.query(
+      `SELECT *
+       FROM sales_document_templates
+       WHERE organization_id = $1
+         AND template_type = $2
+         AND archived_at IS NULL
+         AND is_active = TRUE
+       ORDER BY version DESC, id DESC
+       LIMIT 1`,
+      [organizationId, templateType],
+      client,
+    );
+    if (rows[0]) {
+      return rows[0];
+    }
+    return this.createDocumentTemplate(
+      organizationId,
+      userId,
+      {
+        template_type: templateType,
+        title: templateSeed.title,
+        template_body: templateSeed.template_body,
+        variables_schema: availableVariables,
+        clause_order: [],
+        version: 1,
+        is_active: true,
+      },
+      client,
+    );
+  }
+
+  async createDocumentGeneration(
+    organizationId: number,
+    payload: {
+      entity_type: string;
+      entity_id: number;
+      template_type: string;
+      template_id?: number | null;
+      version: number;
+      document_number: string;
+      file_name?: string | null;
+      variables_snapshot: Record<string, unknown>;
+      generated_by: number | null;
+    },
+    client?: PoolClient,
+  ) {
+    const runner: any = this.runner(client);
+    const { rows } = await runner.query(
+      `INSERT INTO sales_document_generations (
+         organization_id, entity_type, entity_id, template_type, template_id, version,
+         document_number, file_name, variables_snapshot, generation_status, generated_by, created_at, updated_at
+       )
+       VALUES (
+         $1, $2, $3, $4, $5, $6,
+         $7, $8, $9::jsonb, 'PENDING', $10, NOW(), NOW()
+       )
+       RETURNING *`,
+      [
+        organizationId,
+        payload.entity_type,
+        payload.entity_id,
+        payload.template_type,
+        payload.template_id ?? null,
+        payload.version,
+        payload.document_number,
+        payload.file_name ?? null,
+        JSON.stringify(payload.variables_snapshot ?? {}),
+        payload.generated_by,
+      ],
+    );
+    return rows[0];
+  }
+
+  async markDocumentGenerationSuccess(organizationId: number, id: number, payload: { pdf_base64: string; mime_type: string; generated_by: number | null }) {
+    const { rows } = await this.query(
+      `UPDATE sales_document_generations
+       SET pdf_base64 = $3,
+           mime_type = $4,
+           generation_status = 'GENERATED',
+           generated_at = NOW(),
+           generated_by = $5,
+           updated_at = NOW()
+       WHERE id = $1 AND organization_id = $2
+       RETURNING *`,
+      [id, organizationId, payload.pdf_base64, payload.mime_type, payload.generated_by],
+    );
+    return rows[0] ?? null;
+  }
+
+  async markDocumentGenerationFailure(organizationId: number, id: number, errorMessage: string, generatedBy: number | null) {
+    const { rows } = await this.query(
+      `UPDATE sales_document_generations
+       SET generation_status = 'GENERATION_FAILED',
+           error_message = LEFT($3, 1000),
+           generated_at = NOW(),
+           generated_by = $4,
+           updated_at = NOW()
+       WHERE id = $1 AND organization_id = $2
+       RETURNING *`,
+      [id, organizationId, errorMessage, generatedBy],
+    );
+    return rows[0] ?? null;
+  }
+
+  async listDocumentGenerations(organizationId: number, entityType: string, entityId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT *
+       FROM sales_document_generations
+       WHERE organization_id = $1
+         AND entity_type = $2
+         AND entity_id = $3
+       ORDER BY created_at DESC, id DESC`,
+      [organizationId, entityType, entityId],
+      client,
+    );
+    return rows;
+  }
+
+  async findDocumentGeneration(organizationId: number, id: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT *
+       FROM sales_document_generations
+       WHERE id = $1 AND organization_id = $2
+       LIMIT 1`,
+      [id, organizationId],
+      client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async getReservationDocumentContext(organizationId: number, reservationId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT sr.*,
+              o.name AS organization_name,
+              '' AS organization_address,
+              COALESCE(sb.full_name, sb.company_name) AS buyer_name,
+              sb.buyer_ref,
+              spc.title AS catalog_title,
+              spc.catalog_ref,
+              sp.name AS project_name
+       FROM sales_reservations sr
+       JOIN organizations o ON o.id = sr.organization_id
+       LEFT JOIN sales_buyers sb ON sb.id = sr.buyer_id AND sb.organization_id = sr.organization_id
+       LEFT JOIN sales_property_catalog spc ON spc.id = sr.catalog_item_id AND spc.organization_id = sr.organization_id
+       LEFT JOIN sales_projects sp ON sp.id = sr.project_id AND sp.organization_id = sr.organization_id
+       WHERE sr.id = $1 AND sr.organization_id = $2 AND sr.archived_at IS NULL
+       LIMIT 1`,
+      [reservationId, organizationId],
+      client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async getSubscriptionDocumentContext(organizationId: number, subscriptionId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT ss.*,
+              o.name AS organization_name,
+              '' AS organization_address,
+              COALESCE(sb.full_name, sb.company_name) AS buyer_name,
+              sb.buyer_ref,
+              spc.title AS catalog_title,
+              spc.catalog_ref,
+              sp.name AS project_name,
+              sr.reservation_number
+       FROM sales_subscriptions ss
+       JOIN organizations o ON o.id = ss.organization_id
+       LEFT JOIN sales_buyers sb ON sb.id = ss.buyer_id AND sb.organization_id = ss.organization_id
+       LEFT JOIN sales_property_catalog spc ON spc.id = ss.catalog_item_id AND spc.organization_id = ss.organization_id
+       LEFT JOIN sales_projects sp ON sp.id = ss.project_id AND sp.organization_id = ss.organization_id
+       LEFT JOIN sales_reservations sr ON sr.id = ss.reservation_id AND sr.organization_id = ss.organization_id
+       WHERE ss.id = $1 AND ss.organization_id = $2 AND ss.archived_at IS NULL
+       LIMIT 1`,
+      [subscriptionId, organizationId],
+      client,
+    );
+    return rows[0] ?? null;
   }
 }

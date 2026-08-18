@@ -11,6 +11,7 @@ export const SALES_SUBSCRIPTION_STATUSES = ['DRAFT', 'SUBMITTED', 'APPROVED', 'R
 export const SALES_SCHEDULE_FREQUENCIES = ['MONTHLY', 'QUARTERLY', 'CUSTOM'] as const;
 export const SALES_DEPOSIT_TYPES = ['PERCENTAGE', 'FIXED'] as const;
 export const SALES_INSTALLMENT_TYPES = ['DEPOSIT', 'REGULAR', 'FINAL', 'CUSTOM', 'FEE'] as const;
+export const SALES_SUBSCRIPTION_ORIGIN_MODES = ['DIRECT', 'RESERVATION'] as const;
 
 export type SalesBootstrap = {
   module: string;
@@ -29,6 +30,13 @@ export type SalesSettings = {
   contract_prefix?: string | null;
   receipt_prefix?: string | null;
   invoice_prefix?: string | null;
+  buyer_number_format?: string | null;
+  project_number_format?: string | null;
+  catalog_number_format?: string | null;
+  reservation_number_format?: string | null;
+  subscription_number_format?: string | null;
+  reservation_contract_number_format?: string | null;
+  subscription_contract_number_format?: string | null;
   reservation_default_duration_days?: number | null;
   reservation_fee_required?: boolean | null;
   reservation_default_fee?: number | null;
@@ -54,6 +62,41 @@ export type SalesListQuery = {
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   status?: string;
+  project_id?: number;
+  available_only?: boolean;
+};
+
+export type SalesDocumentTemplate = {
+  id: number;
+  organization_id: number;
+  template_type: string;
+  title: string;
+  template_body: string;
+  header_html?: string | null;
+  footer_html?: string | null;
+  variables_schema?: string[] | null;
+  clause_order?: string[] | null;
+  version?: number | null;
+  is_active?: boolean | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type SalesDocumentGeneration = {
+  id: number;
+  organization_id: number;
+  entity_type: string;
+  entity_id: number;
+  template_type: string;
+  template_id?: number | null;
+  version?: number | null;
+  document_number: string;
+  file_name?: string | null;
+  generation_status?: string | null;
+  mime_type?: string | null;
+  generated_at?: string | null;
+  error_message?: string | null;
+  created_at?: string | null;
 };
 
 export type SalesListResult<T> = {
@@ -154,6 +197,7 @@ export type SalesReservation = {
   project_name?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  documents?: SalesDocumentGeneration[];
 };
 
 export type SalesSubscriptionInstallment = {
@@ -205,6 +249,7 @@ export type SalesSubscription = {
   created_at?: string | null;
   updated_at?: string | null;
   installments?: SalesSubscriptionInstallment[];
+  documents?: SalesDocumentGeneration[];
 };
 
 export type SalesSimulationSummary = {
@@ -225,7 +270,7 @@ export type SalesSubscriptionSimulation = {
 };
 
 export type CreateSalesBuyerInput = {
-  buyer_ref: string;
+  buyer_ref?: string;
   buyer_type: string;
   full_name?: string;
   company_name?: string;
@@ -244,7 +289,7 @@ export type CreateSalesBuyerInput = {
 };
 
 export type CreateSalesProjectInput = {
-  project_ref: string;
+  project_ref?: string;
   name: string;
   description?: string;
   location_label?: string;
@@ -255,7 +300,7 @@ export type CreateSalesProjectInput = {
 };
 
 export type CreateSalesCatalogInput = {
-  catalog_ref: string;
+  catalog_ref?: string;
   property_type: string;
   title: string;
   description?: string;
@@ -301,6 +346,7 @@ export type CustomInstallmentInput = {
 };
 
 export type SimulateSalesSubscriptionInput = {
+  origin_mode?: (typeof SALES_SUBSCRIPTION_ORIGIN_MODES)[number] | string;
   buyer_id: number;
   catalog_item_id: number;
   project_id?: number;

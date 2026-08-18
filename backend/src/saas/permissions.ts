@@ -178,7 +178,12 @@ const additionalPermissions = [
   'sales_recovery.create',
   'sales_documents.read',
   'sales_documents.create',
+  'sales_documents.generate',
+  'sales_documents.regenerate',
+  'sales_documents.sign',
   'sales_documents.download',
+  'sales_templates.read',
+  'sales_templates.manage',
   'sales_reports.read',
 ];
 
@@ -199,6 +204,8 @@ const salesAgentPermissions = [
   'sales_subscriptions.update',
   'sales_contracts.read',
   'sales_contracts.create',
+  'sales_documents.read',
+  'sales_documents.generate',
 ];
 
 const salesAccountantPermissions = [
@@ -212,6 +219,7 @@ const salesAccountantPermissions = [
   'sales_payments.read',
   'sales_recovery.read',
   'sales_reports.read',
+  'sales_documents.read',
 ];
 
 const salesViewerPermissions = [
@@ -222,6 +230,7 @@ const salesViewerPermissions = [
   'sales_reservations.read',
   'sales_subscriptions.read',
   'sales_reports.read',
+  'sales_documents.read',
 ];
 
 export const ROLE_ALIASES: Record<string, CanonicalRole> = {

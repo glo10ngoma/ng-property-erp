@@ -9,18 +9,25 @@ import {
   convertSalesReservation,
   createSalesReservation,
   createSalesSubscription,
+  createSalesDocumentTemplate,
+  downloadSalesDocument,
   expireSalesReservation,
   getSalesReservation,
   getSalesSettings,
   getSalesSubscription,
+  listSalesDocumentTemplates,
   listSalesBuyers,
   listSalesCatalog,
   listSalesProjects,
   listSalesReservations,
   listSalesSubscriptions,
+  regenerateSalesReservationDocument,
+  regenerateSalesSubscriptionDocument,
   rejectSalesSubscription,
   simulateSalesSubscription,
   submitSalesSubscription,
+  updateSalesDocumentTemplate,
+  updateSalesSettings,
   updateSalesReservation,
   updateSalesSubscription,
 } from '../api/sales.api';
@@ -28,6 +35,7 @@ import {
   SALES_DEPOSIT_TYPES,
   SALES_RESERVATION_STATUSES,
   SALES_SCHEDULE_FREQUENCIES,
+  SALES_SUBSCRIPTION_ORIGIN_MODES,
   SALES_SUBSCRIPTION_STATUSES,
   SALES_SUPPORTED_CURRENCIES,
   type CreateSalesReservationInput,
@@ -35,6 +43,8 @@ import {
   type CustomInstallmentInput,
   type SalesBuyer,
   type SalesCatalogItem,
+  type SalesDocumentGeneration,
+  type SalesDocumentTemplate,
   type SalesProject,
   type SalesReservation,
   type SalesSettings,
@@ -76,6 +86,7 @@ type ReservationFormState = {
 
 type SubscriptionFormState = {
   subscription_number: string;
+  origin_mode: string;
   reservation_id: string;
   buyer_id: string;
   catalog_item_id: string;
@@ -152,6 +163,18 @@ function formatCurrency(value?: number | null, currency?: string | null) {
   }).format(value);
 }
 
+async function triggerDocumentDownload(document: SalesDocumentGeneration) {
+  const blob = await downloadSalesDocument(document.id);
+  const url = window.URL.createObjectURL(blob);
+  const link = window.document.createElement('a');
+  link.href = url;
+  link.download = document.file_name || `${document.document_number}.pdf`;
+  window.document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 function getStatusTone(status?: string | null): SalesStatusTone {
   switch ((status || '').toUpperCase()) {
     case 'ACTIVE':
@@ -204,6 +227,7 @@ function emptyReservationForm(): ReservationFormState {
 function emptySubscriptionForm(): SubscriptionFormState {
   return {
     subscription_number: '',
+    origin_mode: 'DIRECT',
     reservation_id: '',
     buyer_id: '',
     catalog_item_id: '',
@@ -249,6 +273,7 @@ function mapSubscriptionToForm(item: SalesSubscription): SubscriptionFormState {
 
   return {
     subscription_number: item.subscription_number ?? '',
+    origin_mode: item.reservation_id ? 'RESERVATION' : 'DIRECT',
     reservation_id: item.reservation_id ? String(item.reservation_id) : '',
     buyer_id: String(item.buyer_id),
     catalog_item_id: String(item.catalog_item_id),
@@ -320,7 +345,6 @@ function useSalesReferenceData() {
 
 function buildReservationPayload(form: ReservationFormState): CreateSalesReservationInput {
   return {
-    reservation_number: trimOrUndefined(form.reservation_number),
     buyer_id: Number(form.buyer_id),
     catalog_item_id: Number(form.catalog_item_id),
     project_id: parseOptionalNumber(form.project_id),
@@ -337,7 +361,7 @@ function buildReservationPayload(form: ReservationFormState): CreateSalesReserva
 
 function buildSubscriptionPayload(form: SubscriptionFormState): CreateSalesSubscriptionInput {
   return {
-    subscription_number: trimOrUndefined(form.subscription_number),
+    origin_mode: form.origin_mode,
     reservation_id: parseOptionalNumber(form.reservation_id),
     buyer_id: Number(form.buyer_id),
     catalog_item_id: Number(form.catalog_item_id),
@@ -506,6 +530,10 @@ export function SalesReservationFormPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { buyers, catalog, projects } = useSalesReferenceData();
+  const filteredCatalog = useMemo(
+    () => catalog.filter((item) => !form.project_id || String(item.project_id ?? '') === form.project_id),
+    [catalog, form.project_id],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -542,6 +570,15 @@ export function SalesReservationFormPage() {
     }));
   }, [catalog, form.catalog_item_id]);
 
+  useEffect(() => {
+    if (!form.catalog_item_id) return;
+    const selectedCatalog = catalog.find((item) => String(item.id) === form.catalog_item_id);
+    if (!selectedCatalog) return;
+    if (form.project_id && String(selectedCatalog.project_id ?? '') !== form.project_id) {
+      setForm((current) => ({ ...current, catalog_item_id: '' }));
+    }
+  }, [catalog, form.catalog_item_id, form.project_id]);
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -572,25 +609,28 @@ export function SalesReservationFormPage() {
         {!loading && (
           <form className="sales-v21-form" onSubmit={handleSubmit}>
             <SalesFormSection title="Identification" description="Référence interne et rattachement commercial.">
-              <SalesField label="Numéro de réservation" hint="Laissez vide pour une génération automatique.">
-                <input className="sales-v21-input" value={form.reservation_number} onChange={(event) => setForm((current) => ({ ...current, reservation_number: event.target.value }))} />
-              </SalesField>
+              <SalesInlineNotice>Le numéro de réservation est généré automatiquement à l’enregistrement.</SalesInlineNotice>
               <SalesField label="Acquéreur">
                 <select className="sales-v21-select" value={form.buyer_id} onChange={(event) => setForm((current) => ({ ...current, buyer_id: event.target.value }))}>
                   <option value="">Sélectionner</option>
                   {buyers.map((buyer) => <option key={buyer.id} value={buyer.id}>{buyer.full_name || buyer.company_name || buyer.buyer_ref}</option>)}
                 </select>
               </SalesField>
-              <SalesField label="Bien à vendre">
-                <select className="sales-v21-select" value={form.catalog_item_id} onChange={(event) => setForm((current) => ({ ...current, catalog_item_id: event.target.value }))}>
-                  <option value="">Sélectionner</option>
-                  {catalog.map((item) => <option key={item.id} value={item.id}>{item.title} — {item.catalog_ref}</option>)}
-                </select>
-              </SalesField>
               <SalesField label="Projet">
                 <select className="sales-v21-select" value={form.project_id} onChange={(event) => setForm((current) => ({ ...current, project_id: event.target.value }))}>
-                  <option value="">Aucun projet</option>
+                  <option value="">Sélectionner un projet</option>
                   {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                </select>
+              </SalesField>
+              <SalesField label="Bien à vendre" hint="Le bien est filtré selon le projet sélectionné.">
+                <select
+                  className="sales-v21-select"
+                  value={form.catalog_item_id}
+                  disabled={!form.project_id}
+                  onChange={(event) => setForm((current) => ({ ...current, catalog_item_id: event.target.value }))}
+                >
+                  <option value="">{form.project_id ? 'Sélectionner' : 'Choisissez d’abord un projet'}</option>
+                  {filteredCatalog.map((item) => <option key={item.id} value={item.id}>{item.title} — {item.catalog_ref}</option>)}
                 </select>
               </SalesField>
             </SalesFormSection>
@@ -607,7 +647,7 @@ export function SalesReservationFormPage() {
               <SalesField label="Prix négocié">
                 <input className="sales-v21-input" inputMode="decimal" value={form.negotiated_price} onChange={(event) => setForm((current) => ({ ...current, negotiated_price: event.target.value }))} />
               </SalesField>
-              <SalesField label="Frais de réservation" hint={settings?.reservation_fee_required ? `Minimum configuré : ${settings.reservation_default_fee ?? 0}` : 'Optionnel selon vos règles internes.'}>
+              <SalesField label="Frais de réservation convenus" hint={settings?.reservation_fee_required ? `Minimum configuré : ${settings.reservation_default_fee ?? 0}` : 'Montant convenu uniquement. L’encaissement sera branché en V3.1.1.'}>
                 <input className="sales-v21-input" inputMode="decimal" value={form.reservation_fee} onChange={(event) => setForm((current) => ({ ...current, reservation_fee: event.target.value }))} />
               </SalesField>
             </SalesFormSection>
@@ -750,6 +790,50 @@ export function SalesReservationDetailPage() {
               </div>
             </SalesSection>
           </div>
+
+          <SalesSection
+            title="Documents contractuels"
+            description="Contrat généré automatiquement et régénération manuelle si le dossier évolue."
+            action={can('sales_documents.regenerate') ? (
+              <button
+                className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact"
+                type="button"
+                disabled={busyAction === 'document'}
+                onClick={() => void runAction('document', async () => {
+                  await regenerateSalesReservationDocument(item.id);
+                  return getSalesReservation(item.id);
+                })}
+              >
+                Régénérer le contrat
+              </button>
+            ) : null}
+          >
+            {item.documents?.length ? (
+              <SalesDataTable
+                rowKey={(document) => document.id}
+                rows={item.documents}
+                columns={[
+                  { key: 'number', label: 'Document', render: (document) => document.document_number },
+                  { key: 'type', label: 'Type', render: (document) => document.template_type },
+                  { key: 'status', label: 'Statut', render: (document) => document.generation_status || 'PENDING' },
+                  { key: 'date', label: 'Généré le', render: (document) => formatDate(document.generated_at || document.created_at) },
+                  {
+                    key: 'actions',
+                    label: 'Actions',
+                    render: (document) => (
+                      <div className="sales-v21-table-actions">
+                        <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => void triggerDocumentDownload(document)}>
+                          Télécharger
+                        </button>
+                      </div>
+                    ),
+                  },
+                ]}
+              />
+            ) : (
+              <SalesEmptyState title="Aucun contrat généré" description="Le premier PDF apparaîtra ici dès la génération du contrat de réservation." />
+            )}
+          </SalesSection>
         </>
       ) : null}
     </SalesModulePage>
@@ -887,6 +971,14 @@ export function SalesSubscriptionFormPage() {
   const [simulating, setSimulating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { buyers, catalog, projects, reservations } = useSalesReferenceData();
+  const linkedReservation = useMemo(
+    () => reservations.find((item) => String(item.id) === form.reservation_id),
+    [form.reservation_id, reservations],
+  );
+  const filteredCatalog = useMemo(
+    () => catalog.filter((item) => !form.project_id || String(item.project_id ?? '') === form.project_id),
+    [catalog, form.project_id],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -951,6 +1043,7 @@ export function SalesSubscriptionFormPage() {
     if (!reservation) return;
     setForm((current) => ({
       ...current,
+      origin_mode: 'RESERVATION',
       reservation_id: reservationId,
       buyer_id: String(reservation.buyer_id),
       catalog_item_id: String(reservation.catalog_item_id),
@@ -960,6 +1053,29 @@ export function SalesSubscriptionFormPage() {
       negotiated_price: String(reservation.negotiated_price),
     }));
   }, [editingId, reservations]);
+
+  useEffect(() => {
+    if (form.origin_mode !== 'RESERVATION' || !linkedReservation) return;
+    setForm((current) => ({
+      ...current,
+      buyer_id: String(linkedReservation.buyer_id),
+      catalog_item_id: String(linkedReservation.catalog_item_id),
+      project_id: linkedReservation.project_id ? String(linkedReservation.project_id) : '',
+      currency: linkedReservation.currency,
+      catalog_price: String(linkedReservation.catalog_price ?? ''),
+      negotiated_price: String(linkedReservation.negotiated_price ?? ''),
+    }));
+  }, [form.origin_mode, linkedReservation]);
+
+  useEffect(() => {
+    if (form.origin_mode === 'RESERVATION') return;
+    if (!form.catalog_item_id) return;
+    const selectedCatalog = catalog.find((item) => String(item.id) === form.catalog_item_id);
+    if (!selectedCatalog) return;
+    if (form.project_id && String(selectedCatalog.project_id ?? '') !== form.project_id) {
+      setForm((current) => ({ ...current, catalog_item_id: '' }));
+    }
+  }, [catalog, form.catalog_item_id, form.origin_mode, form.project_id]);
 
   async function refreshSimulation() {
     setSimulating(true);
@@ -1004,31 +1120,39 @@ export function SalesSubscriptionFormPage() {
         {!loading && (
           <form className="sales-v21-form" onSubmit={handleSubmit}>
             <SalesFormSection title="Rattachement" description="Origine commerciale et entités liées.">
-              <SalesField label="Numéro de souscription" hint="Laissez vide pour une génération automatique.">
-                <input className="sales-v21-input" value={form.subscription_number} onChange={(event) => setForm((current) => ({ ...current, subscription_number: event.target.value }))} />
+              <SalesInlineNotice>Le numéro de souscription est généré automatiquement à l’enregistrement.</SalesInlineNotice>
+              <SalesField label="Mode d’origine">
+                <select className="sales-v21-select" value={form.origin_mode} onChange={(event) => setForm((current) => ({ ...current, origin_mode: event.target.value, reservation_id: event.target.value === 'DIRECT' ? '' : current.reservation_id }))}>
+                  {SALES_SUBSCRIPTION_ORIGIN_MODES.map((item) => <option key={item} value={item}>{item === 'RESERVATION' ? 'Depuis une réservation' : 'Souscription directe'}</option>)}
+                </select>
               </SalesField>
               <SalesField label="Réservation liée">
-                <select className="sales-v21-select" value={form.reservation_id} onChange={(event) => setForm((current) => ({ ...current, reservation_id: event.target.value }))}>
-                  <option value="">Aucune réservation</option>
+                <select className="sales-v21-select" value={form.reservation_id} disabled={form.origin_mode !== 'RESERVATION'} onChange={(event) => setForm((current) => ({ ...current, reservation_id: event.target.value }))}>
+                  <option value="">{form.origin_mode === 'RESERVATION' ? 'Sélectionner une réservation' : 'Mode direct sans réservation'}</option>
                   {reservations.map((item) => <option key={item.id} value={item.id}>{item.reservation_number}</option>)}
                 </select>
               </SalesField>
               <SalesField label="Acquéreur">
-                <select className="sales-v21-select" value={form.buyer_id} onChange={(event) => setForm((current) => ({ ...current, buyer_id: event.target.value }))}>
+                <select className="sales-v21-select" value={form.buyer_id} disabled={form.origin_mode === 'RESERVATION'} onChange={(event) => setForm((current) => ({ ...current, buyer_id: event.target.value }))}>
                   <option value="">Sélectionner</option>
                   {buyers.map((buyer) => <option key={buyer.id} value={buyer.id}>{buyer.full_name || buyer.company_name || buyer.buyer_ref}</option>)}
                 </select>
               </SalesField>
-              <SalesField label="Bien">
-                <select className="sales-v21-select" value={form.catalog_item_id} onChange={(event) => setForm((current) => ({ ...current, catalog_item_id: event.target.value }))}>
-                  <option value="">Sélectionner</option>
-                  {catalog.map((item) => <option key={item.id} value={item.id}>{item.title} — {item.catalog_ref}</option>)}
+              <SalesField label="Projet">
+                <select className="sales-v21-select" value={form.project_id} disabled={form.origin_mode === 'RESERVATION'} onChange={(event) => setForm((current) => ({ ...current, project_id: event.target.value }))}>
+                  <option value="">{form.origin_mode === 'RESERVATION' ? 'Projet imposé par la réservation' : 'Sélectionner un projet'}</option>
+                  {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
                 </select>
               </SalesField>
-              <SalesField label="Projet">
-                <select className="sales-v21-select" value={form.project_id} onChange={(event) => setForm((current) => ({ ...current, project_id: event.target.value }))}>
-                  <option value="">Aucun projet</option>
-                  {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+              <SalesField label="Bien">
+                <select
+                  className="sales-v21-select"
+                  value={form.catalog_item_id}
+                  disabled={form.origin_mode === 'RESERVATION' || !form.project_id}
+                  onChange={(event) => setForm((current) => ({ ...current, catalog_item_id: event.target.value }))}
+                >
+                  <option value="">{form.origin_mode === 'RESERVATION' ? 'Bien imposé par la réservation' : form.project_id ? 'Sélectionner' : 'Choisissez d’abord un projet'}</option>
+                  {filteredCatalog.map((item) => <option key={item.id} value={item.id}>{item.title} — {item.catalog_ref}</option>)}
                 </select>
               </SalesField>
               <SalesField label="Statut initial">
@@ -1040,15 +1164,15 @@ export function SalesSubscriptionFormPage() {
 
             <SalesFormSection title="Montants" description="Prix final, remise et structure de l’acompte.">
               <SalesField label="Devise">
-                <select className="sales-v21-select" value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value }))}>
+                <select className="sales-v21-select" value={form.currency} disabled={form.origin_mode === 'RESERVATION'} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value }))}>
                   {(settings?.allowed_currencies ?? SALES_SUPPORTED_CURRENCIES).map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
               </SalesField>
               <SalesField label="Prix catalogue">
-                <input className="sales-v21-input" inputMode="decimal" value={form.catalog_price} onChange={(event) => setForm((current) => ({ ...current, catalog_price: event.target.value }))} />
+                <input className="sales-v21-input" inputMode="decimal" value={form.catalog_price} readOnly={form.origin_mode === 'RESERVATION'} onChange={(event) => setForm((current) => ({ ...current, catalog_price: event.target.value }))} />
               </SalesField>
               <SalesField label="Prix final négocié">
-                <input className="sales-v21-input" inputMode="decimal" value={form.negotiated_price} onChange={(event) => setForm((current) => ({ ...current, negotiated_price: event.target.value }))} />
+                <input className="sales-v21-input" inputMode="decimal" value={form.negotiated_price} readOnly={form.origin_mode === 'RESERVATION'} onChange={(event) => setForm((current) => ({ ...current, negotiated_price: event.target.value }))} />
               </SalesField>
               <SalesField label="Remise" hint="Optionnel si vous pilotez directement par prix final.">
                 <input className="sales-v21-input" inputMode="decimal" value={form.discount_amount} onChange={(event) => setForm((current) => ({ ...current, discount_amount: event.target.value }))} />
@@ -1311,8 +1435,236 @@ export function SalesSubscriptionDetailPage() {
               <SalesEmptyState title="Aucune ligne d’échéancier" description="Le plan de paiement apparaîtra ici après simulation et enregistrement." />
             )}
           </SalesSection>
+
+          <SalesSection
+            title="Documents contractuels"
+            description="Contrat de souscription et pièces générées à partir du gabarit actif."
+            action={can('sales_documents.regenerate') ? (
+              <button
+                className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact"
+                type="button"
+                disabled={busyAction === 'document'}
+                onClick={() => void runAction('document', async () => {
+                  await regenerateSalesSubscriptionDocument(item.id);
+                  return getSalesSubscription(item.id);
+                })}
+              >
+                Régénérer le contrat
+              </button>
+            ) : null}
+          >
+            {item.documents?.length ? (
+              <SalesDataTable
+                rowKey={(document) => document.id}
+                rows={item.documents}
+                columns={[
+                  { key: 'number', label: 'Document', render: (document) => document.document_number },
+                  { key: 'type', label: 'Type', render: (document) => document.template_type },
+                  { key: 'status', label: 'Statut', render: (document) => document.generation_status || 'PENDING' },
+                  { key: 'date', label: 'Généré le', render: (document) => formatDate(document.generated_at || document.created_at) },
+                  {
+                    key: 'actions',
+                    label: 'Actions',
+                    render: (document) => (
+                      <div className="sales-v21-table-actions">
+                        <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => void triggerDocumentDownload(document)}>
+                          Télécharger
+                        </button>
+                      </div>
+                    ),
+                  },
+                ]}
+              />
+            ) : (
+              <SalesEmptyState title="Aucun contrat généré" description="Le contrat PDF apparaîtra ici après la première génération documentaire." />
+            )}
+          </SalesSection>
         </>
       ) : null}
+    </SalesModulePage>
+  );
+}
+
+export function SalesSettingsPage() {
+  const [settings, setSettings] = useState<SalesSettings | null>(null);
+  const [templates, setTemplates] = useState<SalesDocumentTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [settingsResponse, templatesResponse] = await Promise.all([
+          getSalesSettings(),
+          listSalesDocumentTemplates(),
+        ]);
+        if (cancelled) return;
+        setSettings(settingsResponse);
+        setTemplates([
+          ...templatesResponse,
+          ...(['RESERVATION_CONTRACT', 'SUBSCRIPTION_CONTRACT'] as const)
+            .filter((type) => !templatesResponse.some((item) => item.template_type === type))
+            .map((template_type) => ({
+              id: 0,
+              organization_id: 0,
+              template_type,
+              title: template_type === 'RESERVATION_CONTRACT' ? 'Contrat de réservation' : 'Contrat de souscription',
+              template_body: '',
+              variables_schema: [],
+            })),
+        ]);
+      } catch (loadError) {
+        if (!cancelled) setError(getErrorMessage(loadError));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function saveSettings(event: FormEvent) {
+    event.preventDefault();
+    if (!settings) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await updateSalesSettings(settings);
+      setSettings(saved);
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveTemplate(template: SalesDocumentTemplate) {
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = template.id
+        ? await updateSalesDocumentTemplate(template.id, template)
+        : await createSalesDocumentTemplate(template);
+      setTemplates((current) => {
+        const exists = current.some((item) => item.id === saved.id);
+        return exists ? current.map((item) => item.id === saved.id ? saved : item) : [...current, saved];
+      });
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const reservationTemplate = templates.find((item) => item.template_type === 'RESERVATION_CONTRACT')
+    ?? {
+      id: 0,
+      organization_id: 0,
+      template_type: 'RESERVATION_CONTRACT',
+      title: 'Contrat de réservation',
+      template_body: '',
+      variables_schema: [],
+    };
+  const subscriptionTemplate = templates.find((item) => item.template_type === 'SUBSCRIPTION_CONTRACT')
+    ?? {
+      id: 0,
+      organization_id: 0,
+      template_type: 'SUBSCRIPTION_CONTRACT',
+      title: 'Contrat de souscription',
+      template_body: '',
+      variables_schema: [],
+    };
+
+  return (
+    <SalesModulePage
+      title="Paramètres métier"
+      subtitle="Formats de numérotation, gabarits contractuels et réglages de cadence pour Sales V3.1."
+      activeTab="settings"
+    >
+      {loading ? <SalesInlineNotice>Chargement des paramètres…</SalesInlineNotice> : null}
+      {error ? <SalesInlineNotice tone="danger">{error}</SalesInlineNotice> : null}
+      {settings ? (
+        <form className="sales-v21-form" onSubmit={saveSettings}>
+          <SalesFormSection title="Numérotation" description="Formats générés automatiquement pour les entités commerciales.">
+            <SalesField label="Acquéreurs">
+              <input className="sales-v21-input" value={settings.buyer_number_format ?? ''} onChange={(event) => setSettings((current) => current ? { ...current, buyer_number_format: event.target.value } : current)} />
+            </SalesField>
+            <SalesField label="Projets">
+              <input className="sales-v21-input" value={settings.project_number_format ?? ''} onChange={(event) => setSettings((current) => current ? { ...current, project_number_format: event.target.value } : current)} />
+            </SalesField>
+            <SalesField label="Biens">
+              <input className="sales-v21-input" value={settings.catalog_number_format ?? ''} onChange={(event) => setSettings((current) => current ? { ...current, catalog_number_format: event.target.value } : current)} />
+            </SalesField>
+            <SalesField label="Réservations">
+              <input className="sales-v21-input" value={settings.reservation_number_format ?? ''} onChange={(event) => setSettings((current) => current ? { ...current, reservation_number_format: event.target.value } : current)} />
+            </SalesField>
+            <SalesField label="Souscriptions">
+              <input className="sales-v21-input" value={settings.subscription_number_format ?? ''} onChange={(event) => setSettings((current) => current ? { ...current, subscription_number_format: event.target.value } : current)} />
+            </SalesField>
+            <SalesField label="Contrat de réservation">
+              <input className="sales-v21-input" value={settings.reservation_contract_number_format ?? ''} onChange={(event) => setSettings((current) => current ? { ...current, reservation_contract_number_format: event.target.value } : current)} />
+            </SalesField>
+            <SalesField label="Contrat de souscription">
+              <input className="sales-v21-input" value={settings.subscription_contract_number_format ?? ''} onChange={(event) => setSettings((current) => current ? { ...current, subscription_contract_number_format: event.target.value } : current)} />
+            </SalesField>
+          </SalesFormSection>
+
+          <SalesFormSection title="Règles opérationnelles" description="Conserver le champ de frais convenus sans encore brancher l’encaissement.">
+            <SalesField label="Durée par défaut de réservation (jours)">
+              <input className="sales-v21-input" inputMode="numeric" value={String(settings.reservation_default_duration_days ?? '')} onChange={(event) => setSettings((current) => current ? { ...current, reservation_default_duration_days: Number(event.target.value || 0) } : current)} />
+            </SalesField>
+            <SalesField label="Frais de réservation minimum">
+              <input className="sales-v21-input" inputMode="decimal" value={String(settings.reservation_default_fee ?? '')} onChange={(event) => setSettings((current) => current ? { ...current, reservation_default_fee: Number(event.target.value || 0) } : current)} />
+            </SalesField>
+            <SalesField label="Fréquence par défaut">
+              <select className="sales-v21-select" value={settings.default_installment_frequency ?? 'MONTHLY'} onChange={(event) => setSettings((current) => current ? { ...current, default_installment_frequency: event.target.value } : current)}>
+                {SALES_SCHEDULE_FREQUENCIES.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+            </SalesField>
+            <SalesField label="Échéances maximum">
+              <input className="sales-v21-input" inputMode="numeric" value={String(settings.maximum_installment_count ?? '')} onChange={(event) => setSettings((current) => current ? { ...current, maximum_installment_count: Number(event.target.value || 0) } : current)} />
+            </SalesField>
+          </SalesFormSection>
+
+          <SalesFormActions>
+            <button className="sales-v21-btn sales-v21-btn-primary" type="submit" disabled={saving}>{saving ? 'Enregistrement…' : 'Enregistrer les paramètres'}</button>
+          </SalesFormActions>
+        </form>
+      ) : null}
+
+      <SalesSection title="Gabarit contrat de réservation" description="Variables disponibles : organisation, acquéreur, projet, bien, prix et frais convenus.">
+        <SalesField label="Titre">
+          <input className="sales-v21-input" value={reservationTemplate.title} onChange={(event) => setTemplates((current) => current.map((item) => item.template_type === 'RESERVATION_CONTRACT' ? { ...item, title: event.target.value } : item))} />
+        </SalesField>
+        <SalesField label="Corps HTML simplifié">
+          <textarea className="sales-v21-textarea" rows={10} value={reservationTemplate.template_body} onChange={(event) => setTemplates((current) => current.map((item) => item.template_type === 'RESERVATION_CONTRACT' ? { ...item, template_body: event.target.value } : item))} />
+        </SalesField>
+        <SalesFormActions>
+          <button className="sales-v21-btn sales-v21-btn-secondary" type="button" disabled={saving} onClick={() => void saveTemplate(reservationTemplate)}>
+            Enregistrer le gabarit
+          </button>
+        </SalesFormActions>
+      </SalesSection>
+
+      <SalesSection title="Gabarit contrat de souscription" description="Variables disponibles : souscription, acompte, échéancier et prix final.">
+        <SalesField label="Titre">
+          <input className="sales-v21-input" value={subscriptionTemplate.title} onChange={(event) => setTemplates((current) => current.map((item) => item.template_type === 'SUBSCRIPTION_CONTRACT' ? { ...item, title: event.target.value } : item))} />
+        </SalesField>
+        <SalesField label="Corps HTML simplifié">
+          <textarea className="sales-v21-textarea" rows={10} value={subscriptionTemplate.template_body} onChange={(event) => setTemplates((current) => current.map((item) => item.template_type === 'SUBSCRIPTION_CONTRACT' ? { ...item, template_body: event.target.value } : item))} />
+        </SalesField>
+        <SalesFormActions>
+          <button className="sales-v21-btn sales-v21-btn-secondary" type="button" disabled={saving} onClick={() => void saveTemplate(subscriptionTemplate)}>
+            Enregistrer le gabarit
+          </button>
+        </SalesFormActions>
+      </SalesSection>
     </SalesModulePage>
   );
 }

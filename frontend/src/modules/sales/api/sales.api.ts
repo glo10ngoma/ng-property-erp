@@ -5,6 +5,8 @@ import type {
   CreateSalesProjectInput,
   CreateSalesReservationInput,
   CreateSalesSubscriptionInput,
+  SalesDocumentGeneration,
+  SalesDocumentTemplate,
   SalesBootstrap,
   SalesBuyer,
   SalesCatalogItem,
@@ -31,6 +33,21 @@ export async function getSalesSettings() {
 
 export async function updateSalesSettings(payload: Partial<SalesSettings>) {
   const response = await api.patch<SalesSettings>('/sales/settings', payload);
+  return response.data;
+}
+
+export async function listSalesDocumentTemplates() {
+  const response = await api.get<SalesDocumentTemplate[]>('/sales/settings/templates');
+  return response.data;
+}
+
+export async function createSalesDocumentTemplate(payload: Partial<SalesDocumentTemplate>) {
+  const response = await api.post<SalesDocumentTemplate>('/sales/settings/templates', payload);
+  return response.data;
+}
+
+export async function updateSalesDocumentTemplate(id: number, payload: Partial<SalesDocumentTemplate>) {
+  const response = await api.patch<SalesDocumentTemplate>(`/sales/settings/templates/${id}`, payload);
   return response.data;
 }
 
@@ -154,6 +171,16 @@ export async function convertSalesReservation(id: number, payload: SalesStatusAc
   return response.data;
 }
 
+export async function listSalesReservationDocuments(id: number) {
+  const response = await api.get<SalesDocumentGeneration[]>(`/sales/reservations/${id}/documents`);
+  return response.data;
+}
+
+export async function regenerateSalesReservationDocument(id: number) {
+  const response = await api.post<SalesDocumentGeneration>(`/sales/reservations/${id}/documents/regenerate`);
+  return response.data;
+}
+
 export async function listSalesSubscriptions(params: SalesListQuery = {}) {
   const response = await api.get<SalesListResult<SalesSubscription>>('/sales/subscriptions', { params });
   return response.data;
@@ -196,5 +223,22 @@ export async function rejectSalesSubscription(id: number, payload: SalesStatusAc
 
 export async function cancelSalesSubscription(id: number, payload: SalesStatusActionInput = {}) {
   const response = await api.post<SalesSubscription>(`/sales/subscriptions/${id}/cancel`, payload);
+  return response.data;
+}
+
+export async function listSalesSubscriptionDocuments(id: number) {
+  const response = await api.get<SalesDocumentGeneration[]>(`/sales/subscriptions/${id}/documents`);
+  return response.data;
+}
+
+export async function regenerateSalesSubscriptionDocument(id: number) {
+  const response = await api.post<SalesDocumentGeneration>(`/sales/subscriptions/${id}/documents/regenerate`);
+  return response.data;
+}
+
+export async function downloadSalesDocument(id: number) {
+  const response = await api.get<Blob>(`/sales/documents/${id}/download`, {
+    responseType: 'blob',
+  });
   return response.data;
 }

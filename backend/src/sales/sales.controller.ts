@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
 import {
   CreateSalesBuyerDto,
   CreateSalesCatalogItemDto,
@@ -7,11 +7,13 @@ import {
   CreateSalesSubscriptionDto,
   SalesBuyerListQueryDto,
   SalesCatalogListQueryDto,
+  SalesDocumentTemplateDto,
   SalesProjectListQueryDto,
   SalesReservationListQueryDto,
   SalesReservationStatusActionDto,
   SalesSubscriptionListQueryDto,
   SimulateSalesSubscriptionDto,
+  UpdateSalesDocumentTemplateDto,
   UpdateSalesBuyerDto,
   UpdateSalesCatalogItemDto,
   UpdateSalesCatalogStatusDto,
@@ -42,6 +44,21 @@ export class SalesController {
   @Patch('settings')
   updateSettings(@Body() dto: UpdateSalesSettingsDto) {
     return this.sales.updateSettings(dto);
+  }
+
+  @Get('settings/templates')
+  listDocumentTemplates() {
+    return this.sales.listDocumentTemplates();
+  }
+
+  @Post('settings/templates')
+  createDocumentTemplate(@Body() dto: SalesDocumentTemplateDto) {
+    return this.sales.createDocumentTemplate(dto);
+  }
+
+  @Patch('settings/templates/:id')
+  updateDocumentTemplate(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateSalesDocumentTemplateDto) {
+    return this.sales.updateDocumentTemplate(id, dto);
   }
 
   @Get('buyers')
@@ -164,6 +181,16 @@ export class SalesController {
     return this.sales.convertReservation(id, dto.reason);
   }
 
+  @Get('reservations/:id/documents')
+  listReservationDocuments(@Param('id', ParseIntPipe) id: number) {
+    return this.sales.listReservationDocuments(id);
+  }
+
+  @Post('reservations/:id/documents/regenerate')
+  regenerateReservationDocument(@Param('id', ParseIntPipe) id: number) {
+    return this.sales.regenerateReservationDocument(id);
+  }
+
   @Get('subscriptions')
   listSubscriptions(@Query() query: SalesSubscriptionListQueryDto) {
     return this.sales.listSubscriptions(query);
@@ -207,5 +234,23 @@ export class SalesController {
   @Post('subscriptions/:id/cancel')
   cancelSubscription(@Param('id', ParseIntPipe) id: number, @Body() dto: SalesReservationStatusActionDto) {
     return this.sales.cancelSubscription(id, dto.reason);
+  }
+
+  @Get('subscriptions/:id/documents')
+  listSubscriptionDocuments(@Param('id', ParseIntPipe) id: number) {
+    return this.sales.listSubscriptionDocuments(id);
+  }
+
+  @Post('subscriptions/:id/documents/regenerate')
+  regenerateSubscriptionDocument(@Param('id', ParseIntPipe) id: number) {
+    return this.sales.regenerateSubscriptionDocument(id);
+  }
+
+  @Get('documents/:id/download')
+  async downloadGeneratedDocument(@Param('id', ParseIntPipe) id: number, @Res() response: any) {
+    const file = await this.sales.downloadGeneratedDocument(id);
+    response.setHeader('Content-Type', file.mimeType);
+    response.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    response.send(file.buffer);
   }
 }

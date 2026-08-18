@@ -11,6 +11,18 @@ export const SALES_SUBSCRIPTION_STATUSES = ['DRAFT', 'SUBMITTED', 'APPROVED', 'R
 export const SALES_SCHEDULE_FREQUENCIES = ['MONTHLY', 'QUARTERLY', 'CUSTOM'] as const;
 export const SALES_DEPOSIT_TYPES = ['PERCENTAGE', 'FIXED'] as const;
 export const SALES_INSTALLMENT_TYPES = ['DEPOSIT', 'REGULAR', 'FINAL', 'CUSTOM', 'FEE'] as const;
+export const SALES_SEQUENCE_DOCUMENT_TYPES = [
+  'BUYER',
+  'PROJECT',
+  'CATALOG',
+  'RESERVATION',
+  'SUBSCRIPTION',
+  'RESERVATION_CONTRACT',
+  'SUBSCRIPTION_CONTRACT',
+] as const;
+export const SALES_TEMPLATE_TYPES = ['RESERVATION_CONTRACT', 'SUBSCRIPTION_CONTRACT'] as const;
+export const SALES_DOCUMENT_GENERATION_STATUSES = ['PENDING', 'GENERATED', 'GENERATION_FAILED', 'SIGNED'] as const;
+export const SALES_SUBSCRIPTION_ORIGIN_MODES = ['RESERVATION', 'DIRECT'] as const;
 
 export function normalizeSalesModuleCode(moduleCode: string | null | undefined) {
   return String(moduleCode ?? SALES_MODULE_CODE).trim().toUpperCase() || SALES_MODULE_CODE;
@@ -33,6 +45,13 @@ export type SalesSettings = {
   contract_prefix?: string | null;
   receipt_prefix?: string | null;
   invoice_prefix?: string | null;
+  buyer_number_format?: string | null;
+  project_number_format?: string | null;
+  catalog_number_format?: string | null;
+  reservation_number_format?: string | null;
+  subscription_number_format?: string | null;
+  reservation_contract_number_format?: string | null;
+  subscription_contract_number_format?: string | null;
   reservation_default_duration_days?: number | null;
   reservation_fee_required?: boolean | null;
   reservation_default_fee?: number | null;
@@ -213,6 +232,42 @@ export type SalesSubscription = {
   project_name?: string | null;
   reservation_number?: string | null;
   installments?: SalesSubscriptionInstallment[];
+};
+
+export type SalesDocumentTemplate = {
+  id: number;
+  organization_id: number;
+  template_type: (typeof SALES_TEMPLATE_TYPES)[number] | string;
+  title: string;
+  template_body: string;
+  header_html?: string | null;
+  footer_html?: string | null;
+  variables_schema?: string[] | null;
+  clause_order?: string[] | null;
+  version: number;
+  is_active: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type SalesDocumentGeneration = {
+  id: number;
+  organization_id: number;
+  entity_type: 'RESERVATION' | 'SUBSCRIPTION' | string;
+  entity_id: number;
+  template_type: (typeof SALES_TEMPLATE_TYPES)[number] | string;
+  template_id?: number | null;
+  version: number;
+  document_number: string;
+  file_name?: string | null;
+  mime_type?: string | null;
+  generation_status: (typeof SALES_DOCUMENT_GENERATION_STATUSES)[number] | string;
+  generated_at?: string | null;
+  signed_at?: string | null;
+  signed_file_url?: string | null;
+  error_message?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 export type SalesSimulationSummary = {

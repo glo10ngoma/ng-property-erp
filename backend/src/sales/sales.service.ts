@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { RequestContext } from '../auth/request-context';
 import { DatabaseService } from '../database/database.service';
 import {
@@ -9,10 +9,12 @@ import {
   CreateSalesSubscriptionDto,
   SalesBuyerListQueryDto,
   SalesCatalogListQueryDto,
+  SalesDocumentTemplateDto,
   SalesProjectListQueryDto,
   SalesReservationListQueryDto,
   SalesSubscriptionListQueryDto,
   SimulateSalesSubscriptionDto,
+  UpdateSalesDocumentTemplateDto,
   UpdateSalesBuyerDto,
   UpdateSalesCatalogItemDto,
   UpdateSalesCatalogStatusDto,
@@ -21,6 +23,7 @@ import {
   UpdateSalesSettingsDto,
   UpdateSalesSubscriptionDto,
 } from './dto';
+import { SalesDocumentsService } from './sales-documents.service';
 import { SalesRepository } from './sales.repository';
 import { simulateSalesSubscriptionPlan } from './subscription-schedule';
 import { SALES_MODULE_CODE } from './types';
@@ -31,6 +34,7 @@ export class SalesService {
     private readonly db: DatabaseService,
     private readonly context: RequestContext,
     private readonly repository: SalesRepository,
+    private readonly documents: SalesDocumentsService,
   ) {}
 
   async bootstrap() {
@@ -78,7 +82,14 @@ export class SalesService {
   createBuyer(dto: CreateSalesBuyerDto) {
     return this.db.transaction(async (client) => {
       const organizationId = this.context.organizationId();
-      const created = await this.repository.createBuyer(organizationId, this.context.userId(), dto, client);
+      const settings = await this.repository.findSettings(organizationId, client);
+      const buyerRef = dto.buyer_ref?.trim() || await this.generateReference(
+        organizationId,
+        'BUYER',
+        settings?.buyer_number_format || 'ACQ-{YYYY}-{SEQ:5}',
+        client,
+      );
+      const created = await this.repository.createBuyer(organizationId, this.context.userId(), { ...dto, buyer_ref: buyerRef }, client);
       await this.repository.writeAuditEvent(organizationId, 'sales_buyer', Number(created.id), 'SALES_BUYER_CREATED', this.context.userId(), null, created, client);
       return created;
     });
@@ -121,7 +132,14 @@ export class SalesService {
   createProject(dto: CreateSalesProjectDto) {
     return this.db.transaction(async (client) => {
       const organizationId = this.context.organizationId();
-      const created = await this.repository.createProject(organizationId, this.context.userId(), dto, client);
+      const settings = await this.repository.findSettings(organizationId, client);
+      const projectRef = dto.project_ref?.trim() || await this.generateReference(
+        organizationId,
+        'PROJECT',
+        settings?.project_number_format || 'PRJ-{YYYY}-{SEQ:4}',
+        client,
+      );
+      const created = await this.repository.createProject(organizationId, this.context.userId(), { ...dto, project_ref: projectRef }, client);
       await this.repository.writeAuditEvent(organizationId, 'sales_project', Number(created.id), 'SALES_PROJECT_CREATED', this.context.userId(), null, created, client);
       return created;
     });
@@ -164,11 +182,18 @@ export class SalesService {
   createCatalogItem(dto: CreateSalesCatalogItemDto) {
     return this.db.transaction(async (client) => {
       const organizationId = this.context.organizationId();
+      const settings = await this.repository.findSettings(organizationId, client);
       this.repository.validateCatalogMoney(dto);
       await this.repository.ensureProjectBelongsToOrganization(organizationId, dto.project_id, client);
       await this.repository.ensureBuildingBelongsToOrganization(organizationId, dto.building_id, client);
       await this.repository.ensureUnitBelongsToOrganization(organizationId, dto.unit_id, client);
-      const created = await this.repository.createCatalogItem(organizationId, this.context.userId(), dto, client);
+      const catalogRef = dto.catalog_ref?.trim() || await this.generateReference(
+        organizationId,
+        'CATALOG',
+        settings?.catalog_number_format || 'BIE-{YYYY}-{SEQ:5}',
+        client,
+      );
+      const created = await this.repository.createCatalogItem(organizationId, this.context.userId(), { ...dto, catalog_ref: catalogRef }, client);
       await this.repository.writeAuditEvent(organizationId, 'sales_catalog', Number(created.id), 'SALES_CATALOG_CREATED', this.context.userId(), null, created, client);
       return created;
     });
@@ -225,26 +250,39 @@ export class SalesService {
   async getReservation(id: number) {
     const row = await this.repository.findReservation(this.context.organizationId(), id);
     if (!row) throw new NotFoundException('Reservation not found');
-    return row;
+    const documents = await this.documents.listReservationDocuments(this.context.organizationId(), id);
+    return { ...row, documents };
   }
 
-  createReservation(dto: CreateSalesReservationDto) {
-    return this.db.transaction(async (client) => {
+  async createReservation(dto: CreateSalesReservationDto) {
+    const created = await this.db.transaction(async (client) => {
       const organizationId = this.context.organizationId();
       const settings = await this.repository.findSettings(organizationId, client);
       const buyer = await this.repository.findBuyerForSale(organizationId, dto.buyer_id, client);
-      const catalog = await this.repository.findCatalogForSale(organizationId, dto.catalog_item_id, client);
-      await this.repository.ensureProjectBelongsToOrganization(organizationId, dto.project_id ?? catalog.project_id ?? null, client);
+      const catalog = await this.repository.lockCatalogItem(organizationId, dto.catalog_item_id, client);
+      const projectId = dto.project_id ?? catalog.project_id ?? null;
+      await this.assertCatalogProjectConsistency(catalog, projectId);
+      await this.repository.ensureProjectBelongsToOrganization(organizationId, projectId, client);
       const expiresAt = dto.expires_at ?? this.defaultReservationExpiry(dto.reservation_date, settings?.reservation_default_duration_days);
-      await this.validateReservationInput({ ...dto, expires_at: expiresAt }, buyer.id, catalog, settings, client);
+      await this.assertReservationAvailability(organizationId, Number(catalog.id), client);
+      await this.validateReservationInput(
+        { ...dto, project_id: projectId ?? undefined, expires_at: expiresAt },
+        buyer.id,
+        catalog,
+        settings,
+        client,
+      );
 
-      const reservationPrefix = settings?.reservation_prefix ?? settings?.quotation_prefix ?? 'RSV';
-      const reservationNumber = dto.reservation_number?.trim()
-        || await this.repository.generateScopedReference(organizationId, 'sales_reservations', 'reservation_number', reservationPrefix, client);
+      const reservationNumber = dto.reservation_number?.trim() || await this.generateReference(
+        organizationId,
+        'RESERVATION',
+        settings?.reservation_number_format || 'RSV-{YYYY}-{SEQ:5}',
+        client,
+      );
       const created = await this.repository.createReservation(
         organizationId,
         this.context.userId(),
-        { ...dto, expires_at: expiresAt, status: dto.status ?? 'ACTIVE' },
+        { ...dto, project_id: projectId ?? undefined, expires_at: expiresAt, status: dto.status ?? 'ACTIVE' },
         reservationNumber,
         client,
       );
@@ -255,12 +293,14 @@ export class SalesService {
       }
       await this.repository.writeStatusHistory(organizationId, 'reservation', Number(created.id), null, created.status, null, this.context.userId(), client);
       await this.repository.writeAuditEvent(organizationId, 'sales_reservation', Number(created.id), 'SALES_RESERVATION_CREATED', this.context.userId(), null, created, client);
-      return this.repository.findReservation(organizationId, Number(created.id), client);
+      return created;
     });
+    await this.generateReservationDocumentSafely(Number(created.id));
+    return this.getReservation(Number(created.id));
   }
 
-  updateReservation(id: number, dto: UpdateSalesReservationDto) {
-    return this.db.transaction(async (client) => {
+  async updateReservation(id: number, dto: UpdateSalesReservationDto) {
+    const updated = await this.db.transaction(async (client) => {
       const organizationId = this.context.organizationId();
       const before = await this.repository.findReservation(organizationId, id, client);
       if (!before) throw new NotFoundException('Reservation not found');
@@ -273,14 +313,17 @@ export class SalesService {
       const catalogItemId = dto.catalog_item_id ?? before.catalog_item_id;
       const reservationDate = dto.reservation_date ?? before.reservation_date;
       const expiresAt = dto.expires_at ?? before.expires_at ?? this.defaultReservationExpiry(reservationDate, settings?.reservation_default_duration_days);
-      const catalog = await this.repository.findCatalogForSale(organizationId, catalogItemId, client);
+      const catalog = await this.repository.lockCatalogItem(organizationId, catalogItemId, client);
+      const projectId = dto.project_id ?? before.project_id ?? catalog.project_id ?? null;
+      await this.assertCatalogProjectConsistency(catalog, projectId);
       await this.repository.findBuyerForSale(organizationId, buyerId, client);
-      await this.repository.ensureProjectBelongsToOrganization(organizationId, dto.project_id ?? before.project_id ?? catalog.project_id ?? null, client);
+      await this.repository.ensureProjectBelongsToOrganization(organizationId, projectId, client);
+      await this.assertReservationAvailability(organizationId, catalogItemId, client, id);
       await this.validateReservationInput(
         {
           buyer_id: buyerId,
           catalog_item_id: catalogItemId,
-          project_id: dto.project_id ?? before.project_id ?? undefined,
+          project_id: projectId ?? undefined,
           currency: dto.currency ?? before.currency,
           catalog_price: dto.catalog_price ?? before.catalog_price,
           negotiated_price: dto.negotiated_price ?? before.negotiated_price,
@@ -294,20 +337,21 @@ export class SalesService {
         catalog,
         settings,
         client,
-        id,
       );
 
       const after = await this.repository.updateReservation(
         organizationId,
         id,
         this.context.userId(),
-        { ...dto, expires_at: expiresAt },
+        { ...dto, project_id: projectId ?? undefined, expires_at: expiresAt },
         client,
       );
       if (!after) throw new NotFoundException('Reservation not found');
       await this.repository.writeAuditEvent(organizationId, 'sales_reservation', id, 'SALES_RESERVATION_UPDATED', this.context.userId(), before, after, client);
-      return this.repository.findReservation(organizationId, id, client);
+      return after;
     });
+    await this.generateReservationDocumentSafely(id);
+    return this.getReservation(Number(updated.id));
   }
 
   confirmReservation(id: number, reason?: string) {
@@ -334,57 +378,129 @@ export class SalesService {
     const row = await this.repository.findSubscription(this.context.organizationId(), id);
     if (!row) throw new NotFoundException('Subscription not found');
     const installments = await this.repository.listSubscriptionInstallments(this.context.organizationId(), id);
-    return { ...row, installments };
+    const documents = await this.documents.listSubscriptionDocuments(this.context.organizationId(), id);
+    return { ...row, installments, documents };
+  }
+
+  listDocumentTemplates() {
+    return this.documents.listTemplates(this.context.organizationId());
+  }
+
+  createDocumentTemplate(dto: SalesDocumentTemplateDto) {
+    return this.documents.createTemplate(this.context.organizationId(), this.context.userId(), dto as unknown as Record<string, unknown>);
+  }
+
+  updateDocumentTemplate(id: number, dto: UpdateSalesDocumentTemplateDto) {
+    return this.documents.updateTemplate(this.context.organizationId(), id, this.context.userId(), dto as unknown as Record<string, unknown>);
+  }
+
+  listReservationDocuments(id: number) {
+    return this.documents.listReservationDocuments(this.context.organizationId(), id);
+  }
+
+  regenerateReservationDocument(id: number) {
+    return this.documents.regenerateReservationContract(this.context.organizationId(), id, this.context.userId());
+  }
+
+  listSubscriptionDocuments(id: number) {
+    return this.documents.listSubscriptionDocuments(this.context.organizationId(), id);
+  }
+
+  regenerateSubscriptionDocument(id: number) {
+    return this.documents.regenerateSubscriptionContract(this.context.organizationId(), id, this.context.userId());
+  }
+
+  downloadGeneratedDocument(id: number) {
+    return this.documents.downloadDocument(this.context.organizationId(), id);
   }
 
   async simulateSubscription(dto: SimulateSalesSubscriptionDto) {
     const organizationId = this.context.organizationId();
     const settings = await this.repository.findSettings(organizationId);
-    const catalog = await this.repository.findCatalogForSale(organizationId, dto.catalog_item_id);
-    await this.repository.findBuyerForSale(organizationId, dto.buyer_id);
-    await this.repository.ensureProjectBelongsToOrganization(organizationId, dto.project_id ?? catalog.project_id ?? null);
-    this.validateSubscriptionCatalog(dto.currency, catalog);
-    return simulateSalesSubscriptionPlan(dto, settings);
+    const source = await this.resolveSubscriptionSource(organizationId, dto);
+    this.validateSubscriptionCatalog(source.currency, source.catalog);
+    return simulateSalesSubscriptionPlan(
+      {
+        ...dto,
+        buyer_id: source.buyer_id,
+        catalog_item_id: source.catalog_item_id,
+        project_id: source.project_id ?? undefined,
+        reservation_id: source.reservation_id,
+        currency: source.currency,
+        catalog_price: source.catalog_price,
+      },
+      settings,
+    );
   }
 
-  createSubscription(dto: CreateSalesSubscriptionDto) {
-    return this.db.transaction(async (client) => {
+  async createSubscription(dto: CreateSalesSubscriptionDto) {
+    const created = await this.db.transaction(async (client) => {
       const organizationId = this.context.organizationId();
       const settings = await this.repository.findSettings(organizationId, client);
-      const catalog = await this.repository.findCatalogForSale(organizationId, dto.catalog_item_id, client);
-      await this.repository.findBuyerForSale(organizationId, dto.buyer_id, client);
-      const reservation = dto.reservation_id ? await this.repository.findReservation(organizationId, dto.reservation_id, client) : null;
-      if (dto.reservation_id && !reservation) {
-        throw new NotFoundException('Reservation not found');
-      }
-      await this.repository.ensureProjectBelongsToOrganization(organizationId, dto.project_id ?? catalog.project_id ?? reservation?.project_id ?? null, client);
-      this.validateSubscriptionCatalog(dto.currency, catalog);
-      this.validateReservationLink(reservation, dto);
+      const source = await this.resolveSubscriptionSource(organizationId, dto, client, true);
+      this.validateSubscriptionCatalog(source.currency, source.catalog);
+      await this.assertSubscriptionAvailability(
+        organizationId,
+        Number(source.catalog.id),
+        client,
+        source.reservation_id ?? undefined,
+      );
 
-      const simulation = simulateSalesSubscriptionPlan(dto, settings);
-      const prefix = settings?.contract_prefix ?? settings?.quotation_prefix ?? 'SUB';
-      const subscriptionNumber = dto.subscription_number?.trim()
-        || await this.repository.generateScopedReference(organizationId, 'sales_subscriptions', 'subscription_number', prefix, client);
+      const simulation = simulateSalesSubscriptionPlan(
+        {
+          ...dto,
+          buyer_id: source.buyer_id,
+          catalog_item_id: source.catalog_item_id,
+          project_id: source.project_id ?? undefined,
+          reservation_id: source.reservation_id,
+          currency: source.currency,
+          catalog_price: source.catalog_price,
+        },
+        settings,
+      );
+      const subscriptionNumber = dto.subscription_number?.trim() || await this.generateReference(
+        organizationId,
+        'SUBSCRIPTION',
+        settings?.subscription_number_format || 'SOU-{YYYY}-{SEQ:5}',
+        client,
+      );
 
-      const created = await this.repository.createSubscription(organizationId, this.context.userId(), dto, subscriptionNumber, simulation.derived, client);
+      const created = await this.repository.createSubscription(
+        organizationId,
+        this.context.userId(),
+        {
+          ...dto,
+          buyer_id: source.buyer_id,
+          catalog_item_id: source.catalog_item_id,
+          project_id: source.project_id ?? undefined,
+          reservation_id: source.reservation_id,
+          currency: source.currency,
+          catalog_price: source.catalog_price,
+        },
+        subscriptionNumber,
+        simulation.derived,
+        client,
+      );
       await this.repository.replaceSubscriptionInstallments(organizationId, Number(created.id), simulation.installments, client);
 
-      await this.repository.setBuyerCommercialStage(organizationId, dto.buyer_id, 'SUBSCRIBER', this.context.userId(), client);
-      await this.repository.updateCatalogStatus(organizationId, dto.catalog_item_id, created.status === 'APPROVED' ? 'SOLD' : 'RESERVED', this.context.userId(), client);
-      if (reservation && reservation.status !== 'CONVERTED') {
-        const converted = await this.repository.transitionReservationStatus(organizationId, Number(reservation.id), 'CONVERTED', this.context.userId(), 'Souscription créée', client);
-        await this.repository.writeStatusHistory(organizationId, 'reservation', Number(reservation.id), reservation.status, 'CONVERTED', 'Souscription créée', this.context.userId(), client);
-        await this.repository.writeAuditEvent(organizationId, 'sales_reservation', Number(reservation.id), 'SALES_RESERVATION_CONVERTED', this.context.userId(), reservation, converted, client);
+      await this.repository.setBuyerCommercialStage(organizationId, source.buyer_id, 'SUBSCRIBER', this.context.userId(), client);
+      await this.repository.updateCatalogStatus(organizationId, source.catalog_item_id, created.status === 'APPROVED' ? 'SOLD' : 'RESERVED', this.context.userId(), client);
+      if (source.reservation && source.reservation.status !== 'CONVERTED') {
+        const converted = await this.repository.transitionReservationStatus(organizationId, Number(source.reservation.id), 'CONVERTED', this.context.userId(), 'Souscription créée', client);
+        await this.repository.writeStatusHistory(organizationId, 'reservation', Number(source.reservation.id), source.reservation.status, 'CONVERTED', 'Souscription créée', this.context.userId(), client);
+        await this.repository.writeAuditEvent(organizationId, 'sales_reservation', Number(source.reservation.id), 'SALES_RESERVATION_CONVERTED', this.context.userId(), source.reservation, converted, client);
       }
 
       await this.repository.writeStatusHistory(organizationId, 'subscription', Number(created.id), null, created.status, null, this.context.userId(), client);
       await this.repository.writeAuditEvent(organizationId, 'sales_subscription', Number(created.id), 'SALES_SUBSCRIPTION_CREATED', this.context.userId(), null, created, client);
-      return this.getSubscription(Number(created.id));
+      return created;
     });
+    await this.generateSubscriptionDocumentSafely(Number(created.id));
+    return this.getSubscription(Number(created.id));
   }
 
-  updateSubscription(id: number, dto: UpdateSalesSubscriptionDto) {
-    return this.db.transaction(async (client) => {
+  async updateSubscription(id: number, dto: UpdateSalesSubscriptionDto) {
+    const updated = await this.db.transaction(async (client) => {
       const organizationId = this.context.organizationId();
       const before = await this.repository.findSubscription(organizationId, id, client);
       if (!before) throw new NotFoundException('Subscription not found');
@@ -393,25 +509,35 @@ export class SalesService {
       }
 
       const settings = await this.repository.findSettings(organizationId, client);
-      const buyerId = dto.buyer_id ?? before.buyer_id;
-      const catalogItemId = dto.catalog_item_id ?? before.catalog_item_id;
-      const reservationId = dto.reservation_id ?? before.reservation_id ?? undefined;
-      const catalog = await this.repository.findCatalogForSale(organizationId, catalogItemId, client);
-      await this.repository.findBuyerForSale(organizationId, buyerId, client);
-      const reservation = reservationId ? await this.repository.findReservation(organizationId, reservationId, client) : null;
-      if (reservationId && !reservation) {
-        throw new NotFoundException('Reservation not found');
-      }
-      await this.repository.ensureProjectBelongsToOrganization(organizationId, dto.project_id ?? before.project_id ?? catalog.project_id ?? reservation?.project_id ?? null, client);
+      const source = await this.resolveSubscriptionSource(
+        organizationId,
+        {
+          ...before,
+          ...dto,
+          buyer_id: dto.buyer_id ?? before.buyer_id,
+          catalog_item_id: dto.catalog_item_id ?? before.catalog_item_id,
+          reservation_id: dto.reservation_id ?? before.reservation_id ?? undefined,
+        } as SimulateSalesSubscriptionDto,
+        client,
+        true,
+      );
+      this.validateSubscriptionCatalog(source.currency, source.catalog);
+      await this.assertSubscriptionAvailability(
+        organizationId,
+        Number(source.catalog.id),
+        client,
+        source.reservation_id ?? undefined,
+        id,
+      );
 
       const simulation = simulateSalesSubscriptionPlan(
         {
-          buyer_id: buyerId,
-          catalog_item_id: catalogItemId,
-          project_id: dto.project_id ?? before.project_id ?? undefined,
-          reservation_id: reservationId,
-          currency: dto.currency ?? before.currency,
-          catalog_price: dto.catalog_price ?? before.catalog_price,
+          buyer_id: source.buyer_id,
+          catalog_item_id: source.catalog_item_id,
+          project_id: source.project_id ?? undefined,
+          reservation_id: source.reservation_id,
+          currency: source.currency,
+          catalog_price: source.catalog_price,
           negotiated_price: dto.negotiated_price ?? before.final_sale_price,
           discount_amount: dto.discount_amount ?? before.discount_amount ?? undefined,
           deposit_type: dto.deposit_type ?? before.deposit_type,
@@ -423,16 +549,34 @@ export class SalesService {
           grace_period_days: dto.grace_period_days ?? before.grace_period_days ?? undefined,
           allow_custom_schedule: dto.allow_custom_schedule ?? before.allow_custom_schedule ?? undefined,
           custom_installments: dto.custom_installments,
+          origin_mode: dto.origin_mode,
         },
         settings,
       );
 
-      const after = await this.repository.updateSubscription(organizationId, id, this.context.userId(), dto, simulation.derived, client);
+      const after = await this.repository.updateSubscription(
+        organizationId,
+        id,
+        this.context.userId(),
+        {
+          ...dto,
+          buyer_id: source.buyer_id,
+          catalog_item_id: source.catalog_item_id,
+          project_id: source.project_id ?? undefined,
+          reservation_id: source.reservation_id,
+          currency: source.currency,
+          catalog_price: source.catalog_price,
+        },
+        simulation.derived,
+        client,
+      );
       if (!after) throw new NotFoundException('Subscription not found');
       await this.repository.replaceSubscriptionInstallments(organizationId, id, simulation.installments, client);
       await this.repository.writeAuditEvent(organizationId, 'sales_subscription', id, 'SALES_SUBSCRIPTION_UPDATED', this.context.userId(), before, after, client);
-      return this.getSubscription(id);
+      return after;
     });
+    await this.generateSubscriptionDocumentSafely(id);
+    return this.getSubscription(Number(updated.id));
   }
 
   submitSubscription(id: number, reason?: string) {
@@ -451,6 +595,148 @@ export class SalesService {
     return this.changeSubscriptionStatus(id, 'CANCELLED', reason ?? null);
   }
 
+  private async generateReference(
+    organizationId: number,
+    documentType: string,
+    format: string,
+    client: any,
+  ) {
+    const year = new Date().getUTCFullYear();
+    const sequence = await this.repository.nextSequenceValue(organizationId, documentType, year, client);
+    return this.repository.formatSequence(format, sequence, year);
+  }
+
+  private async resolveSubscriptionSource(
+    organizationId: number,
+    dto: SimulateSalesSubscriptionDto,
+    client?: any,
+    lockCatalog = false,
+  ) {
+    const useReservation = String(dto.origin_mode ?? (dto.reservation_id ? 'RESERVATION' : 'DIRECT')).toUpperCase() === 'RESERVATION';
+    if (useReservation) {
+      if (!dto.reservation_id) {
+        throw new BadRequestException('Une réservation est obligatoire pour ce mode de souscription.');
+      }
+      const reservation = await this.repository.findReservation(organizationId, dto.reservation_id, client);
+      if (!reservation) {
+        throw new NotFoundException('Reservation not found');
+      }
+      const catalog = lockCatalog
+        ? await this.repository.lockCatalogItem(organizationId, Number(reservation.catalog_item_id), client)
+        : await this.repository.findCatalogForSale(organizationId, Number(reservation.catalog_item_id), client);
+      await this.repository.findBuyerForSale(organizationId, Number(reservation.buyer_id), client);
+      const projectId = Number(reservation.project_id ?? catalog.project_id ?? 0) || null;
+      await this.assertCatalogProjectConsistency(catalog, projectId);
+      await this.repository.ensureProjectBelongsToOrganization(organizationId, projectId, client);
+      this.validateReservationLink(reservation, {
+        ...dto,
+        buyer_id: Number(reservation.buyer_id),
+        catalog_item_id: Number(reservation.catalog_item_id),
+      } as CreateSalesSubscriptionDto);
+      return {
+        reservation,
+        reservation_id: Number(reservation.id),
+        buyer_id: Number(reservation.buyer_id),
+        catalog_item_id: Number(reservation.catalog_item_id),
+        project_id: projectId,
+        currency: String(reservation.currency),
+        catalog_price: Number(reservation.catalog_price),
+        catalog,
+      };
+    }
+
+    const catalog = lockCatalog
+      ? await this.repository.lockCatalogItem(organizationId, dto.catalog_item_id, client)
+      : await this.repository.findCatalogForSale(organizationId, dto.catalog_item_id, client);
+    await this.repository.findBuyerForSale(organizationId, dto.buyer_id, client);
+    const projectId = dto.project_id ?? catalog.project_id ?? null;
+    await this.assertCatalogProjectConsistency(catalog, projectId);
+    await this.repository.ensureProjectBelongsToOrganization(organizationId, projectId, client);
+    return {
+      reservation: null,
+      reservation_id: undefined,
+      buyer_id: dto.buyer_id,
+      catalog_item_id: dto.catalog_item_id,
+      project_id: projectId,
+      currency: dto.currency,
+      catalog_price: dto.catalog_price,
+      catalog,
+    };
+  }
+
+  private async assertCatalogProjectConsistency(catalog: any, requestedProjectId: number | null) {
+    const catalogProjectId = Number(catalog.project_id ?? 0) || null;
+    if (catalogProjectId && requestedProjectId && catalogProjectId !== requestedProjectId) {
+      throw new BadRequestException('Le bien sélectionné appartient à un autre projet commercial.');
+    }
+  }
+
+  private async assertReservationAvailability(
+    organizationId: number,
+    catalogItemId: number,
+    client: any,
+    excludeReservationId?: number,
+  ) {
+    const activeReservation = await this.repository.findActiveReservationForCatalog(organizationId, catalogItemId, client, excludeReservationId);
+    if (activeReservation) {
+      throw new ConflictException({
+        code: 'SALES_PROPERTY_NOT_AVAILABLE',
+        message: 'Ce bien vient d’être réservé ou vendu. Sélectionnez un autre bien.',
+      });
+    }
+    const activeSubscription = await this.repository.findActiveSubscriptionForCatalog(organizationId, catalogItemId, client);
+    if (activeSubscription) {
+      throw new ConflictException({
+        code: 'SALES_PROPERTY_NOT_AVAILABLE',
+        message: 'Ce bien vient d’être réservé ou vendu. Sélectionnez un autre bien.',
+      });
+    }
+  }
+
+  private async assertSubscriptionAvailability(
+    organizationId: number,
+    catalogItemId: number,
+    client: any,
+    reservationId?: number,
+    excludeSubscriptionId?: number,
+  ) {
+    const activeSubscription = await this.repository.findActiveSubscriptionForCatalog(
+      organizationId,
+      catalogItemId,
+      client,
+      excludeSubscriptionId,
+    );
+    if (activeSubscription) {
+      throw new ConflictException({
+        code: 'SALES_PROPERTY_NOT_AVAILABLE',
+        message: 'Ce bien vient d’être réservé ou vendu. Sélectionnez un autre bien.',
+      });
+    }
+    const activeReservation = await this.repository.findActiveReservationForCatalog(organizationId, catalogItemId, client);
+    if (activeReservation && Number(activeReservation.id) !== Number(reservationId ?? 0)) {
+      throw new ConflictException({
+        code: 'SALES_PROPERTY_NOT_AVAILABLE',
+        message: 'Ce bien vient d’être réservé ou vendu. Sélectionnez un autre bien.',
+      });
+    }
+  }
+
+  private async generateReservationDocumentSafely(reservationId: number) {
+    try {
+      await this.documents.regenerateReservationContract(this.context.organizationId(), reservationId, this.context.userId());
+    } catch {
+      return;
+    }
+  }
+
+  private async generateSubscriptionDocumentSafely(subscriptionId: number) {
+    try {
+      await this.documents.regenerateSubscriptionContract(this.context.organizationId(), subscriptionId, this.context.userId());
+    } catch {
+      return;
+    }
+  }
+
   private defaultReservationExpiry(reservationDate: string, durationDays?: number | null) {
     const start = new Date(`${reservationDate}T00:00:00.000Z`);
     const days = Number(durationDays ?? 7);
@@ -464,7 +750,6 @@ export class SalesService {
     catalog: any,
     settings: any,
     client: any,
-    excludeReservationId?: number,
   ) {
     if (!['DRAFT', 'AVAILABLE', 'RESERVED'].includes(String(catalog.commercial_status))) {
       throw new BadRequestException("Ce bien n'est pas disponible pour une réservation.");
@@ -491,10 +776,6 @@ export class SalesService {
     }
     if (!dto.expires_at) {
       throw new BadRequestException("La date d'expiration de la réservation est obligatoire.");
-    }
-    const activeReservation = await this.repository.findActiveReservationForCatalog(this.context.organizationId(), Number(dto.catalog_item_id), client, excludeReservationId);
-    if (activeReservation) {
-      throw new BadRequestException('Une autre réservation active existe déjà sur ce bien.');
     }
     await this.repository.findBuyerForSale(this.context.organizationId(), buyerId, client);
   }
