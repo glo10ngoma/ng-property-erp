@@ -3,13 +3,20 @@ import type {
   CreateSalesBuyerInput,
   CreateSalesCatalogInput,
   CreateSalesProjectInput,
+  CreateSalesReservationInput,
+  CreateSalesSubscriptionInput,
   SalesBootstrap,
   SalesBuyer,
   SalesCatalogItem,
   SalesListQuery,
   SalesListResult,
   SalesProject,
+  SalesReservation,
   SalesSettings,
+  SalesStatusActionInput,
+  SalesSubscription,
+  SalesSubscriptionSimulation,
+  SimulateSalesSubscriptionInput,
 } from '../types';
 
 export async function getSalesBootstrap() {
@@ -104,5 +111,90 @@ export async function updateSalesCatalogStatus(id: number, commercial_status: st
 
 export async function archiveSalesCatalogItem(id: number) {
   const response = await api.patch<SalesCatalogItem>(`/sales/catalog/${id}/archive`);
+  return response.data;
+}
+
+export async function listSalesReservations(params: SalesListQuery = {}) {
+  const response = await api.get<SalesListResult<SalesReservation>>('/sales/reservations', { params });
+  return response.data;
+}
+
+export async function getSalesReservation(id: number) {
+  const response = await api.get<SalesReservation>(`/sales/reservations/${id}`);
+  return response.data;
+}
+
+export async function createSalesReservation(payload: CreateSalesReservationInput) {
+  const response = await api.post<SalesReservation>('/sales/reservations', payload);
+  return response.data;
+}
+
+export async function updateSalesReservation(id: number, payload: Partial<CreateSalesReservationInput>) {
+  const response = await api.patch<SalesReservation>(`/sales/reservations/${id}`, payload);
+  return response.data;
+}
+
+export async function confirmSalesReservation(id: number, payload: SalesStatusActionInput = {}) {
+  const response = await api.post<SalesReservation>(`/sales/reservations/${id}/confirm`, payload);
+  return response.data;
+}
+
+export async function cancelSalesReservation(id: number, payload: SalesStatusActionInput = {}) {
+  const response = await api.post<SalesReservation>(`/sales/reservations/${id}/cancel`, payload);
+  return response.data;
+}
+
+export async function expireSalesReservation(id: number, payload: SalesStatusActionInput = {}) {
+  const response = await api.post<SalesReservation>(`/sales/reservations/${id}/expire`, payload);
+  return response.data;
+}
+
+export async function convertSalesReservation(id: number, payload: SalesStatusActionInput = {}) {
+  const response = await api.post<SalesReservation>(`/sales/reservations/${id}/convert`, payload);
+  return response.data;
+}
+
+export async function listSalesSubscriptions(params: SalesListQuery = {}) {
+  const response = await api.get<SalesListResult<SalesSubscription>>('/sales/subscriptions', { params });
+  return response.data;
+}
+
+export async function getSalesSubscription(id: number) {
+  const response = await api.get<SalesSubscription>(`/sales/subscriptions/${id}`);
+  return response.data;
+}
+
+export async function simulateSalesSubscription(payload: SimulateSalesSubscriptionInput) {
+  const response = await api.post<SalesSubscriptionSimulation>('/sales/subscriptions/simulate', payload);
+  return response.data;
+}
+
+export async function createSalesSubscription(payload: CreateSalesSubscriptionInput) {
+  const response = await api.post<SalesSubscription>('/sales/subscriptions', payload);
+  return response.data;
+}
+
+export async function updateSalesSubscription(id: number, payload: Partial<CreateSalesSubscriptionInput>) {
+  const response = await api.patch<SalesSubscription>(`/sales/subscriptions/${id}`, payload);
+  return response.data;
+}
+
+export async function submitSalesSubscription(id: number, payload: SalesStatusActionInput = {}) {
+  const response = await api.post<SalesSubscription>(`/sales/subscriptions/${id}/submit`, payload);
+  return response.data;
+}
+
+export async function approveSalesSubscription(id: number, payload: SalesStatusActionInput = {}) {
+  const response = await api.post<SalesSubscription>(`/sales/subscriptions/${id}/approve`, payload);
+  return response.data;
+}
+
+export async function rejectSalesSubscription(id: number, payload: SalesStatusActionInput = {}) {
+  const response = await api.post<SalesSubscription>(`/sales/subscriptions/${id}/reject`, payload);
+  return response.data;
+}
+
+export async function cancelSalesSubscription(id: number, payload: SalesStatusActionInput = {}) {
+  const response = await api.post<SalesSubscription>(`/sales/subscriptions/${id}/cancel`, payload);
   return response.data;
 }

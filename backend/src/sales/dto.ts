@@ -1,11 +1,17 @@
 import { PartialType } from '@nestjs/mapped-types';
 import { Transform, Type } from 'class-transformer';
-import { IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, Max, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, Max, Min, ValidateNested } from 'class-validator';
 import {
   SALES_BUYER_STATUSES,
   SALES_BUYER_TYPES,
   SALES_COMMERCIAL_STATUSES,
+  SALES_COMMERCIAL_STAGES,
+  SALES_DEPOSIT_TYPES,
+  SALES_INSTALLMENT_TYPES,
   SALES_PROJECT_STATUSES,
+  SALES_RESERVATION_STATUSES,
+  SALES_SCHEDULE_FREQUENCIES,
+  SALES_SUBSCRIPTION_STATUSES,
   SALES_SUPPORTED_CURRENCIES,
 } from './types';
 
@@ -72,6 +78,30 @@ export class SalesCatalogListQueryDto extends SalesPaginationQueryDto {
   status?: string;
 }
 
+export class SalesReservationListQueryDto extends SalesPaginationQueryDto {
+  @trimString()
+  @IsOptional()
+  @IsIn(['reservation_number', 'status', 'reservation_date', 'expires_at', 'updated_at'])
+  sortBy?: string = 'updated_at';
+
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_RESERVATION_STATUSES)
+  status?: string;
+}
+
+export class SalesSubscriptionListQueryDto extends SalesPaginationQueryDto {
+  @trimString()
+  @IsOptional()
+  @IsIn(['subscription_number', 'status', 'created_at', 'updated_at', 'first_due_date'])
+  sortBy?: string = 'updated_at';
+
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_SUBSCRIPTION_STATUSES)
+  status?: string;
+}
+
 export class UpdateSalesSettingsDto {
   @trimString()
   @IsOptional()
@@ -107,6 +137,87 @@ export class UpdateSalesSettingsDto {
   @IsOptional()
   @IsString()
   invoice_prefix?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  reservation_default_duration_days?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  reservation_fee_required?: boolean;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  reservation_default_fee?: number;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_DEPOSIT_TYPES)
+  minimum_deposit_type?: string;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  minimum_deposit_percentage?: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  minimum_deposit_amount?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  maximum_installment_count?: number;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_SCHEDULE_FREQUENCIES)
+  default_installment_frequency?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  grace_period_days?: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  discount_approval_threshold_percentage?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  allow_custom_schedule?: boolean;
+
+  @IsArray()
+  @IsOptional()
+  allowed_currencies?: string[];
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  contract_generation_mode?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  invoice_generation_mode?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  revenue_recognition_mode?: string;
 
   @IsOptional()
   settings_json?: Record<string, unknown>;
@@ -180,6 +291,11 @@ export class CreateSalesBuyerDto {
   @IsOptional()
   @IsIn(SALES_BUYER_STATUSES)
   status?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_COMMERCIAL_STAGES)
+  commercial_stage?: string;
 
   @IsOptional()
   metadata?: Record<string, unknown>;
@@ -312,3 +428,216 @@ export class UpdateSalesCatalogStatusDto {
   @IsIn(SALES_COMMERCIAL_STATUSES)
   commercial_status!: string;
 }
+
+export class CreateSalesReservationDto {
+  @trimString()
+  @IsOptional()
+  @IsString()
+  reservation_number?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  buyer_id!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  catalog_item_id!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  @IsOptional()
+  project_id?: number;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_RESERVATION_STATUSES)
+  status?: string;
+
+  @trimString()
+  @IsIn(SALES_SUPPORTED_CURRENCIES)
+  currency!: string;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  catalog_price!: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  negotiated_price!: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  reservation_fee?: number;
+
+  @trimString()
+  @IsString()
+  reservation_date!: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  expires_at?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class UpdateSalesReservationDto extends PartialType(CreateSalesReservationDto) {}
+
+export class SalesReservationStatusActionDto {
+  @trimString()
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class CustomInstallmentDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  sequence_number?: number;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  label?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  due_date?: string;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  amount!: number;
+
+  @trimString()
+  @IsIn(SALES_SUPPORTED_CURRENCIES)
+  currency!: string;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_INSTALLMENT_TYPES)
+  installment_type?: string;
+}
+
+export class SimulateSalesSubscriptionDto {
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  buyer_id!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  catalog_item_id!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  @IsOptional()
+  project_id?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  @IsOptional()
+  reservation_id?: number;
+
+  @trimString()
+  @IsIn(SALES_SUPPORTED_CURRENCIES)
+  currency!: string;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  catalog_price!: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  negotiated_price?: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  discount_amount?: number;
+
+  @trimString()
+  @IsIn(SALES_DEPOSIT_TYPES)
+  deposit_type!: string;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  deposit_percentage?: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  deposit_amount?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  installment_count!: number;
+
+  @trimString()
+  @IsIn(SALES_SCHEDULE_FREQUENCIES)
+  frequency!: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  first_due_date?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  grace_period_days?: number;
+
+  @IsOptional()
+  allow_custom_schedule?: boolean;
+
+  @IsOptional()
+  @Type(() => CustomInstallmentDto)
+  @ValidateNested({ each: true })
+  @IsArray()
+  custom_installments?: CustomInstallmentDto[];
+}
+
+export class CreateSalesSubscriptionDto extends SimulateSalesSubscriptionDto {
+  @trimString()
+  @IsOptional()
+  @IsString()
+  subscription_number?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_SUBSCRIPTION_STATUSES)
+  status?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class UpdateSalesSubscriptionDto extends PartialType(CreateSalesSubscriptionDto) {}

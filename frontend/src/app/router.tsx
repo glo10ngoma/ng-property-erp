@@ -31,6 +31,14 @@ import {
   SalesProjectFormPage,
   SalesProjectsPage,
 } from '../modules/sales/pages/SalesPages';
+import {
+  SalesReservationDetailPage,
+  SalesReservationFormPage,
+  SalesReservationsPage,
+  SalesSubscriptionDetailPage,
+  SalesSubscriptionFormPage,
+  SalesSubscriptionsPage,
+} from '../modules/sales/pages/SalesV3Pages';
 import { ModulePlaceholder } from '../modules/shared/ModulePlaceholder';
 import { SettingsPage } from '../modules/settings/pages/SettingsPage';
 import { AdvancesPage, AttendanceMonthlyEntryPage, AttendancePage, ContractsPage, EmployeeDetailPage, EmployeesPage, HrReportsPage, LeavesPage, PayrollDetailPage, PayrollPage, PositionsPage, ServicesPage, StaffPage } from '../modules/staff/pages/StaffPage';
@@ -208,6 +216,14 @@ export function AppRouter() {
           <Route path="/sales/catalog/new" element={salesPermissionGuarded('sales_catalog.create', <SalesCatalogFormPage />)} />
           <Route path="/sales/catalog/:id" element={salesGuarded(<SalesCatalogDetailPage />)} />
           <Route path="/sales/catalog/:id/edit" element={salesPermissionGuarded('sales_catalog.update', <SalesCatalogFormPage />)} />
+          <Route path="/sales/reservations" element={salesGuarded(<SalesReservationsPage />)} />
+          <Route path="/sales/reservations/new" element={salesPermissionGuarded('sales_reservations.create', <SalesReservationFormPage />)} />
+          <Route path="/sales/reservations/:id" element={salesGuarded(<SalesReservationDetailPage />)} />
+          <Route path="/sales/reservations/:id/edit" element={salesPermissionGuarded('sales_reservations.update', <SalesReservationFormPage />)} />
+          <Route path="/sales/subscriptions" element={salesGuarded(<SalesSubscriptionsPage />)} />
+          <Route path="/sales/subscriptions/new" element={salesPermissionGuarded('sales_subscriptions.create', <SalesSubscriptionFormPage />)} />
+          <Route path="/sales/subscriptions/:id" element={salesGuarded(<SalesSubscriptionDetailPage />)} />
+          <Route path="/sales/subscriptions/:id/edit" element={salesPermissionGuarded('sales_subscriptions.update', <SalesSubscriptionFormPage />)} />
           <Route element={<SuperAdminRoute />}>
             <Route path="/users" element={guarded('users.read', <UsersPage />)} />
           </Route>

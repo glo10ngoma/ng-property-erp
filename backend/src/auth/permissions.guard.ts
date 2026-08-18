@@ -187,6 +187,39 @@ export class PermissionsGuard implements CanActivate {
     if (/^\/api\/sales\/catalog$/.test(path)) {
       return method === 'GET' ? 'sales_catalog.read' : 'sales_catalog.create';
     }
+    if (/^\/api\/sales\/reservations\/\d+\/confirm$/.test(path)) {
+      return 'sales_reservations.approve';
+    }
+    if (/^\/api\/sales\/reservations\/\d+\/cancel$/.test(path)) {
+      return 'sales_reservations.cancel';
+    }
+    if (/^\/api\/sales\/reservations\/\d+\/convert$/.test(path) || /^\/api\/sales\/reservations\/\d+\/expire$/.test(path)) {
+      return 'sales_reservations.update';
+    }
+    if (/^\/api\/sales\/reservations\/\d+$/.test(path)) {
+      return method === 'GET' ? 'sales_reservations.read' : 'sales_reservations.update';
+    }
+    if (/^\/api\/sales\/reservations$/.test(path)) {
+      return method === 'GET' ? 'sales_reservations.read' : 'sales_reservations.create';
+    }
+    if (/^\/api\/sales\/subscriptions\/simulate$/.test(path)) {
+      return 'sales_subscriptions.create';
+    }
+    if (/^\/api\/sales\/subscriptions\/\d+\/approve$/.test(path)) {
+      return 'sales_subscriptions.approve';
+    }
+    if (/^\/api\/sales\/subscriptions\/\d+\/reject$/.test(path) || /^\/api\/sales\/subscriptions\/\d+\/submit$/.test(path)) {
+      return 'sales_subscriptions.update';
+    }
+    if (/^\/api\/sales\/subscriptions\/\d+\/cancel$/.test(path)) {
+      return 'sales_subscriptions.cancel';
+    }
+    if (/^\/api\/sales\/subscriptions\/\d+$/.test(path)) {
+      return method === 'GET' ? 'sales_subscriptions.read' : 'sales_subscriptions.update';
+    }
+    if (/^\/api\/sales\/subscriptions$/.test(path)) {
+      return method === 'GET' ? 'sales_subscriptions.read' : 'sales_subscriptions.create';
+    }
     if (/^\/api\/bank-dashboard/.test(path)) {
       return 'bank_accounts.read';
     }
