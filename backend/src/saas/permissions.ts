@@ -137,6 +137,7 @@ const viewerPermissions = [
 ];
 
 const additionalPermissions = [
+  'tenant_credits.update',
   'sales.read',
   'sales.admin',
   'sales.settings.read',

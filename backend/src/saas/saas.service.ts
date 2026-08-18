@@ -9895,6 +9895,10 @@ export class SaasService {
     const childDeletedClause = includeDeleted ? 'IS NOT NULL' : 'IS NULL';
     const { rows: direct } = await this.db.query(
       `SELECT tc.*, p.receipt_number, p.payment_method, p.amount_usd, p.amount_cdf, p.total_equivalent_usd,
+              movement.id AS cash_movement_id,
+              movement.piece_number AS cash_piece_number,
+              movement.cash_session_id,
+              movement.session_status AS cash_session_status,
               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, t.first_name, '')
                    ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
               END AS tenant_name,
@@ -9906,6 +9910,16 @@ export class SaasService {
        LEFT JOIN leases l ON l.id = tc.lease_id AND l.organization_id = tc.organization_id AND l.deleted_at IS NULL
        LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = tc.organization_id AND u.deleted_at IS NULL
        LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = tc.organization_id AND b.deleted_at IS NULL
+       LEFT JOIN LATERAL (
+         SELECT cm.id, cm.piece_number, cm.cash_session_id, cs.status AS session_status
+         FROM cash_movements cm
+         LEFT JOIN cash_sessions cs ON cs.id = cm.cash_session_id
+         WHERE cm.organization_id = tc.organization_id
+           AND cm.deleted_at IS NULL
+           AND (cm.tenant_credit_id = tc.id OR cm.payment_id = tc.source_payment_id)
+         ORDER BY CASE WHEN cm.tenant_credit_id = tc.id THEN 0 ELSE 1 END, cm.id DESC
+         LIMIT 1
+       ) movement ON TRUE
        WHERE tc.id = $1 AND tc.organization_id = $2 AND tc.deleted_at ${includeDeleted ? 'IS NOT NULL' : 'IS NULL'}`,
       [id, this.context.organizationId()],
     );
@@ -9943,11 +9957,18 @@ export class SaasService {
     const refundsRows = refunds.rows;
     const hasAllocations = allocationsRows.length > 0;
     const hasRefunds = refundsRows.length > 0;
+    const allocatedAmount = allocationsRows.reduce((sum, row) => sum + Number(row.amount_applied ?? 0), 0);
+    const refundedAmount = refundsRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
     const remainingAmount = Number(credit.remaining_amount ?? 0);
     return {
       ...credit,
       allocations: allocationsRows,
       refunds: refundsRows,
+      allocated_amount: allocatedAmount,
+      refunded_amount: refundedAmount,
+      cash_movement_id: Number(credit.cash_movement_id ?? 0) || null,
+      cash_piece_number: credit.cash_piece_number ?? null,
+      cash_session_status: credit.cash_session_status ?? null,
       can_refund: remainingAmount > 0,
       can_cancel: !hasAllocations && !hasRefunds && Number(credit.original_amount ?? 0) === remainingAmount,
     };
@@ -10459,6 +10480,17 @@ export class SaasService {
       applied_total: allocations.reduce((sum, allocation) => sum + Number(allocation.amount_applied ?? 0), 0),
       allocations,
     };
+  }
+
+  async updateTenantCredit(id: number, body: Record<string, unknown>) {
+    await this.ensureTenantCreditRefundSchema();
+    if (!this.hasPermission('tenant_credits.update')) {
+      throw new ForbiddenException('Permission de correction de crédit locataire requise.');
+    }
+    const updatedId = await this.db.transaction(async (client) => {
+      return this.updateTenantCreditInTransaction(client, id, body);
+    });
+    return this.tenantCreditDetail(updatedId);
   }
 
   async refundTenantCredit(id: number, body: Record<string, unknown>) {
@@ -12047,6 +12079,324 @@ export class SaasService {
       ...batch,
       lines: createdLines,
     };
+  }
+
+  private computeTenantCreditBalanceState(originalAmount: number, allocationsTotal: number, refundsTotal: number) {
+    const remainingAmount = Number(Math.max(originalAmount - allocationsTotal - refundsTotal, 0).toFixed(2));
+    const hasAllocations = allocationsTotal > 0;
+    const hasRefunds = refundsTotal > 0;
+    const nextStatus = hasAllocations
+      ? (remainingAmount <= 0 ? 'USED' : 'PARTIALLY_USED')
+      : hasRefunds
+        ? (remainingAmount <= 0 ? 'REFUNDED' : 'PARTIALLY_USED')
+        : 'AVAILABLE';
+    return { remainingAmount, nextStatus };
+  }
+
+  private async linkedTenantCreditCashMovementInTransaction(client: PoolClient, creditId: number, paymentId: number | null) {
+    const { rows } = await client.query(
+      `SELECT cm.*,
+              (SELECT cs.status FROM cash_sessions cs WHERE cs.id = cm.cash_session_id) AS session_status
+       FROM cash_movements cm
+       WHERE cm.organization_id = $1
+         AND cm.deleted_at IS NULL
+         AND (cm.tenant_credit_id = $2 OR ($3::INT IS NOT NULL AND cm.payment_id = $3::INT))
+       ORDER BY CASE WHEN cm.tenant_credit_id = $2 THEN 0 ELSE 1 END, cm.id DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [this.context.organizationId(), creditId, paymentId],
+    );
+    return rows[0] ?? null;
+  }
+
+  private async updateTenantCreditInTransaction(client: PoolClient, id: number, body: Record<string, unknown>) {
+    const reason = String(body.reason ?? body.correction_reason ?? '').trim();
+    if (!reason) {
+      throw new BadRequestException('Le motif de correction est obligatoire.');
+    }
+
+    const creditResult = await client.query(
+      `SELECT *
+       FROM tenant_credits
+       WHERE id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL
+       FOR UPDATE`,
+      [id, this.context.organizationId()],
+    );
+    const credit = requireRow(creditResult.rows[0], 'Tenant credit') as Record<string, any>;
+
+    if (body.currency !== undefined && String(body.currency ?? '').trim().toUpperCase() !== String(credit.currency ?? 'USD').toUpperCase()) {
+      throw new BadRequestException('La devise du crédit locataire ne peut pas être modifiée.');
+    }
+    if (body.tenant_id !== undefined && Number(body.tenant_id ?? 0) !== Number(credit.tenant_id ?? 0)) {
+      throw new BadRequestException('Le locataire du crédit locataire ne peut pas être modifié.');
+    }
+    if (body.organization_id !== undefined && Number(body.organization_id ?? 0) !== this.context.organizationId()) {
+      throw new BadRequestException('L organisation du crédit locataire ne peut pas être modifiée.');
+    }
+
+    const paymentId = Number(credit.source_payment_id ?? 0) || null;
+    const paymentResult = await client.query(
+      `SELECT *
+       FROM payments
+       WHERE id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL
+       FOR UPDATE`,
+      [paymentId, this.context.organizationId()],
+    );
+    const payment = requireRow(paymentResult.rows[0], 'Tenant credit payment') as Record<string, any>;
+
+    const allocationStats = await client.query(
+      `SELECT COUNT(*)::INT AS count,
+              COALESCE(SUM(amount_applied), 0)::NUMERIC(14,2) AS total
+       FROM tenant_credit_allocations
+       WHERE tenant_credit_id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+    const refundStats = await client.query(
+      `SELECT COUNT(*)::INT AS count,
+              COALESCE(SUM(amount), 0)::NUMERIC(14,2) AS total
+       FROM tenant_credit_refunds
+       WHERE tenant_credit_id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL`,
+      [id, this.context.organizationId()],
+    );
+
+    const allocationCount = Number(allocationStats.rows[0]?.count ?? 0);
+    const allocationsTotal = Number(allocationStats.rows[0]?.total ?? 0);
+    const refundCount = Number(refundStats.rows[0]?.count ?? 0);
+    const refundsTotal = Number(refundStats.rows[0]?.total ?? 0);
+    const consumedTotal = Number((allocationsTotal + refundsTotal).toFixed(2));
+
+    const currency = String(credit.currency ?? payment.currency ?? 'USD').toUpperCase();
+    const originalAmount = Number(credit.original_amount ?? 0);
+    const currentPaymentDate = String(credit.payment_date ?? payment.payment_date ?? '').slice(0, 10);
+    const currentReference = String(credit.reference ?? payment.reference ?? '').trim();
+    const currentNotes = String(credit.notes ?? payment.notes ?? '').trim();
+    const currentPaymentMethod = String(payment.payment_method ?? 'CASH').toUpperCase();
+
+    const requestedAmount = body.original_amount === undefined && body.amount === undefined
+      ? originalAmount
+      : Number(body.original_amount ?? body.amount ?? 0);
+    if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+      throw new BadRequestException('Le montant du crédit doit être strictement positif.');
+    }
+    const normalizedAmount = Number(requestedAmount.toFixed(2));
+    if (normalizedAmount < consumedTotal) {
+      throw new BadRequestException('Le montant ne peut pas être inférieur au total déjà utilisé ou remboursé.');
+    }
+
+    const nextPaymentDate = body.payment_date === undefined
+      ? currentPaymentDate
+      : String(body.payment_date ?? '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nextPaymentDate)) {
+      throw new BadRequestException('La date du crédit locataire est invalide.');
+    }
+
+    const nextReference = body.reference === undefined
+      ? (currentReference || null)
+      : (String(body.reference ?? '').trim() || null);
+    const nextNotes = body.notes === undefined
+      ? (currentNotes || null)
+      : (String(body.notes ?? '').trim() || null);
+
+    const nextPaymentMethod = body.payment_method === undefined
+      ? currentPaymentMethod
+      : String(body.payment_method ?? '').trim().toUpperCase();
+    if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(nextPaymentMethod)) {
+      throw new BadRequestException('Mode de paiement invalide.');
+    }
+    if (nextPaymentMethod !== currentPaymentMethod && [nextPaymentMethod, currentPaymentMethod].includes('BANK')) {
+      throw new ConflictException('La modification du mode de paiement bancaire n est pas supportée pour ce crédit.');
+    }
+
+    const amountChanged = normalizedAmount !== Number(originalAmount.toFixed(2));
+    const paymentDateChanged = nextPaymentDate !== currentPaymentDate;
+    const referenceChanged = (nextReference ?? '') !== currentReference;
+
+    const linkedMovement = await this.linkedTenantCreditCashMovementInTransaction(client, id, paymentId);
+    if (amountChanged && !linkedMovement) {
+      throw new ConflictException('La correction monétaire directe n est pas disponible pour ce crédit. Utilisez une écriture de correction ou un remboursement.');
+    }
+    if (amountChanged && linkedMovement && String(linkedMovement.session_status ?? '') !== 'OPEN') {
+      throw new ConflictException('La caisse liée est clôturée. Utilisez une écriture de correction.');
+    }
+    if (paymentDateChanged && linkedMovement && String(linkedMovement.session_status ?? '') !== 'OPEN') {
+      throw new ConflictException('La caisse liée est clôturée. Utilisez une écriture de correction.');
+    }
+
+    const exchangeRateUsed = currency === 'CDF'
+      ? Number(payment.exchange_rate_used ?? linkedMovement?.exchange_rate_used ?? 0)
+      : null;
+    if (currency === 'CDF' && amountChanged && !(Number(exchangeRateUsed) > 0)) {
+      throw new ConflictException('Impossible de corriger ce crédit CDF sans taux de change source valide.');
+    }
+    const exchangeRateDate = currency === 'CDF'
+      ? String(payment.exchange_rate_date ?? linkedMovement?.exchange_rate_date ?? currentPaymentDate)
+      : null;
+    const totalEquivalentUsd = currency === 'CDF'
+      ? Number((normalizedAmount / Number(exchangeRateUsed || 1)).toFixed(2))
+      : normalizedAmount;
+    const nextAmountUsd = currency === 'USD' ? normalizedAmount : 0;
+    const nextAmountCdf = currency === 'CDF' ? normalizedAmount : 0;
+
+    const beforeSnapshot = {
+      original_amount: Number(credit.original_amount ?? 0),
+      remaining_amount: Number(credit.remaining_amount ?? 0),
+      payment_date: currentPaymentDate,
+      reference: credit.reference ?? payment.reference ?? null,
+      notes: credit.notes ?? payment.notes ?? null,
+      payment_method: currentPaymentMethod,
+      allocation_count: allocationCount,
+      allocations_total: allocationsTotal,
+      refund_count: refundCount,
+      refunds_total: refundsTotal,
+      currency,
+      cash_movement_id: Number(linkedMovement?.id ?? 0) || null,
+      cash_session_status: linkedMovement?.session_status ?? null,
+    };
+
+    const { remainingAmount, nextStatus } = this.computeTenantCreditBalanceState(normalizedAmount, allocationsTotal, refundsTotal);
+
+    await client.query(
+      `UPDATE payments
+       SET payment_date = $2,
+           payment_method = $3,
+           reference = $4,
+           notes = $5,
+           amount = $6,
+           amount_usd = $7,
+           amount_cdf = $8,
+           cdf_equivalent_usd = $9,
+           total_equivalent_usd = $10
+       WHERE id = $1
+         AND organization_id = $11
+         AND deleted_at IS NULL`,
+      [
+        paymentId,
+        nextPaymentDate,
+        nextPaymentMethod,
+        nextReference,
+        nextNotes,
+        totalEquivalentUsd,
+        nextAmountUsd,
+        nextAmountCdf,
+        currency === 'CDF' ? totalEquivalentUsd : 0,
+        totalEquivalentUsd,
+        this.context.organizationId(),
+      ],
+    );
+
+    await client.query(
+      `UPDATE tenant_credits
+       SET original_amount = $2,
+           remaining_amount = $3,
+           status = $4,
+           payment_date = $5,
+           reference = $6,
+           notes = $7,
+           updated_at = NOW()
+       WHERE id = $1
+         AND organization_id = $8
+         AND deleted_at IS NULL`,
+      [
+        id,
+        normalizedAmount,
+        remainingAmount,
+        nextStatus,
+        nextPaymentDate,
+        nextReference,
+        nextNotes,
+        this.context.organizationId(),
+      ],
+    );
+
+    if (linkedMovement && (amountChanged || paymentDateChanged || referenceChanged)) {
+      await client.query(
+        `UPDATE cash_movements
+         SET amount = $2,
+             movement_date = $3,
+             reference = $4,
+             exchange_rate_used = $5,
+             exchange_rate_date = $6,
+             equivalent_usd = $7
+         WHERE id = $1
+           AND organization_id = $8
+           AND deleted_at IS NULL`,
+        [
+          Number(linkedMovement.id),
+          normalizedAmount,
+          nextPaymentDate,
+          nextReference,
+          currency === 'CDF' ? Number(exchangeRateUsed) : null,
+          currency === 'CDF' ? exchangeRateDate : null,
+          totalEquivalentUsd,
+          this.context.organizationId(),
+        ],
+      );
+      await client.query(
+        `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+         VALUES ($1, $2, 'TENANT_CREDIT_SOURCE_MOVEMENT_UPDATED', 'cash', $3, 'PATCH', $4, 200, $5::JSONB)`,
+        [
+          this.context.organizationId(),
+          this.context.userId() ?? null,
+          String(linkedMovement.id),
+          `/api/cash/movements/${Number(linkedMovement.id)}`,
+          JSON.stringify({
+            tenant_credit_id: id,
+            reason,
+            before: {
+              amount: Number(linkedMovement.amount ?? 0),
+              movement_date: String(linkedMovement.movement_date ?? '').slice(0, 10),
+              reference: linkedMovement.reference ?? null,
+              equivalent_usd: Number(linkedMovement.equivalent_usd ?? 0),
+            },
+            after: {
+              amount: normalizedAmount,
+              movement_date: nextPaymentDate,
+              reference: nextReference,
+              equivalent_usd: totalEquivalentUsd,
+            },
+          }),
+        ],
+      );
+    }
+
+    await client.query(
+      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
+       VALUES ($1, $2, 'TENANT_CREDIT_UPDATED', 'tenant_credits', $3, 'PATCH', $4, 200, $5::JSONB)`,
+      [
+        this.context.organizationId(),
+        this.context.userId() ?? null,
+        String(id),
+        `/api/tenant-credits/${id}`,
+        JSON.stringify({
+          reason,
+          before: beforeSnapshot,
+          after: {
+            original_amount: normalizedAmount,
+            remaining_amount: remainingAmount,
+            payment_date: nextPaymentDate,
+            reference: nextReference,
+            notes: nextNotes,
+            payment_method: nextPaymentMethod,
+            status: nextStatus,
+            currency,
+            allocations_total: allocationsTotal,
+            refunds_total: refundsTotal,
+            cash_movement_id: Number(linkedMovement?.id ?? 0) || null,
+            cash_session_status: linkedMovement?.session_status ?? null,
+          },
+        }),
+      ],
+    );
+
+    return id;
   }
 
   private async nextTenantCreditRefundReceiptNumber(client: PoolClient) {

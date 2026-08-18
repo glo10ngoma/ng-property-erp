@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowLeft, Ban, FileText, Mail, Plus, Printer, RefreshCw, Search, Wallet, X } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Ban, FileText, Mail, Pencil, Plus, Printer, RefreshCw, Search, Wallet, X } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -60,6 +60,11 @@ type TenantCredit = {
   refunds?: TenantCreditRefund[];
   can_refund?: boolean;
   can_cancel?: boolean;
+  allocated_amount?: number;
+  refunded_amount?: number;
+  cash_movement_id?: number;
+  cash_piece_number?: string;
+  cash_session_status?: string;
 };
 
 type FormDataPayload = {
@@ -75,6 +80,15 @@ type RefundFormState = {
   refund_date: string;
   payment_method: string;
   reference: string;
+  reason: string;
+};
+
+type EditFormState = {
+  amount: string;
+  payment_date: string;
+  payment_method: string;
+  reference: string;
+  notes: string;
   reason: string;
 };
 
@@ -105,6 +119,7 @@ export function TenantCredits() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [selectedCredit, setSelectedCredit] = useState<TenantCredit | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -146,6 +161,14 @@ export function TenantCredits() {
     refund_date: today(),
     payment_method: 'CASH',
     reference: '',
+    reason: '',
+  });
+  const [editForm, setEditForm] = useState<EditFormState>({
+    amount: '',
+    payment_date: today(),
+    payment_method: 'CASH',
+    reference: '',
+    notes: '',
     reason: '',
   });
 
@@ -237,6 +260,7 @@ export function TenantCredits() {
     () => formData.leases.filter((lease) => !form.tenant_id || Number(lease.tenant_id) === Number(form.tenant_id)),
     [form.tenant_id, formData.leases],
   );
+  const highlightedCreditId = Number(searchParams.get('credit_id') ?? 0);
 
   const paymentMethods = formData.paymentMethods?.length
     ? formData.paymentMethods
@@ -324,6 +348,20 @@ export function TenantCredits() {
     };
   }, [refundForm.amount, selectedCredit]);
 
+  const selectedCreditTotals = useMemo(() => {
+    if (!selectedCredit) return null;
+    const original = Number(selectedCredit.original_amount ?? 0);
+    const allocated = Number(selectedCredit.allocated_amount ?? (original - Number(selectedCredit.remaining_amount ?? 0)));
+    const refunded = Number(selectedCredit.refunded_amount ?? 0);
+    const remaining = Number(selectedCredit.remaining_amount ?? 0);
+    return {
+      original,
+      allocated,
+      refunded,
+      remaining,
+    };
+  }, [selectedCredit]);
+
   const updateFilter = (key: keyof typeof filters, value: string) => setFilters((current) => ({ ...current, [key]: value }));
   const updateFilterAndReset = (key: keyof typeof filters, value: string) => {
     setPage(1);
@@ -358,6 +396,11 @@ export function TenantCredits() {
       setSelectedCredit(response.data);
       setDetailOpen(true);
     } catch (detailError: any) {
+      const status = Number(detailError?.response?.status ?? 0);
+      if (status === 404 && highlightedCreditId === creditId) {
+        setError('Le crédit demandé est introuvable dans l’organisation active.');
+        return;
+      }
       setError(detailError?.response?.data?.message ?? 'Impossible de charger le détail du crédit.');
     }
   };
@@ -381,6 +424,17 @@ export function TenantCredits() {
       refund_date: today(),
       payment_method: 'CASH',
       reference: '',
+      reason: '',
+    });
+  };
+
+  const resetEditForm = (credit: TenantCredit | null) => {
+    setEditForm({
+      amount: credit ? String(Number(credit.original_amount ?? 0)) : '',
+      payment_date: credit?.payment_date ?? today(),
+      payment_method: credit?.payment_method ?? 'CASH',
+      reference: credit?.reference ?? '',
+      notes: credit?.notes ?? '',
       reason: '',
     });
   };
@@ -480,6 +534,31 @@ export function TenantCredits() {
     }
   };
 
+  const submitEdit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selectedCredit) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const response = await api.patch<TenantCredit>(`/tenant-credits/${selectedCredit.id}`, {
+        amount: Number(editForm.amount),
+        payment_date: editForm.payment_date,
+        payment_method: editForm.payment_method,
+        reference: editForm.reference || null,
+        notes: editForm.notes || null,
+        reason: editForm.reason,
+      });
+      setSelectedCredit(response.data);
+      setSuccess('Crédit locataire corrigé avec succès.');
+      setEditOpen(false);
+      await loadCredits();
+    } catch (editError: any) {
+      setError(editError?.response?.data?.message ?? 'Impossible de corriger ce crédit locataire.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const historyRows = useMemo(() => buildCreditHistory(selectedCredit), [selectedCredit]);
 
   return (
@@ -564,7 +643,23 @@ export function TenantCredits() {
           </thead>
           <tbody>
             {pagedCredits.map((credit) => (
-              <tr key={credit.id}>
+              <tr
+                key={credit.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`Ouvrir le crédit locataire ${credit.id}`}
+                onClick={() => void openDetail(credit.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    void openDetail(credit.id);
+                  }
+                }}
+                style={{
+                  cursor: 'pointer',
+                  background: highlightedCreditId === credit.id ? 'rgba(37, 99, 235, 0.08)' : undefined,
+                }}
+              >
                 <td>{shortDate(credit.payment_date)}</td>
                 <td>
                   <div className="tenant-credit-tenant-cell">
@@ -581,8 +676,24 @@ export function TenantCredits() {
                 <td className="right">{formatCreditAmount(credit.remaining_amount, credit.currency)}</td>
                 <td><span className={`badge ${String(credit.status ?? '').toLowerCase()}`}>{creditStatusLabel(credit.status)}</span></td>
                 <td>
-                  <button type="button" className="icon-button" title="Voir le détail" onClick={() => void openDetail(credit.id)}><FileText size={15} /></button>
-                  <button type="button" className="icon-button" title="Ouvrir le reçu d'origine" onClick={() => navigate(`/payments/${credit.source_payment_id}`)}><Printer size={15} /></button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    title="Voir le détail"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void openDetail(credit.id);
+                    }}
+                  ><FileText size={15} /></button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    title="Ouvrir le reçu d'origine"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      navigate(`/payments/${credit.source_payment_id}`);
+                    }}
+                  ><Printer size={15} /></button>
                 </td>
               </tr>
             ))}
@@ -782,14 +893,36 @@ export function TenantCredits() {
         <Modal title={`Crédit locataire #${selectedCredit.id}`} onClose={() => { setDetailOpen(false); setSelectedCredit(null); }}>
           <div className="compact-list">
             <div className="compact-item"><span>Création</span><strong>{shortDate(selectedCredit.payment_date)} | {formatCreditAmount(selectedCredit.original_amount, selectedCredit.currency)}</strong></div>
-            <div className="compact-item"><span>Disponible</span><strong>{formatCreditAmount(selectedCredit.remaining_amount, selectedCredit.currency)}</strong></div>
-            <div className="compact-item"><span>Utilisé</span><strong>{formatCreditAmount(Number(selectedCredit.original_amount ?? 0) - Number(selectedCredit.remaining_amount ?? 0), selectedCredit.currency)}</strong></div>
+            <div className="compact-item"><span>Disponible</span><strong>{formatCreditAmount(selectedCreditTotals?.remaining ?? Number(selectedCredit.remaining_amount ?? 0), selectedCredit.currency)}</strong></div>
+            <div className="compact-item"><span>Utilisé</span><strong>{formatCreditAmount(selectedCreditTotals?.allocated ?? (Number(selectedCredit.original_amount ?? 0) - Number(selectedCredit.remaining_amount ?? 0)), selectedCredit.currency)}</strong></div>
+            <div className="compact-item"><span>Remboursé</span><strong>{formatCreditAmount(selectedCreditTotals?.refunded ?? 0, selectedCredit.currency)}</strong></div>
             <div className="compact-item"><span>Reçu d'origine</span><strong>{selectedCredit.receipt_number ?? '-'}</strong></div>
             <div className="compact-item"><span>Statut</span><strong>{creditStatusLabel(selectedCredit.status)}</strong></div>
+            <div className="compact-item"><span>Mouvement de caisse</span><strong>{selectedCredit.cash_piece_number ?? (selectedCredit.cash_movement_id ? `#${selectedCredit.cash_movement_id}` : 'Non lié')}</strong></div>
           </div>
+
+          {selectedCredit.cash_session_status && selectedCredit.cash_session_status !== 'OPEN' ? (
+            <div className="inline-info-card" style={{ marginTop: 12 }}>
+              <AlertCircle size={16} />
+              <div>
+                <strong>Caisse clôturée</strong>
+                <p>Les corrections monétaires sont bloquées tant que la session de caisse liée n’est pas ouverte.</p>
+              </div>
+            </div>
+          ) : null}
 
           <div className="tenant-credit-detail-actions">
             <button type="button" className="secondary" onClick={() => navigate(`/payments/${selectedCredit.source_payment_id}`)}><Printer size={15} />Reçu d'origine</button>
+            {can('tenant_credits.update') ? (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  resetEditForm(selectedCredit);
+                  setEditOpen(true);
+                }}
+              ><Pencil size={15} />Modifier</button>
+            ) : null}
             {can('communication.send') ? (
               <button type="button" className="secondary" onClick={() => setEmailOpen(true)}><Mail size={15} />Envoyer par email</button>
             ) : null}
@@ -872,6 +1005,36 @@ export function TenantCredits() {
             }}
             onSubmit={sendCreditEmail}
           />
+        </Modal>
+      )}
+
+      {editOpen && selectedCredit && (
+        <Modal title="Corriger un crédit locataire" onClose={() => setEditOpen(false)}>
+          <form className="form-grid" onSubmit={(event) => void submitEdit(event)}>
+            <label>Locataire<input readOnly value={selectedCredit.tenant_name ?? '-'} /></label>
+            <label>Devise<input readOnly value={selectedCredit.currency} /></label>
+            <label>Montant corrigé<input type="number" min="0.01" step="0.01" required value={editForm.amount} onChange={(event) => setEditForm((current) => ({ ...current, amount: event.target.value }))} /></label>
+            <label>Date<input type="date" required value={editForm.payment_date} onChange={(event) => setEditForm((current) => ({ ...current, payment_date: event.target.value }))} /></label>
+            <label>Mode<select value={editForm.payment_method} onChange={(event) => setEditForm((current) => ({ ...current, payment_method: event.target.value }))}>
+              <option value="CASH">Espèces</option>
+              <option value="BANK">Banque</option>
+              <option value="MOBILE_MONEY">Mobile Money</option>
+            </select></label>
+            <label>Référence<input value={editForm.reference} onChange={(event) => setEditForm((current) => ({ ...current, reference: event.target.value }))} /></label>
+            <label className="full">Notes<textarea value={editForm.notes} onChange={(event) => setEditForm((current) => ({ ...current, notes: event.target.value }))} /></label>
+            <label className="full">Motif obligatoire<textarea required value={editForm.reason} onChange={(event) => setEditForm((current) => ({ ...current, reason: event.target.value }))} /></label>
+            <div className="inline-info-card full">
+              <AlertCircle size={16} />
+              <div>
+                <strong>Correction tracée</strong>
+                <p>Le montant d’origine, le disponible et le mouvement de caisse lié seront resynchronisés si la session est ouverte. La devise et le locataire restent immuables.</p>
+              </div>
+            </div>
+            <div className="form-actions full">
+              <button type="button" className="secondary" onClick={() => setEditOpen(false)}>Annuler</button>
+              <button type="submit" disabled={submitting}><Pencil size={16} />{submitting ? 'Correction...' : 'Enregistrer la correction'}</button>
+            </div>
+          </form>
         </Modal>
       )}
 

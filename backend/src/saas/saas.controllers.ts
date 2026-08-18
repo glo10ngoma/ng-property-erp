@@ -856,6 +856,11 @@ export class TenantCreditsController {
     return this.service.createTenantCredit(body);
   }
 
+  @Patch(':id')
+  update(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.service.updateTenantCredit(id, body);
+  }
+
   @Post(':id/refund')
   refund(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
     return this.service.refundTenantCredit(id, body);
