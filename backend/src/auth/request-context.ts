@@ -7,6 +7,7 @@ export type AuthPayload = {
   role: string;
   platform_role?: string | null;
   organization_confirmed?: boolean;
+  organization_access_denied?: boolean;
   organization_role?: string | null;
   organization_id: number;
   organization_name?: string | null;
@@ -14,6 +15,8 @@ export type AuthPayload = {
   permissions: string[];
   active_modules?: string[];
   organizations?: UserOrganizationMembership[];
+  access_denied_message?: string | null;
+  organization_selection_required?: boolean;
 };
 
 export type UserOrganizationMembership = {

@@ -87,7 +87,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const applySelectionRequirement = useCallback((nextUser: AuthUser, forceSelection = false, activeOrganizationId?: number | null) => {
     const activeOrganizations = getActiveOrganizations(nextUser);
     const resolvedOrganizationId = activeOrganizationId ?? readActiveOrganizationId();
-    const nextValue = forceSelection || (activeOrganizations.length > 1 && !resolvedOrganizationId);
+    const nextValue =
+      forceSelection
+      || Boolean(nextUser.organization_selection_required)
+      || (activeOrganizations.length > 1 && !resolvedOrganizationId);
     writeOrganizationSelectionRequired(nextValue);
     setRequiresOrganizationSelection(nextValue);
     return nextValue;
@@ -204,8 +207,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         applyAuthSnapshot(currentToken, nextUser, {
           persist: false,
-          activeOrganizationId: activeOrganizationId ?? null,
-          forceSelection: false,
+          activeOrganizationId: nextUser.organization_selection_required ? null : (activeOrganizationId ?? null),
+          forceSelection: Boolean(nextUser.organization_selection_required),
         });
         devLog('[AUTH_CONTEXT_DEV]', {
           pathname: latestPathnameRef.current,
@@ -258,7 +261,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           applyAuthSnapshot(currentToken, fallbackUser, {
             persist: false,
             activeOrganizationId: null,
-            forceSelection: getActiveOrganizations(fallbackUser).length > 1,
+            forceSelection: Boolean(fallbackUser.organization_selection_required) || getActiveOrganizations(fallbackUser).length > 1,
           });
           devLog('[AUTH_CONTEXT_DEV]', {
             pathname: latestPathnameRef.current,
@@ -472,7 +475,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       initializeSessionTracking(true);
 
       const activeOrganizations = getActiveOrganizations(response.user);
-      const requiresSelection = activeOrganizations.length > 1;
+      const requiresSelection = Boolean(response.user.organization_selection_required) || activeOrganizations.length > 1;
       let resolvedUser = response.user;
 
       if (requiresSelection) {

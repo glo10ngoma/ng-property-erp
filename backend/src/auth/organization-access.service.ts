@@ -31,6 +31,10 @@ type OrganizationRow = {
   status: string;
 };
 
+type AccessDenialRow = {
+  organization_id: number;
+};
+
 @Injectable()
 export class OrganizationAccessService {
   private readonly logger = new Logger(OrganizationAccessService.name);
@@ -43,16 +47,22 @@ export class OrganizationAccessService {
       throw new UnauthorizedException('Invalid user session');
     }
 
+    const deniedOrganizations = await this.loadDeniedOrganizationsForUser(user.id);
+    if (requestedOrganizationId && deniedOrganizations.has(Number(requestedOrganizationId))) {
+      throw this.organizationAccessDenied();
+    }
+
     const platformRole = this.platformRole(user.platform_role ?? user.role);
     const memberships = platformRole
-      ? await this.loadAllOrganizationsForPlatformUser()
-      : await this.loadMembershipsForClientUser(user);
+      ? await this.loadAllOrganizationsForPlatformUser(deniedOrganizations)
+      : await this.loadMembershipsForClientUser(user, deniedOrganizations);
 
     const activeOrganization = this.selectActiveOrganization(
       memberships,
       requestedOrganizationId,
       platformRole,
       user.organization_id ?? undefined,
+      deniedOrganizations,
     );
     const permissions = permissionSetForRole(platformRole ?? activeOrganization.role_code);
     const activeModules = await this.loadActiveModules(activeOrganization.organization_id);
@@ -70,6 +80,13 @@ export class OrganizationAccessService {
       active_modules: activeModules,
       organizations: memberships,
     };
+  }
+
+  private organizationAccessDenied() {
+    return new ForbiddenException({
+      code: 'ORGANIZATION_ACCESS_DENIED',
+      message: 'Organization access denied',
+    });
   }
 
   async loginPayload(userId: number, requestedOrganizationId?: number | null) {
@@ -123,7 +140,25 @@ export class OrganizationAccessService {
     return rows[0];
   }
 
-  private async loadMembershipsForClientUser(user: AppUserRow): Promise<UserOrganizationMembership[]> {
+  private async loadDeniedOrganizationsForUser(userId: number) {
+    try {
+      const { rows } = await this.db.query<AccessDenialRow>(
+        `SELECT organization_id
+         FROM user_organization_access_denials
+         WHERE user_id = $1
+           AND is_active = TRUE`,
+        [userId],
+      );
+      return new Set(rows.map((row) => Number(row.organization_id)).filter((value) => Number.isFinite(value) && value > 0));
+    } catch (error: any) {
+      if (error?.code === '42P01') {
+        return new Set<number>();
+      }
+      throw error;
+    }
+  }
+
+  private async loadMembershipsForClientUser(user: AppUserRow, deniedOrganizations: Set<number>): Promise<UserOrganizationMembership[]> {
     try {
       const { rows } = await this.db.query<MembershipRow>(
         `SELECT
@@ -140,7 +175,9 @@ export class OrganizationAccessService {
         [user.id],
       );
       if (rows.length) {
-        return rows.map((row) => ({
+        return rows
+          .filter((row) => !deniedOrganizations.has(Number(row.organization_id)))
+          .map((row) => ({
           organization_id: Number(row.organization_id),
           organization_name: row.organization_name,
           organization_slug: row.organization_slug,
@@ -155,6 +192,10 @@ export class OrganizationAccessService {
 
     if (!user.organization_id) {
       throw new ForbiddenException('No active organization membership found');
+    }
+
+    if (deniedOrganizations.has(Number(user.organization_id))) {
+      throw this.organizationAccessDenied();
     }
 
     const fallbackOrganization = await this.findOrganization(user.organization_id);
@@ -178,7 +219,7 @@ export class OrganizationAccessService {
     ];
   }
 
-  private async loadAllOrganizationsForPlatformUser(): Promise<UserOrganizationMembership[]> {
+  private async loadAllOrganizationsForPlatformUser(deniedOrganizations: Set<number>): Promise<UserOrganizationMembership[]> {
     const { rows } = await this.db.query<OrganizationRow>(
       `SELECT id, name, slug, status
        FROM organizations
@@ -186,7 +227,9 @@ export class OrganizationAccessService {
        ORDER BY name ASC`,
     );
 
-    return rows.map((row) => ({
+    return rows
+      .filter((row) => !deniedOrganizations.has(Number(row.id)))
+      .map((row) => ({
       organization_id: Number(row.id),
       organization_name: row.name,
       organization_slug: row.slug,
@@ -201,13 +244,14 @@ export class OrganizationAccessService {
     requestedOrganizationId?: number | null,
     platformRole?: 'SUPER_ADMIN' | 'ADMIN_PLATFORM' | null,
     fallbackOrganizationId?: number,
+    deniedOrganizations?: Set<number>,
   ) {
     const requested = requestedOrganizationId
       ? organizations.find((item) => item.organization_id === requestedOrganizationId && item.is_active)
       : undefined;
 
     if (requestedOrganizationId && !requested) {
-      throw new ForbiddenException('Organization access denied');
+      throw this.organizationAccessDenied();
     }
 
     const chosen = requested
@@ -219,7 +263,7 @@ export class OrganizationAccessService {
       return chosen;
     }
 
-    if (platformRole && fallbackOrganizationId) {
+    if (platformRole && fallbackOrganizationId && !deniedOrganizations?.has(Number(fallbackOrganizationId))) {
       return {
         organization_id: fallbackOrganizationId,
         organization_name: `Organisation ${fallbackOrganizationId}`,

@@ -101,13 +101,21 @@ export class AuthController {
   @Get('me')
   async me(@Req() request: RequestWithHeaders) {
     if (!request.user) throw new UnauthorizedException('Missing token');
+    if (request.user.organization_access_denied) {
+      const payload = await this.organizationAccess.loginPayload(request.user.sub);
+      return {
+        ...payload,
+        organization_selection_required: true,
+        access_denied_message: 'Cette organisation n’est pas accessible avec votre compte.',
+      };
+    }
     return this.organizationAccess.loginPayload(request.user.sub, request.user.organization_id);
   }
 
   @Post('switch-organization')
   async switchOrganization(@Body() dto: SwitchOrganizationDto, @Req() request: RequestWithHeaders) {
     if (!request.user) throw new UnauthorizedException('Missing token');
-    if (request.user.organization_confirmed) {
+    if (request.user.organization_confirmed && !request.user.organization_access_denied) {
       throw new ForbiddenException('Déconnectez-vous puis reconnectez-vous pour changer d’organisation.');
     }
 

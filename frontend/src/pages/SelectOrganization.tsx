@@ -29,7 +29,7 @@ export function SelectOrganization() {
   const { user, logout, setActiveOrganization } = useAuth();
   const [selectedOrganizationId, setSelectedOrganizationId] = useState<number | null>(user?.organization_id ?? null);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(user?.access_denied_message ?? '');
 
   const organizations = useMemo(
     () => (user?.organizations ?? []).filter((organization) => organization.is_active),

@@ -78,11 +78,29 @@ export class PermissionsGuard implements CanActivate {
         ? Number(tokenPayload.organization_id)
         : undefined;
     const requestedOrganizationId = lockedOrganizationId ?? this.readRequestedOrganizationId(request);
-    const user = await this.organizationAccess.resolveUserContext(tokenPayload.sub, requestedOrganizationId);
-    request.user = {
-      ...user,
-      organization_confirmed: Boolean(tokenPayload.organization_confirmed),
-    };
+    let user: AuthPayload;
+    try {
+      user = await this.organizationAccess.resolveUserContext(tokenPayload.sub, requestedOrganizationId);
+      request.user = {
+        ...user,
+        organization_confirmed: Boolean(tokenPayload.organization_confirmed),
+      };
+    } catch (error: any) {
+      const response = error?.response;
+      const code = typeof response === 'object' && response ? response.code ?? response?.message?.code : undefined;
+      if (code === 'ORGANIZATION_ACCESS_DENIED' && this.isPreSelectionRoute(request.path)) {
+        user = await this.organizationAccess.resolveUserContext(tokenPayload.sub, undefined);
+        request.user = {
+          ...user,
+          organization_confirmed: false,
+          organization_access_denied: true,
+          access_denied_message: 'Cette organisation n’est pas accessible avec votre compte.',
+          organization_selection_required: true,
+        };
+      } else {
+        throw error;
+      }
+    }
 
     if (!tokenPayload.organization_confirmed && !this.isPreSelectionRoute(request.path)) {
       throw new ForbiddenException('Sélectionnez une organisation pour terminer la connexion.');

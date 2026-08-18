@@ -34,5 +34,7 @@ export type AuthUser = {
     is_active: boolean;
     is_default: boolean;
   }>;
+  organization_selection_required?: boolean;
+  access_denied_message?: string | null;
   permissions: string[];
 };
