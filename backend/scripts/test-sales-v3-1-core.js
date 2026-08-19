@@ -46,6 +46,9 @@ function includesAll(text, expected, label) {
     'SUBSCRIPTION_CONTRACT',
     'generateContract(',
     'markDocumentGenerationFailure(',
+    'SALES_DOCUMENT_TEMPLATE_INCOMPLETE',
+    'renderTemplateMarkup(',
+    'translateSubscriptionFrequency(',
   ], 'sales documents service');
 
   const service = read('src/sales/sales.service.ts');

@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../core/auth/AuthContext';
 import {
@@ -45,6 +45,7 @@ import {
   type SalesCatalogItem,
   type SalesDocumentGeneration,
   type SalesDocumentTemplate,
+  type SalesDocumentTemplatePayload,
   type SalesProject,
   type SalesReservation,
   type SalesSettings,
@@ -125,6 +126,31 @@ const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
   CANCELLED: 'Annulée',
 };
 
+type SalesDetailAction = {
+  key: string;
+  label: string;
+  tone: 'primary' | 'secondary' | 'danger';
+  href?: string;
+  onClick?: () => void;
+  disabled?: boolean;
+};
+
+const TEMPLATE_PREVIEW_ALLOWED_TAGS = new Set([
+  'a', 'article', 'br', 'div', 'em', 'footer', 'h1', 'h2', 'h3', 'h4', 'header', 'hr',
+  'li', 'ol', 'p', 'section', 'small', 'span', 'strong', 'table', 'tbody', 'td', 'th',
+  'thead', 'tr', 'u', 'ul',
+]);
+const TEMPLATE_PREVIEW_ALLOWED_ATTRIBUTES = new Set(['class', 'colspan', 'href', 'rel', 'rowspan', 'scope', 'target']);
+const TEMPLATE_PREVIEW_FREQUENCY_LABELS: Record<string, string> = {
+  MONTHLY: 'Mensuelle',
+  QUARTERLY: 'Trimestrielle',
+  CUSTOM: 'Personnalisée',
+};
+const TEMPLATE_PREVIEW_ORIGIN_LABELS: Record<string, string> = {
+  DIRECT: 'Souscription directe',
+  RESERVATION: 'Issue d’une réservation',
+};
+
 function getErrorMessage(error: unknown) {
   if (typeof error === 'object' && error && 'response' in error) {
     const response = (error as { response?: { data?: { message?: string | string[] } } }).response;
@@ -134,6 +160,86 @@ function getErrorMessage(error: unknown) {
   }
   if (error instanceof Error) return error.message;
   return 'Une erreur est survenue. Réessayez.';
+}
+
+function buildActionClassName(tone: SalesDetailAction['tone']) {
+  if (tone === 'primary') return 'sales-v21-btn sales-v21-btn-primary sales-v21-action-btn';
+  if (tone === 'danger') return 'sales-v21-btn sales-v21-btn-danger sales-v21-action-btn';
+  return 'sales-v21-btn sales-v21-btn-secondary sales-v21-action-btn';
+}
+
+function SalesDetailActionsCard({
+  primaryAction,
+  editHref,
+  secondaryActions,
+  hint,
+}: {
+  primaryAction?: SalesDetailAction | null;
+  editHref?: string | null;
+  secondaryActions: SalesDetailAction[];
+  hint: string;
+}) {
+  if (!primaryAction && !editHref && !secondaryActions.length) {
+    return null;
+  }
+
+  return (
+    <div className="sales-v21-action-stack">
+      <div className="sales-v21-action-row">
+        {primaryAction ? (
+          primaryAction.href ? (
+            <Link className={buildActionClassName(primaryAction.tone)} to={primaryAction.href}>
+              {primaryAction.label}
+            </Link>
+          ) : (
+            <button className={buildActionClassName(primaryAction.tone)} type="button" disabled={primaryAction.disabled} onClick={primaryAction.onClick}>
+              {primaryAction.label}
+            </button>
+          )
+        ) : null}
+        {editHref ? (
+          <Link className="sales-v21-btn sales-v21-btn-secondary sales-v21-action-btn" to={editHref}>
+            Modifier
+          </Link>
+        ) : null}
+        {secondaryActions.length ? (
+          <details className="sales-v21-action-menu">
+            <summary className="sales-v21-btn sales-v21-btn-ghost sales-v21-action-btn sales-v21-action-menu-trigger">
+              Plus d’actions
+            </summary>
+            <div className="sales-v21-action-menu-panel">
+              {secondaryActions.map((action) => (
+                action.href ? (
+                  <Link key={action.key} className={buildActionClassName(action.tone)} to={action.href}>
+                    {action.label}
+                  </Link>
+                ) : (
+                  <button key={action.key} className={buildActionClassName(action.tone)} type="button" disabled={action.disabled} onClick={action.onClick}>
+                    {action.label}
+                  </button>
+                )
+              ))}
+            </div>
+          </details>
+        ) : null}
+      </div>
+      <p className="sales-v21-action-hint">{hint}</p>
+    </div>
+  );
+}
+
+function requestBusinessActionReason(actionLabel: string) {
+  const reason = window.prompt(`Motif obligatoire pour l’action « ${actionLabel} » :`, '');
+  if (reason == null) return null;
+  const trimmed = reason.trim();
+  if (!trimmed) {
+    window.alert('Un motif est obligatoire pour poursuivre cette action.');
+    return null;
+  }
+  if (!window.confirm(`Confirmer l’action « ${actionLabel} » ?`)) {
+    return null;
+  }
+  return trimmed;
 }
 
 function parseOptionalNumber(value: string) {
@@ -161,6 +267,55 @@ function formatCurrency(value?: number | null, currency?: string | null) {
     currency: currency || 'USD',
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function hasPreviewHtmlMarkup(value: string) {
+  return /<\/?[a-z][\s\S]*>/i.test(value);
+}
+
+function isSafePreviewUrl(value: string) {
+  return /^(https?:|mailto:|tel:|#|\/)/i.test(value);
+}
+
+function sanitizePreviewMarkup(markup: string) {
+  const withoutDangerousBlocks = markup
+    .replace(/<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|svg|math)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|svg|math)[^>]*\/?\s*>/gi, '');
+
+  return withoutDangerousBlocks.replace(/<\s*(\/?)\s*([a-z0-9-]+)([^>]*)>/gi, (_, closing: string, tagName: string, rawAttributes: string) => {
+    const tag = tagName.toLowerCase();
+    if (!TEMPLATE_PREVIEW_ALLOWED_TAGS.has(tag)) return '';
+    if (closing) return `</${tag}>`;
+    if (tag === 'br' || tag === 'hr') return `<${tag}>`;
+
+    const attributes: string[] = [];
+    rawAttributes.replace(/([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g, (_, name: string, __: string, quotedDouble: string, quotedSingle: string, unquoted: string) => {
+      const attributeName = name.toLowerCase();
+      if (!TEMPLATE_PREVIEW_ALLOWED_ATTRIBUTES.has(attributeName) || attributeName.startsWith('on')) return '';
+      const rawValue = quotedDouble ?? quotedSingle ?? unquoted ?? '';
+      if ((attributeName === 'href' || attributeName === 'src') && !isSafePreviewUrl(rawValue)) return '';
+      if (attributeName === 'target' && rawValue !== '_blank') return '';
+      if (attributeName === 'rel') {
+        attributes.push('rel="noopener noreferrer"');
+        return '';
+      }
+      attributes.push(`${attributeName}="${escapePreviewHtml(rawValue)}"`);
+      return '';
+    });
+    if (rawAttributes && /target\s*=\s*(['"]?)_blank\1/i.test(rawAttributes) && !attributes.some((attribute) => attribute.startsWith('rel='))) {
+      attributes.push('rel="noopener noreferrer"');
+    }
+    return `<${tag}${attributes.length ? ` ${attributes.join(' ')}` : ''}>`;
+  });
+}
+
+function renderPlainTextPreviewMarkup(value: string) {
+  const normalized = value.replace(/\r\n/g, '\n').trim();
+  if (!normalized) return '';
+  return normalized
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p>${paragraph.split('\n').map(escapePreviewHtml).join('<br />')}</p>`)
+    .join('\n');
 }
 
 async function triggerDocumentDownload(document: SalesDocumentGeneration) {
@@ -681,7 +836,6 @@ export function SalesReservationFormPage() {
 }
 
 export function SalesReservationDetailPage() {
-  const navigate = useNavigate();
   const { id } = useParams();
   const reservationId = Number(id);
   const { can } = useAuth();
@@ -723,6 +877,12 @@ export function SalesReservationDetailPage() {
     }
   }
 
+  async function runReasonedAction(label: string, actionLabel: string, handler: (reason: string) => Promise<unknown>) {
+    const reason = requestBusinessActionReason(actionLabel);
+    if (!reason) return;
+    await runAction(label, () => handler(reason));
+  }
+
   return (
     <SalesModulePage
       title={item?.reservation_number || 'Réservation'}
@@ -760,34 +920,74 @@ export function SalesReservationDetailPage() {
               <p>{item.notes || 'Aucune note complémentaire.'}</p>
             </SalesSection>
 
-            <SalesSection title="Actions métier" description="Transitions autorisées selon le statut et les permissions.">
-              <div className="sales-v21-table-actions">
-                {can('sales_reservations.approve') && ['ACTIVE', 'DRAFT'].includes(item.status) ? (
-                  <button className="sales-v21-btn sales-v21-btn-primary sales-v21-btn-compact" type="button" disabled={busyAction === 'confirm'} onClick={() => void runAction('confirm', () => confirmSalesReservation(item.id))}>
-                    Confirmer
-                  </button>
-                ) : null}
-                {can('sales_reservations.cancel') && ['ACTIVE', 'CONFIRMED', 'DRAFT'].includes(item.status) ? (
-                  <button className="sales-v21-btn sales-v21-btn-danger sales-v21-btn-compact" type="button" disabled={busyAction === 'cancel'} onClick={() => void runAction('cancel', () => cancelSalesReservation(item.id, { reason: 'Annulation manuelle' }))}>
-                    Annuler
-                  </button>
-                ) : null}
-                {can('sales_reservations.update') && item.status === 'ACTIVE' ? (
-                  <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" disabled={busyAction === 'expire'} onClick={() => void runAction('expire', () => expireSalesReservation(item.id, { reason: 'Expiration manuelle' }))}>
-                    Expirer
-                  </button>
-                ) : null}
-                {can('sales_subscriptions.create') && ['ACTIVE', 'CONFIRMED'].includes(item.status) ? (
-                  <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => navigate(`/sales/subscriptions/new?reservation_id=${item.id}`)}>
-                    Créer la souscription
-                  </button>
-                ) : null}
-                {can('sales_reservations.update') && item.status === 'CONFIRMED' ? (
-                  <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" disabled={busyAction === 'convert'} onClick={() => void runAction('convert', () => convertSalesReservation(item.id, { reason: 'Conversion manuelle' }))}>
-                    Convertir
-                  </button>
-                ) : null}
-              </div>
+            <SalesSection title="Actions métier" description="Carte compacte : action principale visible, actions sensibles regroupées et toujours motivées.">
+              <SalesDetailActionsCard
+                primaryAction={
+                  can('sales_reservations.approve') && ['ACTIVE', 'DRAFT'].includes(item.status)
+                    ? {
+                        key: 'confirm',
+                        label: busyAction === 'confirm' ? 'Confirmation…' : 'Confirmer',
+                        tone: 'primary',
+                        disabled: busyAction === 'confirm',
+                        onClick: () => void runReasonedAction('confirm', 'Confirmer la réservation', (reason) => confirmSalesReservation(item.id, { reason })),
+                      }
+                    : can('sales_subscriptions.create') && ['ACTIVE', 'CONFIRMED'].includes(item.status)
+                      ? {
+                          key: 'create-subscription',
+                          label: 'Créer la souscription',
+                          tone: 'primary',
+                          href: `/sales/subscriptions/new?reservation_id=${item.id}`,
+                        }
+                      : can('sales_reservations.update') && item.status === 'CONFIRMED'
+                        ? {
+                            key: 'convert',
+                            label: busyAction === 'convert' ? 'Conversion…' : 'Convertir',
+                            tone: 'primary',
+                            disabled: busyAction === 'convert',
+                            onClick: () => void runReasonedAction('convert', 'Convertir la réservation', (reason) => convertSalesReservation(item.id, { reason })),
+                          }
+                        : null
+                }
+                editHref={can('sales_reservations.update') ? `/sales/reservations/${item.id}/edit` : null}
+                secondaryActions={[
+                  can('sales_reservations.update') && item.status === 'ACTIVE'
+                    ? {
+                        key: 'expire',
+                        label: busyAction === 'expire' ? 'Expiration…' : 'Expirer',
+                        tone: 'secondary',
+                        disabled: busyAction === 'expire',
+                        onClick: () => void runReasonedAction('expire', 'Expirer la réservation', (reason) => expireSalesReservation(item.id, { reason })),
+                      }
+                    : null,
+                  can('sales_subscriptions.create') && ['ACTIVE', 'CONFIRMED'].includes(item.status) && !(can('sales_reservations.approve') && ['ACTIVE', 'DRAFT'].includes(item.status))
+                    ? {
+                        key: 'create-subscription',
+                        label: 'Créer la souscription',
+                        tone: 'secondary',
+                        href: `/sales/subscriptions/new?reservation_id=${item.id}`,
+                      }
+                    : null,
+                  can('sales_reservations.update') && item.status === 'CONFIRMED' && !(can('sales_subscriptions.create') && ['ACTIVE', 'CONFIRMED'].includes(item.status)) && !(can('sales_reservations.approve') && ['ACTIVE', 'DRAFT'].includes(item.status))
+                    ? {
+                        key: 'convert',
+                        label: busyAction === 'convert' ? 'Conversion…' : 'Convertir',
+                        tone: 'secondary',
+                        disabled: busyAction === 'convert',
+                        onClick: () => void runReasonedAction('convert', 'Convertir la réservation', (reason) => convertSalesReservation(item.id, { reason })),
+                      }
+                    : null,
+                  can('sales_reservations.cancel') && ['ACTIVE', 'CONFIRMED', 'DRAFT'].includes(item.status)
+                    ? {
+                        key: 'cancel',
+                        label: busyAction === 'cancel' ? 'Annulation…' : 'Annuler',
+                        tone: 'danger',
+                        disabled: busyAction === 'cancel',
+                        onClick: () => void runReasonedAction('cancel', 'Annuler la réservation', (reason) => cancelSalesReservation(item.id, { reason })),
+                      }
+                    : null,
+                ].filter(Boolean) as SalesDetailAction[]}
+                hint="Chaque changement d’état exige un motif et une confirmation explicite."
+              />
             </SalesSection>
           </div>
 
@@ -1313,7 +1513,6 @@ export function SalesSubscriptionFormPage() {
 }
 
 export function SalesSubscriptionDetailPage() {
-  const navigate = useNavigate();
   const { id } = useParams();
   const subscriptionId = Number(id);
   const { can } = useAuth();
@@ -1355,6 +1554,12 @@ export function SalesSubscriptionDetailPage() {
     }
   }
 
+  async function runReasonedAction(label: string, actionLabel: string, handler: (reason: string) => Promise<unknown>) {
+    const reason = requestBusinessActionReason(actionLabel);
+    if (!reason) return;
+    await runAction(label, () => handler(reason));
+  }
+
   return (
     <SalesModulePage
       title={item?.subscription_number || 'Souscription'}
@@ -1392,29 +1597,50 @@ export function SalesSubscriptionDetailPage() {
               <p>{item.notes || 'Aucune note contractuelle.'}</p>
             </SalesSection>
 
-            <SalesSection title="Actions métier" description="Validation, rejet ou annulation selon le cycle d’approbation.">
-              <div className="sales-v21-table-actions">
-                {can('sales_subscriptions.update') && ['DRAFT', 'REJECTED'].includes(item.status) ? (
-                  <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" disabled={busyAction === 'submit'} onClick={() => void runAction('submit', () => submitSalesSubscription(item.id, { reason: 'Soumission manuelle' }))}>
-                    Soumettre
-                  </button>
-                ) : null}
-                {can('sales_subscriptions.approve') && item.status === 'SUBMITTED' ? (
-                  <button className="sales-v21-btn sales-v21-btn-primary sales-v21-btn-compact" type="button" disabled={busyAction === 'approve'} onClick={() => void runAction('approve', () => approveSalesSubscription(item.id, { reason: 'Validation manager' }))}>
-                    Approuver
-                  </button>
-                ) : null}
-                {can('sales_subscriptions.update') && item.status === 'SUBMITTED' ? (
-                  <button className="sales-v21-btn sales-v21-btn-danger sales-v21-btn-compact" type="button" disabled={busyAction === 'reject'} onClick={() => void runAction('reject', () => rejectSalesSubscription(item.id, { reason: 'Rejet manuel' }))}>
-                    Rejeter
-                  </button>
-                ) : null}
-                {can('sales_subscriptions.cancel') && ['DRAFT', 'SUBMITTED', 'REJECTED'].includes(item.status) ? (
-                  <button className="sales-v21-btn sales-v21-btn-danger sales-v21-btn-compact" type="button" disabled={busyAction === 'cancel'} onClick={() => void runAction('cancel', () => cancelSalesSubscription(item.id, { reason: 'Annulation manuelle' }))}>
-                    Annuler
-                  </button>
-                ) : null}
-              </div>
+            <SalesSection title="Actions métier" description="Bloc compact : action principale prioritaire, actions sensibles regroupées et journalisées avec motif.">
+              <SalesDetailActionsCard
+                primaryAction={
+                  can('sales_subscriptions.update') && ['DRAFT', 'REJECTED'].includes(item.status)
+                    ? {
+                        key: 'submit',
+                        label: busyAction === 'submit' ? 'Soumission…' : 'Soumettre',
+                        tone: 'primary',
+                        disabled: busyAction === 'submit',
+                        onClick: () => void runReasonedAction('submit', 'Soumettre la souscription', (reason) => submitSalesSubscription(item.id, { reason })),
+                      }
+                    : can('sales_subscriptions.approve') && item.status === 'SUBMITTED'
+                      ? {
+                          key: 'approve',
+                          label: busyAction === 'approve' ? 'Validation…' : 'Approuver',
+                          tone: 'primary',
+                          disabled: busyAction === 'approve',
+                          onClick: () => void runReasonedAction('approve', 'Approuver la souscription', (reason) => approveSalesSubscription(item.id, { reason })),
+                        }
+                      : null
+                }
+                editHref={can('sales_subscriptions.update') ? `/sales/subscriptions/${item.id}/edit` : null}
+                secondaryActions={[
+                  can('sales_subscriptions.update') && item.status === 'SUBMITTED'
+                    ? {
+                        key: 'reject',
+                        label: busyAction === 'reject' ? 'Rejet…' : 'Rejeter',
+                        tone: 'danger',
+                        disabled: busyAction === 'reject',
+                        onClick: () => void runReasonedAction('reject', 'Rejeter la souscription', (reason) => rejectSalesSubscription(item.id, { reason })),
+                      }
+                    : null,
+                  can('sales_subscriptions.cancel') && ['DRAFT', 'SUBMITTED', 'REJECTED'].includes(item.status)
+                    ? {
+                        key: 'cancel',
+                        label: busyAction === 'cancel' ? 'Annulation…' : 'Annuler',
+                        tone: 'danger',
+                        disabled: busyAction === 'cancel',
+                        onClick: () => void runReasonedAction('cancel', 'Annuler la souscription', (reason) => cancelSalesSubscription(item.id, { reason })),
+                      }
+                    : null,
+                ].filter(Boolean) as SalesDetailAction[]}
+                hint="Soumission, approbation, rejet et annulation exigent un motif puis une confirmation."
+              />
             </SalesSection>
           </div>
 
@@ -1485,12 +1711,656 @@ export function SalesSubscriptionDetailPage() {
   );
 }
 
+type TemplateEditorTab = 'editor' | 'variables' | 'preview';
+type TemplateType = 'RESERVATION_CONTRACT' | 'SUBSCRIPTION_CONTRACT';
+type TemplateStarterMode = 'EMPTY' | 'STANDARD';
+
+type TemplateVariableDefinition = {
+  label: string;
+  code: string;
+  example: string;
+};
+
+const SALES_TEMPLATE_GROUPS: Record<TemplateType, Array<{ title: string; items: TemplateVariableDefinition[] }>> = {
+  RESERVATION_CONTRACT: [
+    {
+      title: 'Organisation',
+      items: [
+        { label: 'Nom de l’organisation', code: '{{organization.name}}', example: 'SALES Internal Test' },
+        { label: 'Adresse', code: '{{organization.address}}', example: 'Kinshasa, Gombe' },
+        { label: 'Téléphone', code: '{{organization.phone}}', example: '+243 999 000 000' },
+        { label: 'Email', code: '{{organization.email}}', example: 'contact@example.com' },
+        { label: 'Raison sociale', code: '{{organization.legal_name}}', example: 'NG Property ERP' },
+        { label: 'Numéro fiscal', code: '{{organization.tax_number}}', example: 'A0001234X' },
+      ],
+    },
+    {
+      title: 'Acquéreur',
+      items: [
+        { label: 'Référence acquéreur', code: '{{buyer.number}}', example: 'ACQ-2026-00012' },
+        { label: 'Nom', code: '{{buyer.name}}', example: 'Glody Ngoma' },
+        { label: 'Téléphone', code: '{{buyer.phone}}', example: '+243 815 000 000' },
+        { label: 'Email', code: '{{buyer.email}}', example: 'glody@example.com' },
+        { label: 'Adresse', code: '{{buyer.address}}', example: 'Kinshasa' },
+        { label: 'Pièce d’identité', code: '{{buyer.identity_number}}', example: 'ID-778899' },
+      ],
+    },
+    {
+      title: 'Projet & Bien',
+      items: [
+        { label: 'Référence projet', code: '{{project.number}}', example: 'PRJ-2026-0004' },
+        { label: 'Nom du projet', code: '{{project.name}}', example: 'Résidence Horizon' },
+        { label: 'Localisation projet', code: '{{project.location}}', example: 'Kinshasa / Ngaliema' },
+        { label: 'Référence bien', code: '{{property.number}}', example: 'BIE-2026-0005' },
+        { label: 'Titre du bien', code: '{{property.title}}', example: 'Appartement A12' },
+        { label: 'Type du bien', code: '{{property.type}}', example: 'Appartement' },
+        { label: 'Localisation du bien', code: '{{property.location}}', example: 'Bloc A' },
+        { label: 'Surface', code: '{{property.surface}}', example: '120 m²' },
+      ],
+    },
+    {
+      title: 'Réservation',
+      items: [
+        { label: 'Numéro de réservation', code: '{{reservation.number}}', example: 'RSV-2026-00003' },
+        { label: 'Date de réservation', code: '{{reservation.date}}', example: '18 août 2026' },
+        { label: 'Date d’expiration', code: '{{reservation.expiration_date}}', example: '25 août 2026' },
+        { label: 'Devise', code: '{{reservation.currency}}', example: 'USD' },
+        { label: 'Prix catalogue', code: '{{reservation.catalog_price}}', example: '160 000,00 USD' },
+        { label: 'Prix négocié', code: '{{reservation.negotiated_price}}', example: '150 000,00 USD' },
+        { label: 'Frais de réservation', code: '{{reservation.fee_amount}}', example: '2 000,00 USD' },
+      ],
+    },
+    {
+      title: 'Génération',
+      items: [
+        { label: 'Date de génération', code: '{{generation.date}}', example: '18 août 2026' },
+        { label: 'Utilisateur', code: '{{user.name}}', example: 'Utilisateur #12' },
+      ],
+    },
+  ],
+  SUBSCRIPTION_CONTRACT: [
+    {
+      title: 'Organisation',
+      items: [
+        { label: 'Nom de l’organisation', code: '{{organization.name}}', example: 'SALES Internal Test' },
+        { label: 'Adresse', code: '{{organization.address}}', example: 'Kinshasa, Gombe' },
+        { label: 'Téléphone', code: '{{organization.phone}}', example: '+243 999 000 000' },
+        { label: 'Email', code: '{{organization.email}}', example: 'contact@example.com' },
+        { label: 'Raison sociale', code: '{{organization.legal_name}}', example: 'NG Property ERP' },
+        { label: 'Numéro fiscal', code: '{{organization.tax_number}}', example: 'A0001234X' },
+      ],
+    },
+    {
+      title: 'Acquéreur',
+      items: [
+        { label: 'Référence acquéreur', code: '{{buyer.number}}', example: 'ACQ-2026-00012' },
+        { label: 'Nom', code: '{{buyer.name}}', example: 'Glody Ngoma' },
+        { label: 'Téléphone', code: '{{buyer.phone}}', example: '+243 815 000 000' },
+        { label: 'Email', code: '{{buyer.email}}', example: 'glody@example.com' },
+        { label: 'Adresse', code: '{{buyer.address}}', example: 'Kinshasa' },
+        { label: 'Pièce d’identité', code: '{{buyer.identity_number}}', example: 'ID-778899' },
+      ],
+    },
+    {
+      title: 'Projet & Bien',
+      items: [
+        { label: 'Référence projet', code: '{{project.number}}', example: 'PRJ-2026-0004' },
+        { label: 'Nom du projet', code: '{{project.name}}', example: 'Résidence Horizon' },
+        { label: 'Localisation projet', code: '{{project.location}}', example: 'Kinshasa / Ngaliema' },
+        { label: 'Référence bien', code: '{{property.number}}', example: 'BIE-2026-0005' },
+        { label: 'Titre du bien', code: '{{property.title}}', example: 'Appartement A12' },
+        { label: 'Type du bien', code: '{{property.type}}', example: 'Appartement' },
+        { label: 'Localisation du bien', code: '{{property.location}}', example: 'Bloc A' },
+        { label: 'Surface', code: '{{property.surface}}', example: '120 m²' },
+      ],
+    },
+    {
+      title: 'Souscription',
+      items: [
+        { label: 'Numéro de souscription', code: '{{subscription.number}}', example: 'SOU-2026-00002' },
+        { label: 'Origine', code: '{{subscription.origin}}', example: 'Réservation' },
+        { label: 'Date', code: '{{subscription.date}}', example: '18 août 2026' },
+        { label: 'Devise', code: '{{subscription.currency}}', example: 'USD' },
+        { label: 'Prix catalogue', code: '{{subscription.catalog_price}}', example: '160 000,00 USD' },
+        { label: 'Remise', code: '{{subscription.discount}}', example: '10 000,00 USD' },
+        { label: 'Prix final', code: '{{subscription.final_price}}', example: '150 000,00 USD' },
+        { label: 'Acompte %', code: '{{subscription.deposit_percentage}}', example: '20 %' },
+        { label: 'Acompte montant', code: '{{subscription.deposit_amount}}', example: '30 000,00 USD' },
+        { label: 'Solde financé', code: '{{subscription.financed_balance}}', example: '120 000,00 USD' },
+        { label: 'Fréquence', code: '{{subscription.frequency}}', example: 'MONTHLY' },
+        { label: 'Nombre d’échéances', code: '{{subscription.installment_count}}', example: '12' },
+        { label: 'Première échéance', code: '{{subscription.first_due_date}}', example: '30 septembre 2026' },
+      ],
+    },
+    {
+      title: 'Génération',
+      items: [
+        { label: 'Date de génération', code: '{{generation.date}}', example: '18 août 2026' },
+        { label: 'Utilisateur', code: '{{user.name}}', example: 'Utilisateur #12' },
+        { label: 'Tableau échéancier', code: '{{installments.table}}', example: 'Tableau HTML généré automatiquement' },
+      ],
+    },
+  ],
+};
+
+const REQUIRED_TEMPLATE_VARIABLES: Record<TemplateType, string[]> = {
+  RESERVATION_CONTRACT: ['buyer.name', 'property.title', 'reservation.number'],
+  SUBSCRIPTION_CONTRACT: ['buyer.name', 'property.title', 'subscription.number'],
+};
+
+function standardReservationTemplateBody() {
+  return `<div class="contract-meta">
+  <div>
+    <span class="contract-label">Numéro de réservation</span>
+    <span class="contract-value">{{reservation.number}}</span>
+  </div>
+  <div>
+    <span class="contract-label">Date d’édition</span>
+    <span class="contract-value">{{generation.date}}</span>
+  </div>
+  <div>
+    <span class="contract-label">Projet</span>
+    <span class="contract-value">{{project.name}}</span>
+  </div>
+  <div>
+    <span class="contract-label">Bien réservé</span>
+    <span class="contract-value">{{property.title}}</span>
+  </div>
+</div>
+<section class="contract-section">
+  <h2>1. Parties au contrat</h2>
+  <p>Entre <strong>{{organization.legal_name}}</strong>, sise à {{organization.address}}, joignable au {{organization.phone}} et à l’adresse {{organization.email}}, ci-après dénommée « le Vendeur ».</p>
+  <p>Et <strong>{{buyer.name}}</strong>, référence dossier {{buyer.number}}, joignable au {{buyer.phone}} et identifié si besoin sous le numéro {{buyer.identity_number}}, ci-après dénommé « l’Acquéreur ».</p>
+</section>
+<section class="contract-section">
+  <h2>2. Objet de la réservation</h2>
+  <p>Le Vendeur réserve à l’Acquéreur le bien <strong>{{property.title}}</strong>, référence {{property.number}}, de type {{property.type}}, situé à {{property.location}} dans le projet <strong>{{project.name}}</strong>.</p>
+  <p class="contract-note">Surface indicative : {{property.surface}}.</p>
+</section>
+<section class="contract-section">
+  <h2>3. Conditions financières</h2>
+  <p>Le prix catalogue du bien est de <strong>{{reservation.catalog_price}}</strong>. Le prix négocié retenu pour cette réservation est de <strong>{{reservation.negotiated_price}}</strong>.</p>
+  <p>Les frais de réservation convenus s’élèvent à <strong>{{reservation.fee_amount}}</strong> dans la devise {{reservation.currency}}.</p>
+</section>
+<section class="contract-section">
+  <h2>4. Durée et validité</h2>
+  <p>La présente réservation prend effet le <strong>{{reservation.date}}</strong> et demeure valable jusqu’au <strong>{{reservation.expiration_date}}</strong>, sauf confirmation, conversion ou annulation anticipée conformément aux règles commerciales en vigueur.</p>
+</section>
+<section class="contract-section">
+  <h2>5. Engagements des parties</h2>
+  <ul>
+    <li>Le Vendeur s’engage à maintenir le bien indisponible à la vente pendant la période de réservation validée.</li>
+    <li>L’Acquéreur s’engage à compléter les formalités de souscription dans le délai prévu ou à notifier toute difficulté majeure au Vendeur.</li>
+    <li>Les documents et informations transmis dans le cadre du dossier doivent rester exacts, complets et à jour.</li>
+  </ul>
+</section>
+<section class="contract-section">
+  <h2>6. Signatures</h2>
+  <p>Fait à Kinshasa, le {{generation.date}}, en deux exemplaires de même valeur probante.</p>
+  <div class="contract-signatures">
+    <div class="contract-signature">
+      <strong>Pour le Vendeur</strong>
+      Nom, fonction et signature
+    </div>
+    <div class="contract-signature">
+      <strong>Pour l’Acquéreur</strong>
+      {{buyer.name}}
+    </div>
+  </div>
+</section>`;
+}
+
+function standardSubscriptionTemplateBody() {
+  return `<div class="contract-meta">
+  <div>
+    <span class="contract-label">Numéro de souscription</span>
+    <span class="contract-value">{{subscription.number}}</span>
+  </div>
+  <div>
+    <span class="contract-label">Origine</span>
+    <span class="contract-value">{{subscription.origin}}</span>
+  </div>
+  <div>
+    <span class="contract-label">Projet</span>
+    <span class="contract-value">{{project.name}}</span>
+  </div>
+  <div>
+    <span class="contract-label">Bien souscrit</span>
+    <span class="contract-value">{{property.title}}</span>
+  </div>
+</div>
+<section class="contract-section">
+  <h2>1. Parties au contrat</h2>
+  <p>Entre <strong>{{organization.legal_name}}</strong>, sise à {{organization.address}}, ci-après dénommée « le Vendeur »,</p>
+  <p>Et <strong>{{buyer.name}}</strong>, dossier {{buyer.number}}, joignable au {{buyer.phone}} et identifié sous {{buyer.identity_number}}, ci-après dénommé « l’Acquéreur ».</p>
+</section>
+<section class="contract-section">
+  <h2>2. Objet de la souscription</h2>
+  <p>Le présent contrat confirme la souscription du bien <strong>{{property.title}}</strong>, référence {{property.number}}, situé à {{property.location}}, au sein du projet <strong>{{project.name}}</strong>.</p>
+  <p class="contract-note">Type : {{property.type}} — Surface indicative : {{property.surface}}.</p>
+</section>
+<section class="contract-section">
+  <h2>3. Conditions financières</h2>
+  <p>Le prix catalogue est fixé à <strong>{{subscription.catalog_price}}</strong>. La remise commerciale consentie s’élève à <strong>{{subscription.discount}}</strong>.</p>
+  <p>Le prix final de vente est arrêté à <strong>{{subscription.final_price}}</strong>. L’acompte attendu représente {{subscription.deposit_percentage}} soit <strong>{{subscription.deposit_amount}}</strong>.</p>
+  <p>Le solde financé restant dû après acompte est de <strong>{{subscription.financed_balance}}</strong>.</p>
+</section>
+<section class="contract-section">
+  <h2>4. Modalités de paiement</h2>
+  <p>La souscription est traitée selon une fréquence <strong>{{subscription.frequency}}</strong> avec <strong>{{subscription.installment_count}}</strong> échéances à compter du <strong>{{subscription.first_due_date}}</strong>.</p>
+  {{installments.table}}
+</section>
+<section class="contract-section">
+  <h2>5. Dispositions finales</h2>
+  <ul>
+    <li>Tout retard, ajustement ou changement de statut doit être formalisé dans le dossier commercial de l’organisation.</li>
+    <li>Les clauses particulières, annexes et justificatifs approuvés font partie intégrante du présent contrat.</li>
+    <li>Les signatures ci-dessous valent accord sur les montants, la fréquence et l’échéancier ci-dessus.</li>
+  </ul>
+</section>
+<section class="contract-section">
+  <h2>6. Signatures</h2>
+  <p>Fait à Kinshasa, le {{generation.date}}.</p>
+  <div class="contract-signatures">
+    <div class="contract-signature">
+      <strong>Pour le Vendeur</strong>
+      Nom, fonction et signature
+    </div>
+    <div class="contract-signature">
+      <strong>Pour l’Acquéreur</strong>
+      {{buyer.name}}
+    </div>
+  </div>
+</section>`;
+}
+
+function buildDefaultSalesTemplate(templateType: TemplateType): SalesDocumentTemplate {
+  return {
+    id: 0,
+    organization_id: 0,
+    template_type: templateType,
+    title: templateType === 'RESERVATION_CONTRACT' ? 'Contrat de réservation' : 'Contrat de souscription',
+    template_body: templateType === 'RESERVATION_CONTRACT' ? standardReservationTemplateBody() : standardSubscriptionTemplateBody(),
+    header_html: '',
+    footer_html: '',
+    variables_schema: [],
+    clause_order: [],
+    version: 1,
+    is_active: true,
+    used_documents_count: 0,
+  };
+}
+
+function mergeTemplatesWithDefaults(templates: SalesDocumentTemplate[]) {
+  return [
+    ...templates,
+    ...(['RESERVATION_CONTRACT', 'SUBSCRIPTION_CONTRACT'] as const)
+      .filter((type) => !templates.some((item) => item.template_type === type))
+      .map((type) => buildDefaultSalesTemplate(type)),
+  ];
+}
+
+function normalizeTemplateText(value?: string | null) {
+  const trimmed = String(value ?? '').trim();
+  return trimmed.length ? trimmed : null;
+}
+
+export function buildSalesTemplatePayload(template: SalesDocumentTemplate): SalesDocumentTemplatePayload {
+  return {
+    template_type: template.template_type,
+    title: String(template.title ?? '').trim(),
+    template_body: String(template.template_body ?? '').trim(),
+    header_html: normalizeTemplateText(template.header_html),
+    footer_html: normalizeTemplateText(template.footer_html),
+    variables_schema: template.variables_schema ?? [],
+    clause_order: template.clause_order ?? [],
+    is_active: template.is_active ?? true,
+  };
+}
+
+function escapePreviewHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function flattenTemplateSnapshot(prefix: string, value: unknown, target: Record<string, string>) {
+  if (value == null) {
+    target[prefix] = '';
+    return;
+  }
+  if (typeof value === 'string') {
+    target[prefix] = value;
+    return;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    target[prefix] = String(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    target[prefix] = value.join(', ');
+    return;
+  }
+  Object.entries(value as Record<string, unknown>).forEach(([key, nestedValue]) => {
+    flattenTemplateSnapshot(prefix ? `${prefix}.${key}` : key, nestedValue, target);
+  });
+}
+
+function detectTemplateVariables(content: string) {
+  return [...new Set((content.match(/\{\{\s*([^}]+?)\s*\}\}/g) ?? []).map((entry) => entry.replace(/^\{\{\s*|\s*\}\}$/g, '').trim()))];
+}
+
+function formatTemplateMoney(value?: number | null, currency?: string | null) {
+  if (value == null || Number.isNaN(Number(value))) return 'Donnée non disponible';
+  return `${new Intl.NumberFormat('fr-FR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value))} ${String(currency || 'USD').toUpperCase()}`;
+}
+
+function formatTemplateDate(value?: string | null) {
+  if (!value) return 'Donnée non disponible';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Donnée non disponible';
+  return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long' }).format(date);
+}
+
+function formatTemplateSurface(value?: number | null) {
+  if (value == null || Number.isNaN(Number(value)) || Number(value) <= 0) return 'Donnée non disponible';
+  return `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 }).format(Number(value))} m²`;
+}
+
+function compactTemplateSegments(parts: Array<unknown>, separator = ', ') {
+  return parts
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean)
+    .join(separator);
+}
+function buildInstallmentsPreviewTable(installments: SalesSubscriptionInstallment[] | undefined, currency?: string | null) {
+  if (!installments?.length) {
+    return '<p>Aucun échéancier disponible.</p>';
+  }
+  const rows = installments.map((installment) => `
+    <tr>
+      <td>${escapePreviewHtml(installment.sequence_number)}</td>
+      <td>${escapePreviewHtml(installment.label || 'Échéance')}</td>
+      <td>${escapePreviewHtml(formatTemplateDate(installment.due_date))}</td>
+      <td>${escapePreviewHtml(formatTemplateMoney(installment.amount, installment.currency || currency))}</td>
+    </tr>
+  `).join('');
+  return `
+    <table style="width:100%;border-collapse:collapse;margin-top:12px;">
+      <thead>
+        <tr>
+          <th style="border:1px solid #d6dde5;padding:8px;text-align:left;">#</th>
+          <th style="border:1px solid #d6dde5;padding:8px;text-align:left;">Libellé</th>
+          <th style="border:1px solid #d6dde5;padding:8px;text-align:left;">Échéance</th>
+          <th style="border:1px solid #d6dde5;padding:8px;text-align:left;">Montant</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function buildReservationPreviewSnapshot(
+  reservation: SalesReservation,
+  buyers: SalesBuyer[],
+  catalog: SalesCatalogItem[],
+  projects: SalesProject[],
+) {
+  const buyer = buyers.find((item) => item.id === reservation.buyer_id);
+  const property = catalog.find((item) => item.id === reservation.catalog_item_id);
+  const project = projects.find((item) => item.id === (reservation.project_id ?? property?.project_id));
+  return {
+    organization: {
+      name: 'SALES Internal Test',
+      address: 'Kinshasa, Gombe',
+      phone: '+243 000 000 000',
+      email: 'sales@test.local',
+      legal_name: 'SALES Internal Test',
+      contact_block: '<br />Kinshasa, Gombe<br />+243 000 000 000<br />sales@test.local',
+      party_summary: compactTemplateSegments([
+        'SALES Internal Test',
+        'sise à Kinshasa, Gombe',
+        'joignable au +243 000 000 000 et à l’adresse sales@test.local',
+      ]),
+      tax_number: 'N/A',
+    },
+    buyer: {
+      number: reservation.buyer_ref || buyer?.buyer_ref || 'Donnée non disponible',
+      name: reservation.buyer_name || buyer?.full_name || buyer?.company_name || 'Donnée non disponible',
+      phone: buyer?.phone || 'Donnée non disponible',
+      email: buyer?.email || 'Donnée non disponible',
+      address: buyer?.address || 'Donnée non disponible',
+      identity_number: buyer?.id_document_number || 'Donnée non disponible',
+      party_summary: compactTemplateSegments([
+        reservation.buyer_name || buyer?.full_name || buyer?.company_name || 'Donnée non disponible',
+        "référence dossier ",
+        buyer?.phone ? "joignable au " : '',
+        buyer?.id_document_number ? "identifié sous le numéro " : '',
+      ]),
+    },
+    project: {
+      number: project?.project_ref || 'Donnée non disponible',
+      name: reservation.project_name || project?.name || 'Donnée non disponible',
+      location: project?.location_label || 'Donnée non disponible',
+    },
+    property: {
+      number: reservation.catalog_ref || property?.catalog_ref || 'Donnée non disponible',
+      title: reservation.catalog_title || property?.title || 'Donnée non disponible',
+      type: property?.property_type || 'Donnée non disponible',
+      location: property?.location_label || 'Donnée non disponible',
+      surface: formatTemplateSurface(property?.surface_area),
+      designation: compactTemplateSegments([
+        reservation.catalog_title || property?.title || 'Donnée non disponible',
+        (reservation.catalog_ref || property?.catalog_ref) ? "référence " : '',
+        property?.property_type ? "de type " : '',
+        property?.location_label ? "situé à " : '',
+      ]),
+      surface_note: property?.surface_area ? ('Surface indicative : ' + formatTemplateSurface(property?.surface_area) + '.') : '',
+    },
+    reservation: {
+      number: reservation.reservation_number,
+      date: formatTemplateDate(reservation.reservation_date),
+      expiration_date: formatTemplateDate(reservation.expires_at),
+      status: RESERVATION_STATUS_LABELS[reservation.status] || reservation.status || 'Donnée non disponible',
+      currency: reservation.currency,
+      catalog_price: formatTemplateMoney(reservation.catalog_price, reservation.currency),
+      negotiated_price: formatTemplateMoney(reservation.negotiated_price, reservation.currency),
+      fee_amount: formatTemplateMoney(reservation.reservation_fee, reservation.currency),
+    },
+    generation: {
+      date: formatTemplateDate(new Date().toISOString()),
+    },
+    user: {
+      name: 'Utilisateur de prévisualisation',
+    },
+  };
+}
+
+function buildSubscriptionPreviewSnapshot(
+  subscription: SalesSubscription,
+  buyers: SalesBuyer[],
+  catalog: SalesCatalogItem[],
+  projects: SalesProject[],
+) {
+  const buyer = buyers.find((item) => item.id === subscription.buyer_id);
+  const property = catalog.find((item) => item.id === subscription.catalog_item_id);
+  const project = projects.find((item) => item.id === (subscription.project_id ?? property?.project_id));
+  return {
+    organization: {
+      name: 'SALES Internal Test',
+      address: 'Kinshasa, Gombe',
+      phone: '+243 000 000 000',
+      email: 'sales@test.local',
+      legal_name: 'SALES Internal Test',
+      contact_block: '<br />Kinshasa, Gombe<br />+243 000 000 000<br />sales@test.local',
+      party_summary: compactTemplateSegments([
+        'SALES Internal Test',
+        'sise à Kinshasa, Gombe',
+        'joignable au +243 000 000 000 et à l’adresse sales@test.local',
+      ]),
+      tax_number: 'N/A',
+    },
+    buyer: {
+      number: subscription.buyer_ref || buyer?.buyer_ref || 'Donnée non disponible',
+      name: subscription.buyer_name || buyer?.full_name || buyer?.company_name || 'Donnée non disponible',
+      phone: buyer?.phone || 'Donnée non disponible',
+      email: buyer?.email || 'Donnée non disponible',
+      address: buyer?.address || 'Donnée non disponible',
+      identity_number: buyer?.id_document_number || 'Donnée non disponible',
+      party_summary: compactTemplateSegments([
+        subscription.buyer_name || buyer?.full_name || buyer?.company_name || 'Donnée non disponible',
+        `dossier ${subscription.buyer_ref || buyer?.buyer_ref || 'Donnée non disponible'}`,
+        buyer?.phone ? `joignable au ${buyer.phone}` : '',
+        buyer?.id_document_number ? `identifié sous le numéro ${buyer.id_document_number}` : '',
+      ]),
+    },
+    project: {
+      number: project?.project_ref || 'Donnée non disponible',
+      name: subscription.project_name || project?.name || 'Donnée non disponible',
+      location: project?.location_label || 'Donnée non disponible',
+    },
+    property: {
+      number: subscription.catalog_ref || property?.catalog_ref || 'Donnée non disponible',
+      title: subscription.catalog_title || property?.title || 'Donnée non disponible',
+      type: property?.property_type || 'Donnée non disponible',
+      location: property?.location_label || 'Donnée non disponible',
+      surface: formatTemplateSurface(property?.surface_area),
+      designation: compactTemplateSegments([
+        subscription.catalog_title || property?.title || 'Donnée non disponible',
+        (subscription.catalog_ref || property?.catalog_ref) ? `référence ${subscription.catalog_ref || property?.catalog_ref}` : '',
+        property?.property_type ? `de type ${property.property_type}` : '',
+        property?.location_label ? `situé à ${property.location_label}` : '',
+      ]),
+      surface_note: property?.surface_area ? ('Surface indicative : ' + formatTemplateSurface(property?.surface_area) + '.') : '',
+    },
+    reservation: {
+      number: subscription.reservation_number || 'Aucune',
+    },
+    subscription: {
+      number: subscription.subscription_number,
+      origin: TEMPLATE_PREVIEW_ORIGIN_LABELS[subscription.reservation_id ? 'RESERVATION' : 'DIRECT'],
+      date: formatTemplateDate(subscription.created_at),
+      status: SUBSCRIPTION_STATUS_LABELS[subscription.status] || subscription.status || 'Donnée non disponible',
+      currency: subscription.currency,
+      catalog_price: formatTemplateMoney(subscription.catalog_price, subscription.currency),
+      discount: formatTemplateMoney(subscription.discount_amount, subscription.currency),
+      final_price: formatTemplateMoney(subscription.final_sale_price, subscription.currency),
+      deposit_percentage: subscription.deposit_percentage != null ? `${Number(subscription.deposit_percentage).toFixed(0)} %` : 'Donnée non disponible',
+      deposit_amount: formatTemplateMoney(subscription.deposit_amount, subscription.currency),
+      financed_balance: formatTemplateMoney(subscription.financed_balance, subscription.currency),
+      frequency: TEMPLATE_PREVIEW_FREQUENCY_LABELS[subscription.frequency ?? ''] || subscription.frequency || 'Donnée non disponible',
+      installment_count: String(subscription.installment_count ?? '0'),
+      first_due_date: formatTemplateDate(subscription.first_due_date),
+    },
+    generation: {
+      date: formatTemplateDate(new Date().toISOString()),
+    },
+    user: {
+      name: 'Utilisateur de prévisualisation',
+    },
+    installments: {
+      table: buildInstallmentsPreviewTable(subscription.installments, subscription.currency),
+    },
+  };
+}
+
+function renderTemplatePreview(template: SalesDocumentTemplate, snapshot: Record<string, unknown>) {
+  const flat: Record<string, string> = {};
+  flattenTemplateSnapshot('', snapshot, flat);
+  const replaceTokens = (content?: string | null) => {
+    const raw = String(content ?? '').trim();
+    if (!raw) return '';
+    const placeholders = new Map<string, string>();
+    let index = 0;
+    const withTokens = raw.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, rawToken: string) => {
+      const token = rawToken.trim();
+      if (token === 'installments.table' || token === 'organization.contact_block') {
+        const placeholder = `__SALES_PREVIEW_HTML_${index += 1}__`;
+        placeholders.set(placeholder, flat[token] ?? '<p class="contract-note">Valeur indisponible</p>');
+        return placeholder;
+      }
+      return escapePreviewHtml(flat[token] ?? `{{${token}}}`);
+    });
+    const rendered = hasPreviewHtmlMarkup(withTokens)
+      ? sanitizePreviewMarkup(withTokens)
+      : renderPlainTextPreviewMarkup(withTokens);
+    let finalMarkup = rendered;
+    for (const [placeholder, value] of placeholders.entries()) {
+      finalMarkup = finalMarkup.split(placeholder).join(value);
+    }
+    return finalMarkup;
+  };
+  return `
+    <div style="position:relative;background:#eef4fb;border:1px solid #dce3ea;border-radius:22px;padding:24px;overflow:hidden;">
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:.08;font-size:44px;font-weight:800;transform:rotate(-18deg);color:#203845;">APERÇU — NON CONTRACTUEL</div>
+      <div style="position:relative;max-width:820px;margin:0 auto;background:#fff;border:1px solid #d9e2ec;border-radius:18px;padding:32px;box-shadow:0 18px 42px rgba(16,35,63,.08);color:#12243d;font-family:Arial,sans-serif;line-height:1.65;">
+        <style>
+          .contract-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:14px}
+          .contract-meta > div{border:1px solid #e4eaf1;border-radius:10px;padding:10px 12px;background:#f8fbff}
+          .contract-label{display:block;color:#63758d;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px}
+          .contract-value{font-weight:700;color:#10233f}
+          .contract-section{margin-bottom:16px}
+          .contract-section h2{margin:0 0 8px;font-size:14px;line-height:1.35;color:#10233f;text-transform:uppercase;letter-spacing:.04em}
+          .contract-signatures{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:18px}
+          .contract-signature{border-top:1px solid #cdd8e4;padding-top:10px;min-height:70px}
+          .contract-signature strong{display:block;margin-bottom:18px}
+          .contract-note{color:#5d6f86;font-size:12px}
+          table{width:100%;border-collapse:collapse;margin-top:12px}
+          th,td{border:1px solid #d8e0ea;padding:8px 10px;text-align:left;vertical-align:top}
+          th{background:#f4f8fc;color:#39506b;font-size:11px;text-transform:uppercase}
+          p{margin:0 0 10px;text-align:justify}
+        </style>
+        ${template.header_html ? `<div style="margin-bottom:18px;color:#51606f;font-size:12px;">${replaceTokens(template.header_html)}</div>` : ''}
+        <h2 style="margin:0 0 18px;font-size:24px;color:#102033;">${escapePreviewHtml(template.title)}</h2>
+        <div style="color:#203845;">${replaceTokens(template.template_body)}</div>
+        ${template.footer_html ? `<div style="margin-top:18px;color:#51606f;font-size:12px;">${replaceTokens(template.footer_html)}</div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function validateTemplateDraft(template: SalesDocumentTemplate) {
+  const payload = buildSalesTemplatePayload(template);
+  const variables = detectTemplateVariables(payload.template_body);
+  const allowedVariables = new Set(SALES_TEMPLATE_GROUPS[template.template_type as TemplateType].flatMap((group) => group.items.map((item) => item.code.replace(/^\{\{|\}\}$/g, ''))));
+  const unknownVariables = variables.filter((item) => !allowedVariables.has(item));
+  if (!payload.template_body.trim()) {
+    return { ok: false as const, message: 'Le modèle doit contenir au minimum un corps contractuel et les informations des parties.' };
+  }
+  if (unknownVariables.length && payload.is_active !== false) {
+    return { ok: false as const, message: `Variable inconnue : {{${unknownVariables[0]}}}` };
+  }
+  const missingRequired = REQUIRED_TEMPLATE_VARIABLES[template.template_type as TemplateType].filter((item) => !variables.includes(item));
+  if (missingRequired.length && payload.is_active !== false) {
+    return { ok: false as const, message: 'Le modèle doit contenir au minimum un corps contractuel et les informations des parties.' };
+  }
+  return { ok: true as const, payload };
+}
+
 export function SalesSettingsPage() {
   const [settings, setSettings] = useState<SalesSettings | null>(null);
   const [templates, setTemplates] = useState<SalesDocumentTemplate[]>([]);
+  const [subscriptionPreviewItems, setSubscriptionPreviewItems] = useState<SalesSubscription[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [activeTemplateType, setActiveTemplateType] = useState<TemplateType>('RESERVATION_CONTRACT');
+  const [activeEditorTab, setActiveEditorTab] = useState<TemplateEditorTab>('editor');
+  const [variableSearch, setVariableSearch] = useState('');
+  const [previewReservationId, setPreviewReservationId] = useState('');
+  const [previewSubscriptionId, setPreviewSubscriptionId] = useState('');
+  const [previewHtml, setPreviewHtml] = useState('');
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorSelectionRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
+  const { buyers, catalog, projects, reservations } = useSalesReferenceData();
 
   useEffect(() => {
     let cancelled = false;
@@ -1498,25 +2368,15 @@ export function SalesSettingsPage() {
       setLoading(true);
       setError(null);
       try {
-        const [settingsResponse, templatesResponse] = await Promise.all([
+        const [settingsResponse, templatesResponse, subscriptionsResponse] = await Promise.all([
           getSalesSettings(),
           listSalesDocumentTemplates(),
+          listSalesSubscriptions({ page: 1, pageSize: 100, sortBy: 'updated_at', sortOrder: 'desc' }),
         ]);
         if (cancelled) return;
         setSettings(settingsResponse);
-        setTemplates([
-          ...templatesResponse,
-          ...(['RESERVATION_CONTRACT', 'SUBSCRIPTION_CONTRACT'] as const)
-            .filter((type) => !templatesResponse.some((item) => item.template_type === type))
-            .map((template_type) => ({
-              id: 0,
-              organization_id: 0,
-              template_type,
-              title: template_type === 'RESERVATION_CONTRACT' ? 'Contrat de réservation' : 'Contrat de souscription',
-              template_body: '',
-              variables_schema: [],
-            })),
-        ]);
+        setTemplates(mergeTemplatesWithDefaults(templatesResponse));
+        setSubscriptionPreviewItems(subscriptionsResponse.items);
       } catch (loadError) {
         if (!cancelled) setError(getErrorMessage(loadError));
       } finally {
@@ -1528,6 +2388,81 @@ export function SalesSettingsPage() {
       cancelled = true;
     };
   }, []);
+
+  const currentTemplateVersions = useMemo(
+    () => templates.filter((item) => item.template_type === activeTemplateType).sort((left, right) => Number(right.version ?? 0) - Number(left.version ?? 0)),
+    [activeTemplateType, templates],
+  );
+
+  const currentTemplate = useMemo(
+    () => currentTemplateVersions[0] ?? buildDefaultSalesTemplate(activeTemplateType),
+    [activeTemplateType, currentTemplateVersions],
+  );
+
+  const filteredVariableGroups = useMemo(() => {
+    const needle = variableSearch.trim().toLowerCase();
+    return SALES_TEMPLATE_GROUPS[activeTemplateType]
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => {
+          if (!needle) return true;
+          return item.label.toLowerCase().includes(needle) || item.code.toLowerCase().includes(needle) || item.example.toLowerCase().includes(needle);
+        }),
+      }))
+      .filter((group) => group.items.length);
+  }, [activeTemplateType, variableSearch]);
+
+  function updateTemplateDraft(templateType: TemplateType, updater: (template: SalesDocumentTemplate) => SalesDocumentTemplate) {
+    setTemplates((current) => {
+      const typedTemplates = current
+        .filter((item) => item.template_type === templateType)
+        .sort((left, right) => Number(right.version ?? 0) - Number(left.version ?? 0));
+      const editableTemplate = typedTemplates[0];
+      if (!editableTemplate) return [...current, updater(buildDefaultSalesTemplate(templateType))];
+      return current.map((item) => item.id === editableTemplate.id ? updater(item) : item);
+    });
+  }
+
+  function insertVariable(code: string) {
+    const textarea = editorRef.current;
+    const fallbackLength = currentTemplate.template_body.length;
+    const start = textarea?.selectionStart ?? editorSelectionRef.current.start ?? fallbackLength;
+    const end = textarea?.selectionEnd ?? editorSelectionRef.current.end ?? fallbackLength;
+    updateTemplateDraft(activeTemplateType, (template) => ({
+      ...template,
+      template_body: `${template.template_body.slice(0, start)}${code}${template.template_body.slice(end)}`,
+    }));
+    editorSelectionRef.current = {
+      start: start + code.length,
+      end: start + code.length,
+    };
+    window.requestAnimationFrame(() => {
+      if (!textarea) return;
+      textarea.focus();
+      const position = start + code.length;
+      textarea.setSelectionRange(position, position);
+    });
+  }
+
+  async function copyVariable(code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      setPreviewError('Impossible de copier la variable automatiquement.');
+    }
+  }
+
+  function applyStarterTemplate(mode: TemplateStarterMode) {
+    updateTemplateDraft(activeTemplateType, (template) => ({
+      ...template,
+      title: activeTemplateType === 'RESERVATION_CONTRACT' ? 'Contrat de réservation' : 'Contrat de souscription',
+      template_body: mode === 'EMPTY'
+        ? ''
+        : activeTemplateType === 'RESERVATION_CONTRACT'
+          ? standardReservationTemplateBody()
+          : standardSubscriptionTemplateBody(),
+    }));
+  }
 
   async function saveSettings(event: FormEvent) {
     event.preventDefault();
@@ -1545,16 +2480,22 @@ export function SalesSettingsPage() {
   }
 
   async function saveTemplate(template: SalesDocumentTemplate) {
+    const validation = validateTemplateDraft(template);
+    if (!validation.ok) {
+      setError(validation.message);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      const saved = template.id
-        ? await updateSalesDocumentTemplate(template.id, template)
-        : await createSalesDocumentTemplate(template);
-      setTemplates((current) => {
-        const exists = current.some((item) => item.id === saved.id);
-        return exists ? current.map((item) => item.id === saved.id ? saved : item) : [...current, saved];
-      });
+      if (template.id) {
+        await updateSalesDocumentTemplate(template.id, validation.payload);
+      } else {
+        await createSalesDocumentTemplate(validation.payload);
+      }
+      const refreshed = await listSalesDocumentTemplates();
+      setTemplates(mergeTemplatesWithDefaults(refreshed));
+      setActiveTemplateType(template.template_type as TemplateType);
     } catch (saveError) {
       setError(getErrorMessage(saveError));
     } finally {
@@ -1562,29 +2503,64 @@ export function SalesSettingsPage() {
     }
   }
 
-  const reservationTemplate = templates.find((item) => item.template_type === 'RESERVATION_CONTRACT')
-    ?? {
-      id: 0,
-      organization_id: 0,
-      template_type: 'RESERVATION_CONTRACT',
-      title: 'Contrat de réservation',
-      template_body: '',
-      variables_schema: [],
-    };
-  const subscriptionTemplate = templates.find((item) => item.template_type === 'SUBSCRIPTION_CONTRACT')
-    ?? {
-      id: 0,
-      organization_id: 0,
-      template_type: 'SUBSCRIPTION_CONTRACT',
-      title: 'Contrat de souscription',
-      template_body: '',
-      variables_schema: [],
-    };
+  async function refreshPreview() {
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      if (activeTemplateType === 'RESERVATION_CONTRACT') {
+        if (!previewReservationId) {
+          setPreviewError('Sélectionnez une réservation de test pour générer l’aperçu.');
+          setPreviewHtml('');
+          return;
+        }
+        const reservation = await getSalesReservation(Number(previewReservationId));
+        const snapshot = buildReservationPreviewSnapshot(reservation, buyers, catalog, projects);
+        setPreviewHtml(renderTemplatePreview(currentTemplate, snapshot));
+      } else {
+        if (!previewSubscriptionId) {
+          setPreviewError('Sélectionnez une souscription de test pour générer l’aperçu.');
+          setPreviewHtml('');
+          return;
+        }
+        const subscription = await getSalesSubscription(Number(previewSubscriptionId));
+        const snapshot = buildSubscriptionPreviewSnapshot(subscription, buyers, catalog, projects);
+        setPreviewHtml(renderTemplatePreview(currentTemplate, snapshot));
+      }
+    } catch (previewLoadError) {
+      setPreviewError(getErrorMessage(previewLoadError));
+      setPreviewHtml('');
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  function openPreviewPrintWindow() {
+    if (!previewHtml) return;
+    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=980,height=860');
+    if (!printWindow) return;
+    printWindow.document.write(`<!doctype html><html><head><meta charset="UTF-8" /><title>Aperçu modèle Sales</title></head><body style="margin:24px;background:#f5f7fa;font-family:Arial,sans-serif;">${previewHtml}</body></html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }
+
+  function downloadPreviewHtml() {
+    if (!previewHtml) return;
+    const blob = new Blob([previewHtml], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${activeTemplateType.toLowerCase()}-preview.html`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <SalesModulePage
       title="Paramètres métier"
-      subtitle="Formats de numérotation, gabarits contractuels et réglages de cadence pour Sales V3.1."
+      subtitle="Numérotation, modèles contractuels versionnés et prévisualisation non contractuelle."
       activeTab="settings"
     >
       {loading ? <SalesInlineNotice>Chargement des paramètres…</SalesInlineNotice> : null}
@@ -1619,7 +2595,7 @@ export function SalesSettingsPage() {
             <SalesField label="Durée par défaut de réservation (jours)">
               <input className="sales-v21-input" inputMode="numeric" value={String(settings.reservation_default_duration_days ?? '')} onChange={(event) => setSettings((current) => current ? { ...current, reservation_default_duration_days: Number(event.target.value || 0) } : current)} />
             </SalesField>
-            <SalesField label="Frais de réservation minimum">
+            <SalesField label="Frais de réservation convenus">
               <input className="sales-v21-input" inputMode="decimal" value={String(settings.reservation_default_fee ?? '')} onChange={(event) => setSettings((current) => current ? { ...current, reservation_default_fee: Number(event.target.value || 0) } : current)} />
             </SalesField>
             <SalesField label="Fréquence par défaut">
@@ -1638,32 +2614,195 @@ export function SalesSettingsPage() {
         </form>
       ) : null}
 
-      <SalesSection title="Gabarit contrat de réservation" description="Variables disponibles : organisation, acquéreur, projet, bien, prix et frais convenus.">
-        <SalesField label="Titre">
-          <input className="sales-v21-input" value={reservationTemplate.title} onChange={(event) => setTemplates((current) => current.map((item) => item.template_type === 'RESERVATION_CONTRACT' ? { ...item, title: event.target.value } : item))} />
-        </SalesField>
-        <SalesField label="Corps HTML simplifié">
-          <textarea className="sales-v21-textarea" rows={10} value={reservationTemplate.template_body} onChange={(event) => setTemplates((current) => current.map((item) => item.template_type === 'RESERVATION_CONTRACT' ? { ...item, template_body: event.target.value } : item))} />
-        </SalesField>
-        <SalesFormActions>
-          <button className="sales-v21-btn sales-v21-btn-secondary" type="button" disabled={saving} onClick={() => void saveTemplate(reservationTemplate)}>
-            Enregistrer le gabarit
-          </button>
-        </SalesFormActions>
-      </SalesSection>
+      <SalesSection
+        title="Modèles contractuels"
+        description="Édition stricte des modèles publics, versionnés automatiquement et limités aux variables autorisées."
+        action={
+          <div className="sales-v21-table-actions">
+            <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => applyStarterTemplate('EMPTY')}>
+              Modèle vide
+            </button>
+            <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => applyStarterTemplate('STANDARD')}>
+              Modèle standard
+            </button>
+            <button className="sales-v21-btn sales-v21-btn-primary sales-v21-btn-compact" type="button" disabled={saving} onClick={() => void saveTemplate(currentTemplate)}>
+              {saving ? 'Enregistrement…' : 'Enregistrer'}
+            </button>
+          </div>
+        }
+      >
+        <div className="sales-v21-filter-bar">
+          <select className="sales-v21-select" value={activeTemplateType} onChange={(event) => setActiveTemplateType(event.target.value as TemplateType)}>
+            <option value="RESERVATION_CONTRACT">Contrat de réservation</option>
+            <option value="SUBSCRIPTION_CONTRACT">Contrat de souscription</option>
+          </select>
+          <div className="sales-v21-table-actions">
+            <button className={`sales-v21-btn ${activeEditorTab === 'editor' ? 'sales-v21-btn-primary' : 'sales-v21-btn-secondary'} sales-v21-btn-compact`} type="button" onClick={() => setActiveEditorTab('editor')}>Éditeur</button>
+            <button className={`sales-v21-btn ${activeEditorTab === 'variables' ? 'sales-v21-btn-primary' : 'sales-v21-btn-secondary'} sales-v21-btn-compact`} type="button" onClick={() => setActiveEditorTab('variables')}>Variables</button>
+            <button className={`sales-v21-btn ${activeEditorTab === 'preview' ? 'sales-v21-btn-primary' : 'sales-v21-btn-secondary'} sales-v21-btn-compact`} type="button" onClick={() => setActiveEditorTab('preview')}>Aperçu</button>
+          </div>
+        </div>
 
-      <SalesSection title="Gabarit contrat de souscription" description="Variables disponibles : souscription, acompte, échéancier et prix final.">
-        <SalesField label="Titre">
-          <input className="sales-v21-input" value={subscriptionTemplate.title} onChange={(event) => setTemplates((current) => current.map((item) => item.template_type === 'SUBSCRIPTION_CONTRACT' ? { ...item, title: event.target.value } : item))} />
-        </SalesField>
-        <SalesField label="Corps HTML simplifié">
-          <textarea className="sales-v21-textarea" rows={10} value={subscriptionTemplate.template_body} onChange={(event) => setTemplates((current) => current.map((item) => item.template_type === 'SUBSCRIPTION_CONTRACT' ? { ...item, template_body: event.target.value } : item))} />
-        </SalesField>
-        <SalesFormActions>
-          <button className="sales-v21-btn sales-v21-btn-secondary" type="button" disabled={saving} onClick={() => void saveTemplate(subscriptionTemplate)}>
-            Enregistrer le gabarit
-          </button>
-        </SalesFormActions>
+        <SalesKpiGrid>
+          <SalesKpiCard label="Version actuelle" value={`v${currentTemplate.version ?? 1}`} helper={currentTemplate.is_active ? 'Active' : 'Brouillon'} />
+          <SalesKpiCard label="Utilisée dans" value={`${currentTemplate.used_documents_count ?? 0}`} helper="documents générés" />
+          <SalesKpiCard label="Historique" value={`${currentTemplateVersions.length}`} helper="versions disponibles" />
+          <SalesKpiCard label="Type" value={activeTemplateType === 'RESERVATION_CONTRACT' ? 'Réservation' : 'Souscription'} helper="périmètre contractuel" />
+        </SalesKpiGrid>
+
+        {activeEditorTab === 'editor' ? (
+          <div className="sales-v21-form">
+            <SalesFormSection title="Éditeur de modèle" description="Le payload envoyé au backend reste strictement limité aux champs publics autorisés.">
+              <SalesField label="Titre">
+                <input className="sales-v21-input" value={currentTemplate.title} onChange={(event) => updateTemplateDraft(activeTemplateType, (template) => ({ ...template, title: event.target.value }))} />
+              </SalesField>
+              <SalesField label="En-tête">
+                <textarea className="sales-v21-textarea" rows={4} value={currentTemplate.header_html ?? ''} onChange={(event) => updateTemplateDraft(activeTemplateType, (template) => ({ ...template, header_html: event.target.value }))} />
+              </SalesField>
+              <SalesField label="Corps du contrat">
+                <textarea
+                  ref={editorRef}
+                  className="sales-v21-textarea"
+                  rows={18}
+                  value={currentTemplate.template_body}
+                  onChange={(event) => {
+                    editorSelectionRef.current = {
+                      start: event.target.selectionStart ?? event.target.value.length,
+                      end: event.target.selectionEnd ?? event.target.value.length,
+                    };
+                    updateTemplateDraft(activeTemplateType, (template) => ({ ...template, template_body: event.target.value }));
+                  }}
+                  onClick={(event) => {
+                    editorSelectionRef.current = {
+                      start: event.currentTarget.selectionStart ?? event.currentTarget.value.length,
+                      end: event.currentTarget.selectionEnd ?? event.currentTarget.value.length,
+                    };
+                  }}
+                  onKeyUp={(event) => {
+                    editorSelectionRef.current = {
+                      start: event.currentTarget.selectionStart ?? event.currentTarget.value.length,
+                      end: event.currentTarget.selectionEnd ?? event.currentTarget.value.length,
+                    };
+                  }}
+                  onSelect={(event) => {
+                    editorSelectionRef.current = {
+                      start: event.currentTarget.selectionStart ?? event.currentTarget.value.length,
+                      end: event.currentTarget.selectionEnd ?? event.currentTarget.value.length,
+                    };
+                  }}
+                />
+              </SalesField>
+              <SalesField label="Pied de page">
+                <textarea className="sales-v21-textarea" rows={4} value={currentTemplate.footer_html ?? ''} onChange={(event) => updateTemplateDraft(activeTemplateType, (template) => ({ ...template, footer_html: event.target.value }))} />
+              </SalesField>
+              <SalesField label="Activation">
+                <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <input type="checkbox" checked={currentTemplate.is_active ?? true} onChange={(event) => updateTemplateDraft(activeTemplateType, (template) => ({ ...template, is_active: event.target.checked }))} />
+                  <span>Activer cette version à l’enregistrement</span>
+                </label>
+              </SalesField>
+            </SalesFormSection>
+
+            <SalesSection title="Historique des versions" description="Une modification produit une nouvelle version au lieu d’écraser une version déjà utilisée.">
+              {currentTemplateVersions.length ? (
+                <SalesDataTable
+                  rowKey={(item) => `${item.id}-${item.version}`}
+                  rows={currentTemplateVersions}
+                  columns={[
+                    { key: 'version', label: 'Version', render: (item) => `v${item.version ?? 1}` },
+                    { key: 'status', label: 'Statut', render: (item) => <SalesStatusBadge label={item.is_active ? 'Active' : 'Brouillon'} tone={item.is_active ? 'success' : 'warning'} /> },
+                    { key: 'usage', label: 'Utilisée', render: (item) => `${item.used_documents_count ?? 0} document(s)` },
+                    { key: 'updated', label: 'Mise à jour', render: (item) => formatDate(item.updated_at) },
+                  ]}
+                />
+              ) : (
+                <SalesEmptyState title="Aucune version enregistrée" description="Le premier enregistrement créera la version initiale du modèle." />
+              )}
+            </SalesSection>
+          </div>
+        ) : null}
+
+        {activeEditorTab === 'variables' ? (
+          <div className="sales-v21-form">
+            <SalesFilterBar>
+              <input className="sales-v21-input" placeholder="Rechercher une variable" value={variableSearch} onChange={(event) => setVariableSearch(event.target.value)} />
+            </SalesFilterBar>
+            {filteredVariableGroups.map((group) => (
+              <SalesSection key={group.title} title={group.title} description="Cliquez sur Insérer pour placer la variable à la position courante du curseur.">
+                <SalesDataTable
+                  rowKey={(item) => item.code}
+                  rows={group.items}
+                  columns={[
+                    { key: 'label', label: 'Variable', render: (item) => item.label },
+                    { key: 'code', label: 'Code', render: (item) => <code>{item.code}</code> },
+                    { key: 'example', label: 'Exemple', render: (item) => item.example },
+                    {
+                      key: 'actions',
+                      label: 'Actions',
+                      render: (item) => (
+                        <div className="sales-v21-table-actions">
+                          <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => void copyVariable(item.code)}>
+                            Copier
+                          </button>
+                          <button className="sales-v21-btn sales-v21-btn-primary sales-v21-btn-compact" type="button" onClick={() => insertVariable(item.code)}>
+                            Insérer
+                          </button>
+                        </div>
+                      ),
+                    },
+                  ]}
+                />
+              </SalesSection>
+            ))}
+          </div>
+        ) : null}
+
+        {activeEditorTab === 'preview' ? (
+          <div className="sales-v21-form">
+            <SalesFormSection title="Aperçu réel" description="Prévisualisation non contractuelle à partir des données autorisées de l’organisation.">
+              {activeTemplateType === 'RESERVATION_CONTRACT' ? (
+                <SalesField label="Réservation de test">
+                  <select className="sales-v21-select" value={previewReservationId} onChange={(event) => setPreviewReservationId(event.target.value)}>
+                    <option value="">Choisir une réservation</option>
+                    {reservations.map((reservation) => (
+                      <option key={reservation.id} value={reservation.id}>
+                        {reservation.reservation_number} — {reservation.buyer_name || reservation.catalog_title || 'Réservation'}
+                      </option>
+                    ))}
+                  </select>
+                </SalesField>
+              ) : (
+                <SalesField label="Souscription de test">
+                  <select className="sales-v21-select" value={previewSubscriptionId} onChange={(event) => setPreviewSubscriptionId(event.target.value)}>
+                    <option value="">Choisir une souscription</option>
+                    {subscriptionPreviewItems.map((subscription) => (
+                      <option key={subscription.id} value={subscription.id}>
+                        {subscription.subscription_number} — {subscription.buyer_name || subscription.catalog_title || 'Souscription'}
+                      </option>
+                    ))}
+                  </select>
+                </SalesField>
+              )}
+              <SalesFormActions>
+                <button className="sales-v21-btn sales-v21-btn-secondary" type="button" disabled={previewLoading} onClick={() => void refreshPreview()}>
+                  {previewLoading ? 'Actualisation…' : 'Actualiser'}
+                </button>
+                <button className="sales-v21-btn sales-v21-btn-secondary" type="button" disabled={!previewHtml} onClick={openPreviewPrintWindow}>
+                  Générer un aperçu PDF
+                </button>
+                <button className="sales-v21-btn sales-v21-btn-primary" type="button" disabled={!previewHtml} onClick={downloadPreviewHtml}>
+                  Télécharger l’aperçu
+                </button>
+              </SalesFormActions>
+              {previewError ? <SalesInlineNotice tone="danger">{previewError}</SalesInlineNotice> : null}
+              {previewHtml ? (
+                <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
+              ) : (
+                <SalesEmptyState title="Aucun aperçu généré" description="Choisissez une réservation ou une souscription de test puis actualisez l’aperçu." />
+              )}
+            </SalesFormSection>
+          </div>
+        ) : null}
       </SalesSection>
     </SalesModulePage>
   );

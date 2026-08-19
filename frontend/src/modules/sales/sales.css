@@ -153,6 +153,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
+  align-items: start;
 }
 
 .sales-v21-card-list,
@@ -354,6 +355,57 @@
   background: #ffe6e8;
 }
 
+.sales-v21-action-stack {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.sales-v21-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sales-v21-action-btn {
+  min-height: 42px;
+}
+
+.sales-v21-action-menu {
+  position: relative;
+}
+
+.sales-v21-action-menu > summary {
+  list-style: none;
+}
+
+.sales-v21-action-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sales-v21-action-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 12;
+  display: grid;
+  gap: 8px;
+  min-width: 240px;
+  padding: 10px;
+  border: 1px solid #d9e2ec;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 14px 32px rgba(16, 35, 63, 0.14);
+}
+
+.sales-v21-action-hint {
+  margin: 0;
+  color: #5f7088;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
 .sales-v21-table-wrap {
   overflow-x: auto;
   border: 1px solid #d9e2ec;
@@ -501,5 +553,11 @@
 
   .sales-v21-table-actions {
     flex-wrap: nowrap;
+  }
+
+  .sales-v21-action-menu-panel {
+    position: static;
+    min-width: 100%;
+    margin-top: 8px;
   }
 }

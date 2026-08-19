@@ -7,6 +7,7 @@ import type {
   CreateSalesSubscriptionInput,
   SalesDocumentGeneration,
   SalesDocumentTemplate,
+  SalesDocumentTemplatePayload,
   SalesBootstrap,
   SalesBuyer,
   SalesCatalogItem,
@@ -41,12 +42,12 @@ export async function listSalesDocumentTemplates() {
   return response.data;
 }
 
-export async function createSalesDocumentTemplate(payload: Partial<SalesDocumentTemplate>) {
+export async function createSalesDocumentTemplate(payload: SalesDocumentTemplatePayload) {
   const response = await api.post<SalesDocumentTemplate>('/sales/settings/templates', payload);
   return response.data;
 }
 
-export async function updateSalesDocumentTemplate(id: number, payload: Partial<SalesDocumentTemplate>) {
+export async function updateSalesDocumentTemplate(id: number, payload: SalesDocumentTemplatePayload) {
   const response = await api.patch<SalesDocumentTemplate>(`/sales/settings/templates/${id}`, payload);
   return response.data;
 }

@@ -387,11 +387,11 @@ export class SalesService {
   }
 
   createDocumentTemplate(dto: SalesDocumentTemplateDto) {
-    return this.documents.createTemplate(this.context.organizationId(), this.context.userId(), dto as unknown as Record<string, unknown>);
+    return this.documents.createTemplate(this.context.organizationId(), this.context.userId(), dto);
   }
 
   updateDocumentTemplate(id: number, dto: UpdateSalesDocumentTemplateDto) {
-    return this.documents.updateTemplate(this.context.organizationId(), id, this.context.userId(), dto as unknown as Record<string, unknown>);
+    return this.documents.updateTemplate(this.context.organizationId(), id, this.context.userId(), dto);
   }
 
   listReservationDocuments(id: number) {

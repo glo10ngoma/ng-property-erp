@@ -1392,19 +1392,82 @@ export class SalesRepository {
 
   async listDocumentTemplates(organizationId: number, client?: PoolClient) {
     const { rows } = await this.query(
-      `SELECT *
+      `SELECT sdt.*,
+              COALESCE(usage_stats.used_documents_count, 0)::INT AS used_documents_count
        FROM sales_document_templates
-       WHERE organization_id = $1
+       sdt
+       LEFT JOIN (
+         SELECT template_id, COUNT(*)::INT AS used_documents_count
+         FROM sales_document_generations
+         WHERE organization_id = $1
+           AND template_id IS NOT NULL
+         GROUP BY template_id
+       ) AS usage_stats
+         ON usage_stats.template_id = sdt.id
+       WHERE sdt.organization_id = $1
          AND archived_at IS NULL
-       ORDER BY template_type ASC, version DESC, id DESC`,
+       ORDER BY sdt.template_type ASC, sdt.is_active DESC, sdt.version DESC, sdt.id DESC`,
       [organizationId],
       client,
     );
     return rows;
   }
 
+  async findDocumentTemplate(organizationId: number, id: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT sdt.*,
+              COALESCE(usage_stats.used_documents_count, 0)::INT AS used_documents_count
+       FROM sales_document_templates sdt
+       LEFT JOIN (
+         SELECT template_id, COUNT(*)::INT AS used_documents_count
+         FROM sales_document_generations
+         WHERE organization_id = $1
+           AND template_id IS NOT NULL
+         GROUP BY template_id
+       ) AS usage_stats
+         ON usage_stats.template_id = sdt.id
+       WHERE sdt.organization_id = $1
+         AND sdt.id = $2
+         AND sdt.archived_at IS NULL
+       LIMIT 1`,
+      [organizationId, id],
+      client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async deactivateDocumentTemplatesByType(organizationId: number, templateType: string, client?: PoolClient) {
+    const runner: any = this.runner(client);
+    await runner.query(
+      `UPDATE sales_document_templates
+       SET is_active = FALSE,
+           updated_at = NOW()
+       WHERE organization_id = $1
+         AND template_type = $2
+         AND archived_at IS NULL
+         AND is_active = TRUE`,
+      [organizationId, templateType],
+    );
+  }
+
+  async nextDocumentTemplateVersion(organizationId: number, templateType: string, client?: PoolClient) {
+    const { rows } = await this.query<{ next_version: number }>(
+      `SELECT COALESCE(MAX(version), 0)::INT + 1 AS next_version
+       FROM sales_document_templates
+       WHERE organization_id = $1
+         AND template_type = $2`,
+      [organizationId, templateType],
+      client,
+    );
+    return Number(rows[0]?.next_version ?? 1);
+  }
+
   async createDocumentTemplate(organizationId: number, userId: number | null, payload: Record<string, unknown>, client?: PoolClient) {
     const runner: any = this.runner(client);
+    const version = await this.nextDocumentTemplateVersion(organizationId, String(payload.template_type), client);
+    if (payload.is_active !== false) {
+      await this.deactivateDocumentTemplatesByType(organizationId, String(payload.template_type), client);
+    }
     const { rows } = await runner.query(
       `INSERT INTO sales_document_templates (
          organization_id, template_type, title, template_body, header_html, footer_html,
@@ -1425,43 +1488,32 @@ export class SalesRepository {
         payload.footer_html ?? null,
         JSON.stringify(payload.variables_schema ?? []),
         JSON.stringify(payload.clause_order ?? []),
-        payload.version ?? 1,
+        version,
         payload.is_active ?? true,
         userId,
       ],
     );
-    return rows[0];
+    return this.findDocumentTemplate(organizationId, Number(rows[0]?.id), client);
   }
 
   async updateDocumentTemplate(organizationId: number, id: number, userId: number | null, payload: Record<string, unknown>, client?: PoolClient) {
-    const runner: any = this.runner(client);
-    const { rows } = await runner.query(
-      `UPDATE sales_document_templates
-       SET title = COALESCE($3, title),
-           template_body = COALESCE($4, template_body),
-           header_html = COALESCE($5, header_html),
-           footer_html = COALESCE($6, footer_html),
-           variables_schema = COALESCE($7::jsonb, variables_schema),
-           clause_order = COALESCE($8::jsonb, clause_order),
-           is_active = COALESCE($9, is_active),
-           updated_by = $10,
-           updated_at = NOW()
-       WHERE id = $1 AND organization_id = $2 AND archived_at IS NULL
-       RETURNING *`,
-      [
-        id,
-        organizationId,
-        payload.title ?? null,
-        payload.template_body ?? null,
-        payload.header_html ?? null,
-        payload.footer_html ?? null,
-        payload.variables_schema ? JSON.stringify(payload.variables_schema) : null,
-        payload.clause_order ? JSON.stringify(payload.clause_order) : null,
-        payload.is_active ?? null,
-        userId,
-      ],
+    const current = await this.findDocumentTemplate(organizationId, id, client);
+    if (!current) return null;
+    return this.createDocumentTemplate(
+      organizationId,
+      userId,
+      {
+        template_type: current.template_type,
+        title: payload.title ?? current.title,
+        template_body: payload.template_body ?? current.template_body,
+        header_html: payload.header_html ?? current.header_html,
+        footer_html: payload.footer_html ?? current.footer_html,
+        variables_schema: payload.variables_schema ?? current.variables_schema ?? [],
+        clause_order: payload.clause_order ?? current.clause_order ?? [],
+        is_active: payload.is_active ?? current.is_active ?? true,
+      },
+      client,
     );
-    return rows[0] ?? null;
   }
 
   async ensureDefaultTemplate(
@@ -1609,9 +1661,18 @@ export class SalesRepository {
               '' AS organization_address,
               COALESCE(sb.full_name, sb.company_name) AS buyer_name,
               sb.buyer_ref,
+              sb.phone AS buyer_phone,
+              sb.email AS buyer_email,
+              sb.address AS buyer_address,
+              sb.id_document_number AS buyer_identity_number,
               spc.title AS catalog_title,
               spc.catalog_ref,
-              sp.name AS project_name
+              spc.property_type,
+              spc.location_label AS catalog_location,
+              spc.surface_area AS catalog_surface_area,
+              sp.name AS project_name,
+              sp.project_ref,
+              sp.location_label AS project_location
        FROM sales_reservations sr
        JOIN organizations o ON o.id = sr.organization_id
        LEFT JOIN sales_buyers sb ON sb.id = sr.buyer_id AND sb.organization_id = sr.organization_id
@@ -1632,9 +1693,18 @@ export class SalesRepository {
               '' AS organization_address,
               COALESCE(sb.full_name, sb.company_name) AS buyer_name,
               sb.buyer_ref,
+              sb.phone AS buyer_phone,
+              sb.email AS buyer_email,
+              sb.address AS buyer_address,
+              sb.id_document_number AS buyer_identity_number,
               spc.title AS catalog_title,
               spc.catalog_ref,
+              spc.property_type,
+              spc.location_label AS catalog_location,
+              spc.surface_area AS catalog_surface_area,
               sp.name AS project_name,
+              sp.project_ref,
+              sp.location_label AS project_location,
               sr.reservation_number
        FROM sales_subscriptions ss
        JOIN organizations o ON o.id = ss.organization_id

@@ -78,8 +78,20 @@ export type SalesDocumentTemplate = {
   clause_order?: string[] | null;
   version?: number | null;
   is_active?: boolean | null;
+  used_documents_count?: number | null;
   created_at?: string | null;
   updated_at?: string | null;
+};
+
+export type SalesDocumentTemplatePayload = {
+  template_type: string;
+  title: string;
+  template_body: string;
+  header_html?: string | null;
+  footer_html?: string | null;
+  variables_schema?: string[] | null;
+  clause_order?: string[] | null;
+  is_active?: boolean | null;
 };
 
 export type SalesDocumentGeneration = {
