@@ -3,8 +3,11 @@ import {
   CreateSalesBuyerDto,
   CreateSalesCatalogItemDto,
   CreateSalesProjectDto,
+  CreateSalesReservationPaymentDto,
   CreateSalesReservationDto,
+  CreateSalesReservationRefundDto,
   CreateSalesSubscriptionDto,
+  CancelSalesReservationPaymentDto,
   SalesBuyerListQueryDto,
   SalesCatalogListQueryDto,
   SalesDocumentTemplateDto,
@@ -151,9 +154,19 @@ export class SalesController {
     return this.sales.getReservation(id);
   }
 
+  @Get('reservations/:id/payments')
+  listReservationPayments(@Param('id', ParseIntPipe) id: number) {
+    return this.sales.listReservationPayments(id);
+  }
+
   @Post('reservations')
   createReservation(@Body() dto: CreateSalesReservationDto) {
     return this.sales.createReservation(dto);
+  }
+
+  @Post('reservations/:id/payments')
+  createReservationPayment(@Param('id', ParseIntPipe) id: number, @Body() dto: CreateSalesReservationPaymentDto) {
+    return this.sales.createReservationPayment(id, dto);
   }
 
   @Patch('reservations/:id')
@@ -252,5 +265,25 @@ export class SalesController {
     response.setHeader('Content-Type', file.mimeType);
     response.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
     response.send(file.buffer);
+  }
+
+  @Get('reservation-payments/:id')
+  getReservationPayment(@Param('id', ParseIntPipe) id: number) {
+    return this.sales.getReservationPayment(id);
+  }
+
+  @Post('reservation-payments/:id/cancel')
+  cancelReservationPayment(@Param('id', ParseIntPipe) id: number, @Body() dto: CancelSalesReservationPaymentDto) {
+    return this.sales.cancelReservationPayment(id, dto);
+  }
+
+  @Post('reservation-payments/:id/refunds')
+  refundReservationPayment(@Param('id', ParseIntPipe) id: number, @Body() dto: CreateSalesReservationRefundDto) {
+    return this.sales.refundReservationPayment(id, dto);
+  }
+
+  @Post('reservation-payments/:id/receipt/regenerate')
+  regenerateReservationPaymentReceipt(@Param('id', ParseIntPipe) id: number) {
+    return this.sales.regenerateReservationPaymentReceipt(id);
   }
 }

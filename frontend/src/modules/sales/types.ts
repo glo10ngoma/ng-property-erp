@@ -12,6 +12,9 @@ export const SALES_SCHEDULE_FREQUENCIES = ['MONTHLY', 'QUARTERLY', 'CUSTOM'] as 
 export const SALES_DEPOSIT_TYPES = ['PERCENTAGE', 'FIXED'] as const;
 export const SALES_INSTALLMENT_TYPES = ['DEPOSIT', 'REGULAR', 'FINAL', 'CUSTOM', 'FEE'] as const;
 export const SALES_SUBSCRIPTION_ORIGIN_MODES = ['DIRECT', 'RESERVATION'] as const;
+export const SALES_RESERVATION_PAYMENT_METHODS = ['CASH', 'BANK', 'MOBILE_MONEY', 'OTHER'] as const;
+export const SALES_RESERVATION_PAYMENT_STATUSES = ['CONFIRMED', 'CANCELLED', 'PARTIALLY_REFUNDED', 'REFUNDED'] as const;
+export const SALES_RESERVATION_DESTINATION_TYPES = ['CASH', 'BANK', 'MOBILE_MONEY', 'OTHER'] as const;
 
 export type SalesBootstrap = {
   module: string;
@@ -40,6 +43,18 @@ export type SalesSettings = {
   reservation_default_duration_days?: number | null;
   reservation_fee_required?: boolean | null;
   reservation_default_fee?: number | null;
+  reservation_fee_enabled?: boolean | null;
+  reservation_fee_default_amount?: number | null;
+  reservation_fee_default_currency?: string | null;
+  reservation_fee_deductibility?: string | null;
+  reservation_fee_deductible_percentage?: number | null;
+  reservation_fee_refundable?: boolean | null;
+  reservation_fee_refundable_percentage?: number | null;
+  reservation_fee_refund_deadline_days?: number | null;
+  reservation_fee_accounting_treatment?: string | null;
+  reservation_payment_number_format?: string | null;
+  reservation_refund_number_format?: string | null;
+  reservation_receipt_number_format?: string | null;
   minimum_deposit_type?: string | null;
   minimum_deposit_percentage?: number | null;
   minimum_deposit_amount?: number | null;
@@ -207,9 +222,93 @@ export type SalesReservation = {
   catalog_title?: string | null;
   catalog_ref?: string | null;
   project_name?: string | null;
+  fee_agreed?: number | null;
+  fee_paid?: number | null;
+  fee_refunded?: number | null;
+  fee_allocated?: number | null;
+  fee_available?: number | null;
+  fee_remaining?: number | null;
+  payment_status?: string | null;
+  deductibility?: string | null;
+  refundable_amount?: number | null;
   created_at?: string | null;
   updated_at?: string | null;
   documents?: SalesDocumentGeneration[];
+  payments?: SalesReservationPayment[];
+  payment_destinations?: SalesReservationPaymentDestinations | null;
+  fee_summary?: SalesReservationFeeSummary | null;
+};
+
+export type SalesReservationFeeSummary = {
+  fee_agreed: number;
+  fee_paid: number;
+  fee_refunded: number;
+  fee_allocated: number;
+  fee_available: number;
+  fee_remaining: number;
+  payment_status: string;
+  deductibility: string;
+  refundable_amount: number;
+  currency: string;
+};
+
+export type SalesReservationPaymentDestination = {
+  id: number;
+  label: string;
+  type: string;
+  currency?: string | null;
+  status?: string | null;
+};
+
+export type SalesReservationPaymentDestinations = {
+  cash_sessions: SalesReservationPaymentDestination[];
+  bank_accounts: SalesReservationPaymentDestination[];
+};
+
+export type SalesReservationReceipt = {
+  id: number;
+  document_number: string;
+  entity_type: string;
+  entity_id: number;
+  generation_status?: string | null;
+  file_name?: string | null;
+  generated_at?: string | null;
+};
+
+export type SalesReservationRefund = {
+  id: number;
+  reservation_payment_id: number;
+  reservation_id: number;
+  refund_number: string;
+  refund_date: string;
+  amount: number;
+  currency: string;
+  refund_method: string;
+  destination_type: string;
+  reason: string;
+  status: string;
+  receipt?: SalesReservationReceipt | null;
+};
+
+export type SalesReservationPayment = {
+  id: number;
+  reservation_id: number;
+  payment_number: string;
+  payment_date: string;
+  amount: number;
+  currency: string;
+  payment_method: string;
+  destination_type: string;
+  status: string;
+  external_reference?: string | null;
+  notes?: string | null;
+  refunded_amount?: number | null;
+  allocated_amount?: number | null;
+  available_refundable_amount?: number | null;
+  receipt?: SalesReservationReceipt | null;
+  refunds?: SalesReservationRefund[];
+  created_at?: string | null;
+  cancelled_at?: string | null;
 };
 
 export type SalesSubscriptionInstallment = {
@@ -346,6 +445,35 @@ export type CreateSalesReservationInput = {
 
 export type SalesStatusActionInput = {
   reason?: string;
+};
+
+export type CreateSalesReservationPaymentInput = {
+  amount: number;
+  payment_date: string;
+  payment_method: string;
+  destination_type: string;
+  cash_session_id?: number;
+  bank_account_id?: number;
+  external_reference?: string;
+  notes?: string;
+  idempotency_key?: string;
+};
+
+export type CancelSalesReservationPaymentInput = {
+  reason: string;
+};
+
+export type CreateSalesReservationRefundInput = {
+  amount: number;
+  refund_date: string;
+  refund_method: string;
+  destination_type: string;
+  cash_session_id?: number;
+  bank_account_id?: number;
+  reason: string;
+  external_reference?: string;
+  notes?: string;
+  idempotency_key?: string;
 };
 
 export type CustomInstallmentInput = {

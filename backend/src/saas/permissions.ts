@@ -174,6 +174,12 @@ const additionalPermissions = [
   'sales_payments.read',
   'sales_payments.create',
   'sales_payments.allocate',
+  'sales_reservation_payments.read',
+  'sales_reservation_payments.create',
+  'sales_reservation_payments.cancel',
+  'sales_reservation_payments.refund',
+  'sales_reservation_receipts.read',
+  'sales_reservation_receipts.generate',
   'sales_recovery.read',
   'sales_recovery.create',
   'sales_documents.read',
@@ -217,6 +223,11 @@ const salesAccountantPermissions = [
   'sales_subscriptions.read',
   'sales_schedules.read',
   'sales_payments.read',
+  'sales_reservation_payments.read',
+  'sales_reservation_payments.create',
+  'sales_reservation_payments.refund',
+  'sales_reservation_receipts.read',
+  'sales_reservation_receipts.generate',
   'sales_recovery.read',
   'sales_reports.read',
   'sales_documents.read',
@@ -231,6 +242,8 @@ const salesViewerPermissions = [
   'sales_subscriptions.read',
   'sales_reports.read',
   'sales_documents.read',
+  'sales_reservation_payments.read',
+  'sales_reservation_receipts.read',
 ];
 
 export const ROLE_ALIASES: Record<string, CanonicalRole> = {

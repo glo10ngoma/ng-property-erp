@@ -5,6 +5,7 @@ import type { SalesDocumentTemplateDto, UpdateSalesDocumentTemplateDto } from '.
 
 type SalesDocumentEntityType = 'RESERVATION' | 'SUBSCRIPTION';
 type SalesTemplateType = 'RESERVATION_CONTRACT' | 'SUBSCRIPTION_CONTRACT';
+type SalesReceiptEntityType = 'RESERVATION_PAYMENT' | 'RESERVATION_REFUND';
 
 const TEMPLATE_INCOMPLETE_CODE = 'SALES_DOCUMENT_TEMPLATE_INCOMPLETE';
 const TRUSTED_HTML_VARIABLES = new Set(['installments.table', 'organization.contact_block']);
@@ -298,6 +299,72 @@ export class SalesDocumentsService {
 
   async regenerateSubscriptionContract(organizationId: number, subscriptionId: number, userId: number | null) {
     return this.generateContract(organizationId, 'SUBSCRIPTION', subscriptionId, 'SUBSCRIPTION_CONTRACT', userId);
+  }
+
+  async regenerateReservationFeeReceiptFromPayment(organizationId: number, paymentId: number, userId: number | null) {
+    const payment = await this.repository.getReservationPaymentReceiptContext(organizationId, paymentId);
+    if (!payment) {
+      throw new NotFoundException('Paiement de réservation introuvable');
+    }
+    return this.generateReservationFeeReceiptDocument(organizationId, 'RESERVATION_PAYMENT', paymentId, {
+      documentNumberFormat: 'RCR-{YYYY}-{SEQ:5}',
+      title: 'Reçu de frais de réservation',
+      number: String(payment.payment_number ?? ''),
+      reservationNumber: String(payment.reservation_number ?? ''),
+      amount: Number(payment.amount ?? 0),
+      currency: String(payment.currency ?? 'USD'),
+      paymentDate: String(payment.payment_date ?? ''),
+      paymentMethod: String(payment.payment_method ?? ''),
+      destinationType: String(payment.destination_type ?? ''),
+      reference: String(payment.external_reference ?? ''),
+      organizationName: String(payment.organization_name ?? ''),
+      buyerName: String(payment.buyer_name ?? ''),
+      buyerPhone: String(payment.buyer_phone ?? ''),
+      buyerEmail: String(payment.buyer_email ?? ''),
+      createdByName: String(payment.created_by_name ?? ''),
+      projectName: String(payment.project_name ?? ''),
+      projectRef: String(payment.project_ref ?? ''),
+      propertyTitle: String(payment.catalog_title ?? ''),
+      propertyRef: String(payment.catalog_ref ?? ''),
+      propertyType: String(payment.property_type ?? ''),
+      accountingTreatment: String(payment.accounting_treatment_snapshot ?? ''),
+      deductibilityMention: '',
+      notes: String(payment.notes ?? ''),
+      generatedBy: userId,
+    });
+  }
+
+  async regenerateReservationFeeReceiptFromRefund(organizationId: number, refundId: number, userId: number | null) {
+    const refund = await this.repository.getReservationRefundReceiptContext(organizationId, refundId);
+    if (!refund) {
+      throw new NotFoundException('Remboursement de réservation introuvable');
+    }
+    return this.generateReservationFeeReceiptDocument(organizationId, 'RESERVATION_REFUND', refundId, {
+      documentNumberFormat: 'RCR-{YYYY}-{SEQ:5}',
+      title: 'Bon de remboursement des frais de réservation',
+      number: String(refund.refund_number ?? ''),
+      reservationNumber: String(refund.reservation_number ?? ''),
+      amount: Number(refund.amount ?? 0),
+      currency: String(refund.currency ?? 'USD'),
+      paymentDate: String(refund.refund_date ?? ''),
+      paymentMethod: String(refund.refund_method ?? ''),
+      destinationType: String(refund.destination_type ?? ''),
+      reference: String(refund.reason ?? ''),
+      organizationName: String(refund.organization_name ?? ''),
+      buyerName: String(refund.buyer_name ?? ''),
+      buyerPhone: '',
+      buyerEmail: '',
+      createdByName: '',
+      projectName: String(refund.project_name ?? ''),
+      projectRef: String(refund.project_ref ?? ''),
+      propertyTitle: String(refund.catalog_title ?? ''),
+      propertyRef: String(refund.catalog_ref ?? ''),
+      propertyType: String(refund.property_type ?? ''),
+      accountingTreatment: '',
+      deductibilityMention: '',
+      notes: String(refund.reason ?? ''),
+      generatedBy: userId,
+    });
   }
 
   async downloadDocument(organizationId: number, documentId: number) {
@@ -723,6 +790,150 @@ export class SalesDocumentsService {
   </div>
 </section>`,
     };
+  }
+
+  private async generateReservationFeeReceiptDocument(
+    organizationId: number,
+    entityType: SalesReceiptEntityType,
+    entityId: number,
+    payload: {
+      documentNumberFormat: string;
+      title: string;
+      number: string;
+      reservationNumber: string;
+      amount: number;
+      currency: string;
+      paymentDate: string;
+      paymentMethod: string;
+      destinationType: string;
+      reference: string;
+      organizationName: string;
+      buyerName: string;
+      buyerPhone: string;
+      buyerEmail: string;
+      createdByName: string;
+      projectName: string;
+      projectRef: string;
+      propertyTitle: string;
+      propertyRef: string;
+      propertyType: string;
+      accountingTreatment: string;
+      deductibilityMention: string;
+      notes: string;
+      generatedBy: number | null;
+    },
+  ) {
+    const year = new Date().getUTCFullYear();
+    const sequence = await this.repository.nextSequenceValue(organizationId, 'RESERVATION_RECEIPT', year, null as any);
+    const documentNumber = this.repository.formatSequence(payload.documentNumberFormat, sequence, year);
+    const snapshot = {
+      organization: payload.organizationName,
+      document_number: documentNumber,
+      reservation_number: payload.reservationNumber,
+      operation_number: payload.number,
+      buyer_name: payload.buyerName,
+      buyer_phone: payload.buyerPhone,
+      buyer_email: payload.buyerEmail,
+      project: payload.projectName,
+      property: payload.propertyTitle,
+      property_ref: payload.propertyRef,
+      property_type: payload.propertyType,
+      amount: this.formatMoney(payload.amount, payload.currency),
+      amount_words: this.numberToWords(payload.amount, payload.currency),
+      currency: payload.currency,
+      payment_date: this.formatDate(payload.paymentDate),
+      payment_method: payload.paymentMethod,
+      destination_type: payload.destinationType,
+      recorded_by: payload.createdByName,
+      reference: payload.reference,
+      notes: payload.notes,
+      generated_on: this.formatDate(new Date().toISOString()),
+    };
+    const generation = await this.repository.createDocumentGeneration(organizationId, {
+      entity_type: entityType,
+      entity_id: entityId,
+      template_type: 'RESERVATION_FEE_RECEIPT',
+      template_id: null,
+      version: 1,
+      document_number: documentNumber,
+      file_name: `${documentNumber}.pdf`,
+      variables_snapshot: snapshot,
+      generated_by: payload.generatedBy,
+    });
+    try {
+      const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    @page { size: A4; margin: 18mm; }
+    body { font-family: Arial, sans-serif; color: #10233f; font-size: 11.5px; line-height: 1.5; margin: 0; }
+    h1 { margin: 0 0 10px; font-size: 22px; }
+    h2 { margin: 18px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em; }
+    p { margin: 0 0 10px; }
+    .sheet { display: grid; gap: 16px; }
+    .panel { border: 1px solid #d9e2ec; border-radius: 14px; padding: 16px 18px; }
+    .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .meta-card { border: 1px solid #e5ebf1; border-radius: 10px; padding: 10px 12px; background: #f8fbff; }
+    .label { display: block; margin-bottom: 4px; color: #63758d; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+    .value { color: #10233f; font-weight: 700; }
+    .signatures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 18px; }
+    .signature { border-top: 1px solid #cfd8e3; min-height: 76px; padding-top: 10px; }
+    .signature strong { display: block; margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div><strong>${escapeHtml(payload.organizationName)}</strong></div>
+    <section class="panel">
+      <h1>${escapeHtml(payload.title)}</h1>
+      <div class="meta">
+        <div class="meta-card"><span class="label">Numéro du reçu</span><span class="value">${escapeHtml(documentNumber)}</span></div>
+        <div class="meta-card"><span class="label">Opération</span><span class="value">${escapeHtml(payload.number)}</span></div>
+        <div class="meta-card"><span class="label">Réservation</span><span class="value">${escapeHtml(payload.reservationNumber)}</span></div>
+        <div class="meta-card"><span class="label">Date</span><span class="value">${escapeHtml(this.formatDate(payload.paymentDate))}</span></div>
+      </div>
+      <h2>Parties</h2>
+      <p><strong>Acquéreur :</strong> ${escapeHtml(payload.buyerName || '-')}</p>
+      <p><strong>Projet :</strong> ${escapeHtml(payload.projectName || '-')}</p>
+      <p><strong>Bien :</strong> ${escapeHtml(payload.propertyTitle || '-')} (${escapeHtml(payload.propertyRef || '-')})</p>
+      <h2>Détail financier</h2>
+      <p><strong>Montant :</strong> ${escapeHtml(this.formatMoney(payload.amount, payload.currency))}</p>
+      <p><strong>Montant en lettres :</strong> ${escapeHtml(this.numberToWords(payload.amount, payload.currency))}</p>
+      <p><strong>Mode :</strong> ${escapeHtml(payload.paymentMethod)} — <strong>Destination :</strong> ${escapeHtml(payload.destinationType)}</p>
+      <p><strong>Utilisateur :</strong> ${escapeHtml(payload.createdByName || '-')}</p>
+      <p><strong>Traitement comptable :</strong> ${escapeHtml(payload.accountingTreatment || '-')}</p>
+      <p><strong>Référence :</strong> ${escapeHtml(payload.reference || '-')}</p>
+      <p><strong>Observations :</strong> ${escapeHtml(payload.notes || '-')}</p>
+      <p><strong>Généré le :</strong> ${escapeHtml(this.formatDate(new Date().toISOString()))}</p>
+      <div class="signatures">
+        <div class="signature"><strong>Pour l’organisation</strong><span>Nom, fonction et signature</span></div>
+        <div class="signature"><strong>Pour l’acquéreur</strong><span>${escapeHtml(payload.buyerName || '-')}</span></div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>`;
+      const pdfBuffer = await this.pdfRenderer.renderA4Pdf(html);
+      return await this.repository.markDocumentGenerationSuccess(organizationId, generation.id, {
+        pdf_base64: pdfBuffer.toString('base64'),
+        mime_type: 'application/pdf',
+        generated_by: payload.generatedBy,
+      });
+    } catch (error: any) {
+      return this.repository.markDocumentGenerationFailure(
+        organizationId,
+        generation.id,
+        error?.message || 'PDF generation failed',
+        payload.generatedBy,
+      );
+    }
+  }
+
+  private numberToWords(amount: number, currency: string) {
+    const normalized = Number(amount ?? 0);
+    const code = String(currency ?? 'USD').toUpperCase();
+    return `${new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(normalized)} ${code}`;
   }
 
   private validateTemplatePayload(templateType: SalesTemplateType, payload: {

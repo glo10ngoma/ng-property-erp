@@ -208,6 +208,9 @@ export class PermissionsGuard implements CanActivate {
     if (/^\/api\/sales\/reservations\/\d+\/documents$/.test(path)) {
       return 'sales_documents.read';
     }
+    if (/^\/api\/sales\/reservations\/\d+\/payments$/.test(path)) {
+      return method === 'GET' ? 'sales_reservation_payments.read' : 'sales_reservation_payments.create';
+    }
     if (/^\/api\/sales\/reservations\/\d+$/.test(path)) {
       return method === 'GET' ? 'sales_reservations.read' : 'sales_reservations.update';
     }
@@ -240,6 +243,18 @@ export class PermissionsGuard implements CanActivate {
     }
     if (/^\/api\/sales\/documents\/\d+\/download$/.test(path)) {
       return 'sales_documents.download';
+    }
+    if (/^\/api\/sales\/reservation-payments\/\d+\/receipt\/regenerate$/.test(path)) {
+      return 'sales_reservation_receipts.generate';
+    }
+    if (/^\/api\/sales\/reservation-payments\/\d+\/cancel$/.test(path)) {
+      return 'sales_reservation_payments.cancel';
+    }
+    if (/^\/api\/sales\/reservation-payments\/\d+\/refunds$/.test(path)) {
+      return 'sales_reservation_payments.refund';
+    }
+    if (/^\/api\/sales\/reservation-payments\/\d+$/.test(path)) {
+      return 'sales_reservation_payments.read';
     }
     if (/^\/api\/bank-dashboard/.test(path)) {
       return 'bank_accounts.read';

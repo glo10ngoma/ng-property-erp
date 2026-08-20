@@ -72,6 +72,18 @@ export class SalesRepository {
          reservation_default_duration_days,
          reservation_fee_required,
          reservation_default_fee,
+         reservation_fee_enabled,
+         reservation_fee_default_amount,
+         reservation_fee_default_currency,
+         reservation_fee_deductibility,
+         reservation_fee_deductible_percentage,
+         reservation_fee_refundable,
+         reservation_fee_refundable_percentage,
+         reservation_fee_refund_deadline_days,
+         reservation_fee_accounting_treatment,
+         reservation_payment_number_format,
+         reservation_refund_number_format,
+         reservation_receipt_number_format,
          minimum_deposit_type,
          minimum_deposit_percentage,
          minimum_deposit_amount,
@@ -98,10 +110,16 @@ export class SalesRepository {
          COALESCE(NULLIF($14, ''), 'CR-{YYYY}-{SEQ:5}'),
          COALESCE(NULLIF($15, ''), 'CV-{YYYY}-{SEQ:5}'),
          COALESCE($16, 7), COALESCE($17, false), COALESCE($18, 0),
-         COALESCE($19, 'PERCENTAGE'), $20, $21, COALESCE($22, 24), COALESCE($23, 'MONTHLY'),
-         COALESCE($24, 0), COALESCE($25, 0), COALESCE($26, true), COALESCE($27::jsonb, '["USD","CDF"]'::jsonb),
-         NULLIF($28, ''), NULLIF($29, ''), NULLIF($30, ''),
-         COALESCE($31::jsonb, '{}'::jsonb), NOW(), NOW()
+         COALESCE($19, true), COALESCE($20, 0), COALESCE($21, 'USD'), COALESCE($22, 'DEDUCTIBLE'),
+         COALESCE($23, 100), COALESCE($24, true), COALESCE($25, 100), COALESCE($26, 0),
+         COALESCE($27, 'CUSTOMER_ADVANCE'),
+         COALESCE(NULLIF($28, ''), 'PRS-{YYYY}-{SEQ:5}'),
+         COALESCE(NULLIF($29, ''), 'RRS-{YYYY}-{SEQ:5}'),
+         COALESCE(NULLIF($30, ''), 'RCR-{YYYY}-{SEQ:5}'),
+         COALESCE($31, 'PERCENTAGE'), $32, $33, COALESCE($34, 24), COALESCE($35, 'MONTHLY'),
+         COALESCE($36, 0), COALESCE($37, 0), COALESCE($38, true), COALESCE($39::jsonb, '["USD","CDF"]'::jsonb),
+         NULLIF($40, ''), NULLIF($41, ''), NULLIF($42, ''),
+         COALESCE($43::jsonb, '{}'::jsonb), NOW(), NOW()
        )
        ON CONFLICT (organization_id)
        DO UPDATE SET
@@ -122,6 +140,18 @@ export class SalesRepository {
          reservation_default_duration_days = COALESCE(EXCLUDED.reservation_default_duration_days, sales_settings.reservation_default_duration_days),
          reservation_fee_required = COALESCE(EXCLUDED.reservation_fee_required, sales_settings.reservation_fee_required),
          reservation_default_fee = COALESCE(EXCLUDED.reservation_default_fee, sales_settings.reservation_default_fee),
+         reservation_fee_enabled = COALESCE(EXCLUDED.reservation_fee_enabled, sales_settings.reservation_fee_enabled),
+         reservation_fee_default_amount = COALESCE(EXCLUDED.reservation_fee_default_amount, sales_settings.reservation_fee_default_amount),
+         reservation_fee_default_currency = COALESCE(EXCLUDED.reservation_fee_default_currency, sales_settings.reservation_fee_default_currency),
+         reservation_fee_deductibility = COALESCE(EXCLUDED.reservation_fee_deductibility, sales_settings.reservation_fee_deductibility),
+         reservation_fee_deductible_percentage = COALESCE(EXCLUDED.reservation_fee_deductible_percentage, sales_settings.reservation_fee_deductible_percentage),
+         reservation_fee_refundable = COALESCE(EXCLUDED.reservation_fee_refundable, sales_settings.reservation_fee_refundable),
+         reservation_fee_refundable_percentage = COALESCE(EXCLUDED.reservation_fee_refundable_percentage, sales_settings.reservation_fee_refundable_percentage),
+         reservation_fee_refund_deadline_days = COALESCE(EXCLUDED.reservation_fee_refund_deadline_days, sales_settings.reservation_fee_refund_deadline_days),
+         reservation_fee_accounting_treatment = COALESCE(EXCLUDED.reservation_fee_accounting_treatment, sales_settings.reservation_fee_accounting_treatment),
+         reservation_payment_number_format = COALESCE(EXCLUDED.reservation_payment_number_format, sales_settings.reservation_payment_number_format),
+         reservation_refund_number_format = COALESCE(EXCLUDED.reservation_refund_number_format, sales_settings.reservation_refund_number_format),
+         reservation_receipt_number_format = COALESCE(EXCLUDED.reservation_receipt_number_format, sales_settings.reservation_receipt_number_format),
          minimum_deposit_type = COALESCE(EXCLUDED.minimum_deposit_type, sales_settings.minimum_deposit_type),
          minimum_deposit_percentage = COALESCE(EXCLUDED.minimum_deposit_percentage, sales_settings.minimum_deposit_percentage),
          minimum_deposit_amount = COALESCE(EXCLUDED.minimum_deposit_amount, sales_settings.minimum_deposit_amount),
@@ -156,6 +186,18 @@ export class SalesRepository {
         dto.reservation_default_duration_days ?? null,
         dto.reservation_fee_required ?? null,
         dto.reservation_default_fee ?? null,
+        dto.reservation_fee_enabled ?? null,
+        dto.reservation_fee_default_amount ?? null,
+        dto.reservation_fee_default_currency ?? null,
+        dto.reservation_fee_deductibility ?? null,
+        dto.reservation_fee_deductible_percentage ?? null,
+        dto.reservation_fee_refundable ?? null,
+        dto.reservation_fee_refundable_percentage ?? null,
+        dto.reservation_fee_refund_deadline_days ?? null,
+        dto.reservation_fee_accounting_treatment ?? null,
+        dto.reservation_payment_number_format ?? null,
+        dto.reservation_refund_number_format ?? null,
+        dto.reservation_receipt_number_format ?? null,
         dto.minimum_deposit_type ?? null,
         dto.minimum_deposit_percentage ?? null,
         dto.minimum_deposit_amount ?? null,
@@ -1718,5 +1760,468 @@ export class SalesRepository {
       client,
     );
     return rows[0] ?? null;
+  }
+
+  async getReservationPaymentReceiptContext(organizationId: number, paymentId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT p.*,
+              r.reservation_number,
+              r.currency AS reservation_currency,
+              r.negotiated_price,
+              r.reservation_fee,
+              o.name AS organization_name,
+              COALESCE(sb.full_name, sb.company_name) AS buyer_name,
+              sb.phone AS buyer_phone,
+              sb.email AS buyer_email,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(au.first_name, ''), ' ', COALESCE(au.last_name, ''))), ''), au.email, '-') AS created_by_name,
+              sp.name AS project_name,
+              sp.project_ref,
+              spc.title AS catalog_title,
+              spc.catalog_ref,
+              spc.property_type,
+              ba.bank_name,
+              ba.account_name,
+              ba.account_number,
+              cs.opened_at AS cash_opened_at
+       FROM sales_reservation_payments p
+       JOIN sales_reservations r
+         ON r.id = p.reservation_id
+        AND r.organization_id = p.organization_id
+       JOIN organizations o
+         ON o.id = p.organization_id
+       LEFT JOIN sales_buyers sb
+         ON sb.id = r.buyer_id
+        AND sb.organization_id = r.organization_id
+       LEFT JOIN app_users au
+         ON au.id = p.created_by
+       LEFT JOIN sales_projects sp
+         ON sp.id = r.project_id
+        AND sp.organization_id = r.organization_id
+       LEFT JOIN sales_property_catalog spc
+         ON spc.id = r.catalog_item_id
+        AND spc.organization_id = r.organization_id
+       LEFT JOIN bank_accounts ba
+         ON ba.id = p.bank_account_id
+        AND ba.organization_id = p.organization_id
+       LEFT JOIN cash_sessions cs
+         ON cs.id = p.cash_session_id
+        AND cs.organization_id = p.organization_id
+       WHERE p.id = $1
+         AND p.organization_id = $2
+       LIMIT 1`,
+      [paymentId, organizationId],
+      client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async getReservationRefundReceiptContext(organizationId: number, refundId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT rf.*,
+              p.payment_number,
+              r.reservation_number,
+              r.currency AS reservation_currency,
+              o.name AS organization_name,
+              COALESCE(sb.full_name, sb.company_name) AS buyer_name,
+              sp.name AS project_name,
+              sp.project_ref,
+              spc.title AS catalog_title,
+              spc.catalog_ref,
+              spc.property_type,
+              ba.bank_name,
+              ba.account_name,
+              ba.account_number,
+              cs.opened_at AS cash_opened_at
+       FROM sales_reservation_refunds rf
+       JOIN sales_reservation_payments p
+         ON p.id = rf.reservation_payment_id
+        AND p.organization_id = rf.organization_id
+       JOIN sales_reservations r
+         ON r.id = rf.reservation_id
+        AND r.organization_id = rf.organization_id
+       JOIN organizations o
+         ON o.id = rf.organization_id
+       LEFT JOIN sales_buyers sb
+         ON sb.id = r.buyer_id
+        AND sb.organization_id = r.organization_id
+       LEFT JOIN sales_projects sp
+         ON sp.id = r.project_id
+        AND sp.organization_id = r.organization_id
+       LEFT JOIN sales_property_catalog spc
+         ON spc.id = r.catalog_item_id
+        AND spc.organization_id = r.organization_id
+       LEFT JOIN bank_accounts ba
+         ON ba.id = rf.bank_account_id
+        AND ba.organization_id = rf.organization_id
+       LEFT JOIN cash_sessions cs
+         ON cs.id = rf.cash_session_id
+        AND cs.organization_id = rf.organization_id
+       WHERE rf.id = $1
+         AND rf.organization_id = $2
+       LIMIT 1`,
+      [refundId, organizationId],
+      client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async lockReservation(organizationId: number, reservationId: number, client: PoolClient) {
+    const { rows } = await client.query(
+      `SELECT *
+       FROM sales_reservations
+       WHERE id = $1
+         AND organization_id = $2
+         AND archived_at IS NULL
+       FOR UPDATE`,
+      [reservationId, organizationId],
+    );
+    return rows[0] ?? null;
+  }
+
+  async listOpenCashSessions(organizationId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT id,
+              CONCAT('Session caisse ouverte #', id, ' — ', TO_CHAR(opened_at, 'DD/MM/YYYY HH24:MI')) AS label,
+              status
+       FROM cash_sessions
+       WHERE organization_id = $1
+         AND deleted_at IS NULL
+         AND status = 'OPEN'
+       ORDER BY opened_at DESC, id DESC`,
+      [organizationId],
+      client,
+    );
+    return rows;
+  }
+
+  async findOpenCashSession(organizationId: number, sessionId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT id, status, opened_at
+       FROM cash_sessions
+       WHERE id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [sessionId, organizationId],
+      client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async listActiveBankAccounts(organizationId: number, currency?: string | null, client?: PoolClient) {
+    const params: unknown[] = [organizationId];
+    let filter = '';
+    if (currency) {
+      params.push(String(currency).toUpperCase());
+      filter = ` AND UPPER(currency) = $${params.length}`;
+    }
+    const { rows } = await this.query(
+      `SELECT id,
+              CONCAT(COALESCE(bank_name, 'Banque'), ' — ', COALESCE(account_name, 'Compte'), ' (', UPPER(currency), ')') AS label,
+              account_type,
+              currency,
+              status
+       FROM bank_accounts
+       WHERE organization_id = $1
+         AND deleted_at IS NULL
+         AND status = 'ACTIVE'
+         ${filter}
+       ORDER BY bank_name ASC, account_name ASC, id ASC`,
+      params,
+      client,
+    );
+    return rows;
+  }
+
+  async findActiveBankAccount(organizationId: number, bankAccountId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT *
+       FROM bank_accounts
+       WHERE id = $1
+         AND organization_id = $2
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [bankAccountId, organizationId],
+      client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async getReservationFeeSummary(organizationId: number, reservationId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT
+          COALESCE(r.reservation_fee, 0)::NUMERIC(18,2) AS fee_agreed,
+          COALESCE((
+            SELECT SUM(p.amount)
+            FROM sales_reservation_payments p
+            WHERE p.organization_id = r.organization_id
+              AND p.reservation_id = r.id
+              AND p.status IN ('CONFIRMED', 'PARTIALLY_REFUNDED', 'REFUNDED')
+          ), 0)::NUMERIC(18,2) AS fee_paid,
+          COALESCE((
+            SELECT SUM(srref.amount)
+            FROM sales_reservation_refunds srref
+            WHERE srref.organization_id = r.organization_id
+              AND srref.reservation_id = r.id
+              AND srref.status = 'CONFIRMED'
+          ), 0)::NUMERIC(18,2) AS fee_refunded,
+          COALESCE((
+            SELECT SUM(sra.amount)
+            FROM sales_reservation_fee_allocations sra
+            WHERE sra.organization_id = r.organization_id
+              AND sra.reservation_id = r.id
+              AND sra.reversed_at IS NULL
+          ), 0)::NUMERIC(18,2) AS fee_allocated,
+          r.currency,
+          COALESCE(ss.reservation_fee_deductibility, 'DEDUCTIBLE') AS deductibility,
+          COALESCE(ss.reservation_fee_refundable_percentage, 100)::NUMERIC(8,2) AS refundable_percentage
+       FROM sales_reservations r
+       LEFT JOIN sales_settings ss
+         ON ss.organization_id = r.organization_id
+       WHERE r.id = $1
+         AND r.organization_id = $2
+       LIMIT 1`,
+      [reservationId, organizationId],
+      client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async listReservationPayments(organizationId: number, reservationId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT p.*,
+              COALESCE(refunds.total_refunded, 0)::NUMERIC(18,2) AS refunded_amount,
+              COALESCE(allocations.total_allocated, 0)::NUMERIC(18,2) AS allocated_amount,
+              GREATEST(
+                p.amount - COALESCE(refunds.total_refunded, 0) - COALESCE(allocations.total_allocated, 0),
+                0
+              )::NUMERIC(18,2) AS available_refundable_amount
+       FROM sales_reservation_payments p
+       LEFT JOIN (
+         SELECT reservation_payment_id, organization_id, SUM(amount)::NUMERIC(18,2) AS total_refunded
+         FROM sales_reservation_refunds
+         WHERE status = 'CONFIRMED'
+         GROUP BY reservation_payment_id, organization_id
+       ) refunds
+         ON refunds.reservation_payment_id = p.id AND refunds.organization_id = p.organization_id
+       LEFT JOIN (
+         SELECT reservation_payment_id, organization_id, SUM(amount)::NUMERIC(18,2) AS total_allocated
+         FROM sales_reservation_fee_allocations
+         WHERE reservation_payment_id IS NOT NULL
+           AND reversed_at IS NULL
+         GROUP BY reservation_payment_id, organization_id
+       ) allocations
+         ON allocations.reservation_payment_id = p.id AND allocations.organization_id = p.organization_id
+       WHERE p.organization_id = $1
+         AND p.reservation_id = $2
+       ORDER BY p.payment_date DESC, p.id DESC`,
+      [organizationId, reservationId],
+      client,
+    );
+    return rows;
+  }
+
+  async findReservationPayment(organizationId: number, paymentId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT *
+       FROM sales_reservation_payments
+       WHERE id = $1
+         AND organization_id = $2
+       LIMIT 1`,
+      [paymentId, organizationId],
+      client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async findReservationPaymentByIdempotency(organizationId: number, idempotencyKey: string, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT *
+       FROM sales_reservation_payments
+       WHERE organization_id = $1
+         AND idempotency_key = $2
+       LIMIT 1`,
+      [organizationId, idempotencyKey],
+      client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async listReservationRefunds(organizationId: number, reservationPaymentId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT *
+       FROM sales_reservation_refunds
+       WHERE organization_id = $1
+         AND reservation_payment_id = $2
+       ORDER BY refund_date DESC, id DESC`,
+      [organizationId, reservationPaymentId],
+      client,
+    );
+    return rows;
+  }
+
+  async createReservationPayment(organizationId: number, userId: number | null, payload: Record<string, unknown>, client: PoolClient) {
+    const { rows } = await client.query(
+      `INSERT INTO sales_reservation_payments (
+         organization_id, reservation_id, payment_number, payment_date, amount, currency,
+         payment_method, destination_type, cash_session_id, cash_movement_id,
+         bank_account_id, bank_transaction_id, external_reference, idempotency_key, accounting_treatment_snapshot,
+         status, notes, created_at, created_by
+       )
+       VALUES (
+         $1, $2, $3, $4::date, $5, $6,
+         $7, $8, $9, $10,
+         $11, $12, NULLIF($13, ''), $14, $15,
+         $16, NULLIF($17, ''), NOW(), $18
+       )
+       RETURNING *`,
+      [
+        organizationId,
+        payload.reservation_id,
+        payload.payment_number,
+        payload.payment_date,
+        payload.amount,
+        payload.currency,
+        payload.payment_method,
+        payload.destination_type,
+        payload.cash_session_id ?? null,
+        payload.cash_movement_id ?? null,
+        payload.bank_account_id ?? null,
+        payload.bank_transaction_id ?? null,
+        payload.external_reference ?? null,
+        payload.idempotency_key,
+        payload.accounting_treatment_snapshot ?? 'CUSTOMER_ADVANCE',
+        payload.status ?? 'CONFIRMED',
+        payload.notes ?? null,
+        userId,
+      ],
+    );
+    return rows[0];
+  }
+
+  async updateReservationPaymentLinks(
+    organizationId: number,
+    paymentId: number,
+    payload: { cash_movement_id?: number | null; bank_transaction_id?: number | null },
+    client: PoolClient,
+  ) {
+    const { rows } = await client.query(
+      `UPDATE sales_reservation_payments
+       SET cash_movement_id = COALESCE($3, cash_movement_id),
+           bank_transaction_id = COALESCE($4, bank_transaction_id)
+       WHERE id = $1
+         AND organization_id = $2
+       RETURNING *`,
+      [paymentId, organizationId, payload.cash_movement_id ?? null, payload.bank_transaction_id ?? null],
+    );
+    return rows[0] ?? null;
+  }
+
+  async createReservationRefund(organizationId: number, userId: number | null, payload: Record<string, unknown>, client: PoolClient) {
+    const { rows } = await client.query(
+      `INSERT INTO sales_reservation_refunds (
+         organization_id, reservation_payment_id, reservation_id, refund_number, refund_date,
+         amount, currency, refund_method, destination_type, cash_session_id, cash_movement_id,
+         bank_account_id, bank_transaction_id, reason, idempotency_key, status, created_at, created_by
+       )
+       VALUES (
+         $1, $2, $3, $4, $5::date,
+         $6, $7, $8, $9, $10, $11,
+         $12, $13, $14, $15, $16, NOW(), $17
+       )
+       RETURNING *`,
+      [
+        organizationId,
+        payload.reservation_payment_id,
+        payload.reservation_id,
+        payload.refund_number,
+        payload.refund_date,
+        payload.amount,
+        payload.currency,
+        payload.refund_method,
+        payload.destination_type,
+        payload.cash_session_id ?? null,
+        payload.cash_movement_id ?? null,
+        payload.bank_account_id ?? null,
+        payload.bank_transaction_id ?? null,
+        payload.reason,
+        payload.idempotency_key,
+        payload.status ?? 'CONFIRMED',
+        userId,
+      ],
+    );
+    return rows[0];
+  }
+
+  async updateReservationRefundLinks(
+    organizationId: number,
+    refundId: number,
+    payload: { cash_movement_id?: number | null; bank_transaction_id?: number | null },
+    client: PoolClient,
+  ) {
+    const { rows } = await client.query(
+      `UPDATE sales_reservation_refunds
+       SET cash_movement_id = COALESCE($3, cash_movement_id),
+           bank_transaction_id = COALESCE($4, bank_transaction_id)
+       WHERE id = $1
+         AND organization_id = $2
+       RETURNING *`,
+      [refundId, organizationId, payload.cash_movement_id ?? null, payload.bank_transaction_id ?? null],
+    );
+    return rows[0] ?? null;
+  }
+
+  async updateReservationPaymentStatus(
+    organizationId: number,
+    paymentId: number,
+    payload: { status: string; cancelled_at?: string | null; cancelled_by?: number | null; cancellation_reason?: string | null },
+    client: PoolClient,
+  ) {
+    const { rows } = await client.query(
+      `UPDATE sales_reservation_payments
+       SET status = $3,
+           cancelled_at = CASE WHEN $4::timestamptz IS NULL THEN cancelled_at ELSE $4::timestamptz END,
+           cancelled_by = CASE WHEN $5::bigint IS NULL THEN cancelled_by ELSE $5::bigint END,
+           cancellation_reason = CASE WHEN $6::text IS NULL THEN cancellation_reason ELSE $6::text END
+       WHERE id = $1
+         AND organization_id = $2
+       RETURNING *`,
+      [paymentId, organizationId, payload.status, payload.cancelled_at ?? null, payload.cancelled_by ?? null, payload.cancellation_reason ?? null],
+    );
+    return rows[0] ?? null;
+  }
+
+  async createReservationFeeAllocation(organizationId: number, userId: number | null, payload: Record<string, unknown>, client: PoolClient) {
+    const { rows } = await client.query(
+      `INSERT INTO sales_reservation_fee_allocations (
+         organization_id, reservation_id, reservation_payment_id, subscription_id, amount, currency, created_at, created_by
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)
+       RETURNING *`,
+      [
+        organizationId,
+        payload.reservation_id,
+        payload.reservation_payment_id ?? null,
+        payload.subscription_id,
+        payload.amount,
+        payload.currency,
+        userId,
+      ],
+    );
+    return rows[0];
+  }
+
+  async listActiveReservationFeeAllocations(organizationId: number, reservationId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT *
+       FROM sales_reservation_fee_allocations
+       WHERE organization_id = $1
+         AND reservation_id = $2
+         AND reversed_at IS NULL
+       ORDER BY created_at ASC, id ASC`,
+      [organizationId, reservationId],
+      client,
+    );
+    return rows;
   }
 }

@@ -10,6 +10,9 @@ import {
   SALES_DOCUMENT_GENERATION_STATUSES,
   SALES_INSTALLMENT_TYPES,
   SALES_PROJECT_STATUSES,
+  SALES_RESERVATION_DESTINATION_TYPES,
+  SALES_RESERVATION_PAYMENT_METHODS,
+  SALES_RESERVATION_PAYMENT_STATUSES,
   SALES_RESERVATION_STATUSES,
   SALES_SCHEDULE_FREQUENCIES,
   SALES_SUBSCRIPTION_STATUSES,
@@ -202,6 +205,70 @@ export class UpdateSalesSettingsDto {
   @Min(0)
   @IsOptional()
   reservation_default_fee?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  reservation_fee_enabled?: boolean;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  reservation_fee_default_amount?: number;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_SUPPORTED_CURRENCIES)
+  reservation_fee_default_currency?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(['DEDUCTIBLE', 'NON_DEDUCTIBLE', 'PARTIALLY_DEDUCTIBLE'])
+  reservation_fee_deductibility?: string;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  reservation_fee_deductible_percentage?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  reservation_fee_refundable?: boolean;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  reservation_fee_refundable_percentage?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  reservation_fee_refund_deadline_days?: number;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(['CUSTOMER_ADVANCE', 'RESERVATION_FEE_REVENUE'])
+  reservation_fee_accounting_treatment?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  reservation_payment_number_format?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  reservation_refund_number_format?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  reservation_receipt_number_format?: string;
 
   @trimString()
   @IsOptional()
@@ -550,6 +617,108 @@ export class SalesReservationStatusActionDto {
   @IsOptional()
   @IsString()
   reason?: string;
+}
+
+export class CreateSalesReservationPaymentDto {
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  amount!: number;
+
+  @trimString()
+  @IsString()
+  payment_date!: string;
+
+  @trimString()
+  @IsIn(SALES_RESERVATION_PAYMENT_METHODS)
+  payment_method!: string;
+
+  @trimString()
+  @IsIn(SALES_RESERVATION_DESTINATION_TYPES)
+  destination_type!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  @IsOptional()
+  cash_session_id?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  @IsOptional()
+  bank_account_id?: number;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  external_reference?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  idempotency_key?: string;
+}
+
+export class CancelSalesReservationPaymentDto {
+  @trimString()
+  @IsString()
+  reason!: string;
+}
+
+export class CreateSalesReservationRefundDto {
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  amount!: number;
+
+  @trimString()
+  @IsString()
+  refund_date!: string;
+
+  @trimString()
+  @IsIn(SALES_RESERVATION_PAYMENT_METHODS)
+  refund_method!: string;
+
+  @trimString()
+  @IsIn(SALES_RESERVATION_DESTINATION_TYPES)
+  destination_type!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  @IsOptional()
+  cash_session_id?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  @IsOptional()
+  bank_account_id?: number;
+
+  @trimString()
+  @IsString()
+  reason!: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  external_reference?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  idempotency_key?: string;
 }
 
 export class CustomInstallmentDto {

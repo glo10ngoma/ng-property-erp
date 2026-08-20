@@ -4,8 +4,11 @@ import { useAuth } from '../../../core/auth/AuthContext';
 import {
   approveSalesSubscription,
   cancelSalesReservation,
+  cancelSalesReservationPayment,
   cancelSalesSubscription,
   confirmSalesReservation,
+  createSalesReservationPayment,
+  createSalesReservationRefund,
   convertSalesReservation,
   createSalesReservation,
   createSalesSubscription,
@@ -15,6 +18,7 @@ import {
   getSalesReservation,
   getSalesSettings,
   getSalesSubscription,
+  regenerateSalesReservationPaymentReceipt,
   listSalesDocumentTemplates,
   listSalesBuyers,
   listSalesCatalog,
@@ -33,12 +37,16 @@ import {
 } from '../api/sales.api';
 import {
   SALES_DEPOSIT_TYPES,
+  SALES_RESERVATION_DESTINATION_TYPES,
+  SALES_RESERVATION_PAYMENT_METHODS,
   SALES_RESERVATION_STATUSES,
   SALES_SCHEDULE_FREQUENCIES,
   SALES_SUBSCRIPTION_ORIGIN_MODES,
   SALES_SUBSCRIPTION_STATUSES,
   SALES_SUPPORTED_CURRENCIES,
   type CreateSalesReservationInput,
+  type CreateSalesReservationPaymentInput,
+  type CreateSalesReservationRefundInput,
   type CreateSalesSubscriptionInput,
   type CustomInstallmentInput,
   type SalesBuyer,
@@ -48,6 +56,7 @@ import {
   type SalesDocumentTemplatePayload,
   type SalesProject,
   type SalesReservation,
+  type SalesReservationPayment,
   type SalesSettings,
   type SalesSubscription,
   type SalesSubscriptionInstallment,
@@ -108,6 +117,29 @@ type SubscriptionFormState = {
   custom_installments: CustomInstallmentInput[];
 };
 
+type ReservationPaymentFormState = {
+  amount: string;
+  payment_date: string;
+  payment_method: string;
+  destination_type: string;
+  cash_session_id: string;
+  bank_account_id: string;
+  external_reference: string;
+  notes: string;
+};
+
+type ReservationRefundFormState = {
+  amount: string;
+  refund_date: string;
+  refund_method: string;
+  destination_type: string;
+  cash_session_id: string;
+  bank_account_id: string;
+  reason: string;
+  external_reference: string;
+  notes: string;
+};
+
 const RESERVATION_STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Brouillon',
   ACTIVE: 'Active',
@@ -124,6 +156,20 @@ const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
   REJECTED: 'Rejetée',
   CONVERTED: 'Convertie',
   CANCELLED: 'Annulée',
+};
+
+const RESERVATION_PAYMENT_STATUS_LABELS: Record<string, string> = {
+  CONFIRMED: 'Confirmé',
+  CANCELLED: 'Annulé',
+  PARTIALLY_REFUNDED: 'Partiellement remboursé',
+  REFUNDED: 'Remboursé',
+};
+
+const RESERVATION_PAYMENT_METHOD_LABELS: Record<string, string> = {
+  CASH: 'Caisse',
+  BANK: 'Banque',
+  MOBILE_MONEY: 'Mobile money',
+  OTHER: 'Autre',
 };
 
 type SalesDetailAction = {
@@ -555,6 +601,16 @@ function subscriptionOptionsStatus(status: string) {
   return SUBSCRIPTION_STATUS_LABELS[status] || status;
 }
 
+function reservationPaymentStatusLabel(status?: string | null) {
+  if (!status) return 'À définir';
+  return RESERVATION_PAYMENT_STATUS_LABELS[status] || status;
+}
+
+function reservationPaymentMethodLabel(method?: string | null) {
+  if (!method) return 'À définir';
+  return RESERVATION_PAYMENT_METHOD_LABELS[method] || method;
+}
+
 export function SalesReservationsPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
@@ -802,7 +858,7 @@ export function SalesReservationFormPage() {
               <SalesField label="Prix négocié">
                 <input className="sales-v21-input" inputMode="decimal" value={form.negotiated_price} onChange={(event) => setForm((current) => ({ ...current, negotiated_price: event.target.value }))} />
               </SalesField>
-              <SalesField label="Frais de réservation convenus" hint={settings?.reservation_fee_required ? `Minimum configuré : ${settings.reservation_default_fee ?? 0}` : 'Montant convenu uniquement. L’encaissement sera branché en V3.1.1.'}>
+              <SalesField label="Frais de réservation convenus" hint={settings?.reservation_fee_required ? `Minimum configuré : ${settings.reservation_default_fee ?? 0}` : 'Montant convenu hors encaissements déjà reçus.'}>
                 <input className="sales-v21-input" inputMode="decimal" value={form.reservation_fee} onChange={(event) => setForm((current) => ({ ...current, reservation_fee: event.target.value }))} />
               </SalesField>
             </SalesFormSection>
@@ -843,6 +899,23 @@ export function SalesReservationDetailPage() {
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [paymentForm, setPaymentForm] = useState<ReservationPaymentFormState>({
+    amount: '',
+    payment_date: new Date().toISOString().slice(0, 10),
+    payment_method: 'CASH',
+    destination_type: 'CASH',
+    cash_session_id: '',
+    bank_account_id: '',
+    external_reference: '',
+    notes: '',
+  });
+  const [refundTargetId, setRefundTargetId] = useState<number | null>(null);
+  const [refundForms, setRefundForms] = useState<Record<number, ReservationRefundFormState>>({});
+
+  async function reloadReservation() {
+    const response = await getSalesReservation(reservationId);
+    setItem(response);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -864,6 +937,16 @@ export function SalesReservationDetailPage() {
     };
   }, [reservationId]);
 
+  useEffect(() => {
+    if (!item) return;
+    setPaymentForm((current) => ({
+      ...current,
+      amount: current.amount || String(Number(item.fee_summary?.fee_remaining ?? item.reservation_fee ?? 0) || ''),
+      cash_session_id: current.cash_session_id || String(item.payment_destinations?.cash_sessions?.[0]?.id ?? ''),
+      bank_account_id: current.bank_account_id || String(item.payment_destinations?.bank_accounts?.[0]?.id ?? ''),
+    }));
+  }, [item]);
+
   async function runAction(label: string, handler: () => Promise<unknown>) {
     setBusyAction(label);
     setError(null);
@@ -881,6 +964,108 @@ export function SalesReservationDetailPage() {
     const reason = requestBusinessActionReason(actionLabel);
     if (!reason) return;
     await runAction(label, () => handler(reason));
+  }
+
+  function getRefundForm(payment: SalesReservationPayment): ReservationRefundFormState {
+    return refundForms[payment.id] ?? {
+      amount: String(Number(payment.available_refundable_amount ?? 0) || ''),
+      refund_date: new Date().toISOString().slice(0, 10),
+      refund_method: payment.payment_method || 'CASH',
+      destination_type: payment.destination_type || 'CASH',
+      cash_session_id: String(item?.payment_destinations?.cash_sessions?.[0]?.id ?? ''),
+      bank_account_id: String(item?.payment_destinations?.bank_accounts?.[0]?.id ?? ''),
+      reason: '',
+      external_reference: '',
+      notes: '',
+    };
+  }
+
+  function setRefundForm(paymentId: number, patch: Partial<ReservationRefundFormState>) {
+    setRefundForms((current) => ({
+      ...current,
+      [paymentId]: {
+        ...(current[paymentId] ?? {
+          amount: '',
+          refund_date: new Date().toISOString().slice(0, 10),
+          refund_method: 'CASH',
+          destination_type: 'CASH',
+          cash_session_id: String(item?.payment_destinations?.cash_sessions?.[0]?.id ?? ''),
+          bank_account_id: String(item?.payment_destinations?.bank_accounts?.[0]?.id ?? ''),
+          reason: '',
+          external_reference: '',
+          notes: '',
+        }),
+        ...patch,
+      },
+    }));
+  }
+
+  async function submitReservationPayment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!item) return;
+    const payload: CreateSalesReservationPaymentInput = {
+      amount: Number(paymentForm.amount),
+      payment_date: paymentForm.payment_date,
+      payment_method: paymentForm.payment_method,
+      destination_type: paymentForm.destination_type,
+      external_reference: trimOrUndefined(paymentForm.external_reference),
+      notes: trimOrUndefined(paymentForm.notes),
+      idempotency_key: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+    };
+    if (paymentForm.destination_type === 'CASH' && paymentForm.cash_session_id) {
+      payload.cash_session_id = Number(paymentForm.cash_session_id);
+    }
+    if (paymentForm.destination_type === 'BANK' && paymentForm.bank_account_id) {
+      payload.bank_account_id = Number(paymentForm.bank_account_id);
+    }
+    setBusyAction('fee-payment');
+    setError(null);
+    try {
+      await createSalesReservationPayment(item.id, payload);
+      await reloadReservation();
+      setPaymentForm((current) => ({
+        ...current,
+        amount: '',
+        external_reference: '',
+        notes: '',
+      }));
+    } catch (actionError) {
+      setError(getErrorMessage(actionError));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function submitReservationRefund(event: FormEvent<HTMLFormElement>, payment: SalesReservationPayment) {
+    event.preventDefault();
+    const form = getRefundForm(payment);
+    const payload: CreateSalesReservationRefundInput = {
+      amount: Number(form.amount),
+      refund_date: form.refund_date,
+      refund_method: form.refund_method,
+      destination_type: form.destination_type,
+      reason: form.reason,
+      external_reference: trimOrUndefined(form.external_reference),
+      notes: trimOrUndefined(form.notes),
+      idempotency_key: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+    };
+    if (form.destination_type === 'CASH' && form.cash_session_id) {
+      payload.cash_session_id = Number(form.cash_session_id);
+    }
+    if (form.destination_type === 'BANK' && form.bank_account_id) {
+      payload.bank_account_id = Number(form.bank_account_id);
+    }
+    setBusyAction(`refund-${payment.id}`);
+    setError(null);
+    try {
+      await createSalesReservationRefund(payment.id, payload);
+      await reloadReservation();
+      setRefundTargetId(null);
+    } catch (actionError) {
+      setError(getErrorMessage(actionError));
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   return (
@@ -990,6 +1175,279 @@ export function SalesReservationDetailPage() {
               />
             </SalesSection>
           </div>
+
+          <SalesSection
+            title="Frais de réservation"
+            description="Encaissement, reçus, annulation et remboursements partiels directement depuis le dossier."
+          >
+            <div className="sales-v21-fee-grid">
+              <SalesKpiCard
+                label="Convenu"
+                value={formatCurrency(item.fee_summary?.fee_agreed ?? item.reservation_fee ?? 0, item.currency)}
+                helper={`Statut : ${reservationPaymentStatusLabel(item.fee_summary?.payment_status)}`}
+              />
+              <SalesKpiCard
+                label="Encaissé"
+                value={formatCurrency(item.fee_summary?.fee_paid ?? 0, item.currency)}
+                helper={`Remboursé : ${formatCurrency(item.fee_summary?.fee_refunded ?? 0, item.currency)}`}
+              />
+              <SalesKpiCard
+                label="Disponible"
+                value={formatCurrency(item.fee_summary?.fee_available ?? 0, item.currency)}
+                helper={`Alloué : ${formatCurrency(item.fee_summary?.fee_allocated ?? 0, item.currency)}`}
+              />
+              <SalesKpiCard
+                label="Solde à encaisser"
+                value={formatCurrency(item.fee_summary?.fee_remaining ?? 0, item.currency)}
+                helper={`Déductibilité : ${item.fee_summary?.deductibility ?? 'Donnée non disponible'}`}
+              />
+            </div>
+
+            {can('sales_reservation_payments.create') ? (
+              <form className="sales-v21-fee-form" onSubmit={submitReservationPayment}>
+                <SalesField label="Montant">
+                  <input className="sales-v21-input" type="number" min="0" step="0.01" value={paymentForm.amount} onChange={(event) => setPaymentForm((current) => ({ ...current, amount: event.target.value }))} />
+                </SalesField>
+                <SalesField label="Date d’encaissement">
+                  <input className="sales-v21-input" type="date" value={paymentForm.payment_date} onChange={(event) => setPaymentForm((current) => ({ ...current, payment_date: event.target.value }))} />
+                </SalesField>
+                <SalesField label="Canal">
+                  <select
+                    className="sales-v21-select"
+                    value={paymentForm.payment_method}
+                    onChange={(event) => {
+                      const nextMethod = event.target.value;
+                      setPaymentForm((current) => ({
+                        ...current,
+                        payment_method: nextMethod,
+                        destination_type: nextMethod === 'BANK' ? 'BANK' : nextMethod === 'MOBILE_MONEY' ? 'MOBILE_MONEY' : nextMethod === 'OTHER' ? 'OTHER' : 'CASH',
+                      }));
+                    }}
+                  >
+                    {SALES_RESERVATION_PAYMENT_METHODS.map((entry) => <option key={entry} value={entry}>{reservationPaymentMethodLabel(entry)}</option>)}
+                  </select>
+                </SalesField>
+                <SalesField label="Destination">
+                  <select className="sales-v21-select" value={paymentForm.destination_type} onChange={(event) => setPaymentForm((current) => ({ ...current, destination_type: event.target.value }))}>
+                    {SALES_RESERVATION_DESTINATION_TYPES.map((entry) => <option key={entry} value={entry}>{reservationPaymentMethodLabel(entry)}</option>)}
+                  </select>
+                </SalesField>
+                {paymentForm.destination_type === 'CASH' ? (
+                  <SalesField label="Session de caisse">
+                    <select className="sales-v21-select" value={paymentForm.cash_session_id} onChange={(event) => setPaymentForm((current) => ({ ...current, cash_session_id: event.target.value }))}>
+                      <option value="">Sélectionner</option>
+                      {(item.payment_destinations?.cash_sessions ?? []).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+                    </select>
+                  </SalesField>
+                ) : null}
+                {paymentForm.destination_type === 'BANK' ? (
+                  <SalesField label="Compte bancaire">
+                    <select className="sales-v21-select" value={paymentForm.bank_account_id} onChange={(event) => setPaymentForm((current) => ({ ...current, bank_account_id: event.target.value }))}>
+                      <option value="">Sélectionner</option>
+                      {(item.payment_destinations?.bank_accounts ?? []).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+                    </select>
+                  </SalesField>
+                ) : null}
+                <SalesField label="Référence externe">
+                  <input className="sales-v21-input" value={paymentForm.external_reference} onChange={(event) => setPaymentForm((current) => ({ ...current, external_reference: event.target.value }))} />
+                </SalesField>
+                <SalesField label="Notes">
+                  <input className="sales-v21-input" value={paymentForm.notes} onChange={(event) => setPaymentForm((current) => ({ ...current, notes: event.target.value }))} />
+                </SalesField>
+                <div className="sales-v21-fee-actions">
+                  <button className="sales-v21-btn sales-v21-btn-primary" type="submit" disabled={busyAction === 'fee-payment'}>
+                    {busyAction === 'fee-payment' ? 'Encaissement…' : 'Encaisser les frais'}
+                  </button>
+                </div>
+              </form>
+            ) : null}
+
+            {item.payments?.length ? (
+              <SalesDataTable
+                rowKey={(payment) => payment.id}
+                rows={item.payments}
+                columns={[
+                  {
+                    key: 'number',
+                    label: 'Paiement',
+                    render: (payment) => (
+                      <div className="sales-v21-cell-stack">
+                        <strong className="sales-v21-cell-primary">{payment.payment_number}</strong>
+                        <p className="sales-v21-cell-subtitle">{formatDate(payment.payment_date)} · {reservationPaymentMethodLabel(payment.payment_method)}</p>
+                      </div>
+                    ),
+                  },
+                  {
+                    key: 'amount',
+                    label: 'Montant',
+                    render: (payment) => (
+                      <div className="sales-v21-cell-stack">
+                        <strong className="sales-v21-cell-primary">{formatCurrency(payment.amount, payment.currency)}</strong>
+                        <p className="sales-v21-cell-subtitle">Disponible : {formatCurrency(payment.available_refundable_amount ?? 0, payment.currency)}</p>
+                      </div>
+                    ),
+                  },
+                  {
+                    key: 'status',
+                    label: 'Statut',
+                    render: (payment) => (
+                      <div className="sales-v21-cell-stack">
+                        <SalesStatusBadge label={reservationPaymentStatusLabel(payment.status)} tone={getStatusTone(payment.status)} />
+                        <p className="sales-v21-cell-subtitle">Remboursé : {formatCurrency(payment.refunded_amount ?? 0, payment.currency)}</p>
+                      </div>
+                    ),
+                  },
+                  {
+                    key: 'actions',
+                    label: 'Actions',
+                    render: (payment) => (
+                      <div className="sales-v21-table-actions sales-v21-table-actions-wrap">
+                        {payment.receipt ? (
+                          <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => void triggerDocumentDownload(payment.receipt as SalesDocumentGeneration)}>
+                            Télécharger le reçu
+                          </button>
+                        ) : null}
+                        {can('sales_reservation_receipts.generate') ? (
+                          <button
+                            className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact"
+                            type="button"
+                            disabled={busyAction === `receipt-${payment.id}`}
+                            onClick={() => void runAction(`receipt-${payment.id}`, async () => {
+                              await regenerateSalesReservationPaymentReceipt(payment.id);
+                              return getSalesReservation(item.id);
+                            })}
+                          >
+                            Régénérer le reçu
+                          </button>
+                        ) : null}
+                        {can('sales_reservation_payments.refund') && payment.status !== 'CANCELLED' && Number(payment.available_refundable_amount ?? 0) > 0 ? (
+                          <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => setRefundTargetId((current) => current === payment.id ? null : payment.id)}>
+                            {refundTargetId === payment.id ? 'Fermer le remboursement' : 'Rembourser'}
+                          </button>
+                        ) : null}
+                        {can('sales_reservation_payments.cancel') && payment.status === 'CONFIRMED' ? (
+                          <button
+                            className="sales-v21-btn sales-v21-btn-danger sales-v21-btn-compact"
+                            type="button"
+                            disabled={busyAction === `cancel-payment-${payment.id}`}
+                            onClick={() => void runReasonedAction(`cancel-payment-${payment.id}`, 'Annuler ce paiement de frais', (reason) => cancelSalesReservationPayment(payment.id, { reason }).then(() => getSalesReservation(item.id)))}
+                          >
+                            Annuler
+                          </button>
+                        ) : null}
+                      </div>
+                    ),
+                  },
+                ]}
+              />
+            ) : (
+              <SalesEmptyState title="Aucun encaissement enregistré" description="Le premier paiement de frais apparaîtra ici avec son reçu, son statut et ses éventuels remboursements." />
+            )}
+
+            {refundTargetId ? (
+              (() => {
+                const payment = item.payments?.find((entry) => entry.id === refundTargetId);
+                if (!payment) return null;
+                const refundForm = getRefundForm(payment);
+                return (
+                  <form className="sales-v21-refund-panel" onSubmit={(event) => void submitReservationRefund(event, payment)}>
+                    <div className="sales-v21-refund-head">
+                      <div>
+                        <h3>Rembourser {payment.payment_number}</h3>
+                        <p>Disponible : {formatCurrency(payment.available_refundable_amount ?? 0, payment.currency)}</p>
+                      </div>
+                      <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => setRefundTargetId(null)}>Fermer</button>
+                    </div>
+                    <div className="sales-v21-fee-form">
+                      <SalesField label="Montant">
+                        <input className="sales-v21-input" type="number" min="0" step="0.01" value={refundForm.amount} onChange={(event) => setRefundForm(payment.id, { amount: event.target.value })} />
+                      </SalesField>
+                      <SalesField label="Date de remboursement">
+                        <input className="sales-v21-input" type="date" value={refundForm.refund_date} onChange={(event) => setRefundForm(payment.id, { refund_date: event.target.value })} />
+                      </SalesField>
+                      <SalesField label="Canal">
+                        <select
+                          className="sales-v21-select"
+                          value={refundForm.refund_method}
+                          onChange={(event) => {
+                            const nextMethod = event.target.value;
+                            setRefundForm(payment.id, {
+                              refund_method: nextMethod,
+                              destination_type: nextMethod === 'BANK' ? 'BANK' : nextMethod === 'MOBILE_MONEY' ? 'MOBILE_MONEY' : nextMethod === 'OTHER' ? 'OTHER' : 'CASH',
+                            });
+                          }}
+                        >
+                          {SALES_RESERVATION_PAYMENT_METHODS.map((entry) => <option key={entry} value={entry}>{reservationPaymentMethodLabel(entry)}</option>)}
+                        </select>
+                      </SalesField>
+                      <SalesField label="Destination">
+                        <select className="sales-v21-select" value={refundForm.destination_type} onChange={(event) => setRefundForm(payment.id, { destination_type: event.target.value })}>
+                          {SALES_RESERVATION_DESTINATION_TYPES.map((entry) => <option key={entry} value={entry}>{reservationPaymentMethodLabel(entry)}</option>)}
+                        </select>
+                      </SalesField>
+                      {refundForm.destination_type === 'CASH' ? (
+                        <SalesField label="Session de caisse">
+                          <select className="sales-v21-select" value={refundForm.cash_session_id} onChange={(event) => setRefundForm(payment.id, { cash_session_id: event.target.value })}>
+                            <option value="">Sélectionner</option>
+                            {(item.payment_destinations?.cash_sessions ?? []).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+                          </select>
+                        </SalesField>
+                      ) : null}
+                      {refundForm.destination_type === 'BANK' ? (
+                        <SalesField label="Compte bancaire">
+                          <select className="sales-v21-select" value={refundForm.bank_account_id} onChange={(event) => setRefundForm(payment.id, { bank_account_id: event.target.value })}>
+                            <option value="">Sélectionner</option>
+                            {(item.payment_destinations?.bank_accounts ?? []).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+                          </select>
+                        </SalesField>
+                      ) : null}
+                      <SalesField label="Motif">
+                        <input className="sales-v21-input" value={refundForm.reason} onChange={(event) => setRefundForm(payment.id, { reason: event.target.value })} />
+                      </SalesField>
+                      <SalesField label="Référence externe">
+                        <input className="sales-v21-input" value={refundForm.external_reference} onChange={(event) => setRefundForm(payment.id, { external_reference: event.target.value })} />
+                      </SalesField>
+                      <SalesField label="Notes">
+                        <input className="sales-v21-input" value={refundForm.notes} onChange={(event) => setRefundForm(payment.id, { notes: event.target.value })} />
+                      </SalesField>
+                    </div>
+                    <div className="sales-v21-fee-actions">
+                      <button className="sales-v21-btn sales-v21-btn-danger" type="submit" disabled={busyAction === `refund-${payment.id}`}>
+                        {busyAction === `refund-${payment.id}` ? 'Remboursement…' : 'Confirmer le remboursement'}
+                      </button>
+                    </div>
+                  </form>
+                );
+              })()
+            ) : null}
+
+            {item.payments?.some((payment) => payment.refunds?.length) ? (
+              <div className="sales-v21-card-list">
+                {item.payments.flatMap((payment) => (payment.refunds ?? []).map((refund) => (
+                  <article key={refund.id} className="sales-v21-entity-card">
+                    <div className="sales-v21-entity-head">
+                      <div>
+                        <h3>{refund.refund_number}</h3>
+                        <p>{payment.payment_number} · {formatDate(refund.refund_date)}</p>
+                      </div>
+                      <SalesStatusBadge label={reservationPaymentStatusLabel(refund.status)} tone={getStatusTone(refund.status)} />
+                    </div>
+                    <div className="sales-v21-entity-body">
+                      <p>{formatCurrency(refund.amount, refund.currency)} · {reservationPaymentMethodLabel(refund.refund_method)}</p>
+                      <p>{refund.reason}</p>
+                    </div>
+                    {refund.receipt ? (
+                      <div className="sales-v21-table-actions">
+                        <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => void triggerDocumentDownload(refund.receipt as SalesDocumentGeneration)}>
+                          Télécharger le reçu de remboursement
+                        </button>
+                      </div>
+                    ) : null}
+                  </article>
+                )))}
+              </div>
+            ) : null}
+          </SalesSection>
 
           <SalesSection
             title="Documents contractuels"

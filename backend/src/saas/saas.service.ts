@@ -2460,6 +2460,8 @@ export class SaasService {
     const maintenanceExpenseId = Number(movement.maintenance_expense_id ?? 0) || null;
     const treasuryTransferId = Number(movement.treasury_transfer_id ?? 0) || null;
     const shareholderPayoutLineId = Number(movement.shareholder_payout_line_id ?? 0) || null;
+    const salesReservationPaymentId = Number(movement.sales_reservation_payment_id ?? 0) || null;
+    const salesReservationRefundId = Number(movement.sales_reservation_refund_id ?? 0) || null;
 
     if (tenantCreditId || category === 'TENANT_CREDIT') {
       return {
@@ -2491,6 +2493,21 @@ export class SaasService {
         sourceId: paymentId ?? invoiceId,
         sourceRoute: paymentId ? `/payments/${paymentId}` : null,
         sourceLabel: paymentId ? 'Corriger le paiement source' : null,
+      };
+    }
+
+    if (
+      salesReservationPaymentId ||
+      salesReservationRefundId ||
+      ['SALES_RESERVATION_FEE', 'SALES_RESERVATION_FEE_REFUND', 'SALES_RESERVATION_FEE_REVERSAL'].includes(category)
+    ) {
+      return {
+        editable: false,
+        reason: 'Ce mouvement est généré par un encaissement ou un remboursement de frais de réservation. Corrigez l’opération source dans le module Ventes.',
+        sourceType: salesReservationRefundId ? 'SALES_RESERVATION_REFUND' : 'SALES_RESERVATION_PAYMENT',
+        sourceId: salesReservationRefundId ?? salesReservationPaymentId,
+        sourceRoute: null,
+        sourceLabel: null,
       };
     }
 

@@ -3,8 +3,11 @@ import type {
   CreateSalesBuyerInput,
   CreateSalesCatalogInput,
   CreateSalesProjectInput,
+  CreateSalesReservationPaymentInput,
   CreateSalesReservationInput,
+  CreateSalesReservationRefundInput,
   CreateSalesSubscriptionInput,
+  CancelSalesReservationPaymentInput,
   SalesDocumentGeneration,
   SalesDocumentTemplate,
   SalesDocumentTemplatePayload,
@@ -15,6 +18,7 @@ import type {
   SalesListResult,
   SalesProject,
   SalesReservation,
+  SalesReservationPayment,
   SalesSettings,
   SalesStatusActionInput,
   SalesSubscription,
@@ -179,6 +183,36 @@ export async function listSalesReservationDocuments(id: number) {
 
 export async function regenerateSalesReservationDocument(id: number) {
   const response = await api.post<SalesDocumentGeneration>(`/sales/reservations/${id}/documents/regenerate`);
+  return response.data;
+}
+
+export async function listSalesReservationPayments(id: number) {
+  const response = await api.get<SalesReservationPayment[]>(`/sales/reservations/${id}/payments`);
+  return response.data;
+}
+
+export async function createSalesReservationPayment(id: number, payload: CreateSalesReservationPaymentInput) {
+  const response = await api.post<SalesReservationPayment>(`/sales/reservations/${id}/payments`, payload);
+  return response.data;
+}
+
+export async function getSalesReservationPayment(id: number) {
+  const response = await api.get<SalesReservationPayment>(`/sales/reservation-payments/${id}`);
+  return response.data;
+}
+
+export async function cancelSalesReservationPayment(id: number, payload: CancelSalesReservationPaymentInput) {
+  const response = await api.post<SalesReservationPayment>(`/sales/reservation-payments/${id}/cancel`, payload);
+  return response.data;
+}
+
+export async function createSalesReservationRefund(id: number, payload: CreateSalesReservationRefundInput) {
+  const response = await api.post<SalesReservationPayment>(`/sales/reservation-payments/${id}/refunds`, payload);
+  return response.data;
+}
+
+export async function regenerateSalesReservationPaymentReceipt(id: number) {
+  const response = await api.post<SalesDocumentGeneration>(`/sales/reservation-payments/${id}/receipt/regenerate`);
   return response.data;
 }
 
