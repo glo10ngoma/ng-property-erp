@@ -1439,6 +1439,7 @@ export function SalesCatalogPage() {
         {!!catalog.length && (
           <>
             <SalesDataTable
+              wrapClassName="sales-v21-table-wrap-mobile-hidden"
               rowKey={(item) => item.id}
               rows={catalog}
               rowHref={(item) => `/sales/catalog/${item.id}`}
@@ -1447,38 +1448,42 @@ export function SalesCatalogPage() {
                 {
                   key: 'asset',
                   label: 'Bien',
+                  className: 'sales-v21-column-asset',
                   render: (item) => (
                     <div className="sales-v21-cell-stack">
-                      <strong className="sales-v21-cell-primary">{item.title}</strong>
-                      <p className="sales-v21-cell-subtitle">{item.catalog_ref} ⬢ {item.property_type}</p>
+                      <strong className="sales-v21-cell-primary" title={item.title}>{item.title}</strong>
+                      <p className="sales-v21-cell-subtitle" title={`${item.catalog_ref} · ${item.property_type}`}>{item.catalog_ref} ⬢ {item.property_type}</p>
                     </div>
                   ),
                 },
                 {
                   key: 'project',
                   label: 'Projet',
+                  className: 'sales-v21-column-project',
                   render: (item) => (
                     <div className="sales-v21-cell-stack">
-                      <strong className="sales-v21-cell-primary">{item.project_name || 'Donnée non disponible'}</strong>
-                      <p className="sales-v21-cell-subtitle">{item.location_label || 'Localisation non renseignée'}</p>
+                      <strong className="sales-v21-cell-primary" title={item.project_name || '—'}>{item.project_name || '—'}</strong>
+                      <p className="sales-v21-cell-subtitle" title={item.location_label || '—'}>{item.location_label || '—'}</p>
                     </div>
                   ),
                 },
                 {
                   key: 'type-surface',
                   label: 'Type / surface',
+                  className: 'sales-v21-column-type',
                   render: (item) => (
                     <div className="sales-v21-cell-stack">
                       <strong className="sales-v21-cell-primary">{item.property_type}</strong>
-                      <p className="sales-v21-cell-subtitle">{item.surface_area ? `${item.surface_area} m²` : 'Surface non renseignée'}</p>
+                      <p className="sales-v21-cell-subtitle">{item.surface_area ? `${item.surface_area} m²` : '—'}</p>
                     </div>
                   ),
                 },
                 {
                   key: 'pricing',
                   label: 'Prix',
+                  className: 'sales-v21-column-price sales-v21-cell-right',
                   render: (item) => (
-                    <div>
+                    <div className="sales-v21-cell-right">
                       <strong>{formatCurrency(item.list_price, item.currency)}</strong>
                       <p className="sales-v21-cell-subtitle">Minimum : {formatCurrency(item.minimum_price, item.currency)}</p>
                     </div>

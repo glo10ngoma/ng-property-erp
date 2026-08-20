@@ -1,4 +1,4 @@
-import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
+import { useEffect, useRef, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import '../sales.css';
 
@@ -289,6 +289,26 @@ export function SalesInlineNotice({
   return <div className={`sales-v21-inline-notice sales-v21-inline-notice-${tone}`}>{children}</div>;
 }
 
+export function SalesSubNavigation({
+  items,
+}: {
+  items: Array<{ key: string; label: string; to: string; isActive: boolean }>;
+}) {
+  return (
+    <nav className="sales-v21-subnav" aria-label="Sous-navigation paramètres Sales">
+      {items.map((item) => (
+        <NavLink
+          key={item.key}
+          to={item.to}
+          className={['sales-v21-subnav-link', item.isActive ? 'is-active' : ''].filter(Boolean).join(' ')}
+        >
+          {item.label}
+        </NavLink>
+      ))}
+    </nav>
+  );
+}
+
 export function SalesDataTable<T>({
   columns,
   rows,
@@ -297,6 +317,7 @@ export function SalesDataTable<T>({
   onRowClick,
   rowClassName,
   rowAriaLabel,
+  wrapClassName,
 }: {
   columns: Array<{ key: string; label: string; render: (row: T) => ReactNode; className?: string }>;
   rows: T[];
@@ -305,6 +326,7 @@ export function SalesDataTable<T>({
   onRowClick?: (row: T) => void;
   rowClassName?: (row: T) => string | undefined;
   rowAriaLabel?: (row: T) => string | undefined;
+  wrapClassName?: string;
 }) {
   const navigate = useNavigate();
 
@@ -318,7 +340,7 @@ export function SalesDataTable<T>({
   };
 
   return (
-    <div className="sales-v21-table-wrap">
+    <div className={['sales-v21-table-wrap', wrapClassName].filter(Boolean).join(' ')}>
       <table className="sales-v21-table">
         <thead>
           <tr>
@@ -374,6 +396,106 @@ export function SalesDataTable<T>({
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+export function SalesActionDialog({
+  open,
+  title,
+  description,
+  entitySummary,
+  confirmLabel,
+  reason,
+  reasonPlaceholder = 'Saisissez le motif',
+  minLength = 1,
+  busy = false,
+  error,
+  onReasonChange,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  title: string;
+  description: string;
+  entitySummary?: ReactNode;
+  confirmLabel: string;
+  reason: string;
+  reasonPlaceholder?: string;
+  minLength?: number;
+  busy?: boolean;
+  error?: string | null;
+  onReasonChange: (value: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const trimmedLength = reason.trim().length;
+
+  useEffect(() => {
+    if (!open) return undefined;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const timeout = window.setTimeout(() => textareaRef.current?.focus(), 30);
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape' && !busy) {
+        event.preventDefault();
+        onCancel();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener('keydown', handleKeyDown);
+      previousFocusRef.current?.focus?.();
+    };
+  }, [busy, onCancel, open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="sales-v21-dialog-backdrop" role="presentation">
+      <div
+        className="sales-v21-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sales-action-dialog-title"
+        aria-describedby="sales-action-dialog-description"
+      >
+        <div className="sales-v21-dialog-head">
+          <div>
+            <h3 id="sales-action-dialog-title">{title}</h3>
+            <p id="sales-action-dialog-description">{description}</p>
+          </div>
+        </div>
+        {entitySummary ? <div className="sales-v21-dialog-summary">{entitySummary}</div> : null}
+        <label className="sales-v21-field">
+          <span className="sales-v21-field-label">Motif obligatoire</span>
+          <textarea
+            ref={textareaRef}
+            className="sales-v21-textarea"
+            rows={5}
+            value={reason}
+            placeholder={reasonPlaceholder}
+            onChange={(event) => onReasonChange(event.target.value)}
+          />
+          <div className="sales-v21-dialog-meta">
+            <small className={trimmedLength < minLength ? 'sales-v21-field-error' : 'sales-v21-field-hint'}>
+              {trimmedLength < minLength ? 'Un motif est obligatoire pour poursuivre cette action.' : 'Motif prêt à être enregistré dans l’audit.'}
+            </small>
+            <small className="sales-v21-field-hint">{trimmedLength} caractère{trimmedLength > 1 ? 's' : ''}</small>
+          </div>
+        </label>
+        {error ? <SalesInlineNotice tone="danger">{error}</SalesInlineNotice> : null}
+        <div className="sales-v21-dialog-actions">
+          <button className="sales-v21-btn sales-v21-btn-secondary" type="button" disabled={busy} onClick={onCancel}>
+            Annuler
+          </button>
+          <button className="sales-v21-btn sales-v21-btn-primary" type="button" disabled={busy || trimmedLength < minLength} onClick={onConfirm}>
+            {busy ? 'Confirmation…' : confirmLabel}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

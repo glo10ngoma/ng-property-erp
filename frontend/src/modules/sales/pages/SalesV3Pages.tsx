@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../core/auth/AuthContext';
 import {
   approveSalesSubscription,
@@ -63,6 +63,7 @@ import {
   type SalesSubscriptionSimulation,
 } from '../types';
 import {
+  SalesActionDialog,
   SalesDataTable,
   SalesEmptyState,
   SalesField,
@@ -76,6 +77,7 @@ import {
   SalesModulePage,
   SalesSection,
   SalesStatusBadge,
+  SalesSubNavigation,
   type SalesStatusTone,
 } from '../components/SalesUi';
 
@@ -274,20 +276,6 @@ function SalesDetailActionsCard({
   );
 }
 
-function requestBusinessActionReason(actionLabel: string) {
-  const reason = window.prompt(`Motif obligatoire pour l’action « ${actionLabel} » :`, '');
-  if (reason == null) return null;
-  const trimmed = reason.trim();
-  if (!trimmed) {
-    window.alert('Un motif est obligatoire pour poursuivre cette action.');
-    return null;
-  }
-  if (!window.confirm(`Confirmer l’action « ${actionLabel} » ?`)) {
-    return null;
-  }
-  return trimmed;
-}
-
 function parseOptionalNumber(value: string) {
   if (!value.trim()) return undefined;
   const number = Number(value);
@@ -313,6 +301,49 @@ function formatCurrency(value?: number | null, currency?: string | null) {
     currency: currency || 'USD',
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function reservationFeeDeductibilityLabel(value?: string | null) {
+  if (!value) return '—';
+  if (value === 'DEDUCTIBLE') return 'Déductibles';
+  if (value === 'NON_DEDUCTIBLE') return 'Non déductibles';
+  if (value === 'PARTIALLY_DEDUCTIBLE') return 'Partiellement déductibles';
+  return value;
+}
+
+function salesFrequencyLabel(value?: string | null) {
+  if (!value) return '—';
+  if (value === 'MONTHLY') return 'Mensuelle';
+  if (value === 'QUARTERLY') return 'Trimestrielle';
+  if (value === 'CUSTOM') return 'Personnalisée';
+  return value;
+}
+
+function accountingTreatmentLabel(value?: string | null) {
+  if (!value) return '—';
+  if (value === 'CUSTOMER_ADVANCE') return 'Avance client';
+  if (value === 'RESERVATION_FEE_REVENUE') return 'Produit des frais de réservation';
+  return value;
+}
+
+function boolSettingLabel(value?: boolean | null) {
+  return value ? 'Activée' : 'Désactivée';
+}
+
+function buildNumberingExample(format?: string | null, fallback = 'SALES-2026-0001') {
+  if (!format?.trim()) return fallback;
+  return format
+    .replace(/\{\{\s*YYYY\s*\}\}/gi, '2026')
+    .replace(/\{\{\s*YY\s*\}\}/gi, '26')
+    .replace(/\{\{\s*MM\s*\}\}/gi, '08')
+    .replace(/\{\{\s*ORG\s*\}\}/gi, 'SAL')
+    .replace(/\{\{\s*SEQ(?::\d+)?\s*\}\}/gi, '0001')
+    .replace(/\bYYYY\b/g, '2026')
+    .replace(/\bYY\b/g, '26')
+    .replace(/\bMM\b/g, '08')
+    .replace(/\bORG\b/g, 'SAL')
+    .replace(/\bSEQ\b/g, '0001')
+    .replace(/#+/g, (match) => '0'.repeat(Math.max(match.length - 1, 0)) + '1');
 }
 
 function hasPreviewHtmlMarkup(value: string) {
@@ -899,6 +930,15 @@ export function SalesReservationDetailPage() {
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reasonDialog, setReasonDialog] = useState<{
+    actionKey: string;
+    title: string;
+    description: string;
+    confirmLabel: string;
+    reason: string;
+    error: string | null;
+    handler: (reason: string) => Promise<unknown>;
+  } | null>(null);
   const [paymentForm, setPaymentForm] = useState<ReservationPaymentFormState>({
     amount: '',
     payment_date: new Date().toISOString().slice(0, 10),
@@ -961,9 +1001,37 @@ export function SalesReservationDetailPage() {
   }
 
   async function runReasonedAction(label: string, actionLabel: string, handler: (reason: string) => Promise<unknown>) {
-    const reason = requestBusinessActionReason(actionLabel);
-    if (!reason) return;
-    await runAction(label, () => handler(reason));
+    setReasonDialog({
+      actionKey: label,
+      title: actionLabel,
+      description: 'Cette action modifie le statut de la réservation. Le motif sera enregistré dans l’audit métier.',
+      confirmLabel: actionLabel,
+      reason: '',
+      error: null,
+      handler,
+    });
+  }
+
+  async function confirmReasonDialog() {
+    if (!reasonDialog) return;
+    const trimmedReason = reasonDialog.reason.trim();
+    if (!trimmedReason) {
+      setReasonDialog((current) => current ? { ...current, error: 'Un motif est obligatoire pour poursuivre cette action.' } : current);
+      return;
+    }
+    setBusyAction(reasonDialog.actionKey);
+    setError(null);
+    setReasonDialog((current) => current ? { ...current, error: null } : current);
+    try {
+      const response = await reasonDialog.handler(trimmedReason);
+      setItem(response as SalesReservation);
+      setReasonDialog(null);
+    } catch (actionError) {
+      const message = getErrorMessage(actionError);
+      setReasonDialog((current) => current ? { ...current, error: message } : current);
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   function getRefundForm(payment: SalesReservationPayment): ReservationRefundFormState {
@@ -1095,14 +1163,14 @@ export function SalesReservationDetailPage() {
             <SalesSection title="Résumé" description="Les points essentiels avant transformation en souscription.">
               <SalesInfoList
                 items={[
-                  { label: 'Projet', value: item.project_name || 'Donnée non disponible' },
+                  { label: 'Projet', value: item.project_name || '—' },
                   { label: 'Date de réservation', value: formatDate(item.reservation_date) },
                   { label: 'Expiration', value: formatDate(item.expires_at) },
-                  { label: 'Confirmée le', value: formatDate(item.confirmed_at) },
-                  { label: 'Annulée le', value: formatDate(item.cancelled_at) },
+                  { label: 'Confirmée le', value: item.confirmed_at ? formatDate(item.confirmed_at) : '—' },
+                  { label: 'Annulée le', value: item.cancelled_at ? formatDate(item.cancelled_at) : '—' },
                 ]}
               />
-              <p>{item.notes || 'Aucune note complémentaire.'}</p>
+              <p className="sales-v21-reservation-note">{item.notes || 'Aucune note complémentaire.'}</p>
             </SalesSection>
 
             <SalesSection title="Actions métier" description="Carte compacte : action principale visible, actions sensibles regroupées et toujours motivées.">
@@ -1199,16 +1267,21 @@ export function SalesReservationDetailPage() {
               <SalesKpiCard
                 label="Solde à encaisser"
                 value={formatCurrency(item.fee_summary?.fee_remaining ?? 0, item.currency)}
-                helper={`Déductibilité : ${item.fee_summary?.deductibility ?? 'Donnée non disponible'}`}
+                helper={`Déductibilité : ${reservationFeeDeductibilityLabel(item.fee_summary?.deductibility)}`}
               />
             </div>
 
-            {can('sales_reservation_payments.create') ? (
-              <form className="sales-v21-fee-form" onSubmit={submitReservationPayment}>
+            {can('sales_reservation_payments.create') && Number(item.fee_summary?.fee_remaining ?? 0) > 0 ? (
+              <div className="sales-v21-fee-form-card">
+                <div className="sales-v21-fee-form-card-head">
+                  <h3>Encaisser les frais</h3>
+                  <p>Le formulaire est séparé du résumé pour garder les montants lisibles et limiter les erreurs de saisie.</p>
+                </div>
+                <form className="sales-v21-fee-form" onSubmit={submitReservationPayment}>
                 <SalesField label="Montant">
                   <input className="sales-v21-input" type="number" min="0" step="0.01" value={paymentForm.amount} onChange={(event) => setPaymentForm((current) => ({ ...current, amount: event.target.value }))} />
                 </SalesField>
-                <SalesField label="Date d’encaissement">
+                <SalesField label="Date">
                   <input className="sales-v21-input" type="date" value={paymentForm.payment_date} onChange={(event) => setPaymentForm((current) => ({ ...current, payment_date: event.target.value }))} />
                 </SalesField>
                 <SalesField label="Canal">
@@ -1248,18 +1321,19 @@ export function SalesReservationDetailPage() {
                     </select>
                   </SalesField>
                 ) : null}
-                <SalesField label="Référence externe">
+                <SalesField label="Référence">
                   <input className="sales-v21-input" value={paymentForm.external_reference} onChange={(event) => setPaymentForm((current) => ({ ...current, external_reference: event.target.value }))} />
                 </SalesField>
-                <SalesField label="Notes">
+                <SalesField label="Note">
                   <input className="sales-v21-input" value={paymentForm.notes} onChange={(event) => setPaymentForm((current) => ({ ...current, notes: event.target.value }))} />
                 </SalesField>
                 <div className="sales-v21-fee-actions">
                   <button className="sales-v21-btn sales-v21-btn-primary" type="submit" disabled={busyAction === 'fee-payment'}>
-                    {busyAction === 'fee-payment' ? 'Encaissement…' : 'Encaisser les frais'}
+                    {busyAction === 'fee-payment' ? 'Encaissement…' : 'Payer les frais'}
                   </button>
                 </div>
-              </form>
+                </form>
+              </div>
             ) : null}
 
             {item.payments?.length ? (
@@ -1978,6 +2052,15 @@ export function SalesSubscriptionDetailPage() {
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reasonDialog, setReasonDialog] = useState<{
+    actionKey: string;
+    title: string;
+    description: string;
+    confirmLabel: string;
+    reason: string;
+    error: string | null;
+    handler: (reason: string) => Promise<unknown>;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -2013,9 +2096,37 @@ export function SalesSubscriptionDetailPage() {
   }
 
   async function runReasonedAction(label: string, actionLabel: string, handler: (reason: string) => Promise<unknown>) {
-    const reason = requestBusinessActionReason(actionLabel);
-    if (!reason) return;
-    await runAction(label, () => handler(reason));
+    setReasonDialog({
+      actionKey: label,
+      title: actionLabel,
+      description: 'Cette action sera journalisée avec son motif. Aucun appel API ne part avant votre confirmation.',
+      confirmLabel: actionLabel,
+      reason: '',
+      error: null,
+      handler,
+    });
+  }
+
+  async function confirmReasonDialog() {
+    if (!reasonDialog) return;
+    const trimmedReason = reasonDialog.reason.trim();
+    if (!trimmedReason) {
+      setReasonDialog((current) => current ? { ...current, error: 'Un motif est obligatoire pour poursuivre cette action.' } : current);
+      return;
+    }
+    setBusyAction(reasonDialog.actionKey);
+    setError(null);
+    setReasonDialog((current) => current ? { ...current, error: null } : current);
+    try {
+      const response = await reasonDialog.handler(trimmedReason);
+      setItem(response as SalesSubscription);
+      setReasonDialog(null);
+    } catch (actionError) {
+      const message = getErrorMessage(actionError);
+      setReasonDialog((current) => current ? { ...current, error: message } : current);
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   return (
@@ -2045,14 +2156,14 @@ export function SalesSubscriptionDetailPage() {
             <SalesSection title="Résumé contractuel" description="Points de contrôle avant approbation ou rejet.">
               <SalesInfoList
                 items={[
-                  { label: 'Bien', value: item.catalog_title || item.catalog_ref || 'Donnée non disponible' },
-                  { label: 'Projet', value: item.project_name || 'Donnée non disponible' },
+                  { label: 'Bien', value: item.catalog_title || item.catalog_ref || '—' },
+                  { label: 'Projet', value: item.project_name || '—' },
                   { label: 'Réservation liée', value: item.reservation_number || 'Aucune' },
-                  { label: 'Fréquence', value: item.frequency },
-                  { label: 'Approuvée le', value: formatDate(item.approved_at) },
+                  { label: 'Fréquence', value: salesFrequencyLabel(item.frequency) },
+                  { label: 'Approuvée le', value: item.approved_at ? formatDate(item.approved_at) : '—' },
                 ]}
               />
-              <p>{item.notes || 'Aucune note contractuelle.'}</p>
+              <p className="sales-v21-reservation-note">{item.notes || 'Aucune note contractuelle.'}</p>
             </SalesSection>
 
             <SalesSection title="Actions métier" description="Bloc compact : action principale prioritaire, actions sensibles regroupées et journalisées avec motif.">
@@ -2165,6 +2276,29 @@ export function SalesSubscriptionDetailPage() {
           </SalesSection>
         </>
       ) : null}
+      <SalesActionDialog
+        open={Boolean(reasonDialog)}
+        title={reasonDialog?.title || 'Confirmer l’action'}
+        description={reasonDialog?.description || ''}
+        entitySummary={
+          item ? (
+            <>
+              <p><strong>{item.subscription_number || 'Souscription'}</strong></p>
+              <p>{item.buyer_name || item.catalog_title || item.catalog_ref || 'Dossier commercial'}</p>
+            </>
+          ) : undefined
+        }
+        confirmLabel={reasonDialog?.confirmLabel || 'Confirmer'}
+        reason={reasonDialog?.reason || ''}
+        busy={Boolean(reasonDialog && busyAction === reasonDialog.actionKey)}
+        error={reasonDialog?.error || null}
+        onReasonChange={(value) => setReasonDialog((current) => current ? { ...current, reason: value, error: current.error && value.trim() ? null : current.error } : current)}
+        onCancel={() => {
+          if (busyAction) return;
+          setReasonDialog(null);
+        }}
+        onConfirm={() => void confirmReasonDialog()}
+      />
     </SalesModulePage>
   );
 }
@@ -2802,6 +2936,7 @@ function validateTemplateDraft(template: SalesDocumentTemplate) {
 }
 
 export function SalesSettingsPage() {
+  const location = useLocation();
   const [settings, setSettings] = useState<SalesSettings | null>(null);
   const [templates, setTemplates] = useState<SalesDocumentTemplate[]>([]);
   const [subscriptionPreviewItems, setSubscriptionPreviewItems] = useState<SalesSubscription[]>([]);
@@ -2816,9 +2951,46 @@ export function SalesSettingsPage() {
   const [previewReservationId, setPreviewReservationId] = useState('');
   const [previewSubscriptionId, setPreviewSubscriptionId] = useState('');
   const [previewHtml, setPreviewHtml] = useState('');
+  const [editingNumberingField, setEditingNumberingField] = useState<null | {
+    key: keyof SalesSettings;
+    label: string;
+    description: string;
+    fallback: string;
+    value: string;
+  }>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const editorSelectionRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
   const { buyers, catalog, projects, reservations } = useSalesReferenceData();
+
+  const settingsSection = useMemo<'numbering' | 'rules' | 'templates'>(() => {
+    if (location.pathname.endsWith('/rules')) return 'rules';
+    if (location.pathname.endsWith('/templates')) return 'templates';
+    return 'numbering';
+  }, [location.pathname]);
+
+  const numberingItems = useMemo(
+    () => ([
+      { key: 'buyer_number_format', label: 'Format acquéreur', description: 'Référence commerciale des acquéreurs.', fallback: 'BUY-2026-0001' },
+      { key: 'project_number_format', label: 'Format projet', description: 'Identification commerciale des projets.', fallback: 'PRJ-2026-0001' },
+      { key: 'catalog_number_format', label: 'Format bien', description: 'Numérotation du catalogue commercial.', fallback: 'LOT-2026-0001' },
+      { key: 'reservation_number_format', label: 'Format réservation', description: 'Numéros générés pour les réservations.', fallback: 'RSV-2026-0001' },
+      { key: 'subscription_number_format', label: 'Format souscription', description: 'Numéros générés pour les souscriptions.', fallback: 'SUB-2026-0001' },
+      { key: 'reservation_payment_number_format', label: 'Format paiement', description: 'Paiements de frais de réservation.', fallback: 'PAY-2026-0001' },
+      { key: 'reservation_receipt_number_format', label: 'Format reçu', description: 'Reçus des paiements de réservation.', fallback: 'RCT-2026-0001' },
+      { key: 'reservation_contract_number_format', label: 'Format contrat de réservation', description: 'Numéro du contrat de réservation.', fallback: 'CTR-RSV-2026-0001' },
+      { key: 'subscription_contract_number_format', label: 'Format contrat de souscription', description: 'Numéro du contrat de souscription.', fallback: 'CTR-SUB-2026-0001' },
+    ] satisfies Array<{ key: keyof SalesSettings; label: string; description: string; fallback: string }>),
+    [],
+  );
+
+  const settingsNavItems = useMemo(
+    () => [
+      { key: 'numbering', label: 'Numérotation', to: '/sales/settings/numbering', isActive: settingsSection === 'numbering' },
+      { key: 'rules', label: 'Règles opérationnelles', to: '/sales/settings/rules', isActive: settingsSection === 'rules' },
+      { key: 'templates', label: 'Modèles contractuels', to: '/sales/settings/templates', isActive: settingsSection === 'templates' },
+    ],
+    [settingsSection],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -2862,10 +3034,10 @@ export function SalesSettingsPage() {
     return SALES_TEMPLATE_GROUPS[activeTemplateType]
       .map((group) => ({
         ...group,
-        items: group.items.filter((item) => {
-          if (!needle) return true;
-          return item.label.toLowerCase().includes(needle) || item.code.toLowerCase().includes(needle) || item.example.toLowerCase().includes(needle);
-        }),
+        items: group.items.filter((item) => !needle
+          || item.label.toLowerCase().includes(needle)
+          || item.code.toLowerCase().includes(needle)
+          || item.example.toLowerCase().includes(needle)),
       }))
       .filter((group) => group.items.length);
   }, [activeTemplateType, variableSearch]);
@@ -2890,10 +3062,7 @@ export function SalesSettingsPage() {
       ...template,
       template_body: `${template.template_body.slice(0, start)}${code}${template.template_body.slice(end)}`,
     }));
-    editorSelectionRef.current = {
-      start: start + code.length,
-      end: start + code.length,
-    };
+    editorSelectionRef.current = { start: start + code.length, end: start + code.length };
     window.requestAnimationFrame(() => {
       if (!textarea) return;
       textarea.focus();
@@ -2930,6 +3099,24 @@ export function SalesSettingsPage() {
     try {
       const saved = await updateSalesSettings(settings);
       setSettings(saved);
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveNumberingField() {
+    if (!settings || !editingNumberingField) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await updateSalesSettings({
+        ...settings,
+        [editingNumberingField.key]: editingNumberingField.value.trim(),
+      });
+      setSettings(saved);
+      setEditingNumberingField(null);
     } catch (saveError) {
       setError(getErrorMessage(saveError));
     } finally {
@@ -3018,53 +3205,136 @@ export function SalesSettingsPage() {
   return (
     <SalesModulePage
       title="Paramètres métier"
-      subtitle="Numérotation, modèles contractuels versionnés et prévisualisation non contractuelle."
+      subtitle="Numérotation, règles opérationnelles et modèles contractuels structurés par rubriques dédiées."
       activeTab="settings"
     >
+      <SalesSubNavigation items={settingsNavItems} />
       {loading ? <SalesInlineNotice>Chargement des paramètres…</SalesInlineNotice> : null}
       {error ? <SalesInlineNotice tone="danger">{error}</SalesInlineNotice> : null}
-      {settings ? (
-        <form className="sales-v21-form" onSubmit={saveSettings}>
-          <SalesFormSection title="Numérotation" description="Formats générés automatiquement pour les entités commerciales.">
-            <SalesField label="Acquéreurs">
-              <input className="sales-v21-input" value={settings.buyer_number_format ?? ''} onChange={(event) => setSettings((current) => current ? { ...current, buyer_number_format: event.target.value } : current)} />
-            </SalesField>
-            <SalesField label="Projets">
-              <input className="sales-v21-input" value={settings.project_number_format ?? ''} onChange={(event) => setSettings((current) => current ? { ...current, project_number_format: event.target.value } : current)} />
-            </SalesField>
-            <SalesField label="Biens">
-              <input className="sales-v21-input" value={settings.catalog_number_format ?? ''} onChange={(event) => setSettings((current) => current ? { ...current, catalog_number_format: event.target.value } : current)} />
-            </SalesField>
-            <SalesField label="Réservations">
-              <input className="sales-v21-input" value={settings.reservation_number_format ?? ''} onChange={(event) => setSettings((current) => current ? { ...current, reservation_number_format: event.target.value } : current)} />
-            </SalesField>
-            <SalesField label="Souscriptions">
-              <input className="sales-v21-input" value={settings.subscription_number_format ?? ''} onChange={(event) => setSettings((current) => current ? { ...current, subscription_number_format: event.target.value } : current)} />
-            </SalesField>
-            <SalesField label="Contrat de réservation">
-              <input className="sales-v21-input" value={settings.reservation_contract_number_format ?? ''} onChange={(event) => setSettings((current) => current ? { ...current, reservation_contract_number_format: event.target.value } : current)} />
-            </SalesField>
-            <SalesField label="Contrat de souscription">
-              <input className="sales-v21-input" value={settings.subscription_contract_number_format ?? ''} onChange={(event) => setSettings((current) => current ? { ...current, subscription_contract_number_format: event.target.value } : current)} />
-            </SalesField>
-          </SalesFormSection>
 
-          <SalesFormSection title="Règles opérationnelles" description="Conserver le champ de frais convenus sans encore brancher l’encaissement.">
-            <SalesField label="Durée par défaut de réservation (jours)">
-              <input className="sales-v21-input" inputMode="numeric" value={String(settings.reservation_default_duration_days ?? '')} onChange={(event) => setSettings((current) => current ? { ...current, reservation_default_duration_days: Number(event.target.value || 0) } : current)} />
-            </SalesField>
-            <SalesField label="Frais de réservation convenus">
-              <input className="sales-v21-input" inputMode="decimal" value={String(settings.reservation_default_fee ?? '')} onChange={(event) => setSettings((current) => current ? { ...current, reservation_default_fee: Number(event.target.value || 0) } : current)} />
-            </SalesField>
-            <SalesField label="Fréquence par défaut">
-              <select className="sales-v21-select" value={settings.default_installment_frequency ?? 'MONTHLY'} onChange={(event) => setSettings((current) => current ? { ...current, default_installment_frequency: event.target.value } : current)}>
-                {SALES_SCHEDULE_FREQUENCIES.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-            </SalesField>
-            <SalesField label="Échéances maximum">
-              <input className="sales-v21-input" inputMode="numeric" value={String(settings.maximum_installment_count ?? '')} onChange={(event) => setSettings((current) => current ? { ...current, maximum_installment_count: Number(event.target.value || 0) } : current)} />
-            </SalesField>
-          </SalesFormSection>
+      {settings && settingsSection === 'numbering' ? (
+        <SalesSection title="Numérotation" description="Formats actuels, exemple généré et édition ciblée sans exposer les identifiants SQL internes.">
+          <div className="sales-v21-settings-grid">
+            {numberingItems.map((item) => {
+              const currentFormat = String(settings[item.key] ?? '');
+              return (
+                <div key={String(item.key)} className="sales-v21-settings-row">
+                  <div className="sales-v21-settings-row-label">
+                    <strong>{item.label}</strong>
+                    <p>{item.description}</p>
+                  </div>
+                  <div className="sales-v21-settings-row-value">
+                    <strong>{currentFormat || 'Non défini'}</strong>
+                    <p>Format actuel</p>
+                  </div>
+                  <div className="sales-v21-settings-example" title={buildNumberingExample(currentFormat, item.fallback)}>
+                    {buildNumberingExample(currentFormat, item.fallback)}
+                  </div>
+                  <button
+                    className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact"
+                    type="button"
+                    onClick={() => setEditingNumberingField({
+                      key: item.key,
+                      label: item.label,
+                      description: item.description,
+                      fallback: item.fallback,
+                      value: currentFormat,
+                    })}
+                  >
+                    Modifier
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {editingNumberingField ? (
+            <SalesFormSection title={`Modifier — ${editingNumberingField.label}`} description="Le format est enregistré tel quel, puis immédiatement réinjecté dans l’aperçu généré.">
+              <SalesField label="Format">
+                <input className="sales-v21-input" value={editingNumberingField.value} onChange={(event) => setEditingNumberingField((current) => current ? { ...current, value: event.target.value } : current)} />
+              </SalesField>
+              <SalesField label="Exemple généré">
+                <input className="sales-v21-input" value={buildNumberingExample(editingNumberingField.value, editingNumberingField.fallback)} readOnly />
+              </SalesField>
+              <SalesFormActions>
+                <button className="sales-v21-btn sales-v21-btn-secondary" type="button" onClick={() => setEditingNumberingField(null)}>Annuler</button>
+                <button className="sales-v21-btn sales-v21-btn-primary" type="button" disabled={saving} onClick={() => void saveNumberingField()}>
+                  {saving ? 'Enregistrement…' : 'Enregistrer'}
+                </button>
+              </SalesFormActions>
+            </SalesFormSection>
+          ) : null}
+        </SalesSection>
+      ) : null}
+
+      {settings && settingsSection === 'rules' ? (
+        <form className="sales-v21-form" onSubmit={saveSettings}>
+          <div className="sales-v21-rule-grid">
+            <div className="sales-v21-rule-card">
+              <h3>Durée par défaut d’une réservation</h3>
+              <p>Nombre de jours proposé lors de la création d’une réservation.</p>
+              <SalesField label="Durée (jours)">
+                <input className="sales-v21-input" inputMode="numeric" value={String(settings.reservation_default_duration_days ?? '')} onChange={(event) => setSettings((current) => current ? { ...current, reservation_default_duration_days: Number(event.target.value || 0) } : current)} />
+              </SalesField>
+            </div>
+            <div className="sales-v21-rule-card">
+              <h3>Acompte minimum</h3>
+              <p>Montant ou pourcentage exigé avant validation du plan de paiement.</p>
+              <SalesField label="Type d’acompte">
+                <select className="sales-v21-select" value={settings.minimum_deposit_type ?? 'PERCENTAGE'} onChange={(event) => setSettings((current) => current ? { ...current, minimum_deposit_type: event.target.value } : current)}>
+                  {SALES_DEPOSIT_TYPES.map((item) => <option key={item} value={item}>{item === 'PERCENTAGE' ? 'Pourcentage' : 'Montant fixe'}</option>)}
+                </select>
+              </SalesField>
+              <SalesField label="Pourcentage minimum">
+                <input className="sales-v21-input" inputMode="decimal" value={String(settings.minimum_deposit_percentage ?? '')} onChange={(event) => setSettings((current) => current ? { ...current, minimum_deposit_percentage: Number(event.target.value || 0) } : current)} />
+              </SalesField>
+              <SalesField label="Montant minimum">
+                <input className="sales-v21-input" inputMode="decimal" value={String(settings.minimum_deposit_amount ?? '')} onChange={(event) => setSettings((current) => current ? { ...current, minimum_deposit_amount: Number(event.target.value || 0) } : current)} />
+              </SalesField>
+            </div>
+            <div className="sales-v21-rule-card">
+              <h3>Échéancier</h3>
+              <p>Fréquence par défaut et plafond du nombre d’échéances.</p>
+              <SalesField label="Nombre maximal d’échéances">
+                <input className="sales-v21-input" inputMode="numeric" value={String(settings.maximum_installment_count ?? '')} onChange={(event) => setSettings((current) => current ? { ...current, maximum_installment_count: Number(event.target.value || 0) } : current)} />
+              </SalesField>
+              <SalesField label="Fréquence par défaut">
+                <select className="sales-v21-select" value={settings.default_installment_frequency ?? 'MONTHLY'} onChange={(event) => setSettings((current) => current ? { ...current, default_installment_frequency: event.target.value } : current)}>
+                  {SALES_SCHEDULE_FREQUENCIES.map((item) => <option key={item} value={item}>{salesFrequencyLabel(item)}</option>)}
+                </select>
+              </SalesField>
+            </div>
+            <div className="sales-v21-rule-card">
+              <h3>Frais de réservation</h3>
+              <p>Présentation compacte des règles déjà validées en V3.1.5.</p>
+              <SalesField label="Frais convenus">
+                <input className="sales-v21-input" inputMode="decimal" value={String(settings.reservation_default_fee ?? '')} onChange={(event) => setSettings((current) => current ? { ...current, reservation_default_fee: Number(event.target.value || 0) } : current)} />
+              </SalesField>
+              <SalesField label="Déductibilité des frais">
+                <input className="sales-v21-input" value={reservationFeeDeductibilityLabel(settings.reservation_fee_deductibility)} readOnly />
+              </SalesField>
+              <SalesField label="Pourcentage déductible">
+                <input className="sales-v21-input" inputMode="decimal" value={String(settings.reservation_fee_deductible_percentage ?? '')} onChange={(event) => setSettings((current) => current ? { ...current, reservation_fee_deductible_percentage: Number(event.target.value || 0) } : current)} />
+              </SalesField>
+            </div>
+            <div className="sales-v21-rule-card">
+              <h3>Traitement comptable</h3>
+              <p>Lecture claire du traitement actuellement appliqué aux frais.</p>
+              <SalesField label="Traitement comptable">
+                <input className="sales-v21-input" value={accountingTreatmentLabel(settings.reservation_fee_accounting_treatment)} readOnly />
+              </SalesField>
+            </div>
+            <div className="sales-v21-rule-card">
+              <h3>Génération documentaire</h3>
+              <p>Conserve le comportement métier existant, présenté sans jargon technique.</p>
+              <SalesField label="Génération automatique des contrats">
+                <input className="sales-v21-input" value={boolSettingLabel(settings.contract_generation_mode === 'AUTO')} readOnly />
+              </SalesField>
+              <SalesField label="Génération automatique des reçus">
+                <input className="sales-v21-input" value={boolSettingLabel(settings.settings_json?.auto_receipts === true)} readOnly />
+              </SalesField>
+            </div>
+          </div>
 
           <SalesFormActions>
             <button className="sales-v21-btn sales-v21-btn-primary" type="submit" disabled={saving}>{saving ? 'Enregistrement…' : 'Enregistrer les paramètres'}</button>
@@ -3072,196 +3342,222 @@ export function SalesSettingsPage() {
         </form>
       ) : null}
 
-      <SalesSection
-        title="Modèles contractuels"
-        description="Édition stricte des modèles publics, versionnés automatiquement et limités aux variables autorisées."
-        action={
-          <div className="sales-v21-table-actions">
-            <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => applyStarterTemplate('EMPTY')}>
-              Modèle vide
-            </button>
-            <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => applyStarterTemplate('STANDARD')}>
-              Modèle standard
-            </button>
-            <button className="sales-v21-btn sales-v21-btn-primary sales-v21-btn-compact" type="button" disabled={saving} onClick={() => void saveTemplate(currentTemplate)}>
-              {saving ? 'Enregistrement…' : 'Enregistrer'}
-            </button>
-          </div>
-        }
-      >
-        <div className="sales-v21-filter-bar">
-          <select className="sales-v21-select" value={activeTemplateType} onChange={(event) => setActiveTemplateType(event.target.value as TemplateType)}>
-            <option value="RESERVATION_CONTRACT">Contrat de réservation</option>
-            <option value="SUBSCRIPTION_CONTRACT">Contrat de souscription</option>
-          </select>
-          <div className="sales-v21-table-actions">
-            <button className={`sales-v21-btn ${activeEditorTab === 'editor' ? 'sales-v21-btn-primary' : 'sales-v21-btn-secondary'} sales-v21-btn-compact`} type="button" onClick={() => setActiveEditorTab('editor')}>Éditeur</button>
-            <button className={`sales-v21-btn ${activeEditorTab === 'variables' ? 'sales-v21-btn-primary' : 'sales-v21-btn-secondary'} sales-v21-btn-compact`} type="button" onClick={() => setActiveEditorTab('variables')}>Variables</button>
-            <button className={`sales-v21-btn ${activeEditorTab === 'preview' ? 'sales-v21-btn-primary' : 'sales-v21-btn-secondary'} sales-v21-btn-compact`} type="button" onClick={() => setActiveEditorTab('preview')}>Aperçu</button>
-          </div>
-        </div>
-
-        <SalesKpiGrid>
-          <SalesKpiCard label="Version actuelle" value={`v${currentTemplate.version ?? 1}`} helper={currentTemplate.is_active ? 'Active' : 'Brouillon'} />
-          <SalesKpiCard label="Utilisée dans" value={`${currentTemplate.used_documents_count ?? 0}`} helper="documents générés" />
-          <SalesKpiCard label="Historique" value={`${currentTemplateVersions.length}`} helper="versions disponibles" />
-          <SalesKpiCard label="Type" value={activeTemplateType === 'RESERVATION_CONTRACT' ? 'Réservation' : 'Souscription'} helper="périmètre contractuel" />
-        </SalesKpiGrid>
-
-        {activeEditorTab === 'editor' ? (
-          <div className="sales-v21-form">
-            <SalesFormSection title="Éditeur de modèle" description="Le payload envoyé au backend reste strictement limité aux champs publics autorisés.">
-              <SalesField label="Titre">
-                <input className="sales-v21-input" value={currentTemplate.title} onChange={(event) => updateTemplateDraft(activeTemplateType, (template) => ({ ...template, title: event.target.value }))} />
-              </SalesField>
-              <SalesField label="En-tête">
-                <textarea className="sales-v21-textarea" rows={4} value={currentTemplate.header_html ?? ''} onChange={(event) => updateTemplateDraft(activeTemplateType, (template) => ({ ...template, header_html: event.target.value }))} />
-              </SalesField>
-              <SalesField label="Corps du contrat">
-                <textarea
-                  ref={editorRef}
-                  className="sales-v21-textarea"
-                  rows={18}
-                  value={currentTemplate.template_body}
-                  onChange={(event) => {
-                    editorSelectionRef.current = {
-                      start: event.target.selectionStart ?? event.target.value.length,
-                      end: event.target.selectionEnd ?? event.target.value.length,
-                    };
-                    updateTemplateDraft(activeTemplateType, (template) => ({ ...template, template_body: event.target.value }));
-                  }}
-                  onClick={(event) => {
-                    editorSelectionRef.current = {
-                      start: event.currentTarget.selectionStart ?? event.currentTarget.value.length,
-                      end: event.currentTarget.selectionEnd ?? event.currentTarget.value.length,
-                    };
-                  }}
-                  onKeyUp={(event) => {
-                    editorSelectionRef.current = {
-                      start: event.currentTarget.selectionStart ?? event.currentTarget.value.length,
-                      end: event.currentTarget.selectionEnd ?? event.currentTarget.value.length,
-                    };
-                  }}
-                  onSelect={(event) => {
-                    editorSelectionRef.current = {
-                      start: event.currentTarget.selectionStart ?? event.currentTarget.value.length,
-                      end: event.currentTarget.selectionEnd ?? event.currentTarget.value.length,
-                    };
-                  }}
-                />
-              </SalesField>
-              <SalesField label="Pied de page">
-                <textarea className="sales-v21-textarea" rows={4} value={currentTemplate.footer_html ?? ''} onChange={(event) => updateTemplateDraft(activeTemplateType, (template) => ({ ...template, footer_html: event.target.value }))} />
-              </SalesField>
-              <SalesField label="Activation">
-                <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <input type="checkbox" checked={currentTemplate.is_active ?? true} onChange={(event) => updateTemplateDraft(activeTemplateType, (template) => ({ ...template, is_active: event.target.checked }))} />
-                  <span>Activer cette version à l’enregistrement</span>
-                </label>
-              </SalesField>
-            </SalesFormSection>
-
-            <SalesSection title="Historique des versions" description="Une modification produit une nouvelle version au lieu d’écraser une version déjà utilisée.">
-              {currentTemplateVersions.length ? (
-                <SalesDataTable
-                  rowKey={(item) => `${item.id}-${item.version}`}
-                  rows={currentTemplateVersions}
-                  columns={[
-                    { key: 'version', label: 'Version', render: (item) => `v${item.version ?? 1}` },
-                    { key: 'status', label: 'Statut', render: (item) => <SalesStatusBadge label={item.is_active ? 'Active' : 'Brouillon'} tone={item.is_active ? 'success' : 'warning'} /> },
-                    { key: 'usage', label: 'Utilisée', render: (item) => `${item.used_documents_count ?? 0} document(s)` },
-                    { key: 'updated', label: 'Mise à jour', render: (item) => formatDate(item.updated_at) },
-                  ]}
-                />
-              ) : (
-                <SalesEmptyState title="Aucune version enregistrée" description="Le premier enregistrement créera la version initiale du modèle." />
-              )}
-            </SalesSection>
-          </div>
-        ) : null}
-
-        {activeEditorTab === 'variables' ? (
-          <div className="sales-v21-form">
-            <SalesFilterBar>
-              <input className="sales-v21-input" placeholder="Rechercher une variable" value={variableSearch} onChange={(event) => setVariableSearch(event.target.value)} />
-            </SalesFilterBar>
-            {filteredVariableGroups.map((group) => (
-              <SalesSection key={group.title} title={group.title} description="Cliquez sur Insérer pour placer la variable à la position courante du curseur.">
-                <SalesDataTable
-                  rowKey={(item) => item.code}
-                  rows={group.items}
-                  columns={[
-                    { key: 'label', label: 'Variable', render: (item) => item.label },
-                    { key: 'code', label: 'Code', render: (item) => <code>{item.code}</code> },
-                    { key: 'example', label: 'Exemple', render: (item) => item.example },
-                    {
-                      key: 'actions',
-                      label: 'Actions',
-                      render: (item) => (
-                        <div className="sales-v21-table-actions">
-                          <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => void copyVariable(item.code)}>
-                            Copier
-                          </button>
-                          <button className="sales-v21-btn sales-v21-btn-primary sales-v21-btn-compact" type="button" onClick={() => insertVariable(item.code)}>
-                            Insérer
-                          </button>
-                        </div>
-                      ),
-                    },
-                  ]}
-                />
-              </SalesSection>
+      {settingsSection === 'templates' ? (
+        <SalesSection
+          title="Modèles contractuels"
+          description="Édition stricte des modèles publics, versionnés automatiquement et limités aux variables autorisées."
+          action={
+            <div className="sales-v21-table-actions">
+              <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => applyStarterTemplate('EMPTY')}>
+                Modèle vide
+              </button>
+              <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => applyStarterTemplate('STANDARD')}>
+                Modèle standard
+              </button>
+              <button className="sales-v21-btn sales-v21-btn-primary sales-v21-btn-compact" type="button" disabled={saving} onClick={() => void saveTemplate(currentTemplate)}>
+                {saving ? 'Enregistrement…' : 'Enregistrer'}
+              </button>
+            </div>
+          }
+        >
+          <div className="sales-v21-template-grid">
+            {mergeTemplatesWithDefaults(templates).map((template) => (
+              <article key={`${template.template_type}-${template.id ?? 'draft'}`} className={['sales-v21-template-card', activeTemplateType === template.template_type ? 'is-active' : ''].filter(Boolean).join(' ')}>
+                <div className="sales-v21-template-meta">
+                  <h3>{template.template_type === 'RESERVATION_CONTRACT' ? 'Modèle de réservation' : 'Modèle de souscription'}</h3>
+                  <p>Version active : v{template.version ?? 1}</p>
+                  <p>État : {template.is_active ? 'Actif' : 'Brouillon'}</p>
+                  <p>Dernière modification : {formatDate(template.updated_at)}</p>
+                </div>
+                <div className="sales-v21-table-actions">
+                  <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => { setActiveTemplateType(template.template_type as TemplateType); setActiveEditorTab('editor'); }}>
+                    Modifier
+                  </button>
+                  <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => { setActiveTemplateType(template.template_type as TemplateType); setActiveEditorTab('preview'); }}>
+                    Aperçu
+                  </button>
+                  <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => { setActiveTemplateType(template.template_type as TemplateType); setActiveEditorTab('editor'); }}>
+                    Historique
+                  </button>
+                </div>
+              </article>
             ))}
           </div>
-        ) : null}
 
-        {activeEditorTab === 'preview' ? (
-          <div className="sales-v21-form">
-            <SalesFormSection title="Aperçu réel" description="Prévisualisation non contractuelle à partir des données autorisées de l’organisation.">
-              {activeTemplateType === 'RESERVATION_CONTRACT' ? (
-                <SalesField label="Réservation de test">
-                  <select className="sales-v21-select" value={previewReservationId} onChange={(event) => setPreviewReservationId(event.target.value)}>
-                    <option value="">Choisir une réservation</option>
-                    {reservations.map((reservation) => (
-                      <option key={reservation.id} value={reservation.id}>
-                        {reservation.reservation_number} — {reservation.buyer_name || reservation.catalog_title || 'Réservation'}
-                      </option>
-                    ))}
-                  </select>
-                </SalesField>
-              ) : (
-                <SalesField label="Souscription de test">
-                  <select className="sales-v21-select" value={previewSubscriptionId} onChange={(event) => setPreviewSubscriptionId(event.target.value)}>
-                    <option value="">Choisir une souscription</option>
-                    {subscriptionPreviewItems.map((subscription) => (
-                      <option key={subscription.id} value={subscription.id}>
-                        {subscription.subscription_number} — {subscription.buyer_name || subscription.catalog_title || 'Souscription'}
-                      </option>
-                    ))}
-                  </select>
-                </SalesField>
-              )}
-              <SalesFormActions>
-                <button className="sales-v21-btn sales-v21-btn-secondary" type="button" disabled={previewLoading} onClick={() => void refreshPreview()}>
-                  {previewLoading ? 'Actualisation…' : 'Actualiser'}
-                </button>
-                <button className="sales-v21-btn sales-v21-btn-secondary" type="button" disabled={!previewHtml} onClick={openPreviewPrintWindow}>
-                  Générer un aperçu PDF
-                </button>
-                <button className="sales-v21-btn sales-v21-btn-primary" type="button" disabled={!previewHtml} onClick={downloadPreviewHtml}>
-                  Télécharger l’aperçu
-                </button>
-              </SalesFormActions>
-              {previewError ? <SalesInlineNotice tone="danger">{previewError}</SalesInlineNotice> : null}
-              {previewHtml ? (
-                <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
-              ) : (
-                <SalesEmptyState title="Aucun aperçu généré" description="Choisissez une réservation ou une souscription de test puis actualisez l’aperçu." />
-              )}
-            </SalesFormSection>
+          <div className="sales-v21-filter-bar">
+            <select className="sales-v21-select" value={activeTemplateType} onChange={(event) => setActiveTemplateType(event.target.value as TemplateType)}>
+              <option value="RESERVATION_CONTRACT">Contrat de réservation</option>
+              <option value="SUBSCRIPTION_CONTRACT">Contrat de souscription</option>
+            </select>
+            <div className="sales-v21-table-actions">
+              <button className={`sales-v21-btn ${activeEditorTab === 'editor' ? 'sales-v21-btn-primary' : 'sales-v21-btn-secondary'} sales-v21-btn-compact`} type="button" onClick={() => setActiveEditorTab('editor')}>Éditeur</button>
+              <button className={`sales-v21-btn ${activeEditorTab === 'variables' ? 'sales-v21-btn-primary' : 'sales-v21-btn-secondary'} sales-v21-btn-compact`} type="button" onClick={() => setActiveEditorTab('variables')}>Variables</button>
+              <button className={`sales-v21-btn ${activeEditorTab === 'preview' ? 'sales-v21-btn-primary' : 'sales-v21-btn-secondary'} sales-v21-btn-compact`} type="button" onClick={() => setActiveEditorTab('preview')}>Aperçu</button>
+            </div>
           </div>
-        ) : null}
-      </SalesSection>
+
+          <SalesKpiGrid>
+            <SalesKpiCard label="Version active" value={`v${currentTemplate.version ?? 1}`} helper={currentTemplate.is_active ? 'Active' : 'Brouillon'} />
+            <SalesKpiCard label="Documents générés" value={`${currentTemplate.used_documents_count ?? 0}`} helper="usage observé" />
+            <SalesKpiCard label="Historique" value={`${currentTemplateVersions.length}`} helper="versions disponibles" />
+            <SalesKpiCard label="Type affiché" value={activeTemplateType === 'RESERVATION_CONTRACT' ? 'Réservation' : 'Souscription'} helper="rubrique active" />
+          </SalesKpiGrid>
+
+          {activeEditorTab === 'editor' ? (
+            <div className="sales-v21-form">
+              <SalesFormSection title="Éditeur de modèle" description="Le payload envoyé au backend reste strictement limité aux champs publics autorisés.">
+                <SalesField label="Titre">
+                  <input className="sales-v21-input" value={currentTemplate.title} onChange={(event) => updateTemplateDraft(activeTemplateType, (template) => ({ ...template, title: event.target.value }))} />
+                </SalesField>
+                <SalesField label="En-tête">
+                  <textarea className="sales-v21-textarea" rows={4} value={currentTemplate.header_html ?? ''} onChange={(event) => updateTemplateDraft(activeTemplateType, (template) => ({ ...template, header_html: event.target.value }))} />
+                </SalesField>
+                <SalesField label="Corps du contrat">
+                  <textarea
+                    ref={editorRef}
+                    className="sales-v21-textarea"
+                    rows={18}
+                    value={currentTemplate.template_body}
+                    onChange={(event) => {
+                      editorSelectionRef.current = {
+                        start: event.target.selectionStart ?? event.target.value.length,
+                        end: event.target.selectionEnd ?? event.target.value.length,
+                      };
+                      updateTemplateDraft(activeTemplateType, (template) => ({ ...template, template_body: event.target.value }));
+                    }}
+                    onClick={(event) => {
+                      editorSelectionRef.current = {
+                        start: event.currentTarget.selectionStart ?? event.currentTarget.value.length,
+                        end: event.currentTarget.selectionEnd ?? event.currentTarget.value.length,
+                      };
+                    }}
+                    onKeyUp={(event) => {
+                      editorSelectionRef.current = {
+                        start: event.currentTarget.selectionStart ?? event.currentTarget.value.length,
+                        end: event.currentTarget.selectionEnd ?? event.currentTarget.value.length,
+                      };
+                    }}
+                    onSelect={(event) => {
+                      editorSelectionRef.current = {
+                        start: event.currentTarget.selectionStart ?? event.currentTarget.value.length,
+                        end: event.currentTarget.selectionEnd ?? event.currentTarget.value.length,
+                      };
+                    }}
+                  />
+                </SalesField>
+                <SalesField label="Pied de page">
+                  <textarea className="sales-v21-textarea" rows={4} value={currentTemplate.footer_html ?? ''} onChange={(event) => updateTemplateDraft(activeTemplateType, (template) => ({ ...template, footer_html: event.target.value }))} />
+                </SalesField>
+                <SalesField label="Activation">
+                  <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <input type="checkbox" checked={currentTemplate.is_active ?? true} onChange={(event) => updateTemplateDraft(activeTemplateType, (template) => ({ ...template, is_active: event.target.checked }))} />
+                    <span>Activer cette version à l’enregistrement</span>
+                  </label>
+                </SalesField>
+              </SalesFormSection>
+
+              <SalesSection title="Historique des versions" description="Une modification produit une nouvelle version au lieu d’écraser une version déjà utilisée.">
+                {currentTemplateVersions.length ? (
+                  <SalesDataTable
+                    rowKey={(item) => `${item.id}-${item.version}`}
+                    rows={currentTemplateVersions}
+                    columns={[
+                      { key: 'version', label: 'Version', render: (item) => `v${item.version ?? 1}` },
+                      { key: 'status', label: 'Statut', render: (item) => <SalesStatusBadge label={item.is_active ? 'Active' : 'Brouillon'} tone={item.is_active ? 'success' : 'warning'} /> },
+                      { key: 'usage', label: 'Utilisée', render: (item) => `${item.used_documents_count ?? 0} document(s)` },
+                      { key: 'updated', label: 'Mise à jour', render: (item) => formatDate(item.updated_at) },
+                    ]}
+                  />
+                ) : (
+                  <SalesEmptyState title="Aucune version enregistrée" description="Le premier enregistrement créera la version initiale du modèle." />
+                )}
+              </SalesSection>
+            </div>
+          ) : null}
+
+          {activeEditorTab === 'variables' ? (
+            <div className="sales-v21-form">
+              <SalesFilterBar>
+                <input className="sales-v21-input" placeholder="Rechercher une variable" value={variableSearch} onChange={(event) => setVariableSearch(event.target.value)} />
+              </SalesFilterBar>
+              {filteredVariableGroups.map((group) => (
+                <SalesSection key={group.title} title={group.title} description="Cliquez sur Insérer pour placer la variable à la position courante du curseur.">
+                  <SalesDataTable
+                    rowKey={(item) => item.code}
+                    rows={group.items}
+                    columns={[
+                      { key: 'label', label: 'Variable', render: (item) => item.label },
+                      { key: 'code', label: 'Code', render: (item) => <code>{item.code}</code> },
+                      { key: 'example', label: 'Exemple', render: (item) => item.example },
+                      {
+                        key: 'actions',
+                        label: 'Actions',
+                        render: (item) => (
+                          <div className="sales-v21-table-actions">
+                            <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => void copyVariable(item.code)}>
+                              Copier
+                            </button>
+                            <button className="sales-v21-btn sales-v21-btn-primary sales-v21-btn-compact" type="button" onClick={() => insertVariable(item.code)}>
+                              Insérer
+                            </button>
+                          </div>
+                        ),
+                      },
+                    ]}
+                  />
+                </SalesSection>
+              ))}
+            </div>
+          ) : null}
+
+          {activeEditorTab === 'preview' ? (
+            <div className="sales-v21-form">
+              <SalesFormSection title="Aperçu réel" description="Prévisualisation non contractuelle à partir des données autorisées de l’organisation.">
+                {activeTemplateType === 'RESERVATION_CONTRACT' ? (
+                  <SalesField label="Réservation de test">
+                    <select className="sales-v21-select" value={previewReservationId} onChange={(event) => setPreviewReservationId(event.target.value)}>
+                      <option value="">Choisir une réservation</option>
+                      {reservations.map((reservation) => (
+                        <option key={reservation.id} value={reservation.id}>
+                          {reservation.reservation_number} — {reservation.buyer_name || reservation.catalog_title || 'Réservation'}
+                        </option>
+                      ))}
+                    </select>
+                  </SalesField>
+                ) : (
+                  <SalesField label="Souscription de test">
+                    <select className="sales-v21-select" value={previewSubscriptionId} onChange={(event) => setPreviewSubscriptionId(event.target.value)}>
+                      <option value="">Choisir une souscription</option>
+                      {subscriptionPreviewItems.map((subscription) => (
+                        <option key={subscription.id} value={subscription.id}>
+                          {subscription.subscription_number} — {subscription.buyer_name || subscription.catalog_title || 'Souscription'}
+                        </option>
+                      ))}
+                    </select>
+                  </SalesField>
+                )}
+                <SalesFormActions>
+                  <button className="sales-v21-btn sales-v21-btn-secondary" type="button" disabled={previewLoading} onClick={() => void refreshPreview()}>
+                    {previewLoading ? 'Actualisation…' : 'Actualiser'}
+                  </button>
+                  <button className="sales-v21-btn sales-v21-btn-secondary" type="button" disabled={!previewHtml} onClick={openPreviewPrintWindow}>
+                    Générer un aperçu PDF
+                  </button>
+                  <button className="sales-v21-btn sales-v21-btn-primary" type="button" disabled={!previewHtml} onClick={downloadPreviewHtml}>
+                    Télécharger l’aperçu
+                  </button>
+                </SalesFormActions>
+                {previewError ? <SalesInlineNotice tone="danger">{previewError}</SalesInlineNotice> : null}
+                {previewHtml ? (
+                  <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
+                ) : (
+                  <SalesEmptyState title="Aucun aperçu généré" description="Choisissez une réservation ou une souscription de test puis actualisez l’aperçu." />
+                )}
+              </SalesFormSection>
+            </div>
+          ) : null}
+        </SalesSection>
+      ) : null}
     </SalesModulePage>
   );
 }
