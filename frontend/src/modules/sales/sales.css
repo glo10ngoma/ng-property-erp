@@ -731,6 +731,57 @@
   gap: 6px;
 }
 
+.sales-v21-template-header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.sales-v21-template-filters {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.4fr) repeat(3, minmax(170px, 0.9fr)) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.sales-v21-template-table-wrap .sales-v21-table {
+  min-width: 1080px;
+}
+
+.sales-v21-template-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.sales-v21-template-tabs {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.sales-v21-template-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sales-v21-template-editor-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.sales-v21-template-preview-actions {
+  flex-wrap: wrap;
+}
+
+.sales-v21-template-preview-frame {
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid #d9e2ec;
+  border-radius: 12px;
+  background: #fbfdff;
+}
+
 .sales-v21-reservation-note {
   margin: 0;
   color: #355070;
@@ -806,6 +857,11 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .sales-v21-template-filters,
+  .sales-v21-template-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .sales-v21-settings-row {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
@@ -833,7 +889,9 @@
 
   .sales-v21-rule-grid,
   .sales-v21-template-grid,
-  .sales-v21-settings-row {
+  .sales-v21-settings-row,
+  .sales-v21-template-filters,
+  .sales-v21-template-toolbar {
     grid-template-columns: 1fr;
   }
 
@@ -851,6 +909,13 @@
 
   .sales-v21-table-actions {
     flex-wrap: nowrap;
+  }
+
+  .sales-v21-template-tabs,
+  .sales-v21-template-header-actions,
+  .sales-v21-template-editor-actions,
+  .sales-v21-template-preview-actions {
+    flex-wrap: wrap;
   }
 
   .sales-v21-action-menu-panel {

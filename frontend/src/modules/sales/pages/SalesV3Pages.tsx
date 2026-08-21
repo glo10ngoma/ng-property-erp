@@ -2947,6 +2947,10 @@ export function SalesSettingsPage() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [activeTemplateType, setActiveTemplateType] = useState<TemplateType>('RESERVATION_CONTRACT');
   const [activeEditorTab, setActiveEditorTab] = useState<TemplateEditorTab>('editor');
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [templateTypeFilter, setTemplateTypeFilter] = useState<'ALL' | TemplateType>('ALL');
+  const [templateStatusFilter, setTemplateStatusFilter] = useState<'ALL' | 'ACTIVE' | 'DRAFT' | 'ARCHIVED'>('ALL');
+  const [templateUsageFilter, setTemplateUsageFilter] = useState<'ALL' | 'USED' | 'UNUSED'>('ALL');
   const [variableSearch, setVariableSearch] = useState('');
   const [previewReservationId, setPreviewReservationId] = useState('');
   const [previewSubscriptionId, setPreviewSubscriptionId] = useState('');
@@ -3028,6 +3032,65 @@ export function SalesSettingsPage() {
     () => currentTemplateVersions[0] ?? buildDefaultSalesTemplate(activeTemplateType),
     [activeTemplateType, currentTemplateVersions],
   );
+
+  const templateRows = useMemo(() => {
+    const latestVersionByType = templates.reduce<Record<string, number>>((accumulator, template) => {
+      const version = Number(template.version ?? 0);
+      accumulator[template.template_type] = Math.max(accumulator[template.template_type] ?? 0, version);
+      return accumulator;
+    }, {});
+
+    return (templates.length ? templates : mergeTemplatesWithDefaults(templates)).map((template) => {
+      const version = Number(template.version ?? 1);
+      const usedDocumentsCount = Number(template.used_documents_count ?? 0);
+      const workflowStatus = template.is_active
+        ? 'ACTIVE'
+        : version < (latestVersionByType[template.template_type] ?? version) || usedDocumentsCount > 0
+          ? 'ARCHIVED'
+          : 'DRAFT';
+
+      return {
+        ...template,
+        version,
+        typeLabel: template.template_type === 'RESERVATION_CONTRACT' ? 'Réservation' : 'Souscription',
+        usedDocumentsCount,
+        workflowStatus,
+        workflowLabel: workflowStatus === 'ACTIVE' ? 'Actif' : workflowStatus === 'ARCHIVED' ? 'Archivé' : 'Brouillon',
+        workflowTone: (workflowStatus === 'ACTIVE' ? 'success' : workflowStatus === 'ARCHIVED' ? 'neutral' : 'warning') as SalesStatusTone,
+        updatedByLabel: 'Système',
+      };
+    });
+  }, [templates]);
+
+  const filteredTemplateRows = useMemo(() => {
+    const needle = templateSearch.trim().toLowerCase();
+    return templateRows
+      .filter((template) => {
+        const matchesSearch = !needle || [
+          template.title,
+          template.template_type,
+          template.typeLabel,
+          `v${template.version}`,
+          template.workflowLabel,
+        ].some((value) => String(value ?? '').toLowerCase().includes(needle));
+        const matchesType = templateTypeFilter === 'ALL' || template.template_type === templateTypeFilter;
+        const matchesStatus = templateStatusFilter === 'ALL' || template.workflowStatus === templateStatusFilter;
+        const matchesUsage = templateUsageFilter === 'ALL'
+          || (templateUsageFilter === 'USED' ? template.usedDocumentsCount > 0 : template.usedDocumentsCount === 0);
+        return matchesSearch && matchesType && matchesStatus && matchesUsage;
+      })
+      .sort((left, right) => {
+        if (left.template_type !== right.template_type) return left.template_type.localeCompare(right.template_type);
+        return right.version - left.version;
+      });
+  }, [templateRows, templateSearch, templateTypeFilter, templateStatusFilter, templateUsageFilter]);
+
+  const templatesSummary = useMemo(() => ({
+    active: templateRows.filter((template) => template.workflowStatus === 'ACTIVE').length,
+    draft: templateRows.filter((template) => template.workflowStatus === 'DRAFT').length,
+    archived: templateRows.filter((template) => template.workflowStatus === 'ARCHIVED').length,
+    generated: templateRows.reduce((sum, template) => sum + template.usedDocumentsCount, 0),
+  }), [templateRows]);
 
   const filteredVariableGroups = useMemo(() => {
     const needle = variableSearch.trim().toLowerCase();
@@ -3345,67 +3408,155 @@ export function SalesSettingsPage() {
       {settingsSection === 'templates' ? (
         <SalesSection
           title="Modèles contractuels"
-          description="Édition stricte des modèles publics, versionnés automatiquement et limités aux variables autorisées."
+          description="Gérez les clauses, variables, versions et modèles utilisés pour générer les contrats de réservation et de souscription."
           action={
-            <div className="sales-v21-table-actions">
-              <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => applyStarterTemplate('EMPTY')}>
-                Modèle vide
+            <div className="sales-v21-table-actions sales-v21-template-header-actions">
+              <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => { applyStarterTemplate('EMPTY'); setActiveEditorTab('editor'); }}>
+                Nouveau modèle
               </button>
-              <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => applyStarterTemplate('STANDARD')}>
-                Modèle standard
-              </button>
-              <button className="sales-v21-btn sales-v21-btn-primary sales-v21-btn-compact" type="button" disabled={saving} onClick={() => void saveTemplate(currentTemplate)}>
-                {saving ? 'Enregistrement…' : 'Enregistrer'}
+              <button className="sales-v21-btn sales-v21-btn-primary sales-v21-btn-compact" type="button" onClick={() => setActiveEditorTab('editor')}>
+                Modifier la version active
               </button>
             </div>
           }
         >
-          <div className="sales-v21-template-grid">
-            {mergeTemplatesWithDefaults(templates).map((template) => (
-              <article key={`${template.template_type}-${template.id ?? 'draft'}`} className={['sales-v21-template-card', activeTemplateType === template.template_type ? 'is-active' : ''].filter(Boolean).join(' ')}>
-                <div className="sales-v21-template-meta">
-                  <h3>{template.template_type === 'RESERVATION_CONTRACT' ? 'Modèle de réservation' : 'Modèle de souscription'}</h3>
-                  <p>Version active : v{template.version ?? 1}</p>
-                  <p>État : {template.is_active ? 'Actif' : 'Brouillon'}</p>
-                  <p>Dernière modification : {formatDate(template.updated_at)}</p>
-                </div>
-                <div className="sales-v21-table-actions">
-                  <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => { setActiveTemplateType(template.template_type as TemplateType); setActiveEditorTab('editor'); }}>
-                    Modifier
-                  </button>
-                  <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => { setActiveTemplateType(template.template_type as TemplateType); setActiveEditorTab('preview'); }}>
-                    Aperçu
-                  </button>
-                  <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => { setActiveTemplateType(template.template_type as TemplateType); setActiveEditorTab('editor'); }}>
-                    Historique
-                  </button>
-                </div>
-              </article>
-            ))}
+          <SalesKpiGrid>
+            <SalesKpiCard label="Modèles actifs" value={`${templatesSummary.active}`} helper="une version active par type" />
+            <SalesKpiCard label="Brouillons" value={`${templatesSummary.draft}`} helper="prêts à être enrichis" />
+            <SalesKpiCard label="Versions archivées" value={`${templatesSummary.archived}`} helper="historique conservé" />
+            <SalesKpiCard label="Contrats générés" value={`${templatesSummary.generated}`} helper="toutes versions confondues" />
+          </SalesKpiGrid>
+
+          <div className="sales-v21-template-filters">
+            <input
+              className="sales-v21-input"
+              placeholder="Rechercher un titre, une version ou un statut"
+              value={templateSearch}
+              onChange={(event) => setTemplateSearch(event.target.value)}
+            />
+            <select className="sales-v21-select" value={templateTypeFilter} onChange={(event) => setTemplateTypeFilter(event.target.value as 'ALL' | TemplateType)}>
+              <option value="ALL">Tous les types</option>
+              <option value="RESERVATION_CONTRACT">Réservation</option>
+              <option value="SUBSCRIPTION_CONTRACT">Souscription</option>
+            </select>
+            <select className="sales-v21-select" value={templateStatusFilter} onChange={(event) => setTemplateStatusFilter(event.target.value as 'ALL' | 'ACTIVE' | 'DRAFT' | 'ARCHIVED')}>
+              <option value="ALL">Tous les statuts</option>
+              <option value="ACTIVE">Actif</option>
+              <option value="DRAFT">Brouillon</option>
+              <option value="ARCHIVED">Archivé</option>
+            </select>
+            <select className="sales-v21-select" value={templateUsageFilter} onChange={(event) => setTemplateUsageFilter(event.target.value as 'ALL' | 'USED' | 'UNUSED')}>
+              <option value="ALL">Toutes les utilisations</option>
+              <option value="USED">Déjà utilisée</option>
+              <option value="UNUSED">Jamais utilisée</option>
+            </select>
+            <button
+              className="sales-v21-btn sales-v21-btn-ghost sales-v21-btn-compact"
+              type="button"
+              onClick={() => {
+                setTemplateSearch('');
+                setTemplateTypeFilter('ALL');
+                setTemplateStatusFilter('ALL');
+                setTemplateUsageFilter('ALL');
+              }}
+            >
+              Réinitialiser
+            </button>
           </div>
 
-          <div className="sales-v21-filter-bar">
+          <SalesDataTable
+            wrapClassName="sales-v21-template-table-wrap"
+            rowKey={(item) => `${item.template_type}-${item.id ?? 'draft'}-${item.version ?? 0}`}
+            rows={filteredTemplateRows}
+            onRowClick={(item) => {
+              setActiveTemplateType(item.template_type as TemplateType);
+              setActiveEditorTab('editor');
+            }}
+            rowAriaLabel={(item) => `Ouvrir ${item.typeLabel} version ${item.version}`}
+            columns={[
+              {
+                key: 'model',
+                label: 'Modèle',
+                render: (item) => (
+                  <div className="sales-v21-cell-stack">
+                    <strong className="sales-v21-cell-primary">{item.title || `Contrat ${item.typeLabel.toLowerCase()}`}</strong>
+                    <span className="sales-v21-cell-subtitle">{item.typeLabel}</span>
+                  </div>
+                ),
+              },
+              { key: 'type', label: 'Type', render: (item) => item.typeLabel },
+              { key: 'version', label: 'Version', render: (item) => `v${item.version}` },
+              { key: 'status', label: 'Statut', render: (item) => <SalesStatusBadge label={item.workflowLabel} tone={item.workflowTone} /> },
+              { key: 'usage', label: 'Utilisations', render: (item) => `${item.usedDocumentsCount}` },
+              { key: 'updatedAt', label: 'Dernière modification', render: (item) => formatDate(item.updated_at) },
+              { key: 'updatedBy', label: 'Modifié par', render: (item) => item.updatedByLabel },
+              {
+                key: 'actions',
+                label: 'Actions',
+                className: 'sales-v21-actions-cell',
+                render: (item) => (
+                  <div className="sales-v21-table-actions">
+                    <button
+                      className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact"
+                      data-row-action="true"
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setActiveTemplateType(item.template_type as TemplateType);
+                        setActiveEditorTab('editor');
+                      }}
+                    >
+                      Ouvrir
+                    </button>
+                    <button
+                      className="sales-v21-btn sales-v21-btn-ghost sales-v21-btn-compact"
+                      data-row-action="true"
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setActiveTemplateType(item.template_type as TemplateType);
+                        setActiveEditorTab('preview');
+                      }}
+                    >
+                      Aperçu
+                    </button>
+                  </div>
+                ),
+              },
+            ]}
+          />
+
+          <div className="sales-v21-template-toolbar">
             <select className="sales-v21-select" value={activeTemplateType} onChange={(event) => setActiveTemplateType(event.target.value as TemplateType)}>
               <option value="RESERVATION_CONTRACT">Contrat de réservation</option>
               <option value="SUBSCRIPTION_CONTRACT">Contrat de souscription</option>
             </select>
-            <div className="sales-v21-table-actions">
+            <div className="sales-v21-table-actions sales-v21-template-tabs" role="tablist" aria-label="Outils du modèle actif">
               <button className={`sales-v21-btn ${activeEditorTab === 'editor' ? 'sales-v21-btn-primary' : 'sales-v21-btn-secondary'} sales-v21-btn-compact`} type="button" onClick={() => setActiveEditorTab('editor')}>Éditeur</button>
               <button className={`sales-v21-btn ${activeEditorTab === 'variables' ? 'sales-v21-btn-primary' : 'sales-v21-btn-secondary'} sales-v21-btn-compact`} type="button" onClick={() => setActiveEditorTab('variables')}>Variables</button>
               <button className={`sales-v21-btn ${activeEditorTab === 'preview' ? 'sales-v21-btn-primary' : 'sales-v21-btn-secondary'} sales-v21-btn-compact`} type="button" onClick={() => setActiveEditorTab('preview')}>Aperçu</button>
             </div>
           </div>
 
-          <SalesKpiGrid>
-            <SalesKpiCard label="Version active" value={`v${currentTemplate.version ?? 1}`} helper={currentTemplate.is_active ? 'Active' : 'Brouillon'} />
-            <SalesKpiCard label="Documents générés" value={`${currentTemplate.used_documents_count ?? 0}`} helper="usage observé" />
-            <SalesKpiCard label="Historique" value={`${currentTemplateVersions.length}`} helper="versions disponibles" />
-            <SalesKpiCard label="Type affiché" value={activeTemplateType === 'RESERVATION_CONTRACT' ? 'Réservation' : 'Souscription'} helper="rubrique active" />
-          </SalesKpiGrid>
-
           {activeEditorTab === 'editor' ? (
             <div className="sales-v21-form">
               <SalesFormSection title="Éditeur de modèle" description="Le payload envoyé au backend reste strictement limité aux champs publics autorisés.">
+                <div className="sales-v21-template-editor-actions">
+                  <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => applyStarterTemplate('EMPTY')}>
+                    Modèle vide
+                  </button>
+                  <button className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact" type="button" onClick={() => applyStarterTemplate('STANDARD')}>
+                    Modèle standard
+                  </button>
+                  <button className="sales-v21-btn sales-v21-btn-primary sales-v21-btn-compact" type="button" disabled={saving} onClick={() => void saveTemplate(currentTemplate)}>
+                    {saving ? 'Enregistrement…' : 'Enregistrer'}
+                  </button>
+                </div>
+                <div className="sales-v21-template-editor-summary">
+                  <SalesInlineNotice tone="info">
+                    Version active : v{currentTemplate.version ?? 1} · {activeTemplateType === 'RESERVATION_CONTRACT' ? 'Réservation' : 'Souscription'} · {currentTemplate.is_active ? 'active' : 'brouillon'}
+                  </SalesInlineNotice>
+                </div>
                 <SalesField label="Titre">
                   <input className="sales-v21-input" value={currentTemplate.title} onChange={(event) => updateTemplateDraft(activeTemplateType, (template) => ({ ...template, title: event.target.value }))} />
                 </SalesField>
@@ -3459,7 +3610,7 @@ export function SalesSettingsPage() {
               <SalesSection title="Historique des versions" description="Une modification produit une nouvelle version au lieu d’écraser une version déjà utilisée.">
                 {currentTemplateVersions.length ? (
                   <SalesDataTable
-                    rowKey={(item) => `${item.id}-${item.version}`}
+                    rowKey={(item) => `${item.template_type}-${item.id ?? 'draft'}-${item.version ?? 0}`}
                     rows={currentTemplateVersions}
                     columns={[
                       { key: 'version', label: 'Version', render: (item) => `v${item.version ?? 1}` },
@@ -3536,7 +3687,7 @@ export function SalesSettingsPage() {
                     </select>
                   </SalesField>
                 )}
-                <SalesFormActions>
+                <div className="sales-v21-form-actions sales-v21-template-preview-actions">
                   <button className="sales-v21-btn sales-v21-btn-secondary" type="button" disabled={previewLoading} onClick={() => void refreshPreview()}>
                     {previewLoading ? 'Actualisation…' : 'Actualiser'}
                   </button>
@@ -3546,10 +3697,10 @@ export function SalesSettingsPage() {
                   <button className="sales-v21-btn sales-v21-btn-primary" type="button" disabled={!previewHtml} onClick={downloadPreviewHtml}>
                     Télécharger l’aperçu
                   </button>
-                </SalesFormActions>
+                </div>
                 {previewError ? <SalesInlineNotice tone="danger">{previewError}</SalesInlineNotice> : null}
                 {previewHtml ? (
-                  <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
+                  <div className="sales-v21-template-preview-frame" dangerouslySetInnerHTML={{ __html: previewHtml }} />
                 ) : (
                   <SalesEmptyState title="Aucun aperçu généré" description="Choisissez une réservation ou une souscription de test puis actualisez l’aperçu." />
                 )}
