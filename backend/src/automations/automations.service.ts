@@ -34,6 +34,7 @@ type BillingPeriod = {
   year: number;
   issueDate: string;
   dueDate: string;
+  dueDay: number;
   periodStart: string;
   periodEnd: string;
   frequencyMonths: number;
@@ -91,7 +92,8 @@ export class AutomationsService {
   private readonly logger = new Logger(AutomationsService.name);
   private readonly automationCode = 'MONTHLY_RENT_BILLING';
   private readonly generationDay = 25;
-  private readonly automaticDueDay = 5;
+  private readonly defaultAutomaticDueDay = 5;
+  private readonly staleRunMinutes = 30;
 
   constructor(
     private readonly db: DatabaseService,
@@ -120,7 +122,7 @@ export class AutomationsService {
           continue;
         }
 
-        const period = this.periodFromDateInTimeZone(now, setting.timezone);
+        const period = this.periodFromDateInTimeZone(now, setting.timezone, this.resolveDueDay(setting.due_day));
         const alreadyRan = await this.hasAutomaticRunForPeriod(setting.organization_id, period.month, period.year);
         if (alreadyRan) {
           continue;
@@ -161,6 +163,7 @@ export class AutomationsService {
       is_enabled: body.is_enabled === undefined ? undefined : Boolean(body.is_enabled),
       execution_time: executionTime,
       timezone,
+      due_day: body.due_day === undefined ? undefined : this.normalizeDueDay(body.due_day),
       email_enabled: body.email_enabled === undefined ? undefined : Boolean(body.email_enabled),
       whatsapp_enabled: body.whatsapp_enabled === undefined ? undefined : Boolean(body.whatsapp_enabled),
       updated_by: this.context.userId() ?? 1,
@@ -237,7 +240,7 @@ export class AutomationsService {
   async previewMonthlyRentBilling(body: { month?: number; year?: number }) {
     const organizationId = this.context.organizationId();
     const setting = await this.ensureSetting(organizationId);
-    const period = this.periodFromInput(body.month, body.year);
+    const period = this.periodFromInput(body.month, body.year, this.resolveDueDay(setting.due_day));
     const leases = await this.fetchLeaseCandidates(organizationId);
     const skipped: Array<Record<string, unknown>> = [];
     const createable: Array<Record<string, unknown>> = [];
@@ -328,7 +331,7 @@ export class AutomationsService {
 
   async runMonthlyRentBillingManually(body: { month?: number; year?: number }) {
     const setting = await this.ensureSetting(this.context.organizationId());
-    const period = this.periodFromInput(body.month, body.year);
+    const period = this.periodFromInput(body.month, body.year, this.resolveDueDay(setting.due_day));
     return this.runMonthlyRentBillingForOrganization(this.context.organizationId(), {
       mode: 'MANUAL',
       billingMonth: period.month,
@@ -345,7 +348,7 @@ export class AutomationsService {
     }
 
     const today = this.todayInTimeZone(setting.timezone);
-    const period = this.buildBillingPeriod(this.yearFromDate(today), this.monthFromDate(today));
+    const period = this.buildBillingPeriod(this.yearFromDate(today), this.monthFromDate(today), this.resolveDueDay(setting.due_day));
     const lease = await this.fetchLeaseCandidateById(organizationId, leaseId);
     if (!lease) {
       return { status: 'SKIPPED', reason: 'LEASE_NOT_FOUND' };
@@ -428,7 +431,7 @@ export class AutomationsService {
     options: { mode: 'AUTOMATIC' | 'MANUAL'; billingMonth: number; billingYear: number; triggeredBy: number | null },
   ) {
     const setting = await this.ensureSetting(organizationId);
-    const period = this.periodFromInput(options.billingMonth, options.billingYear);
+    const period = this.periodFromInput(options.billingMonth, options.billingYear, this.resolveDueDay(setting.due_day));
     const companySettings = await this.companySettingsForOrganization(organizationId);
     const actorId = await this.resolveActorId(organizationId, options.triggeredBy);
 
@@ -437,6 +440,18 @@ export class AutomationsService {
         automation_code: this.automationCode,
         status: 'SKIPPED',
         reason: 'AUTOMATION_DISABLED',
+      };
+    }
+
+    const latestRunForPeriod = await this.latestRunForPeriod(organizationId, period.month, period.year);
+    const runBlockState = this.runBlockState(latestRunForPeriod);
+    if (runBlockState.blocked) {
+      return {
+        automation_code: this.automationCode,
+        status: 'SKIPPED',
+        reason: runBlockState.reason,
+        period,
+        existing_run_id: latestRunForPeriod?.id ?? null,
       };
     }
 
@@ -592,36 +607,58 @@ export class AutomationsService {
     asOfDate?: string;
   }) {
     return this.db.transaction(async (client) => {
-      const lockedLease = await client.query<EligibleLease>(
-        `SELECT l.id, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
+      const lockedLease = await client.query<
+        Pick<
+          EligibleLease,
+          'id' | 'lease_number' | 'tenant_id' | 'unit_id' | 'monthly_rent' | 'maintenance_fee_amount' | 'monthly_syndic_amount' | 'billing_frequency_months' | 'status' | 'start_date' | 'end_date'
+        >
+      >(
+        `SELECT l.id, l.lease_number, l.tenant_id, l.unit_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
                 COALESCE(l.billing_frequency_months, 1) AS billing_frequency_months,
-                l.status, l.start_date, l.end_date,
-                last_invoice.period_start AS last_rent_period_start,
-                last_invoice.period_end AS last_rent_period_end,
-                last_invoice.billing_month AS last_rent_billing_month,
-                last_invoice.billing_year AS last_rent_billing_year
+                l.status, l.start_date, l.end_date
          FROM leases l
-         JOIN units u ON u.id = l.unit_id
-         LEFT JOIN LATERAL (
-           SELECT i.period_start, i.period_end, i.billing_month, i.billing_year
-           FROM invoices i
-           WHERE i.organization_id = l.organization_id
-             AND i.lease_id = l.id
-             AND i.invoice_type = 'RENT'
-             AND i.deleted_at IS NULL
-           ORDER BY COALESCE(i.period_end, (MAKE_DATE(i.billing_year, i.billing_month, 1) + INTERVAL '1 month' - INTERVAL '1 day')::DATE) DESC, i.id DESC
-           LIMIT 1
-         ) last_invoice ON TRUE
          WHERE l.id = $1
            AND l.organization_id = $2
            AND l.deleted_at IS NULL
          FOR UPDATE`,
         [args.lease.id, args.organizationId],
       );
-      const lease = lockedLease.rows[0];
-      if (!lease) {
+      const lockedLeaseRow = lockedLease.rows[0];
+      if (!lockedLeaseRow) {
         throw new NotFoundException('Bail introuvable');
       }
+      const unit = await client.query<{ building_id: number }>(
+        `SELECT building_id
+         FROM units
+         WHERE id = $1`,
+        [lockedLeaseRow.unit_id],
+      );
+      if (!unit.rows[0]) {
+        throw new NotFoundException('Unite introuvable');
+      }
+      const lastInvoice = await client.query<Pick<EligibleLease, 'last_rent_period_start' | 'last_rent_period_end' | 'last_rent_billing_month' | 'last_rent_billing_year'>>(
+        `SELECT i.period_start AS last_rent_period_start,
+                i.period_end AS last_rent_period_end,
+                i.billing_month AS last_rent_billing_month,
+                i.billing_year AS last_rent_billing_year
+         FROM invoices i
+         WHERE i.organization_id = $1
+           AND i.lease_id = $2
+           AND i.invoice_type = 'RENT'
+           AND i.deleted_at IS NULL
+         ORDER BY COALESCE(i.period_end, (MAKE_DATE(i.billing_year, i.billing_month, 1) + INTERVAL '1 month' - INTERVAL '1 day')::DATE) DESC, i.id DESC
+         LIMIT 1`,
+        [args.organizationId, args.lease.id],
+      );
+      const lease: EligibleLease = {
+        ...args.lease,
+        ...lockedLeaseRow,
+        building_id: Number(unit.rows[0].building_id),
+        last_rent_period_start: lastInvoice.rows[0]?.last_rent_period_start ?? null,
+        last_rent_period_end: lastInvoice.rows[0]?.last_rent_period_end ?? null,
+        last_rent_billing_month: lastInvoice.rows[0]?.last_rent_billing_month ?? null,
+        last_rent_billing_year: lastInvoice.rows[0]?.last_rent_billing_year ?? null,
+      };
       if (!this.isLeaseEligible(lease, args.period, args.asOfDate ?? args.period.issueDate)) {
         throw new BadRequestException('Bail non eligible pour cette periode');
       }
@@ -944,6 +981,22 @@ export class AutomationsService {
     return rows[0] ?? null;
   }
 
+  private async latestRunForPeriod(organizationId: number, month: number, year: number) {
+    const { rows } = await this.db.query<AutomationRunRow>(
+      `SELECT *
+       FROM automation_runs
+       WHERE organization_id = $1
+         AND automation_code = $2
+         AND billing_month = $3
+         AND billing_year = $4
+         AND deleted_at IS NULL
+       ORDER BY started_at DESC, id DESC
+       LIMIT 1`,
+      [organizationId, this.automationCode, month, year],
+    );
+    return rows[0] ?? null;
+  }
+
   private async reserveRun(args: {
     organizationId: number;
     executionMode: 'AUTOMATIC' | 'MANUAL';
@@ -952,6 +1005,18 @@ export class AutomationsService {
     triggeredBy: number | null;
   }) {
     return this.db.transaction(async (client) => {
+      const advisoryLock = await client.query<{ acquired: boolean }>(
+        `SELECT pg_try_advisory_xact_lock(hashtext($1)) AS acquired`,
+        [`automation-run:${args.organizationId}:${this.automationCode}:${args.billingYear}-${args.billingMonth}`],
+      );
+      if (!advisoryLock.rows[0]?.acquired) {
+        return {
+          run: null,
+          reason: 'AUTOMATION_ALREADY_RUNNING',
+          runningRunId: null,
+        };
+      }
+
       await client.query(
         `SELECT id
          FROM automation_settings
@@ -962,8 +1027,8 @@ export class AutomationsService {
         [args.organizationId, this.automationCode],
       );
 
-      const running = await client.query<{ id: number }>(
-        `SELECT id
+      const running = await client.query<{ id: number; started_at: string | null }>(
+        `SELECT id, started_at
          FROM automation_runs
          WHERE organization_id = $1
            AND automation_code = $2
@@ -977,11 +1042,22 @@ export class AutomationsService {
       );
 
       if (running.rows[0]) {
-        return {
-          run: null,
-          reason: 'RUN_ALREADY_IN_PROGRESS',
-          runningRunId: Number(running.rows[0].id),
-        };
+        if (!this.isStaleRun(running.rows[0].started_at)) {
+          return {
+            run: null,
+            reason: 'AUTOMATION_ALREADY_RUNNING',
+            runningRunId: Number(running.rows[0].id),
+          };
+        }
+
+        await client.query(
+          `UPDATE automation_runs
+           SET status = 'FAILED',
+               completed_at = NOW(),
+               error_summary = COALESCE(error_summary, 'RUN_STALE_RECOVERED')
+           WHERE id = $1`,
+          [running.rows[0].id],
+        );
       }
 
       const { rows } = await client.query<AutomationRunRow>(
@@ -1263,22 +1339,11 @@ export class AutomationsService {
   }
 
   private async hasAutomaticRunForPeriod(organizationId: number, month: number, year: number) {
-    const { rows } = await this.db.query(
-      `SELECT id
-       FROM automation_runs
-       WHERE organization_id = $1
-         AND automation_code = $2
-         AND execution_mode = 'AUTOMATIC'
-         AND billing_month = $3
-         AND billing_year = $4
-         AND deleted_at IS NULL
-       LIMIT 1`,
-      [organizationId, this.automationCode, month, year],
-    );
-    return Boolean(rows[0]);
+    return this.runBlockState(await this.latestRunForPeriod(organizationId, month, year)).blocked;
   }
 
   private presentSetting(setting: MonthlyRentBillingSettingRecord, lastRun: AutomationRunRow | null) {
+    const dueDay = this.resolveDueDay(setting.due_day);
     return {
       id: setting.id,
       automationCode: setting.automation_code,
@@ -1286,7 +1351,7 @@ export class AutomationsService {
       executionTime: this.timeOnly(setting.execution_time),
       generationDay: this.generationDay,
       timezone: setting.timezone,
-      dueDay: this.automaticDueDay,
+      dueDay,
       emailEnabled: Boolean(setting.email_enabled),
       whatsappEnabled: Boolean(setting.whatsapp_enabled),
       nextExecutionAt: this.nextExecution(setting),
@@ -1305,11 +1370,11 @@ export class AutomationsService {
             failedCount: Number(lastRun.failed_count ?? 0),
           }
         : null,
-      explanation: 'Facturation automatique le 25 du mois courant, avec echeance fixee au 05 du mois suivant.',
+      explanation: `Facturation automatique le 25 du mois courant, avec echeance fixee au ${this.two(dueDay)} du mois suivant.`,
     };
   }
 
-  private periodFromInput(month?: number, year?: number) {
+  private periodFromInput(month?: number, year?: number, dueDay = this.defaultAutomaticDueDay) {
     const billingMonth = Number(month);
     const billingYear = Number(year);
     if (!Number.isInteger(billingMonth) || billingMonth < 1 || billingMonth > 12) {
@@ -1318,12 +1383,12 @@ export class AutomationsService {
     if (!Number.isInteger(billingYear) || billingYear < 2000) {
       throw new BadRequestException('Annee de facturation invalide');
     }
-    return this.buildBillingPeriod(billingYear, billingMonth);
+    return this.buildBillingPeriod(billingYear, billingMonth, dueDay);
   }
 
-  private periodFromDateInTimeZone(date: Date, timeZone: string) {
+  private periodFromDateInTimeZone(date: Date, timeZone: string, dueDay = this.defaultAutomaticDueDay) {
     const parts = this.zonedParts(date, timeZone);
-    return this.buildBillingPeriod(parts.year, parts.month);
+    return this.buildBillingPeriod(parts.year, parts.month, dueDay);
   }
 
   private todayInTimeZone(timeZone: string) {
@@ -1331,28 +1396,30 @@ export class AutomationsService {
     return `${parts.year}-${this.two(parts.month)}-${this.two(parts.day)}`;
   }
 
-  private buildBillingPeriod(year: number, month: number): BillingPeriod {
+  private buildBillingPeriod(year: number, month: number, dueDay = this.defaultAutomaticDueDay): BillingPeriod {
     const lastDay = this.daysInMonth(year, month);
     const issueDay = Math.min(this.generationDay, lastDay);
+    const resolvedDueDay = this.resolveDueDay(dueDay);
     return {
       month,
       year,
       issueDate: `${year}-${this.two(month)}-${this.two(issueDay)}`,
-      dueDate: this.getAutomaticRentDueDate(year, month),
+      dueDate: this.getAutomaticRentDueDate(year, month, resolvedDueDay),
+      dueDay: resolvedDueDay,
       periodStart: `${year}-${this.two(month)}-01`,
       periodEnd: `${year}-${this.two(month)}-${this.two(lastDay)}`,
       frequencyMonths: 1,
     };
   }
 
-  private getAutomaticRentDueDate(year: number, month: number) {
+  private getAutomaticRentDueDate(year: number, month: number, dueDay: number) {
     let nextMonth = month + 1;
     let nextYear = year;
     if (nextMonth > 12) {
       nextMonth = 1;
       nextYear += 1;
     }
-    const clampedDay = Math.min(this.automaticDueDay, this.daysInMonth(nextYear, nextMonth));
+    const clampedDay = Math.min(this.resolveDueDay(dueDay), this.daysInMonth(nextYear, nextMonth));
     return `${nextYear}-${this.two(nextMonth)}-${this.two(clampedDay)}`;
   }
 
@@ -1446,6 +1513,14 @@ export class AutomationsService {
     return dueDay;
   }
 
+  private resolveDueDay(value: unknown) {
+    const dueDay = Number(value);
+    if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) {
+      return this.defaultAutomaticDueDay;
+    }
+    return dueDay;
+  }
+
   private daysInMonth(year: number, month: number) {
     return billingDaysInMonth(parseDate(`${year}-${this.two(month)}-01`));
   }
@@ -1499,7 +1574,7 @@ export class AutomationsService {
 
     const year = this.yearFromDate(calculatedPeriod.period_start);
     const month = this.monthFromDate(calculatedPeriod.period_start);
-    const period = this.buildBillingPeriod(year, month);
+    const period = this.buildBillingPeriod(year, month, basePeriod.dueDay);
     return {
       ...period,
       frequencyMonths: calculatedPeriod.frequency_months,
@@ -1619,6 +1694,39 @@ export class AutomationsService {
 
   private companyDisplayName(settings: Record<string, unknown>) {
     return String(settings.company_legal_name ?? settings.legal_name ?? settings.company_name ?? 'Bailleur');
+  }
+
+  private isStaleRun(startedAt: string | null | undefined) {
+    if (!startedAt) {
+      return true;
+    }
+    const startedTime = new Date(startedAt).getTime();
+    if (Number.isNaN(startedTime)) {
+      return true;
+    }
+    return startedTime <= Date.now() - this.staleRunMinutes * 60_000;
+  }
+
+  private runBlockState(
+    run: Pick<AutomationRunRow, 'id' | 'status' | 'started_at'> | null | undefined,
+  ): { blocked: boolean; reason: 'AUTOMATION_ALREADY_RUNNING' | 'PERIOD_ALREADY_PROCESSED' | null } {
+    if (!run) {
+      return { blocked: false, reason: null };
+    }
+
+    const status = String(run.status ?? '').toUpperCase();
+    if (status === 'RUNNING') {
+      return this.isStaleRun(run.started_at)
+        ? { blocked: false, reason: null }
+        : { blocked: true, reason: 'AUTOMATION_ALREADY_RUNNING' };
+    }
+    if (status === 'FAILED' || status === 'PARTIAL') {
+      return { blocked: false, reason: null };
+    }
+    if (status === 'SUCCESS' || status === 'COMPLETED' || status === 'SKIPPED') {
+      return { blocked: true, reason: 'PERIOD_ALREADY_PROCESSED' };
+    }
+    return { blocked: false, reason: null };
   }
 
   private async resolveActorId(organizationId: number, preferredUserId: number | null) {

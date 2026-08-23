@@ -10,8 +10,6 @@ import { EmailService } from './email/email.service';
 
 @Injectable()
 export class CommunicationService {
-  private readonly automaticInvoiceOrganizationIds = new Set([1, 5]);
-
   constructor(
     private readonly emailService: EmailService,
     private readonly documentResolver: DocumentResolverService,
@@ -162,7 +160,7 @@ export class CommunicationService {
   private isAutoSendEnabled(documentType: DocumentType, settings: Awaited<ReturnType<EmailService['getSettings']>>) {
     switch (documentType) {
       case DocumentType.INVOICE:
-        return this.automaticInvoiceOrganizationIds.has(this.context.organizationId()) && Boolean(settings.autoSendInvoice);
+        return Boolean(settings.autoSendInvoice);
       case DocumentType.PAYMENT_RECEIPT:
         return Boolean(settings.autoSendPaymentReceipt);
       case DocumentType.TENANT_CREDIT_RECEIPT:

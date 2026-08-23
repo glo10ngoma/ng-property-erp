@@ -15,7 +15,6 @@ import { EmailProvider } from './providers/email-provider';
 import { ResendProvider } from './providers/resend.provider';
 import { decryptSecret, encryptSecret } from './utils/secret-crypto';
 
-const AUTO_INVOICE_ORGANIZATION_IDS = new Set([1, 5]);
 const INVOICE_EMAIL_HIDE_ORGANIZATION_IDS = new Set([1, 5]);
 
 type EmailSettingsRow = {
@@ -64,6 +63,17 @@ type EmailSettingsSummary = {
   autoSendPaymentReceipt: boolean;
   autoSendTenantCreditReceipt: boolean;
   updatedAt: string | null;
+};
+
+type EmailDeliveryMode = 'LIVE' | 'TEST_REDIRECT' | 'DISABLED';
+
+type EmailDeliveryPlan = {
+  mode: EmailDeliveryMode;
+  recipient: string;
+  cc: string[];
+  redirected: boolean;
+  environment: string;
+  logNote: string | null;
 };
 
 @Injectable()
@@ -153,6 +163,14 @@ export class EmailService {
     const organizationId = this.context.organizationId();
     const settings = await this.getValidatedSettingsForSending(organizationId, false);
     const organizationName = await this.resolveOrganizationName(organizationId);
+    const requestedRecipient = String(dto.recipient ?? '').trim();
+    if (!requestedRecipient) {
+      throw new BadRequestException("L'adresse email du destinataire est obligatoire.");
+    }
+    if (!this.isEmail(requestedRecipient)) {
+      throw new BadRequestException("L'adresse email du destinataire est invalide.");
+    }
+    const delivery = this.resolveEmailDeliveryPlan(requestedRecipient, []);
     const [baseTemplate, bodyTemplate] = await Promise.all([
       this.readTemplate('base.html'),
       this.readTemplate('test-email.html'),
@@ -179,36 +197,53 @@ export class EmailService {
       logId = await this.insertPendingLog({
         organizationId,
         provider: settings.provider,
-        recipient: dto.recipient,
+        recipient: delivery.recipient,
         subject: 'Test ERP Immobilier',
         createdBy: this.context.userId(),
       });
+      if (delivery.mode === 'DISABLED') {
+        if (logId) {
+          await this.finalizeLog(logId, 'SKIPPED', null, delivery.logNote);
+        }
+        return {
+          success: true,
+          provider: settings.provider,
+          recipient: delivery.recipient,
+          externalMessageId: null,
+          logId,
+          skipped: true,
+          deliveryMode: delivery.mode,
+          redirected: delivery.redirected,
+        };
+      }
       const sent = await this.provider.send({
         apiKey: settings.apiKey,
         fromEmail: settings.fromEmail,
         fromName: settings.fromName,
         replyTo: settings.replyTo,
-        to: dto.recipient,
+        to: delivery.recipient,
         subject: 'Test ERP Immobilier',
         html,
         text,
       });
 
       if (logId) {
-        await this.finalizeLog(logId, 'SENT', sent.externalMessageId, null);
+        await this.finalizeLog(logId, 'SENT', sent.externalMessageId, delivery.logNote);
       }
 
       return {
         success: true,
         provider: sent.provider,
-        recipient: dto.recipient,
+        recipient: delivery.recipient,
         externalMessageId: sent.externalMessageId,
         logId,
+        deliveryMode: delivery.mode,
+        redirected: delivery.redirected,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erreur inconnue';
       if (logId) {
-        await this.finalizeLog(logId, 'FAILED', null, message);
+        await this.finalizeLog(logId, 'FAILED', null, this.combineLogMessage(delivery.logNote, message));
       }
       this.logger.error(`Unable to send communication test email: ${message}`);
       throw error;
@@ -233,6 +268,7 @@ export class EmailService {
     }
 
     const cc = this.parseCc(args.cc);
+    const delivery = this.resolveEmailDeliveryPlan(recipient, cc);
     const [baseTemplate, bodyTemplate, organizationName] = await Promise.all([
       this.readTemplate('base.html'),
       this.readTemplate(args.document.templateName),
@@ -260,17 +296,34 @@ export class EmailService {
       logId = await this.insertPendingLog({
         organizationId,
         provider: settings.provider,
-        recipient,
+        recipient: delivery.recipient,
         subject: finalSubject,
         createdBy: this.context.userId(),
       });
+      if (delivery.mode === 'DISABLED') {
+        if (logId) {
+          await this.finalizeLog(logId, 'SKIPPED', null, delivery.logNote);
+        }
+        return {
+          success: true,
+          recipient: delivery.recipient,
+          cc: delivery.cc,
+          provider: settings.provider,
+          externalMessageId: null,
+          attachment_file_name: args.document.attachmentFileName,
+          logId,
+          skipped: true,
+          deliveryMode: delivery.mode,
+          redirected: delivery.redirected,
+        };
+      }
       const sent = await this.provider.send({
         apiKey: settings.apiKey,
         fromEmail: settings.fromEmail,
         fromName: settings.fromName,
         replyTo: settings.replyTo,
-        to: recipient,
-        cc,
+        to: delivery.recipient,
+        cc: delivery.cc,
         subject: finalSubject,
         html,
         text,
@@ -282,22 +335,24 @@ export class EmailService {
       });
 
       if (logId) {
-        await this.finalizeLog(logId, 'SENT', sent.externalMessageId, null);
+        await this.finalizeLog(logId, 'SENT', sent.externalMessageId, delivery.logNote);
       }
 
       return {
         success: true,
-        recipient,
-        cc,
+        recipient: delivery.recipient,
+        cc: delivery.cc,
         provider: sent.provider,
         externalMessageId: sent.externalMessageId,
         attachment_file_name: args.document.attachmentFileName,
         logId,
+        deliveryMode: delivery.mode,
+        redirected: delivery.redirected,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erreur inconnue';
       if (logId) {
-        await this.finalizeLog(logId, 'FAILED', null, message);
+        await this.finalizeLog(logId, 'FAILED', null, this.combineLogMessage(delivery.logNote, message));
       }
       throw error;
     }
@@ -320,6 +375,7 @@ export class EmailService {
     const recipient = String(args.to ?? args.document.recipientFallback ?? '').trim();
     const subject = args.subject?.trim() || args.document.subjectFallback;
     const cc = this.parseCc(args.cc);
+    const delivery = this.resolveEmailDeliveryPlan(recipient, cc);
 
     if (!args.document.pdfBuffer?.byteLength) {
       throw new BadRequestException('Le PDF demandé est indisponible.');
@@ -351,27 +407,45 @@ export class EmailService {
     const logId = await this.insertDocumentLog({
       organizationId,
       provider: settings.provider,
-      recipient,
+      recipient: delivery.recipient,
       subject,
       documentType: args.documentType,
       documentId: args.documentId,
       trigger,
       idempotencyKey: args.idempotencyKey ?? null,
-      status: 'PENDING',
+      status: delivery.mode === 'DISABLED' ? 'SKIPPED' : 'PENDING',
+      error: delivery.logNote,
       createdBy: this.context.userId(),
     });
 
     if (!logId) {
       return {
         success: true,
-        recipient,
-        cc,
+        recipient: delivery.recipient,
+        cc: delivery.cc,
         provider: settings.provider,
         externalMessageId: null,
         attachment_file_name: args.document.attachmentFileName,
         logId: null,
         skipped: true,
         duplicated: true,
+        deliveryMode: delivery.mode,
+        redirected: delivery.redirected,
+      };
+    }
+
+    if (delivery.mode === 'DISABLED') {
+      return {
+        success: true,
+        recipient: delivery.recipient,
+        cc: delivery.cc,
+        provider: settings.provider,
+        externalMessageId: null,
+        attachment_file_name: args.document.attachmentFileName,
+        logId,
+        skipped: true,
+        deliveryMode: delivery.mode,
+        redirected: delivery.redirected,
       };
     }
 
@@ -381,8 +455,8 @@ export class EmailService {
         fromEmail: settings.fromEmail,
         fromName: settings.fromName,
         replyTo: settings.replyTo,
-        to: recipient,
-        cc,
+        to: delivery.recipient,
+        cc: delivery.cc,
         subject,
         html,
         text,
@@ -393,19 +467,21 @@ export class EmailService {
         }],
       });
 
-      await this.finalizeLog(logId, 'SENT', sent.externalMessageId, null);
+      await this.finalizeLog(logId, 'SENT', sent.externalMessageId, delivery.logNote);
       return {
         success: true,
-        recipient,
-        cc,
+        recipient: delivery.recipient,
+        cc: delivery.cc,
         provider: sent.provider,
         externalMessageId: sent.externalMessageId,
         attachment_file_name: args.document.attachmentFileName,
         logId,
+        deliveryMode: delivery.mode,
+        redirected: delivery.redirected,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erreur inconnue';
-      await this.finalizeLog(logId, 'FAILED', null, message);
+      await this.finalizeLog(logId, 'FAILED', null, this.combineLogMessage(delivery.logNote, message));
       throw error;
     }
   }
@@ -505,7 +581,83 @@ export class EmailService {
   }
 
   private normalizeAutomaticInvoiceSetting(organizationId: number, value: boolean) {
-    return AUTO_INVOICE_ORGANIZATION_IDS.has(Number(organizationId)) && Boolean(value);
+    void organizationId;
+    return Boolean(value);
+  }
+
+  private resolveEmailDeliveryMode(): EmailDeliveryMode {
+    const rawMode = String(this.config.get('EMAIL_DELIVERY_MODE') ?? process.env.EMAIL_DELIVERY_MODE ?? '')
+      .trim()
+      .toUpperCase();
+    if (rawMode === 'LIVE' || rawMode === 'TEST_REDIRECT' || rawMode === 'DISABLED') {
+      return rawMode;
+    }
+    return this.runtimeEnvironment() === 'production' ? 'LIVE' : 'DISABLED';
+  }
+
+  private runtimeEnvironment() {
+    return String(this.config.get('NODE_ENV') ?? process.env.NODE_ENV ?? 'development')
+      .trim()
+      .toLowerCase() || 'development';
+  }
+
+  private resolveEmailDeliveryPlan(recipient: string, cc: string[]): EmailDeliveryPlan {
+    const mode = this.resolveEmailDeliveryMode();
+    const environment = this.runtimeEnvironment();
+    if (mode === 'LIVE') {
+      return {
+        mode,
+        recipient,
+        cc,
+        redirected: false,
+        environment,
+        logNote: null,
+      };
+    }
+
+    const maskedRecipient = this.maskRecipient(recipient);
+    const ccCount = cc.length;
+    if (mode === 'TEST_REDIRECT') {
+      const redirectedRecipient = String(this.config.get('EMAIL_TEST_RECIPIENT') ?? process.env.EMAIL_TEST_RECIPIENT ?? '').trim();
+      if (!redirectedRecipient || !this.isEmail(redirectedRecipient)) {
+        throw new BadRequestException('EMAIL_TEST_RECIPIENT invalide ou absent pour EMAIL_DELIVERY_MODE=TEST_REDIRECT.');
+      }
+      return {
+        mode,
+        recipient: redirectedRecipient,
+        cc: [],
+        redirected: true,
+        environment,
+        logNote: `EMAIL_TEST_REDIRECT redirected=true environment=${environment} original_recipient=${maskedRecipient}${ccCount ? ` original_cc_count=${ccCount}` : ''}`,
+      };
+    }
+
+    return {
+      mode,
+      recipient,
+      cc: [],
+      redirected: false,
+      environment,
+      logNote: `EMAIL_DISABLED redirected=false environment=${environment} original_recipient=${maskedRecipient}${ccCount ? ` original_cc_count=${ccCount}` : ''}`,
+    };
+  }
+
+  private combineLogMessage(note: string | null, message: string | null) {
+    const parts = [note, message].filter((value): value is string => Boolean(value && String(value).trim()));
+    if (!parts.length) {
+      return null;
+    }
+    return parts.join(' | ').slice(0, 1000);
+  }
+
+  private maskRecipient(value: string) {
+    const text = String(value ?? '').trim();
+    const [localPart = '', domainPart = ''] = text.split('@');
+    if (!domainPart) {
+      return '***';
+    }
+    const visibleLocal = localPart.slice(0, Math.min(2, localPart.length));
+    return `${visibleLocal || '*'}***@${domainPart}`;
   }
 
   private async getCommunicationLogsSchema() {
@@ -1030,7 +1182,7 @@ export class EmailService {
     return result.rows[0]?.id ?? null;
   }
 
-  private async finalizeLog(logId: number, status: 'SENT' | 'FAILED', externalMessageId: string | null, error: string | null) {
+  private async finalizeLog(logId: number, status: 'SENT' | 'FAILED' | 'SKIPPED', externalMessageId: string | null, error: string | null) {
     await this.db.query(
       `
         UPDATE public.communication_logs
