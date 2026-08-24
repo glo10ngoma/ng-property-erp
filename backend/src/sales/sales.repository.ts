@@ -1639,7 +1639,12 @@ export class SalesRepository {
     return rows[0];
   }
 
-  async markDocumentGenerationSuccess(organizationId: number, id: number, payload: { pdf_base64: string; mime_type: string; generated_by: number | null }) {
+  async markDocumentGenerationSuccess(
+    organizationId: number,
+    id: number,
+    payload: { pdf_base64: string; mime_type: string; generated_by: number | null },
+    client?: PoolClient,
+  ) {
     const { rows } = await this.query(
       `UPDATE sales_document_generations
        SET pdf_base64 = $3,
@@ -1651,11 +1656,12 @@ export class SalesRepository {
        WHERE id = $1 AND organization_id = $2
        RETURNING *`,
       [id, organizationId, payload.pdf_base64, payload.mime_type, payload.generated_by],
+      client,
     );
     return rows[0] ?? null;
   }
 
-  async markDocumentGenerationFailure(organizationId: number, id: number, errorMessage: string, generatedBy: number | null) {
+  async markDocumentGenerationFailure(organizationId: number, id: number, errorMessage: string, generatedBy: number | null, client?: PoolClient) {
     const { rows } = await this.query(
       `UPDATE sales_document_generations
        SET generation_status = 'GENERATION_FAILED',
@@ -1666,6 +1672,7 @@ export class SalesRepository {
        WHERE id = $1 AND organization_id = $2
        RETURNING *`,
       [id, organizationId, errorMessage, generatedBy],
+      client,
     );
     return rows[0] ?? null;
   }

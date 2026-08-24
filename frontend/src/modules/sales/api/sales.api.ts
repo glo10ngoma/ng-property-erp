@@ -13,6 +13,8 @@ import type {
   SalesDocumentTemplatePayload,
   SalesBootstrap,
   SalesBuyer,
+  SalesInvoice,
+  SalesInvoicePayment,
   SalesCatalogItem,
   SalesListQuery,
   SalesListResult,
@@ -22,6 +24,7 @@ import type {
   SalesSettings,
   SalesStatusActionInput,
   SalesSubscription,
+  SalesSubscriptionFinancialSummary,
   SalesSubscriptionSimulation,
   SimulateSalesSubscriptionInput,
 } from '../types';
@@ -268,6 +271,76 @@ export async function listSalesSubscriptionDocuments(id: number) {
 
 export async function regenerateSalesSubscriptionDocument(id: number) {
   const response = await api.post<SalesDocumentGeneration>(`/sales/subscriptions/${id}/documents/regenerate`);
+  return response.data;
+}
+
+export async function getSalesSubscriptionFinancialSummary(id: number) {
+  const response = await api.get<SalesSubscriptionFinancialSummary>(`/sales/subscriptions/${id}/financial-summary`);
+  return response.data;
+}
+
+export async function listSalesSubscriptionInstallments(id: number) {
+  const response = await api.get<SalesSubscriptionFinancialSummary['installments']>(`/sales/subscriptions/${id}/installments`);
+  return response.data;
+}
+
+export async function listSalesInvoices(params: SalesListQuery = {}) {
+  const response = await api.get<SalesListResult<SalesInvoice>>('/sales/invoices', { params });
+  return response.data;
+}
+
+export async function getSalesInvoice(id: number) {
+  const response = await api.get<SalesInvoice>(`/sales/invoices/${id}`);
+  return response.data;
+}
+
+export async function generateSalesInvoice(subscriptionId: number, installmentId: number) {
+  const response = await api.post<SalesInvoice>(`/sales/subscriptions/${subscriptionId}/installments/${installmentId}/invoice`);
+  return response.data;
+}
+
+export async function issueSalesInvoice(id: number) {
+  const response = await api.post<SalesInvoice>(`/sales/invoices/${id}/issue`);
+  return response.data;
+}
+
+export async function cancelSalesInvoice(id: number, payload: SalesStatusActionInput = {}) {
+  const response = await api.post<SalesInvoice>(`/sales/invoices/${id}/cancel`, payload);
+  return response.data;
+}
+
+export async function listSalesInvoicePayments(id: number) {
+  const response = await api.get<SalesInvoicePayment[]>(`/sales/invoices/${id}/payments`);
+  return response.data;
+}
+
+export async function createSalesInvoicePayment(id: number, payload: CreateSalesReservationPaymentInput) {
+  const response = await api.post<SalesInvoice>(`/sales/invoices/${id}/payments`, payload);
+  return response.data;
+}
+
+export async function cancelSalesInvoicePayment(id: number, payload: CancelSalesReservationPaymentInput) {
+  const response = await api.post<SalesInvoice>(`/sales/invoice-payments/${id}/cancel`, payload);
+  return response.data;
+}
+
+export async function refundSalesInvoicePayment(id: number, payload: CreateSalesReservationRefundInput) {
+  const response = await api.post<SalesInvoice>(`/sales/invoice-payments/${id}/refunds`, payload);
+  return response.data;
+}
+
+export async function regenerateSalesInvoicePaymentReceipt(id: number) {
+  const response = await api.post<SalesInvoice>(`/sales/invoice-payments/${id}/receipt/regenerate`);
+  return response.data;
+}
+
+export async function regenerateSalesInvoiceDocument(id: number) {
+  const response = await api.post<SalesInvoice>(`/sales/invoices/${id}/documents/regenerate`);
+  return response.data;
+}
+
+export async function sendSalesInvoice(id: number) {
+  const response = await api.post<SalesInvoice>(`/sales/invoices/${id}/send`);
   return response.data;
 }
 

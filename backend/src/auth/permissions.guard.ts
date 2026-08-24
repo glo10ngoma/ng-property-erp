@@ -235,11 +235,56 @@ export class PermissionsGuard implements CanActivate {
     if (/^\/api\/sales\/subscriptions\/\d+\/documents$/.test(path)) {
       return 'sales_documents.read';
     }
+    if (/^\/api\/sales\/subscriptions\/\d+\/financial-summary$/.test(path)) {
+      return 'sales_reports.balance';
+    }
+    if (/^\/api\/sales\/subscriptions\/\d+\/installments$/.test(path)) {
+      return 'sales_invoices.read';
+    }
+    if (/^\/api\/sales\/subscriptions\/\d+\/installments\/\d+\/invoice$/.test(path)) {
+      return 'sales_invoices.create';
+    }
     if (/^\/api\/sales\/subscriptions\/\d+$/.test(path)) {
       return method === 'GET' ? 'sales_subscriptions.read' : 'sales_subscriptions.update';
     }
     if (/^\/api\/sales\/subscriptions$/.test(path)) {
       return method === 'GET' ? 'sales_subscriptions.read' : 'sales_subscriptions.create';
+    }
+    if (/^\/api\/sales\/invoices\/\d+\/documents\/regenerate$/.test(path)) {
+      return 'sales_documents.regenerate';
+    }
+    if (/^\/api\/sales\/invoices\/\d+\/documents$/.test(path)) {
+      return 'sales_documents.read';
+    }
+    if (/^\/api\/sales\/invoices\/\d+\/send$/.test(path)) {
+      return 'sales_invoices.send';
+    }
+    if (/^\/api\/sales\/invoices\/\d+\/issue$/.test(path)) {
+      return 'sales_invoices.update';
+    }
+    if (/^\/api\/sales\/invoices\/\d+\/cancel$/.test(path)) {
+      return 'sales_invoices.cancel';
+    }
+    if (/^\/api\/sales\/invoices\/\d+\/payments$/.test(path)) {
+      return method === 'GET' ? 'sales_payments.read' : 'sales_payments.create';
+    }
+    if (/^\/api\/sales\/invoices\/\d+$/.test(path)) {
+      return 'sales_invoices.read';
+    }
+    if (/^\/api\/sales\/invoices$/.test(path)) {
+      return method === 'GET' ? 'sales_invoices.read' : 'sales_invoices.create';
+    }
+    if (/^\/api\/sales\/invoice-payments\/\d+\/receipt\/regenerate$/.test(path)) {
+      return 'sales_payments.create';
+    }
+    if (/^\/api\/sales\/invoice-payments\/\d+\/cancel$/.test(path)) {
+      return 'sales_payments.cancel';
+    }
+    if (/^\/api\/sales\/invoice-payments\/\d+\/refunds$/.test(path)) {
+      return 'sales_payments.refund';
+    }
+    if (/^\/api\/sales\/reports\/outstanding$/.test(path) || /^\/api\/sales\/reports\/overdue$/.test(path)) {
+      return 'sales_reports.balance';
     }
     if (/^\/api\/sales\/documents\/\d+\/download$/.test(path)) {
       return 'sales_documents.download';

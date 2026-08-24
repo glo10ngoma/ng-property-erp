@@ -11,6 +11,7 @@ import {
   SalesBuyerListQueryDto,
   SalesCatalogListQueryDto,
   SalesDocumentTemplateDto,
+  SalesInvoiceListQueryDto,
   SalesProjectListQueryDto,
   SalesReservationListQueryDto,
   SalesReservationStatusActionDto,
@@ -26,13 +27,17 @@ import {
   UpdateSalesSubscriptionDto,
 } from './dto';
 import { RequireOrganizationModule } from './sales-module.decorator';
+import { SalesFinancialsService } from './sales-financials.service';
 import { SalesService } from './sales.service';
 import { SALES_MODULE_CODE } from './types';
 
 @Controller('sales')
 @RequireOrganizationModule(SALES_MODULE_CODE)
 export class SalesController {
-  constructor(private readonly sales: SalesService) {}
+  constructor(
+    private readonly sales: SalesService,
+    private readonly financials: SalesFinancialsService,
+  ) {}
 
   @Get('bootstrap')
   bootstrap() {
@@ -259,9 +264,97 @@ export class SalesController {
     return this.sales.regenerateSubscriptionDocument(id);
   }
 
+  @Get('subscriptions/:id/financial-summary')
+  getSubscriptionFinancialSummary(@Param('id', ParseIntPipe) id: number) {
+    return this.financials.getSubscriptionFinancialSummary(id);
+  }
+
+  @Get('subscriptions/:id/installments')
+  listSubscriptionInstallments(@Param('id', ParseIntPipe) id: number) {
+    return this.financials.listSubscriptionInstallments(id);
+  }
+
+  @Get('invoices')
+  listInvoices(@Query() query: SalesInvoiceListQueryDto) {
+    return this.financials.listInvoices(query);
+  }
+
+  @Get('invoices/:id')
+  getInvoice(@Param('id', ParseIntPipe) id: number) {
+    return this.financials.getInvoice(id);
+  }
+
+  @Post('subscriptions/:id/installments/:installmentId/invoice')
+  generateInvoice(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('installmentId', ParseIntPipe) installmentId: number,
+  ) {
+    return this.financials.generateInvoice(id, installmentId);
+  }
+
+  @Post('invoices/:id/issue')
+  issueInvoice(@Param('id', ParseIntPipe) id: number) {
+    return this.financials.issueInvoice(id);
+  }
+
+  @Post('invoices/:id/cancel')
+  cancelInvoice(@Param('id', ParseIntPipe) id: number, @Body() dto: SalesReservationStatusActionDto) {
+    return this.financials.cancelInvoice(id, dto);
+  }
+
+  @Get('invoices/:id/payments')
+  listInvoicePayments(@Param('id', ParseIntPipe) id: number) {
+    return this.financials.listInvoicePayments(id);
+  }
+
+  @Post('invoices/:id/payments')
+  createInvoicePayment(@Param('id', ParseIntPipe) id: number, @Body() dto: CreateSalesReservationPaymentDto) {
+    return this.financials.createInvoicePayment(id, dto);
+  }
+
+  @Post('invoice-payments/:id/cancel')
+  cancelInvoicePayment(@Param('id', ParseIntPipe) id: number, @Body() dto: CancelSalesReservationPaymentDto) {
+    return this.financials.cancelInvoicePayment(id, dto);
+  }
+
+  @Post('invoice-payments/:id/refunds')
+  refundInvoicePayment(@Param('id', ParseIntPipe) id: number, @Body() dto: CreateSalesReservationRefundDto) {
+    return this.financials.refundInvoicePayment(id, dto);
+  }
+
+  @Post('invoice-payments/:id/receipt/regenerate')
+  regenerateInvoicePaymentReceipt(@Param('id', ParseIntPipe) id: number) {
+    return this.financials.regeneratePaymentReceipt(id);
+  }
+
+  @Get('invoices/:id/documents')
+  listInvoiceDocuments(@Param('id', ParseIntPipe) id: number) {
+    return this.financials.getInvoice(id).then((invoice) => invoice.documents ?? []);
+  }
+
+  @Post('invoices/:id/documents/regenerate')
+  regenerateInvoiceDocument(@Param('id', ParseIntPipe) id: number) {
+    return this.financials.regenerateInvoiceDocument(id);
+  }
+
+  @Post('invoices/:id/send')
+  sendInvoice(@Param('id', ParseIntPipe) id: number) {
+    return this.financials.sendInvoice(id);
+  }
+
+  @Get('reports/outstanding')
+  listOutstandingInvoices() {
+    return this.financials.listOutstandingInvoices();
+  }
+
+  @Get('reports/overdue')
+  listOverdueInvoices() {
+    return this.financials.listOverdueInvoices();
+  }
+
   @Get('documents/:id/download')
   async downloadGeneratedDocument(@Param('id', ParseIntPipe) id: number, @Res() response: any) {
-    const file = await this.sales.downloadGeneratedDocument(id);
+    const file = await this.sales.downloadGeneratedDocument(id).catch(async () => this.financials.downloadInvoiceDocument(id));
     response.setHeader('Content-Type', file.mimeType);
     response.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
     response.send(file.buffer);

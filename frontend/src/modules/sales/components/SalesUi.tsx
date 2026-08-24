@@ -2,7 +2,7 @@ import { useEffect, useRef, type KeyboardEvent, type MouseEvent, type ReactNode 
 import { NavLink, useNavigate } from 'react-router-dom';
 import '../sales.css';
 
-export type SalesTabKey = 'overview' | 'buyers' | 'projects' | 'catalog' | 'reservations' | 'subscriptions' | 'settings';
+export type SalesTabKey = 'overview' | 'buyers' | 'projects' | 'catalog' | 'reservations' | 'subscriptions' | 'invoices' | 'settings';
 export type SalesStatusTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
 export function SalesModulePage({
@@ -46,6 +46,7 @@ export function SalesNavigation({ activeTab }: { activeTab: SalesTabKey }) {
     { key: 'catalog', label: 'Biens à vendre', to: '/sales/catalog' },
     { key: 'reservations', label: 'Réservations', to: '/sales/reservations' },
     { key: 'subscriptions', label: 'Souscriptions', to: '/sales/subscriptions' },
+    { key: 'invoices', label: 'Factures', to: '/sales/invoices' },
     { key: 'settings', label: 'Paramètres', to: '/sales/settings' },
   ];
 

@@ -15,6 +15,7 @@ export const SALES_SUBSCRIPTION_ORIGIN_MODES = ['DIRECT', 'RESERVATION'] as cons
 export const SALES_RESERVATION_PAYMENT_METHODS = ['CASH', 'BANK', 'MOBILE_MONEY', 'OTHER'] as const;
 export const SALES_RESERVATION_PAYMENT_STATUSES = ['CONFIRMED', 'CANCELLED', 'PARTIALLY_REFUNDED', 'REFUNDED'] as const;
 export const SALES_RESERVATION_DESTINATION_TYPES = ['CASH', 'BANK', 'MOBILE_MONEY', 'OTHER'] as const;
+export const SALES_INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE', 'CANCELLED'] as const;
 
 export type SalesBootstrap = {
   module: string;
@@ -361,6 +362,113 @@ export type SalesSubscription = {
   updated_at?: string | null;
   installments?: SalesSubscriptionInstallment[];
   documents?: SalesDocumentGeneration[];
+};
+
+export type SalesInvoiceItem = {
+  id: number;
+  invoice_id: number;
+  organization_id: number;
+  line_type: string;
+  label: string;
+  description?: string | null;
+  quantity: number;
+  unit_price: number;
+  line_amount: number;
+  currency: string;
+  sort_order: number;
+};
+
+export type SalesInvoicePayment = {
+  id: number;
+  organization_id: number;
+  invoice_id: number;
+  subscription_id: number;
+  installment_id?: number | null;
+  payment_number: string;
+  status: string;
+  amount: number;
+  currency: string;
+  payment_date: string;
+  payment_method: string;
+  destination_type: string;
+  cash_session_id?: number | null;
+  bank_account_id?: number | null;
+  receipt_document_id?: number | null;
+  external_reference?: string | null;
+  notes?: string | null;
+  refunded_amount?: number | null;
+  available_refundable_amount?: number | null;
+  cancelled_at?: string | null;
+  cancellation_reason?: string | null;
+};
+
+export type SalesInvoice = {
+  id: number;
+  organization_id: number;
+  subscription_id: number;
+  installment_id: number;
+  invoice_number: string;
+  status: (typeof SALES_INVOICE_STATUSES)[number] | string;
+  issue_date: string;
+  due_date: string;
+  currency: string;
+  subtotal_amount: number;
+  discount_amount: number;
+  fee_allocation_amount: number;
+  total_amount: number;
+  paid_amount: number;
+  refunded_amount: number;
+  balance_due: number;
+  buyer_name?: string | null;
+  subscription_number?: string | null;
+  catalog_title?: string | null;
+  project_name?: string | null;
+  installment_label?: string | null;
+  installment_sequence_number?: number | null;
+  send_status?: string | null;
+  sent_at?: string | null;
+  cancellation_reason?: string | null;
+  items?: SalesInvoiceItem[];
+  payments?: SalesInvoicePayment[];
+  documents?: SalesDocumentGeneration[];
+  payment_destinations?: SalesReservationPaymentDestinations | null;
+};
+
+export type SalesSubscriptionFinancialSummary = {
+  subscription_id: number;
+  subscription_number: string;
+  currency: string;
+  final_sale_price: number;
+  deposit_expected: number;
+  deposit_paid: number;
+  financed_balance: number;
+  total_invoiced: number;
+  total_paid: number;
+  total_refunded: number;
+  balance_due: number;
+  global_balance_due: number;
+  amount_due: number;
+  overdue_amount: number;
+  next_due_date?: string | null;
+  installments_paid: number;
+  installments_remaining: number;
+  installments_overdue: number;
+  reservation_fee: {
+    paid: number;
+    refunded: number;
+    allocated: number;
+    available: number;
+  };
+  installments: Array<SalesSubscriptionInstallment & {
+    invoice_id?: number | null;
+    invoice_number?: string | null;
+    invoice_status?: string | null;
+    total_amount?: number | null;
+    paid_amount?: number | null;
+    refunded_amount?: number | null;
+    balance_due?: number | null;
+    financial_status?: string | null;
+  }>;
 };
 
 export type SalesSimulationSummary = {

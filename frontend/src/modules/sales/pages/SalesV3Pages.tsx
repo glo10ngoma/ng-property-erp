@@ -80,6 +80,7 @@ import {
   SalesSubNavigation,
   type SalesStatusTone,
 } from '../components/SalesUi';
+import { SalesSubscriptionFinancialSection } from './SalesV32Pages';
 
 type ReservationFormState = {
   reservation_number: string;
@@ -2152,6 +2153,8 @@ export function SalesSubscriptionDetailPage() {
             <SalesKpiCard label="Statut" value={<SalesStatusBadge label={subscriptionOptionsStatus(item.status)} tone={getStatusTone(item.status)} />} helper={`1re échéance : ${formatDate(item.first_due_date)}`} />
           </SalesKpiGrid>
 
+          <SalesSubscriptionFinancialSection subscriptionId={item.id} />
+
           <div className="sales-v21-two-columns">
             <SalesSection title="Résumé contractuel" description="Points de contrôle avant approbation ou rejet.">
               <SalesInfoList
@@ -2189,6 +2192,12 @@ export function SalesSubscriptionDetailPage() {
                 }
                 editHref={can('sales_subscriptions.update') ? `/sales/subscriptions/${item.id}/edit` : null}
                 secondaryActions={[
+                  {
+                    key: 'financials',
+                    label: 'Situation financière',
+                    tone: 'secondary',
+                    href: `/sales/subscriptions/${item.id}/financials`,
+                  },
                   can('sales_subscriptions.update') && item.status === 'SUBMITTED'
                     ? {
                         key: 'reject',

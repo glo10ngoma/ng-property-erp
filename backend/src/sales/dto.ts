@@ -868,6 +868,18 @@ export class CreateSalesSubscriptionDto extends SimulateSalesSubscriptionDto {
 
 export class UpdateSalesSubscriptionDto extends PartialType(CreateSalesSubscriptionDto) {}
 
+export class SalesInvoiceListQueryDto extends SalesPaginationQueryDto {
+  @trimString()
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  status?: string;
+}
+
 export class SalesDocumentTemplateDto {
   @trimString()
   @IsIn(SALES_TEMPLATE_TYPES)

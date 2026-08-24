@@ -40,6 +40,7 @@ import {
   SalesSubscriptionFormPage,
   SalesSubscriptionsPage,
 } from '../modules/sales/pages/SalesV3Pages';
+import { SalesInvoiceDetailV32Page, SalesInvoicesV32Page, SalesSubscriptionFinancialV32Page } from '../modules/sales/pages/SalesV32Pages';
 import { ModulePlaceholder } from '../modules/shared/ModulePlaceholder';
 import { SettingsPage } from '../modules/settings/pages/SettingsPage';
 import { AdvancesPage, AttendanceMonthlyEntryPage, AttendancePage, ContractsPage, EmployeeDetailPage, EmployeesPage, HrReportsPage, LeavesPage, PayrollDetailPage, PayrollPage, PositionsPage, ServicesPage, StaffPage } from '../modules/staff/pages/StaffPage';
@@ -225,6 +226,9 @@ export function AppRouter() {
           <Route path="/sales/subscriptions/new" element={salesPermissionGuarded('sales_subscriptions.create', <SalesSubscriptionFormPage />)} />
           <Route path="/sales/subscriptions/:id" element={salesGuarded(<SalesSubscriptionDetailPage />)} />
           <Route path="/sales/subscriptions/:id/edit" element={salesPermissionGuarded('sales_subscriptions.update', <SalesSubscriptionFormPage />)} />
+          <Route path="/sales/subscriptions/:id/financials" element={salesGuarded(<SalesSubscriptionFinancialV32Page />)} />
+          <Route path="/sales/invoices" element={salesPermissionGuarded('sales_invoices.read', <SalesInvoicesV32Page />)} />
+          <Route path="/sales/invoices/:id" element={salesPermissionGuarded('sales_invoices.read', <SalesInvoiceDetailV32Page />)} />
           <Route path="/sales/settings" element={<Navigate to="/sales/settings/numbering" replace />} />
           <Route path="/sales/settings/*" element={salesPermissionGuarded('sales.settings.manage', <SalesSettingsPage />)} />
           <Route element={<SuperAdminRoute />}>
