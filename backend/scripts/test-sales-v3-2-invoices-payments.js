@@ -21,6 +21,7 @@ function main() {
   const root = path.resolve(__dirname, '..');
   const migration = read(path.join(root, '..', 'database', '20260825_sales_v3_2_invoices_payments.sql'));
   const controller = read(path.join(root, 'src', 'sales', 'sales.controller.ts'));
+  const dto = read(path.join(root, 'src', 'sales', 'dto.ts'));
   const service = read(path.join(root, 'src', 'sales', 'sales-financials.service.ts'));
   const guard = read(path.join(root, 'src', 'auth', 'permissions.guard.ts'));
   const permissions = read(path.join(root, 'src', 'saas', 'permissions.ts'));
@@ -70,6 +71,18 @@ function main() {
   );
 
   includesAll(
+    dto,
+    [
+      'export class SalesInvoiceListQueryDto extends SalesPaginationQueryDto',
+      "@IsIn(['DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE', 'CANCELLED'])",
+      "@IsIn(['invoice_number', 'status', 'issue_date', 'due_date', 'total_amount', 'paid_amount', 'balance_due', 'created_at', 'updated_at'])",
+      "sortBy?: string = 'due_date';",
+      "@IsIn(['asc', 'desc', 'ASC', 'DESC'])",
+    ],
+    'dto',
+  );
+
+  includesAll(
     service,
     [
       'generateInvoice(',
@@ -81,6 +94,11 @@ function main() {
       'generateInvoiceDocument(',
       'generatePaymentReceipt(',
       'refreshInvoiceAggregates(',
+      'async listInvoices(query: SalesInvoiceListQueryDto)',
+      'const sortColumnMap: Record<string, string> = {',
+      "const sortColumn = sortColumnMap[query.sortBy ?? 'due_date'] ?? sortColumnMap.due_date;",
+      "const sortOrder = String(query.sortOrder ?? 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';",
+      'ORDER BY ${sortColumn} ${sortOrder}, si.id DESC',
       'const configuredInvoiceFormat = String(settings?.sales_invoice_number_format ?? \'\').trim();',
       'const legacyInvoicePrefix = String(settings?.invoice_prefix ?? \'\').trim();',
       "? `${legacyInvoicePrefix}-{YYYY}-{SEQ:5}`",

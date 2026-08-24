@@ -876,8 +876,13 @@ export class SalesInvoiceListQueryDto extends SalesPaginationQueryDto {
 
   @trimString()
   @IsOptional()
-  @IsString()
+  @IsIn(['DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE', 'CANCELLED'])
   status?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(['invoice_number', 'status', 'issue_date', 'due_date', 'total_amount', 'paid_amount', 'balance_due', 'created_at', 'updated_at'])
+  sortBy?: string = 'due_date';
 }
 
 export class SalesDocumentTemplateDto {

@@ -8,8 +8,8 @@ import type {
   CancelSalesReservationPaymentDto,
   CreateSalesReservationPaymentDto,
   CreateSalesReservationRefundDto,
+  SalesInvoiceListQueryDto,
   SalesReservationStatusActionDto,
-  SalesSubscriptionListQueryDto,
 } from './dto';
 import { SalesRepository } from './sales.repository';
 
@@ -117,13 +117,26 @@ export class SalesFinancialsService {
     private readonly repository: SalesRepository,
   ) {}
 
-  async listInvoices(query: SalesSubscriptionListQueryDto) {
+  async listInvoices(query: SalesInvoiceListQueryDto) {
     const organizationId = this.context.organizationId();
     const page = Math.max(Number(query.page ?? 1), 1);
     const pageSize = Math.min(Math.max(Number(query.pageSize ?? 20), 1), 100);
     const offset = (page - 1) * pageSize;
     const params: unknown[] = [organizationId];
     const filters: string[] = ['si.organization_id = $1'];
+    const sortColumnMap: Record<string, string> = {
+      invoice_number: 'si.invoice_number',
+      status: 'si.status',
+      issue_date: 'si.issue_date',
+      due_date: 'si.due_date',
+      total_amount: 'si.total_amount',
+      paid_amount: 'si.paid_amount',
+      balance_due: 'si.balance_due',
+      created_at: 'si.created_at',
+      updated_at: 'si.updated_at',
+    };
+    const sortColumn = sortColumnMap[query.sortBy ?? 'due_date'] ?? sortColumnMap.due_date;
+    const sortOrder = String(query.sortOrder ?? 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
     if (query.search?.trim()) {
       params.push(`%${query.search.trim().toLowerCase()}%`);
@@ -169,7 +182,7 @@ export class SalesFinancialsService {
        LEFT JOIN sales_projects sp ON sp.id = ss.project_id
        LEFT JOIN sales_subscription_installments ssi ON ssi.id = si.installment_id
        WHERE ${where}
-       ORDER BY si.due_date DESC, si.id DESC
+       ORDER BY ${sortColumn} ${sortOrder}, si.id DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     );
