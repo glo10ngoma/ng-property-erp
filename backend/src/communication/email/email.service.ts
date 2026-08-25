@@ -76,6 +76,14 @@ type EmailDeliveryPlan = {
   logNote: string | null;
 };
 
+type ValidatedEmailSettings = {
+  provider: string;
+  fromName: string;
+  fromEmail: string;
+  replyTo: string | null;
+  apiKey: string;
+};
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -154,6 +162,9 @@ export class EmailService {
 
   async testConnection() {
     const settings = await this.getValidatedSettingsForSending(this.context.organizationId(), false);
+    if (!settings.apiKey) {
+      throw new BadRequestException('La clé API Resend est obligatoire pour tester la connexion.');
+    }
     return this.provider.testConnection({
       apiKey: settings.apiKey,
     });
@@ -404,7 +415,7 @@ export class EmailService {
     });
     const text = this.htmlToText(args.message || '');
 
-    const logId = await this.insertDocumentLog({
+    let logId = await this.insertDocumentLog({
       organizationId,
       provider: settings.provider,
       recipient: delivery.recipient,
@@ -419,16 +430,41 @@ export class EmailService {
     });
 
     if (!logId) {
+      const existingLog = args.idempotencyKey
+        ? await this.findDocumentLogByIdempotencyKey(organizationId, args.idempotencyKey)
+        : null;
+      if (existingLog?.status === 'FAILED') {
+        logId = existingLog.id;
+      } else {
+        return {
+          success: existingLog?.status === 'SENT' || existingLog?.status === 'SKIPPED',
+          recipient: delivery.recipient,
+          cc: delivery.cc,
+          provider: settings.provider,
+          externalMessageId: existingLog?.external_message_id ?? null,
+          attachment_file_name: args.document.attachmentFileName,
+          logId: existingLog?.id ?? null,
+          logStatus: existingLog?.status ?? null,
+          skipped: true,
+          duplicated: true,
+          deliveryMode: delivery.mode,
+          redirected: delivery.redirected,
+        };
+      }
+    }
+
+    if (!logId) {
       return {
-        success: true,
+        success: false,
         recipient: delivery.recipient,
         cc: delivery.cc,
         provider: settings.provider,
         externalMessageId: null,
         attachment_file_name: args.document.attachmentFileName,
         logId: null,
+        logStatus: null,
         skipped: true,
-        duplicated: true,
+        duplicated: false,
         deliveryMode: delivery.mode,
         redirected: delivery.redirected,
       };
@@ -443,6 +479,7 @@ export class EmailService {
         externalMessageId: null,
         attachment_file_name: args.document.attachmentFileName,
         logId,
+        logStatus: 'SKIPPED',
         skipped: true,
         deliveryMode: delivery.mode,
         redirected: delivery.redirected,
@@ -476,6 +513,7 @@ export class EmailService {
         externalMessageId: sent.externalMessageId,
         attachment_file_name: args.document.attachmentFileName,
         logId,
+        logStatus: 'SENT',
         deliveryMode: delivery.mode,
         redirected: delivery.redirected,
       };
@@ -543,7 +581,10 @@ export class EmailService {
     };
   }
 
-  private async getValidatedSettingsForSending(organizationId: number, requireEnabled: boolean) {
+  private async getValidatedSettingsForSending(
+    organizationId: number,
+    requireEnabled: boolean,
+  ): Promise<ValidatedEmailSettings> {
     const row = await this.loadSettingsRow(organizationId);
     if (!row) {
       throw new BadRequestException('Aucune configuration email n’est enregistrée pour cette organisation.');
@@ -567,7 +608,7 @@ export class EmailService {
 
     return {
       provider: row.provider,
-      fromName: row.from_name,
+      fromName: row.from_name ?? '',
       fromEmail: row.from_email,
       replyTo: row.reply_to,
       apiKey,
@@ -628,7 +669,7 @@ export class EmailService {
         cc: [],
         redirected: true,
         environment,
-        logNote: `EMAIL_TEST_REDIRECT redirected=true environment=${environment} original_recipient=${maskedRecipient}${ccCount ? ` original_cc_count=${ccCount}` : ''}`,
+        logNote: `EMAIL_TEST_REDIRECT redirected=true environment=${environment} original_recipient=${maskedRecipient}${ccCount ? ` original_cc_count=${ccCount}` : ''} final_recipient=${this.maskRecipient(redirectedRecipient)}`,
       };
     }
 
@@ -640,6 +681,23 @@ export class EmailService {
       environment,
       logNote: `EMAIL_DISABLED redirected=false environment=${environment} original_recipient=${maskedRecipient}${ccCount ? ` original_cc_count=${ccCount}` : ''}`,
     };
+  }
+
+  private async findDocumentLogByIdempotencyKey(organizationId: number, idempotencyKey: string) {
+    const result = await this.db.query<{
+      id: number;
+      status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
+      external_message_id: string | null;
+    }>(
+      `SELECT id, status, external_message_id
+       FROM public.communication_logs
+       WHERE organization_id = $1
+         AND channel = $2
+         AND idempotency_key = $3
+       LIMIT 1`,
+      [organizationId, CommunicationChannel.EMAIL, idempotencyKey],
+    );
+    return result.rows[0] ?? null;
   }
 
   private combineLogMessage(note: string | null, message: string | null) {

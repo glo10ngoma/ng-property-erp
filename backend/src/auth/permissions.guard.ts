@@ -157,6 +157,18 @@ export class PermissionsGuard implements CanActivate {
     if (/^\/api\/sales\/settings$/.test(path)) {
       return method === 'GET' ? 'sales.settings.read' : 'sales.settings.manage';
     }
+    if (/^\/api\/sales\/automation\/settings$/.test(path)) {
+      return method === 'GET' ? 'sales_automation.read' : 'sales_automation.manage';
+    }
+    if (/^\/api\/sales\/automation\/installments\/dry-run$/.test(path) || /^\/api\/sales\/automation\/reminders\/dry-run$/.test(path)) {
+      return 'sales_automation.read';
+    }
+    if (/^\/api\/sales\/automation\/installments\/run$/.test(path) || /^\/api\/sales\/automation\/reminders\/run$/.test(path)) {
+      return 'sales_automation.run';
+    }
+    if (/^\/api\/sales\/automation\/runs$/.test(path)) {
+      return 'sales_automation.read';
+    }
     if (/^\/api\/sales\/settings\/templates\/\d+$/.test(path)) {
       return method === 'GET' ? 'sales_templates.read' : 'sales_templates.manage';
     }
@@ -256,6 +268,12 @@ export class PermissionsGuard implements CanActivate {
     if (/^\/api\/sales\/invoices\/\d+\/documents$/.test(path)) {
       return 'sales_documents.read';
     }
+    if (/^\/api\/sales\/invoices\/\d+\/reminders$/.test(path)) {
+      return 'sales_reminders.read';
+    }
+    if (/^\/api\/sales\/invoices\/\d+\/reminders\/send$/.test(path)) {
+      return 'sales_reminders.send';
+    }
     if (/^\/api\/sales\/invoices\/\d+\/send$/.test(path)) {
       return 'sales_invoices.send';
     }
@@ -285,6 +303,9 @@ export class PermissionsGuard implements CanActivate {
     }
     if (/^\/api\/sales\/reports\/outstanding$/.test(path) || /^\/api\/sales\/reports\/overdue$/.test(path)) {
       return 'sales_reports.balance';
+    }
+    if (/^\/api\/sales\/collections$/.test(path)) {
+      return 'sales_reports.collection';
     }
     if (/^\/api\/sales\/documents\/\d+\/download$/.test(path)) {
       return 'sales_documents.download';

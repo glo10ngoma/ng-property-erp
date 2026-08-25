@@ -10,6 +10,6 @@ import { InvoicesModule } from '../invoices/invoices.module';
   imports: [DatabaseModule, EmailModule, forwardRef(() => InvoicesModule)],
   controllers: [CommunicationController],
   providers: [CommunicationService, DocumentResolverService],
-  exports: [CommunicationService],
+  exports: [CommunicationService, EmailModule],
 })
 export class CommunicationModule {}

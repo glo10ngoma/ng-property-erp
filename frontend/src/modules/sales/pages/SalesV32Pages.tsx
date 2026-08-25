@@ -8,12 +8,14 @@ import {
   downloadSalesDocument,
   generateSalesInvoice,
   getSalesInvoice,
+  listSalesInvoiceReminders,
   getSalesSubscriptionFinancialSummary,
   issueSalesInvoice,
   listSalesInvoices,
   regenerateSalesInvoicePaymentReceipt,
   regenerateSalesInvoiceDocument,
   refundSalesInvoicePayment,
+  sendSalesInvoiceReminder,
   sendSalesInvoice,
 } from '../api/sales.api';
 import {
@@ -25,6 +27,7 @@ import type {
   CreateSalesReservationRefundInput,
   SalesDocumentGeneration,
   SalesInvoice,
+  SalesInvoiceReminder,
   SalesReservationPaymentDestination,
   SalesSubscriptionFinancialSummary,
 } from '../types';
@@ -472,6 +475,7 @@ export function SalesInvoiceDetailV32Page() {
   const [error, setError] = useState<string | null>(null);
   const [paymentFormError, setPaymentFormError] = useState<string | null>(null);
   const [reasonDialog, setReasonDialog] = useState<ReasonDialogState | null>(null);
+  const [reminders, setReminders] = useState<SalesInvoiceReminder[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -479,10 +483,14 @@ export function SalesInvoiceDetailV32Page() {
       setLoading(true);
       setError(null);
       try {
-        const response = await getSalesInvoice(invoiceId);
+        const [response, remindersResponse] = await Promise.all([
+          getSalesInvoice(invoiceId),
+          listSalesInvoiceReminders(invoiceId).catch(() => []),
+        ]);
         if (!cancelled) {
           setInvoice(response);
           setPaymentForm(emptyPaymentForm(response));
+          setReminders(remindersResponse);
         }
       } catch (loadError) {
         if (!cancelled) setError(getErrorMessage(loadError));
@@ -507,9 +515,13 @@ export function SalesInvoiceDetailV32Page() {
   const invoiceDocuments = useMemo(() => invoice?.documents ?? [], [invoice]);
 
   async function refreshInvoice() {
-    const response = await getSalesInvoice(invoiceId);
+    const [response, remindersResponse] = await Promise.all([
+      getSalesInvoice(invoiceId),
+      listSalesInvoiceReminders(invoiceId).catch(() => reminders),
+    ]);
     setInvoice(response);
     setPaymentForm(emptyPaymentForm(response));
+    setReminders(remindersResponse);
   }
 
   async function submitPayment(event: FormEvent) {
@@ -546,48 +558,16 @@ export function SalesInvoiceDetailV32Page() {
     setSaving(true);
     setError(null);
     setPaymentFormError(null);
-    if (import.meta.env.DEV) {
-      console.info('[INVOICE_PAYMENT_UI_DEV] submit', {
-        invoiceId,
-        amount: payload.amount,
-        paymentDate: payload.payment_date,
-        paymentMethod: payload.payment_method,
-        destinationType: payload.destination_type,
-        hasCashSessionId: Boolean(payload.cash_session_id),
-        hasBankAccountId: Boolean(payload.bank_account_id),
-        idempotencyKey: payload.idempotency_key,
-      });
-    }
     try {
       const response = await createSalesInvoicePayment(invoiceId, payload);
       setInvoice(response);
       setPaymentForm(emptyPaymentForm(response));
-      if (import.meta.env.DEV) {
-        console.info('[INVOICE_PAYMENT_UI_DEV] success', {
-          invoiceId,
-          status: response.status,
-          paidAmount: response.paid_amount,
-          balanceDue: response.balance_due,
-        });
-      }
     } catch (submitError) {
       const message = getErrorMessage(submitError);
       setError(message);
       setPaymentFormError(message);
-      if (import.meta.env.DEV) {
-        console.info('[INVOICE_PAYMENT_UI_DEV] error', {
-          invoiceId,
-          message,
-        });
-      }
     } finally {
       setSaving(false);
-      if (import.meta.env.DEV) {
-        console.info('[INVOICE_PAYMENT_UI_DEV] finally', {
-          invoiceId,
-          saving: false,
-        });
-      }
     }
   }
 
@@ -661,6 +641,47 @@ export function SalesInvoiceDetailV32Page() {
                 { key: 'value', label: 'Valeur', render: (item) => item.value },
               ]}
             />
+          </SalesSection>
+
+          <SalesSection title="Communications et relances" description="Historique compact des événements d’émission, rappels et relances attachés à cette facture.">
+            {reminders.length ? (
+              <SalesDataTable
+                rowKey={(item) => item.id}
+                rows={reminders}
+                columns={[
+                  { key: 'id', label: 'ID', render: (item) => item.id },
+                  { key: 'type', label: 'Type', render: (item) => item.reminder_type },
+                  { key: 'stage', label: 'Étape', render: (item) => item.reminder_stage || '—' },
+                  { key: 'date', label: 'Date', render: (item) => formatDate(item.sent_at || item.scheduled_for) },
+                  { key: 'channel', label: 'Canal', render: (item) => item.channel || 'EMAIL' },
+                  { key: 'recipient', label: 'Destinataire', render: (item) => item.masked_recipient || 'Destinataire indisponible' },
+                  { key: 'log', label: 'Journal', render: (item) => item.communication_log_id ?? '—' },
+                  { key: 'log-status', label: 'Statut log', render: (item) => item.communication_status || '—' },
+                  { key: 'status', label: 'Statut', render: (item) => <SalesStatusBadge label={item.status} tone={getStatusTone(item.status)} /> },
+                  { key: 'error', label: 'Erreur', render: (item) => item.failure_message || item.communication_subject || '—' },
+                ]}
+              />
+            ) : (
+              <SalesEmptyState title="Aucune relance enregistrée" description="Les rappels automatiques et les renvois manuels apparaîtront ici après la migration V3.3." />
+            )}
+            {can('sales_reminders.send') ? (
+              <div className="sales-v21-table-actions">
+                <button
+                  className="sales-v21-btn sales-v21-btn-secondary sales-v21-btn-compact"
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await sendSalesInvoiceReminder(invoice.id, { reminder_type: 'UPCOMING_DUE', reminder_stage: 'MANUAL', reason: 'Relance manuelle depuis le détail facture' });
+                      await refreshInvoice();
+                    } catch (actionError) {
+                      setError(getErrorMessage(actionError));
+                    }
+                  }}
+                >
+                  Déclencher une relance
+                </button>
+              </div>
+            ) : null}
           </SalesSection>
 
           <div className="sales-v21-two-columns">

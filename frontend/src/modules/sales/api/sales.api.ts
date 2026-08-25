@@ -8,12 +8,15 @@ import type {
   CreateSalesReservationRefundInput,
   CreateSalesSubscriptionInput,
   CancelSalesReservationPaymentInput,
+  SalesAutomationRun,
   SalesDocumentGeneration,
   SalesDocumentTemplate,
   SalesDocumentTemplatePayload,
   SalesBootstrap,
   SalesBuyer,
+  SalesCollectionsResponse,
   SalesInvoice,
+  SalesInvoiceReminder,
   SalesInvoicePayment,
   SalesCatalogItem,
   SalesListQuery,
@@ -41,6 +44,41 @@ export async function getSalesSettings() {
 
 export async function updateSalesSettings(payload: Partial<SalesSettings>) {
   const response = await api.patch<SalesSettings>('/sales/settings', payload);
+  return response.data;
+}
+
+export async function getSalesAutomationSettings() {
+  const response = await api.get<SalesSettings>('/sales/automation/settings');
+  return response.data;
+}
+
+export async function updateSalesAutomationSettings(payload: Partial<SalesSettings>) {
+  const response = await api.patch<SalesSettings>('/sales/automation/settings', payload);
+  return response.data;
+}
+
+export async function dryRunSalesInstallmentAutomation(payload: Record<string, unknown> = {}) {
+  const response = await api.post('/sales/automation/installments/dry-run', payload);
+  return response.data;
+}
+
+export async function runSalesInstallmentAutomation(payload: Record<string, unknown> = {}) {
+  const response = await api.post('/sales/automation/installments/run', payload);
+  return response.data;
+}
+
+export async function dryRunSalesReminderAutomation(payload: Record<string, unknown> = {}) {
+  const response = await api.post('/sales/automation/reminders/dry-run', payload);
+  return response.data;
+}
+
+export async function runSalesReminderAutomation(payload: Record<string, unknown> = {}) {
+  const response = await api.post('/sales/automation/reminders/run', payload);
+  return response.data;
+}
+
+export async function listSalesAutomationRuns(params: SalesListQuery = {}) {
+  const response = await api.get<SalesListResult<SalesAutomationRun>>('/sales/automation/runs', { params });
   return response.data;
 }
 
@@ -294,6 +332,16 @@ export async function getSalesInvoice(id: number) {
   return response.data;
 }
 
+export async function listSalesInvoiceReminders(id: number, params: SalesListQuery = {}) {
+  const response = await api.get<SalesInvoiceReminder[]>(`/sales/invoices/${id}/reminders`, { params });
+  return response.data;
+}
+
+export async function sendSalesInvoiceReminder(id: number, payload: { reminder_type: string; reminder_stage?: string; reason?: string }) {
+  const response = await api.post<SalesInvoiceReminder>(`/sales/invoices/${id}/reminders/send`, payload);
+  return response.data;
+}
+
 export async function generateSalesInvoice(subscriptionId: number, installmentId: number) {
   const response = await api.post<SalesInvoice>(`/sales/subscriptions/${subscriptionId}/installments/${installmentId}/invoice`);
   return response.data;
@@ -341,6 +389,11 @@ export async function regenerateSalesInvoiceDocument(id: number) {
 
 export async function sendSalesInvoice(id: number) {
   const response = await api.post<SalesInvoice>(`/sales/invoices/${id}/send`);
+  return response.data;
+}
+
+export async function getSalesCollections(params: SalesListQuery = {}) {
+  const response = await api.get<SalesCollectionsResponse>('/sales/collections', { params });
   return response.data;
 }
 

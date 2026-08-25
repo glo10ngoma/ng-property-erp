@@ -16,6 +16,10 @@ export const SALES_RESERVATION_PAYMENT_METHODS = ['CASH', 'BANK', 'MOBILE_MONEY'
 export const SALES_RESERVATION_PAYMENT_STATUSES = ['CONFIRMED', 'CANCELLED', 'PARTIALLY_REFUNDED', 'REFUNDED'] as const;
 export const SALES_RESERVATION_DESTINATION_TYPES = ['CASH', 'BANK', 'MOBILE_MONEY', 'OTHER'] as const;
 export const SALES_INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE', 'CANCELLED'] as const;
+export const SALES_AUTOMATION_RUN_STATUSES = ['RUNNING', 'SUCCESS', 'PARTIAL', 'FAILED', 'SKIPPED'] as const;
+export const SALES_AUTOMATION_TYPES = ['INSTALLMENT_INVOICING', 'INVOICE_REMINDERS'] as const;
+export const SALES_INVOICE_REMINDER_TYPES = ['INVOICE_ISSUED', 'UPCOMING_DUE', 'DUE_TODAY', 'OVERDUE', 'FINAL_NOTICE'] as const;
+export const SALES_INVOICE_REMINDER_STATUSES = ['PENDING', 'PROCESSING', 'SENT', 'SKIPPED', 'FAILED', 'CANCELLED'] as const;
 
 export type SalesBootstrap = {
   module: string;
@@ -68,6 +72,19 @@ export type SalesSettings = {
   contract_generation_mode?: string | null;
   invoice_generation_mode?: string | null;
   revenue_recognition_mode?: string | null;
+  sales_installment_automation_enabled?: boolean | null;
+  sales_auto_generate_invoice_days_before?: number | null;
+  sales_auto_issue_invoice?: boolean | null;
+  sales_auto_send_invoice?: boolean | null;
+  sales_reminders_enabled?: boolean | null;
+  sales_reminder_days_before?: number[] | null;
+  sales_overdue_reminder_days?: number[] | null;
+  sales_reminder_execution_time?: string | null;
+  sales_reminder_timezone?: string | null;
+  sales_max_reminders_per_invoice?: number | null;
+  sales_reminder_cooldown_hours?: number | null;
+  sales_collection_email_mode?: string | null;
+  sales_overdue_grace_days?: number | null;
   settings_json?: Record<string, unknown> | null;
 };
 
@@ -80,6 +97,9 @@ export type SalesListQuery = {
   status?: string;
   project_id?: number;
   available_only?: boolean;
+  buyer_id?: number;
+  currency?: string;
+  min_overdue_days?: number;
 };
 
 export type SalesDocumentTemplate = {
@@ -428,10 +448,79 @@ export type SalesInvoice = {
   send_status?: string | null;
   sent_at?: string | null;
   cancellation_reason?: string | null;
+  overdue_days?: number | null;
+  last_reminder_at?: string | null;
   items?: SalesInvoiceItem[];
   payments?: SalesInvoicePayment[];
   documents?: SalesDocumentGeneration[];
   payment_destinations?: SalesReservationPaymentDestinations | null;
+};
+
+export type SalesAutomationRun = {
+  id: number;
+  organization_id: number;
+  automation_type: (typeof SALES_AUTOMATION_TYPES)[number] | string;
+  period_key: string;
+  status: (typeof SALES_AUTOMATION_RUN_STATUSES)[number] | string;
+  execution_mode: string;
+  started_at: string;
+  completed_at?: string | null;
+  heartbeat_at?: string | null;
+  eligible_count: number;
+  processed_count: number;
+  created_count: number;
+  sent_count: number;
+  skipped_count: number;
+  failed_count: number;
+  error_summary?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type SalesInvoiceReminder = {
+  id: number;
+  organization_id: number;
+  invoice_id: number;
+  subscription_id: number;
+  buyer_id?: number | null;
+  reminder_type: (typeof SALES_INVOICE_REMINDER_TYPES)[number] | string;
+  reminder_stage?: string | null;
+  scheduled_for: string;
+  sent_at?: string | null;
+  status: (typeof SALES_INVOICE_REMINDER_STATUSES)[number] | string;
+  channel: string;
+  recipient?: string | null;
+  masked_recipient?: string | null;
+  communication_log_id?: number | null;
+  failure_code?: string | null;
+  failure_message?: string | null;
+  communication_status?: string | null;
+  communication_subject?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+};
+
+export type SalesCollectionsSummary = {
+  total_balance_due: number;
+  overdue_balance: number;
+  upcoming_balance: number;
+  collected_this_month: number;
+  overdue_invoices: number;
+  buyers_with_balance: number;
+};
+
+export type SalesCollectionInvoice = SalesInvoice & {
+  buyer_id?: number | null;
+  project_id?: number | null;
+  overdue_days?: number | null;
+  last_reminder_at?: string | null;
+};
+
+export type SalesCollectionsResponse = {
+  summary: SalesCollectionsSummary | null;
+  items: SalesCollectionInvoice[];
+  total: number;
+  page: number;
+  pageSize: number;
 };
 
 export type SalesSubscriptionFinancialSummary = {

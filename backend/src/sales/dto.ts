@@ -2,13 +2,19 @@ import { PartialType } from '@nestjs/mapped-types';
 import { Transform, Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, Max, Min, ValidateNested } from 'class-validator';
 import {
+  SALES_AUTOMATION_EXECUTION_MODES,
+  SALES_AUTOMATION_RUN_STATUSES,
+  SALES_AUTOMATION_TYPES,
   SALES_BUYER_STATUSES,
   SALES_BUYER_TYPES,
+  SALES_COLLECTION_EMAIL_MODES,
   SALES_COMMERCIAL_STATUSES,
   SALES_COMMERCIAL_STAGES,
   SALES_DEPOSIT_TYPES,
   SALES_DOCUMENT_GENERATION_STATUSES,
   SALES_INSTALLMENT_TYPES,
+  SALES_INVOICE_REMINDER_STATUSES,
+  SALES_INVOICE_REMINDER_TYPES,
   SALES_PROJECT_STATUSES,
   SALES_RESERVATION_DESTINATION_TYPES,
   SALES_RESERVATION_PAYMENT_METHODS,
@@ -22,6 +28,16 @@ import {
 } from './types';
 
 const trimString = () => Transform(({ value }) => (typeof value === 'string' ? value.trim() : value));
+const numberArray = () =>
+  Transform(({ value }) => {
+    if (value == null || value === '') return undefined;
+    const source = Array.isArray(value)
+      ? value
+      : typeof value === 'string'
+        ? value.split(',').map((item) => item.trim()).filter(Boolean)
+        : [value];
+    return source.map((item) => Number(item)).filter((item) => Number.isFinite(item));
+  });
 
 export class SalesPaginationQueryDto {
   @Type(() => Number)
@@ -334,6 +350,76 @@ export class UpdateSalesSettingsDto {
   @IsOptional()
   @IsString()
   revenue_recognition_mode?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  sales_installment_automation_enabled?: boolean;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  sales_auto_generate_invoice_days_before?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  sales_auto_issue_invoice?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  sales_auto_send_invoice?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  sales_reminders_enabled?: boolean;
+
+  @numberArray()
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @IsOptional()
+  sales_reminder_days_before?: number[];
+
+  @numberArray()
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @IsOptional()
+  sales_overdue_reminder_days?: number[];
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  sales_reminder_execution_time?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  sales_reminder_timezone?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  sales_max_reminders_per_invoice?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(720)
+  @IsOptional()
+  sales_reminder_cooldown_hours?: number;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_COLLECTION_EMAIL_MODES)
+  sales_collection_email_mode?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  sales_overdue_grace_days?: number;
 
   @IsOptional()
   settings_json?: Record<string, unknown>;
@@ -928,4 +1014,89 @@ export class RegenerateSalesDocumentDto {
   @IsOptional()
   @IsIn(SALES_DOCUMENT_GENERATION_STATUSES)
   generation_status?: string;
+}
+
+export class SalesAutomationRunListQueryDto extends SalesPaginationQueryDto {
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_AUTOMATION_TYPES)
+  automation_type?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_AUTOMATION_RUN_STATUSES)
+  status?: string;
+}
+
+export class SalesAutomationExecuteDto {
+  @trimString()
+  @IsOptional()
+  @IsString()
+  as_of_date?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_AUTOMATION_EXECUTION_MODES)
+  execution_mode?: string;
+
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsOptional()
+  @IsBoolean()
+  force?: boolean;
+}
+
+export class SalesInvoiceReminderListQueryDto extends SalesPaginationQueryDto {
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_INVOICE_REMINDER_TYPES)
+  reminder_type?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_INVOICE_REMINDER_STATUSES)
+  status?: string;
+}
+
+export class SendSalesInvoiceReminderDto {
+  @trimString()
+  @IsIn(SALES_INVOICE_REMINDER_TYPES)
+  reminder_type!: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  reminder_stage?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class SalesCollectionsQueryDto extends SalesPaginationQueryDto {
+  @trimString()
+  @IsOptional()
+  @IsString()
+  buyer_id?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsString()
+  project_id?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(SALES_SUPPORTED_CURRENCIES)
+  currency?: string;
+
+  @trimString()
+  @IsOptional()
+  @IsIn(['DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE', 'CANCELLED'])
+  status?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  min_overdue_days?: number;
 }

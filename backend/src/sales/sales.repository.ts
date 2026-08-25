@@ -96,6 +96,19 @@ export class SalesRepository {
          contract_generation_mode,
          invoice_generation_mode,
          revenue_recognition_mode,
+         sales_installment_automation_enabled,
+         sales_auto_generate_invoice_days_before,
+         sales_auto_issue_invoice,
+         sales_auto_send_invoice,
+         sales_reminders_enabled,
+         sales_reminder_days_before,
+         sales_overdue_reminder_days,
+         sales_reminder_execution_time,
+         sales_reminder_timezone,
+         sales_max_reminders_per_invoice,
+         sales_reminder_cooldown_hours,
+         sales_collection_email_mode,
+         sales_overdue_grace_days,
          settings_json,
          created_at,
          updated_at
@@ -119,7 +132,11 @@ export class SalesRepository {
          COALESCE($31, 'PERCENTAGE'), $32, $33, COALESCE($34, 24), COALESCE($35, 'MONTHLY'),
          COALESCE($36, 0), COALESCE($37, 0), COALESCE($38, true), COALESCE($39::jsonb, '["USD","CDF"]'::jsonb),
          NULLIF($40, ''), NULLIF($41, ''), NULLIF($42, ''),
-         COALESCE($43::jsonb, '{}'::jsonb), NOW(), NOW()
+         COALESCE($43, false), COALESCE($44, 0), COALESCE($45, false), COALESCE($46, false),
+         COALESCE($47, false), COALESCE($48::jsonb, '[]'::jsonb), COALESCE($49::jsonb, '[]'::jsonb),
+         COALESCE(NULLIF($50, ''), '09:00'), COALESCE(NULLIF($51, ''), 'Africa/Kinshasa'),
+         COALESCE($52, 6), COALESCE($53, 24), COALESCE(NULLIF($54, ''), 'DISABLED'), COALESCE($55, 0),
+         COALESCE($56::jsonb, '{}'::jsonb), NOW(), NOW()
        )
        ON CONFLICT (organization_id)
        DO UPDATE SET
@@ -164,6 +181,19 @@ export class SalesRepository {
          contract_generation_mode = COALESCE(EXCLUDED.contract_generation_mode, sales_settings.contract_generation_mode),
          invoice_generation_mode = COALESCE(EXCLUDED.invoice_generation_mode, sales_settings.invoice_generation_mode),
          revenue_recognition_mode = COALESCE(EXCLUDED.revenue_recognition_mode, sales_settings.revenue_recognition_mode),
+         sales_installment_automation_enabled = COALESCE(EXCLUDED.sales_installment_automation_enabled, sales_settings.sales_installment_automation_enabled),
+         sales_auto_generate_invoice_days_before = COALESCE(EXCLUDED.sales_auto_generate_invoice_days_before, sales_settings.sales_auto_generate_invoice_days_before),
+         sales_auto_issue_invoice = COALESCE(EXCLUDED.sales_auto_issue_invoice, sales_settings.sales_auto_issue_invoice),
+         sales_auto_send_invoice = COALESCE(EXCLUDED.sales_auto_send_invoice, sales_settings.sales_auto_send_invoice),
+         sales_reminders_enabled = COALESCE(EXCLUDED.sales_reminders_enabled, sales_settings.sales_reminders_enabled),
+         sales_reminder_days_before = COALESCE(EXCLUDED.sales_reminder_days_before, sales_settings.sales_reminder_days_before),
+         sales_overdue_reminder_days = COALESCE(EXCLUDED.sales_overdue_reminder_days, sales_settings.sales_overdue_reminder_days),
+         sales_reminder_execution_time = COALESCE(EXCLUDED.sales_reminder_execution_time, sales_settings.sales_reminder_execution_time),
+         sales_reminder_timezone = COALESCE(EXCLUDED.sales_reminder_timezone, sales_settings.sales_reminder_timezone),
+         sales_max_reminders_per_invoice = COALESCE(EXCLUDED.sales_max_reminders_per_invoice, sales_settings.sales_max_reminders_per_invoice),
+         sales_reminder_cooldown_hours = COALESCE(EXCLUDED.sales_reminder_cooldown_hours, sales_settings.sales_reminder_cooldown_hours),
+         sales_collection_email_mode = COALESCE(EXCLUDED.sales_collection_email_mode, sales_settings.sales_collection_email_mode),
+         sales_overdue_grace_days = COALESCE(EXCLUDED.sales_overdue_grace_days, sales_settings.sales_overdue_grace_days),
          settings_json = COALESCE(EXCLUDED.settings_json, sales_settings.settings_json),
          updated_at = NOW()
        RETURNING *`,
@@ -210,6 +240,19 @@ export class SalesRepository {
         dto.contract_generation_mode ?? null,
         dto.invoice_generation_mode ?? null,
         dto.revenue_recognition_mode ?? null,
+        dto.sales_installment_automation_enabled ?? null,
+        dto.sales_auto_generate_invoice_days_before ?? null,
+        dto.sales_auto_issue_invoice ?? null,
+        dto.sales_auto_send_invoice ?? null,
+        dto.sales_reminders_enabled ?? null,
+        dto.sales_reminder_days_before ? JSON.stringify(dto.sales_reminder_days_before) : null,
+        dto.sales_overdue_reminder_days ? JSON.stringify(dto.sales_overdue_reminder_days) : null,
+        dto.sales_reminder_execution_time ?? null,
+        dto.sales_reminder_timezone ?? null,
+        dto.sales_max_reminders_per_invoice ?? null,
+        dto.sales_reminder_cooldown_hours ?? null,
+        dto.sales_collection_email_mode ?? null,
+        dto.sales_overdue_grace_days ?? null,
         dto.settings_json ? JSON.stringify(dto.settings_json) : null,
       ],
     );
@@ -888,6 +931,36 @@ export class SalesRepository {
       client,
     );
     return rows[0] ?? null;
+  }
+
+  async listOrganizationsEligibleForSalesAutomation(client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT
+         ss.organization_id,
+         COALESCE(ss.sales_installment_automation_enabled, FALSE) AS sales_installment_automation_enabled,
+         COALESCE(ss.sales_reminders_enabled, FALSE) AS sales_reminders_enabled,
+         COALESCE(ss.sales_auto_generate_invoice_days_before, 0) AS sales_auto_generate_invoice_days_before,
+         COALESCE(ss.sales_auto_issue_invoice, FALSE) AS sales_auto_issue_invoice,
+         COALESCE(ss.sales_auto_send_invoice, FALSE) AS sales_auto_send_invoice,
+         COALESCE(ss.sales_reminder_execution_time, '09:00'::time) AS sales_reminder_execution_time,
+         COALESCE(NULLIF(ss.sales_reminder_timezone, ''), 'Africa/Kinshasa') AS sales_reminder_timezone,
+         COALESCE(ss.sales_max_reminders_per_invoice, 6) AS sales_max_reminders_per_invoice,
+         COALESCE(ss.sales_reminder_cooldown_hours, 24) AS sales_reminder_cooldown_hours,
+         COALESCE(ss.sales_collection_email_mode, 'DISABLED') AS sales_collection_email_mode,
+         COALESCE(ss.sales_overdue_grace_days, 0) AS sales_overdue_grace_days
+       FROM sales_settings ss
+       JOIN organizations o
+         ON o.id = ss.organization_id
+       WHERE COALESCE(o.status, 'ACTIVE') = 'ACTIVE'
+         AND (
+           COALESCE(ss.sales_installment_automation_enabled, FALSE) = TRUE
+           OR COALESCE(ss.sales_reminders_enabled, FALSE) = TRUE
+         )
+       ORDER BY ss.organization_id ASC`,
+      [],
+      client,
+    );
+    return rows;
   }
 
   async findActiveSubscriptionForCatalog(organizationId: number, catalogItemId: number, client?: PoolClient, excludeId?: number) {
@@ -1689,6 +1762,415 @@ export class SalesRepository {
       client,
     );
     return rows;
+  }
+
+  async tryAcquireAutomationLock(organizationId: number, automationType: string, periodKey: string, client?: PoolClient) {
+    const { rows } = await this.query<{ locked: boolean }>(
+      `SELECT pg_try_advisory_xact_lock($1::integer, hashtext($2 || ':' || $3)) AS locked`,
+      [organizationId, automationType, periodKey],
+      client,
+    );
+    return Boolean(rows[0]?.locked);
+  }
+
+  async releaseAutomationLock(organizationId: number, automationType: string, periodKey: string, client?: PoolClient) {
+    await this.query(
+      `SELECT pg_advisory_unlock($1::integer, hashtext($2 || ':' || $3))`,
+      [organizationId, automationType, periodKey],
+      client,
+    );
+  }
+
+  async findLatestAutomationRun(organizationId: number, automationType: string, periodKey: string, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT *
+       FROM sales_automation_runs
+       WHERE organization_id = $1
+         AND automation_type = $2
+         AND period_key = $3
+       ORDER BY id DESC
+       LIMIT 1`,
+      [organizationId, automationType, periodKey],
+      client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async createAutomationRun(organizationId: number, payload: Record<string, unknown>, client: PoolClient) {
+    const metadata = JSON.stringify(payload.metadata ?? {});
+    const { rows } = await client.query(
+      `INSERT INTO sales_automation_runs (
+         organization_id, automation_type, period_key, status, execution_mode,
+         started_at, heartbeat_at, eligible_count, processed_count, created_count,
+         sent_count, skipped_count, failed_count, error_summary, metadata, triggered_by, created_at, updated_at
+       )
+       VALUES (
+         $1, $2, $3, $4, $5,
+         NOW(), NOW(), $6, $7, $8,
+         $9, $10, $11, $12, $13::jsonb, $14, NOW(), NOW()
+       )
+       RETURNING *`,
+      [
+        organizationId,
+        payload.automation_type,
+        payload.period_key,
+        payload.status,
+        payload.execution_mode,
+        payload.eligible_count ?? 0,
+        payload.processed_count ?? 0,
+        payload.created_count ?? 0,
+        payload.sent_count ?? 0,
+        payload.skipped_count ?? 0,
+        payload.failed_count ?? 0,
+        payload.error_summary ?? null,
+        metadata,
+        payload.triggered_by ?? null,
+      ],
+    );
+    return rows[0] ?? null;
+  }
+
+  async updateAutomationRun(runId: number, payload: Record<string, unknown>, client: PoolClient) {
+    const metadata = payload.metadata ? JSON.stringify(payload.metadata) : null;
+    const { rows } = await client.query(
+      `UPDATE sales_automation_runs
+       SET status = COALESCE($2, status),
+           completed_at = CASE WHEN $3::boolean THEN NOW() ELSE completed_at END,
+           heartbeat_at = NOW(),
+           eligible_count = COALESCE($4, eligible_count),
+           processed_count = COALESCE($5, processed_count),
+           created_count = COALESCE($6, created_count),
+           sent_count = COALESCE($7, sent_count),
+           skipped_count = COALESCE($8, skipped_count),
+           failed_count = COALESCE($9, failed_count),
+           error_summary = COALESCE($10, error_summary),
+           metadata = COALESCE($11::jsonb, metadata),
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [
+        runId,
+        payload.status ?? null,
+        payload.complete === true,
+        payload.eligible_count ?? null,
+        payload.processed_count ?? null,
+        payload.created_count ?? null,
+        payload.sent_count ?? null,
+        payload.skipped_count ?? null,
+        payload.failed_count ?? null,
+        payload.error_summary ?? null,
+        metadata,
+      ],
+    );
+    return rows[0] ?? null;
+  }
+
+  async touchAutomationRunHeartbeat(runId: number, client: PoolClient) {
+    const { rows } = await client.query(
+      `UPDATE sales_automation_runs
+       SET heartbeat_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [runId],
+    );
+    return rows[0] ?? null;
+  }
+
+  async listAutomationRuns(organizationId: number, query: { page?: number; pageSize?: number; automation_type?: string; status?: string }, client?: PoolClient) {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 20;
+    const offset = (page - 1) * pageSize;
+    const params: unknown[] = [organizationId];
+    const filters = ['organization_id = $1'];
+    if (query.automation_type) {
+      params.push(query.automation_type);
+      filters.push(`automation_type = $${params.length}`);
+    }
+    if (query.status) {
+      params.push(query.status);
+      filters.push(`status = $${params.length}`);
+    }
+    const whereClause = filters.join(' AND ');
+    params.push(pageSize, offset);
+    const { rows } = await this.query(
+      `SELECT *,
+              COUNT(*) OVER() AS total_count
+       FROM sales_automation_runs
+       WHERE ${whereClause}
+       ORDER BY started_at DESC, id DESC
+       LIMIT $${params.length - 1}
+       OFFSET $${params.length}`,
+      params,
+      client,
+    );
+    return {
+      items: rows,
+      total: Number(rows[0]?.total_count ?? 0),
+      page,
+      pageSize,
+    };
+  }
+
+  async listInvoiceReminders(organizationId: number, invoiceId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT sir.*, cl.status AS communication_status, cl.subject AS communication_subject
+       FROM sales_invoice_reminders sir
+       LEFT JOIN communication_logs cl
+         ON cl.id = sir.communication_log_id
+        AND cl.organization_id = sir.organization_id
+       WHERE sir.organization_id = $1
+         AND sir.invoice_id = $2
+       ORDER BY sir.created_at DESC, sir.id DESC`,
+      [organizationId, invoiceId],
+      client,
+    );
+    return rows;
+  }
+
+  async findReminderByIdempotencyKey(organizationId: number, idempotencyKey: string, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT *
+       FROM sales_invoice_reminders
+       WHERE organization_id = $1
+         AND idempotency_key = $2
+       LIMIT 1`,
+      [organizationId, idempotencyKey],
+      client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async listReminderStatsForInvoice(organizationId: number, invoiceId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT
+         COUNT(*)::INT AS reminder_count,
+         MAX(COALESCE(sent_at, scheduled_for)) AS last_delivery_at
+       FROM sales_invoice_reminders
+       WHERE organization_id = $1
+         AND invoice_id = $2`,
+      [organizationId, invoiceId],
+      client,
+    );
+    return rows[0] ?? { reminder_count: 0, last_delivery_at: null };
+  }
+
+  async createInvoiceReminder(organizationId: number, payload: Record<string, unknown>, client: PoolClient) {
+    const metadata = JSON.stringify(payload.metadata ?? {});
+    const { rows } = await client.query(
+      `INSERT INTO sales_invoice_reminders (
+         organization_id, invoice_id, subscription_id, buyer_id, reminder_type, reminder_stage,
+         scheduled_for, sent_at, status, channel, recipient, communication_log_id,
+         idempotency_key, failure_code, failure_message, metadata, created_at, updated_at
+       )
+       VALUES (
+         $1, $2, $3, $4, $5, $6,
+         $7::timestamptz, $8::timestamptz, $9, $10, $11, $12,
+         $13, $14, $15, $16::jsonb, NOW(), NOW()
+       )
+       ON CONFLICT (organization_id, idempotency_key)
+       DO UPDATE SET updated_at = NOW()
+       RETURNING *`,
+      [
+        organizationId,
+        payload.invoice_id,
+        payload.subscription_id ?? null,
+        payload.buyer_id ?? null,
+        payload.reminder_type,
+        payload.reminder_stage ?? null,
+        payload.scheduled_for,
+        payload.sent_at ?? null,
+        payload.status,
+        payload.channel ?? 'EMAIL',
+        payload.recipient ?? null,
+        payload.communication_log_id ?? null,
+        payload.idempotency_key,
+        payload.failure_code ?? null,
+        payload.failure_message ?? null,
+        metadata,
+      ],
+    );
+    return rows[0] ?? null;
+  }
+
+  async listCollections(organizationId: number, query: { page?: number; pageSize?: number; search?: string; status?: string; buyer_id?: string; project_id?: string; currency?: string; min_overdue_days?: number }, client?: PoolClient) {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 50;
+    const offset = (page - 1) * pageSize;
+    const params: unknown[] = [organizationId];
+    const filters = ['si.organization_id = $1'];
+    if (query.status) {
+      params.push(query.status);
+      filters.push(`si.status = $${params.length}`);
+    }
+    if (query.buyer_id) {
+      params.push(Number(query.buyer_id));
+      filters.push(`ss.buyer_id = $${params.length}`);
+    }
+    if (query.project_id) {
+      params.push(Number(query.project_id));
+      filters.push(`ss.project_id = $${params.length}`);
+    }
+    if (query.currency) {
+      params.push(query.currency);
+      filters.push(`si.currency = $${params.length}`);
+    }
+    if (query.min_overdue_days != null) {
+      params.push(Number(query.min_overdue_days));
+      filters.push(`GREATEST(0, CURRENT_DATE - si.due_date) >= $${params.length}`);
+    }
+    if (query.search?.trim()) {
+      params.push(`%${escapeLike(query.search.trim().toLowerCase())}%`);
+      filters.push(`(
+        LOWER(si.invoice_number) LIKE $${params.length} ESCAPE '\\'
+        OR LOWER(COALESCE(sb.full_name, sb.company_name, '')) LIKE $${params.length} ESCAPE '\\'
+        OR LOWER(COALESCE(ss.subscription_number, '')) LIKE $${params.length} ESCAPE '\\'
+        OR LOWER(COALESCE(sp.name, '')) LIKE $${params.length} ESCAPE '\\'
+        OR LOWER(COALESCE(sc.title, '')) LIKE $${params.length} ESCAPE '\\'
+      )`);
+    }
+    const whereClause = filters.join(' AND ');
+    params.push(pageSize, offset);
+    const { rows } = await this.query(
+      `SELECT
+         si.*,
+         ss.subscription_number,
+         sb.id AS buyer_id,
+         COALESCE(sb.full_name, sb.company_name) AS buyer_name,
+         sp.id AS project_id,
+         sp.name AS project_name,
+         sc.title AS catalog_title,
+         GREATEST(0, CURRENT_DATE - si.due_date) AS overdue_days,
+         (
+           SELECT MAX(sent_at)
+           FROM sales_invoice_reminders sir
+           WHERE sir.organization_id = si.organization_id
+             AND sir.invoice_id = si.id
+             AND sir.status = 'SENT'
+         ) AS last_reminder_at,
+         COUNT(*) OVER() AS total_count
+       FROM sales_invoices si
+       JOIN sales_subscriptions ss
+         ON ss.id = si.subscription_id
+        AND ss.organization_id = si.organization_id
+       LEFT JOIN sales_buyers sb
+         ON sb.id = ss.buyer_id
+        AND sb.organization_id = ss.organization_id
+       LEFT JOIN sales_projects sp
+         ON sp.id = ss.project_id
+        AND sp.organization_id = ss.organization_id
+       LEFT JOIN sales_property_catalog sc
+         ON sc.id = ss.catalog_item_id
+        AND sc.organization_id = ss.organization_id
+       WHERE ${whereClause}
+       ORDER BY si.due_date ASC, si.id DESC
+       LIMIT $${params.length - 1}
+       OFFSET $${params.length}`,
+      params,
+      client,
+    );
+    return {
+      items: rows,
+      total: Number(rows[0]?.total_count ?? 0),
+      page,
+      pageSize,
+    };
+  }
+
+  async summarizeCollections(organizationId: number, client?: PoolClient) {
+    const { rows } = await this.query(
+      `SELECT
+         COALESCE(SUM(si.balance_due), 0) AS total_balance_due,
+         COALESCE(SUM(CASE WHEN si.due_date < CURRENT_DATE AND si.balance_due > 0 THEN si.balance_due ELSE 0 END), 0) AS overdue_balance,
+         COALESCE(SUM(CASE WHEN si.due_date >= CURRENT_DATE AND si.balance_due > 0 THEN si.balance_due ELSE 0 END), 0) AS upcoming_balance,
+         COALESCE(SUM(CASE WHEN si.issue_date >= date_trunc('month', CURRENT_DATE) THEN si.paid_amount ELSE 0 END), 0) AS collected_this_month,
+         COALESCE(COUNT(*) FILTER (WHERE si.due_date < CURRENT_DATE AND si.balance_due > 0), 0) AS overdue_invoices,
+         COALESCE(COUNT(DISTINCT ss.buyer_id) FILTER (WHERE si.balance_due > 0), 0) AS buyers_with_balance
+       FROM sales_invoices si
+       JOIN sales_subscriptions ss
+         ON ss.id = si.subscription_id
+        AND ss.organization_id = si.organization_id
+       WHERE si.organization_id = $1
+         AND si.status IN ('ISSUED', 'PARTIALLY_PAID', 'OVERDUE')`,
+      [organizationId],
+      client,
+    );
+    return rows[0] ?? null;
+  }
+
+  async lockInstallmentForAutomation(organizationId: number, installmentId: number, client: PoolClient) {
+    const { rows } = await client.query(
+      `SELECT
+         ssi.id AS installment_id,
+         ssi.organization_id,
+         ssi.subscription_id,
+         ssi.sequence_number,
+         ssi.label,
+         ssi.due_date,
+         ssi.amount,
+         ssi.currency,
+         ss.status AS subscription_status,
+         COALESCE((
+           SELECT SUM(COALESCE(p.amount, 0) - COALESCE(r.refunded_amount, 0))
+           FROM sales_invoice_payments p
+           LEFT JOIN (
+             SELECT payment_id, SUM(amount)::NUMERIC(18,2) AS refunded_amount
+             FROM sales_invoice_payment_refunds
+             GROUP BY payment_id
+           ) r
+             ON r.payment_id = p.id
+           WHERE p.organization_id = ssi.organization_id
+             AND p.installment_id = ssi.id
+             AND p.status IN ('CONFIRMED', 'PARTIALLY_REFUNDED', 'REFUNDED')
+         ), 0)::NUMERIC(18,2) AS paid_amount,
+         (
+           SELECT si.id
+           FROM sales_invoices si
+           WHERE si.organization_id = ssi.organization_id
+             AND si.subscription_id = ssi.subscription_id
+             AND si.installment_id = ssi.id
+             AND si.status <> 'CANCELLED'
+           ORDER BY si.id DESC
+           LIMIT 1
+         ) AS invoice_id
+       FROM sales_subscription_installments ssi
+       JOIN sales_subscriptions ss
+         ON ss.id = ssi.subscription_id
+        AND ss.organization_id = ssi.organization_id
+       WHERE ssi.organization_id = $1
+         AND ssi.id = $2
+       FOR UPDATE`,
+      [organizationId, installmentId],
+    );
+    return rows[0] ?? null;
+  }
+
+  async lockInvoiceForReminderAutomation(organizationId: number, invoiceId: number, client: PoolClient) {
+    const { rows } = await client.query(
+      `SELECT
+         si.id,
+         si.organization_id,
+         si.subscription_id,
+         si.invoice_number,
+         si.status,
+         si.due_date,
+         si.balance_due,
+         si.currency,
+         COALESCE(sb.full_name, sb.company_name) AS buyer_name,
+         sb.email AS buyer_email
+       FROM sales_invoices si
+       JOIN sales_subscriptions ss
+         ON ss.id = si.subscription_id
+        AND ss.organization_id = si.organization_id
+       LEFT JOIN sales_buyers sb
+         ON sb.id = ss.buyer_id
+        AND sb.organization_id = ss.organization_id
+       WHERE si.organization_id = $1
+         AND si.id = $2
+       FOR UPDATE`,
+      [organizationId, invoiceId],
+    );
+    return rows[0] ?? null;
   }
 
   async findDocumentGeneration(organizationId: number, id: number, client?: PoolClient) {

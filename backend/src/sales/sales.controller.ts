@@ -8,14 +8,19 @@ import {
   CreateSalesReservationRefundDto,
   CreateSalesSubscriptionDto,
   CancelSalesReservationPaymentDto,
+  SalesAutomationExecuteDto,
+  SalesAutomationRunListQueryDto,
   SalesBuyerListQueryDto,
   SalesCatalogListQueryDto,
+  SalesCollectionsQueryDto,
   SalesDocumentTemplateDto,
   SalesInvoiceListQueryDto,
+  SalesInvoiceReminderListQueryDto,
   SalesProjectListQueryDto,
   SalesReservationListQueryDto,
   SalesReservationStatusActionDto,
   SalesSubscriptionListQueryDto,
+  SendSalesInvoiceReminderDto,
   SimulateSalesSubscriptionDto,
   UpdateSalesDocumentTemplateDto,
   UpdateSalesBuyerDto,
@@ -26,6 +31,7 @@ import {
   UpdateSalesSettingsDto,
   UpdateSalesSubscriptionDto,
 } from './dto';
+import { SalesAutomationService } from './sales-automation.service';
 import { RequireOrganizationModule } from './sales-module.decorator';
 import { SalesFinancialsService } from './sales-financials.service';
 import { SalesService } from './sales.service';
@@ -37,6 +43,7 @@ export class SalesController {
   constructor(
     private readonly sales: SalesService,
     private readonly financials: SalesFinancialsService,
+    private readonly automation: SalesAutomationService,
   ) {}
 
   @Get('bootstrap')
@@ -49,9 +56,44 @@ export class SalesController {
     return this.sales.getSettings();
   }
 
+  @Get('automation/settings')
+  getAutomationSettings() {
+    return this.automation.getSettings();
+  }
+
   @Patch('settings')
   updateSettings(@Body() dto: UpdateSalesSettingsDto) {
     return this.sales.updateSettings(dto);
+  }
+
+  @Patch('automation/settings')
+  updateAutomationSettings(@Body() dto: UpdateSalesSettingsDto) {
+    return this.automation.updateSettings(dto);
+  }
+
+  @Post('automation/installments/dry-run')
+  dryRunInstallmentAutomation(@Body() dto: SalesAutomationExecuteDto) {
+    return this.automation.dryRunInstallments(dto);
+  }
+
+  @Post('automation/installments/run')
+  runInstallmentAutomation(@Body() dto: SalesAutomationExecuteDto) {
+    return this.automation.runInstallments(dto);
+  }
+
+  @Post('automation/reminders/dry-run')
+  dryRunReminderAutomation(@Body() dto: SalesAutomationExecuteDto) {
+    return this.automation.dryRunReminders(dto);
+  }
+
+  @Post('automation/reminders/run')
+  runReminderAutomation(@Body() dto: SalesAutomationExecuteDto) {
+    return this.automation.runReminders(dto);
+  }
+
+  @Get('automation/runs')
+  listAutomationRuns(@Query() query: SalesAutomationRunListQueryDto) {
+    return this.automation.listRuns(query);
   }
 
   @Get('settings/templates')
@@ -284,6 +326,16 @@ export class SalesController {
     return this.financials.getInvoice(id);
   }
 
+  @Get('invoices/:id/reminders')
+  listInvoiceReminders(@Param('id', ParseIntPipe) id: number, @Query() query: SalesInvoiceReminderListQueryDto) {
+    return this.automation.listInvoiceReminders(id, query);
+  }
+
+  @Post('invoices/:id/reminders/send')
+  sendInvoiceReminder(@Param('id', ParseIntPipe) id: number, @Body() dto: SendSalesInvoiceReminderDto) {
+    return this.automation.sendInvoiceReminder(id, dto);
+  }
+
   @Post('subscriptions/:id/installments/:installmentId/invoice')
   generateInvoice(
     @Param('id', ParseIntPipe) id: number,
@@ -350,6 +402,11 @@ export class SalesController {
   @Get('reports/overdue')
   listOverdueInvoices() {
     return this.financials.listOverdueInvoices();
+  }
+
+  @Get('collections')
+  getCollections(@Query() query: SalesCollectionsQueryDto) {
+    return this.automation.getCollections(query);
   }
 
   @Get('documents/:id/download')

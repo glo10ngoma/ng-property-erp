@@ -13,11 +13,15 @@ import {
   createSalesReservation,
   createSalesSubscription,
   createSalesDocumentTemplate,
+  dryRunSalesInstallmentAutomation,
+  dryRunSalesReminderAutomation,
   downloadSalesDocument,
   expireSalesReservation,
-  getSalesReservation,
+  getSalesAutomationSettings,
   getSalesSettings,
+  getSalesReservation,
   getSalesSubscription,
+  listSalesAutomationRuns,
   regenerateSalesReservationPaymentReceipt,
   listSalesDocumentTemplates,
   listSalesBuyers,
@@ -30,8 +34,8 @@ import {
   rejectSalesSubscription,
   simulateSalesSubscription,
   submitSalesSubscription,
+  updateSalesAutomationSettings,
   updateSalesDocumentTemplate,
-  updateSalesSettings,
   updateSalesReservation,
   updateSalesSubscription,
 } from '../api/sales.api';
@@ -54,6 +58,7 @@ import {
   type SalesDocumentGeneration,
   type SalesDocumentTemplate,
   type SalesDocumentTemplatePayload,
+  type SalesAutomationRun,
   type SalesProject,
   type SalesReservation,
   type SalesReservationPayment,
@@ -2964,6 +2969,9 @@ export function SalesSettingsPage() {
   const [previewReservationId, setPreviewReservationId] = useState('');
   const [previewSubscriptionId, setPreviewSubscriptionId] = useState('');
   const [previewHtml, setPreviewHtml] = useState('');
+  const [automationPreview, setAutomationPreview] = useState<any | null>(null);
+  const [automationPreviewError, setAutomationPreviewError] = useState<string | null>(null);
+  const [automationRuns, setAutomationRuns] = useState<SalesAutomationRun[]>([]);
   const [editingNumberingField, setEditingNumberingField] = useState<null | {
     key: keyof SalesSettings;
     label: string;
@@ -2975,8 +2983,9 @@ export function SalesSettingsPage() {
   const editorSelectionRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
   const { buyers, catalog, projects, reservations } = useSalesReferenceData();
 
-  const settingsSection = useMemo<'numbering' | 'rules' | 'templates'>(() => {
+  const settingsSection = useMemo<'numbering' | 'rules' | 'automation' | 'templates'>(() => {
     if (location.pathname.endsWith('/rules')) return 'rules';
+    if (location.pathname.endsWith('/automation')) return 'automation';
     if (location.pathname.endsWith('/templates')) return 'templates';
     return 'numbering';
   }, [location.pathname]);
@@ -3000,6 +3009,7 @@ export function SalesSettingsPage() {
     () => [
       { key: 'numbering', label: 'Numérotation', to: '/sales/settings/numbering', isActive: settingsSection === 'numbering' },
       { key: 'rules', label: 'Règles opérationnelles', to: '/sales/settings/rules', isActive: settingsSection === 'rules' },
+      { key: 'automation', label: 'Automatisation des échéances', to: '/sales/settings/automation', isActive: settingsSection === 'automation' },
       { key: 'templates', label: 'Modèles contractuels', to: '/sales/settings/templates', isActive: settingsSection === 'templates' },
     ],
     [settingsSection],
@@ -3011,15 +3021,17 @@ export function SalesSettingsPage() {
       setLoading(true);
       setError(null);
       try {
-        const [settingsResponse, templatesResponse, subscriptionsResponse] = await Promise.all([
-          getSalesSettings(),
+        const [settingsResponse, templatesResponse, subscriptionsResponse, runsResponse] = await Promise.all([
+          getSalesAutomationSettings(),
           listSalesDocumentTemplates(),
           listSalesSubscriptions({ page: 1, pageSize: 100, sortBy: 'updated_at', sortOrder: 'desc' }),
+          listSalesAutomationRuns({ page: 1, pageSize: 10 }),
         ]);
         if (cancelled) return;
         setSettings(settingsResponse);
         setTemplates(mergeTemplatesWithDefaults(templatesResponse));
         setSubscriptionPreviewItems(subscriptionsResponse.items);
+        setAutomationRuns(runsResponse.items);
       } catch (loadError) {
         if (!cancelled) setError(getErrorMessage(loadError));
       } finally {
@@ -3169,7 +3181,7 @@ export function SalesSettingsPage() {
     setSaving(true);
     setError(null);
     try {
-      const saved = await updateSalesSettings(settings);
+      const saved = await updateSalesAutomationSettings(settings);
       setSettings(saved);
     } catch (saveError) {
       setError(getErrorMessage(saveError));
@@ -3178,12 +3190,29 @@ export function SalesSettingsPage() {
     }
   }
 
+  async function runAutomationDryRun(mode: 'installments' | 'reminders') {
+    setAutomationPreviewError(null);
+    setAutomationPreview(null);
+    try {
+      const payload = { execution_mode: 'DRY_RUN', as_of_date: new Date().toISOString().slice(0, 10) };
+      const result = mode === 'installments'
+        ? await dryRunSalesInstallmentAutomation(payload)
+        : await dryRunSalesReminderAutomation(payload);
+      setAutomationPreview({
+        mode,
+        ...result,
+      });
+    } catch (previewError) {
+      setAutomationPreviewError(getErrorMessage(previewError));
+    }
+  }
+
   async function saveNumberingField() {
     if (!settings || !editingNumberingField) return;
     setSaving(true);
     setError(null);
     try {
-      const saved = await updateSalesSettings({
+      const saved = await updateSalesAutomationSettings({
         ...settings,
         [editingNumberingField.key]: editingNumberingField.value.trim(),
       });
@@ -3411,6 +3440,144 @@ export function SalesSettingsPage() {
           <SalesFormActions>
             <button className="sales-v21-btn sales-v21-btn-primary" type="submit" disabled={saving}>{saving ? 'Enregistrement…' : 'Enregistrer les paramètres'}</button>
           </SalesFormActions>
+        </form>
+      ) : null}
+
+      {settings && settingsSection === 'automation' ? (
+        <form className="sales-v21-form" onSubmit={saveSettings}>
+          <div className="sales-v21-rule-grid">
+            <div className="sales-v21-rule-card">
+              <h3>Activation générale</h3>
+              <p>Active ou désactive complètement le moteur V3.3 pour l’organisation courante uniquement.</p>
+              <SalesField label="Automatisation des échéances">
+                <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <input type="checkbox" checked={settings.sales_installment_automation_enabled === true} onChange={(event) => setSettings((current) => current ? { ...current, sales_installment_automation_enabled: event.target.checked } : current)} />
+                  <span>Activer la génération automatique</span>
+                </label>
+              </SalesField>
+              <SalesField label="Jours avant génération">
+                <input className="sales-v21-input" inputMode="numeric" value={String(settings.sales_auto_generate_invoice_days_before ?? 0)} onChange={(event) => setSettings((current) => current ? { ...current, sales_auto_generate_invoice_days_before: Number(event.target.value || 0) } : current)} />
+              </SalesField>
+              <SalesField label="Émission automatique">
+                <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <input type="checkbox" checked={settings.sales_auto_issue_invoice === true} onChange={(event) => setSettings((current) => current ? { ...current, sales_auto_issue_invoice: event.target.checked } : current)} />
+                  <span>Émettre la facture après génération</span>
+                </label>
+              </SalesField>
+              <SalesField label="Envoi automatique">
+                <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <input type="checkbox" checked={settings.sales_auto_send_invoice === true} onChange={(event) => setSettings((current) => current ? { ...current, sales_auto_send_invoice: event.target.checked } : current)} />
+                  <span>Envoyer la facture dès émission</span>
+                </label>
+              </SalesField>
+            </div>
+
+            <div className="sales-v21-rule-card">
+              <h3>Relances et rappels</h3>
+              <p>Rappels avant échéance, jour J et relances post-échéance avec cadence plafonnée.</p>
+              <SalesField label="Rappels activés">
+                <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <input type="checkbox" checked={settings.sales_reminders_enabled === true} onChange={(event) => setSettings((current) => current ? { ...current, sales_reminders_enabled: event.target.checked } : current)} />
+                  <span>Activer les rappels et relances</span>
+                </label>
+              </SalesField>
+              <SalesField label="Jours avant échéance">
+                <input className="sales-v21-input" value={(settings.sales_reminder_days_before ?? []).join(', ')} onChange={(event) => setSettings((current) => current ? { ...current, sales_reminder_days_before: event.target.value.split(',').map((item) => Number(item.trim())).filter((item) => Number.isFinite(item) && item >= 0) } : current)} />
+              </SalesField>
+              <SalesField label="Jours après échéance">
+                <input className="sales-v21-input" value={(settings.sales_overdue_reminder_days ?? []).join(', ')} onChange={(event) => setSettings((current) => current ? { ...current, sales_overdue_reminder_days: event.target.value.split(',').map((item) => Number(item.trim())).filter((item) => Number.isFinite(item) && item >= 0) } : current)} />
+              </SalesField>
+              <SalesField label="Maximum de relances par facture">
+                <input className="sales-v21-input" inputMode="numeric" value={String(settings.sales_max_reminders_per_invoice ?? 6)} onChange={(event) => setSettings((current) => current ? { ...current, sales_max_reminders_per_invoice: Number(event.target.value || 0) } : current)} />
+              </SalesField>
+            </div>
+
+            <div className="sales-v21-rule-card">
+              <h3>Exécution</h3>
+              <p>Le moteur compare l’heure cible de l’organisation et reste sécurisé face aux doubles passages.</p>
+              <SalesField label="Heure d’exécution">
+                <input className="sales-v21-input" type="time" value={String(settings.sales_reminder_execution_time ?? '09:00').slice(0, 5)} onChange={(event) => setSettings((current) => current ? { ...current, sales_reminder_execution_time: event.target.value } : current)} />
+              </SalesField>
+              <SalesField label="Fuseau horaire">
+                <input className="sales-v21-input" value={settings.sales_reminder_timezone ?? 'Africa/Kinshasa'} onChange={(event) => setSettings((current) => current ? { ...current, sales_reminder_timezone: event.target.value } : current)} />
+              </SalesField>
+              <SalesField label="Cooldown entre deux relances (heures)">
+                <input className="sales-v21-input" inputMode="numeric" value={String(settings.sales_reminder_cooldown_hours ?? 24)} onChange={(event) => setSettings((current) => current ? { ...current, sales_reminder_cooldown_hours: Number(event.target.value || 0) } : current)} />
+              </SalesField>
+              <SalesField label="Délai de grâce après échéance (jours)">
+                <input className="sales-v21-input" inputMode="numeric" value={String(settings.sales_overdue_grace_days ?? 0)} onChange={(event) => setSettings((current) => current ? { ...current, sales_overdue_grace_days: Number(event.target.value || 0) } : current)} />
+              </SalesField>
+            </div>
+
+            <div className="sales-v21-rule-card">
+              <h3>Mode d’envoi</h3>
+              <p>Pour la recette V3.3, le mode TEST_REDIRECT doit rester explicite et visible.</p>
+              <SalesField label="Mode de communication">
+                <select className="sales-v21-select" value={settings.sales_collection_email_mode ?? 'DISABLED'} onChange={(event) => setSettings((current) => current ? { ...current, sales_collection_email_mode: event.target.value } : current)}>
+                  <option value="DISABLED">DISABLED</option>
+                  <option value="TEST_REDIRECT">TEST_REDIRECT</option>
+                  <option value="LIVE">LIVE</option>
+                </select>
+              </SalesField>
+              {settings.sales_collection_email_mode === 'LIVE' ? (
+                <SalesInlineNotice tone="warning">
+                  Le mode LIVE doit rester désactivé tant que la migration et la recette org7 ne sont pas explicitement autorisées.
+                </SalesInlineNotice>
+              ) : null}
+            </div>
+          </div>
+
+          <SalesSection title="Résumé et tests à blanc" description="Les dry-runs n’écrivent aucune donnée métier et n’envoient aucune communication.">
+            <SalesKpiGrid>
+              <SalesKpiCard label="Automatisation" value={boolSettingLabel(settings.sales_installment_automation_enabled)} helper={`Fuseau : ${settings.sales_reminder_timezone || 'Africa/Kinshasa'}`} />
+              <SalesKpiCard label="Génération J-x" value={`${settings.sales_auto_generate_invoice_days_before ?? 0} jour(s)`} helper={`Émission auto : ${boolSettingLabel(settings.sales_auto_issue_invoice)}`} />
+              <SalesKpiCard label="Relances" value={boolSettingLabel(settings.sales_reminders_enabled)} helper={`Cooldown : ${settings.sales_reminder_cooldown_hours ?? 24} h`} />
+              <SalesKpiCard label="Mode e-mail" value={settings.sales_collection_email_mode || 'DISABLED'} helper={`Max relances : ${settings.sales_max_reminders_per_invoice ?? 6}`} />
+            </SalesKpiGrid>
+            <SalesFormActions>
+              <button className="sales-v21-btn sales-v21-btn-secondary" type="button" onClick={() => void runAutomationDryRun('installments')}>
+                Dry-run génération
+              </button>
+              <button className="sales-v21-btn sales-v21-btn-secondary" type="button" onClick={() => void runAutomationDryRun('reminders')}>
+                Dry-run relances
+              </button>
+              <button className="sales-v21-btn sales-v21-btn-primary" type="submit" disabled={saving}>
+                {saving ? 'Enregistrement…' : 'Enregistrer'}
+              </button>
+            </SalesFormActions>
+            {automationPreviewError ? <SalesInlineNotice tone="danger">{automationPreviewError}</SalesInlineNotice> : null}
+            {automationPreview ? (
+              <SalesDataTable
+                rowKey={(item) => `${item.installment_id ?? item.invoice_id ?? item.subscription_id ?? item.invoice_number}`}
+                rows={(automationPreview.items ?? []) as Array<Record<string, any>>}
+                columns={[
+                  { key: 'ref', label: 'Référence', render: (item) => item.subscription_number || item.invoice_number || 'Élément' },
+                  { key: 'date', label: 'Date cible', render: (item) => formatDate(item.due_date) },
+                  { key: 'amount', label: 'Montant', render: (item) => formatCurrency(item.amount ?? item.balance_due, item.currency) },
+                  { key: 'type', label: 'Type', render: (item) => item.reminder_type || (item.eligible ? 'FACTURABLE' : 'IGNORÉ') },
+                  { key: 'details', label: 'Détails', render: (item) => (item.reasons?.length ? item.reasons.join(', ') : item.can_send === false ? 'Destinataire manquant' : 'Prêt à traiter') },
+                ]}
+              />
+            ) : null}
+          </SalesSection>
+
+          <SalesSection title="Historique des runs" description="Dernières exécutions prévues pour org7, avec compteurs et statut final.">
+            {automationRuns.length ? (
+              <SalesDataTable
+                rowKey={(item) => item.id}
+                rows={automationRuns}
+                columns={[
+                  { key: 'type', label: 'Type', render: (item) => item.automation_type },
+                  { key: 'period', label: 'Période', render: (item) => item.period_key },
+                  { key: 'status', label: 'Statut', render: (item) => <SalesStatusBadge label={item.status} tone={item.status === 'SUCCESS' ? 'success' : item.status === 'FAILED' ? 'danger' : item.status === 'PARTIAL' ? 'warning' : 'info'} /> },
+                  { key: 'counts', label: 'Compteurs', render: (item) => `${item.eligible_count}/${item.processed_count} · créées ${item.created_count} · envoyées ${item.sent_count}` },
+                  { key: 'started', label: 'Début', render: (item) => formatDate(item.started_at) },
+                ]}
+              />
+            ) : (
+              <SalesEmptyState title="Aucun run enregistré" description="Les exécutions manuelles et automatiques apparaîtront ici après la migration et la recette org7." />
+            )}
+          </SalesSection>
         </form>
       ) : null}
 

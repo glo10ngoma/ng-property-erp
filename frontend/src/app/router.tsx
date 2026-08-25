@@ -40,6 +40,7 @@ import {
   SalesSubscriptionFormPage,
   SalesSubscriptionsPage,
 } from '../modules/sales/pages/SalesV3Pages';
+import { SalesCollectionsV33Page } from '../modules/sales/pages/SalesV33Pages';
 import { SalesInvoiceDetailV32Page, SalesInvoicesV32Page, SalesSubscriptionFinancialV32Page } from '../modules/sales/pages/SalesV32Pages';
 import { ModulePlaceholder } from '../modules/shared/ModulePlaceholder';
 import { SettingsPage } from '../modules/settings/pages/SettingsPage';
@@ -229,6 +230,7 @@ export function AppRouter() {
           <Route path="/sales/subscriptions/:id/financials" element={salesGuarded(<SalesSubscriptionFinancialV32Page />)} />
           <Route path="/sales/invoices" element={salesPermissionGuarded('sales_invoices.read', <SalesInvoicesV32Page />)} />
           <Route path="/sales/invoices/:id" element={salesPermissionGuarded('sales_invoices.read', <SalesInvoiceDetailV32Page />)} />
+          <Route path="/sales/collections" element={salesPermissionGuarded('sales_reports.collection', <SalesCollectionsV33Page />)} />
           <Route path="/sales/settings" element={<Navigate to="/sales/settings/numbering" replace />} />
           <Route path="/sales/settings/*" element={salesPermissionGuarded('sales.settings.manage', <SalesSettingsPage />)} />
           <Route element={<SuperAdminRoute />}>

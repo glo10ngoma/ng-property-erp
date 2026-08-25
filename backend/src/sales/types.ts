@@ -30,6 +30,12 @@ export const SALES_SEQUENCE_DOCUMENT_TYPES = [
 export const SALES_TEMPLATE_TYPES = ['RESERVATION_CONTRACT', 'SUBSCRIPTION_CONTRACT'] as const;
 export const SALES_DOCUMENT_GENERATION_STATUSES = ['PENDING', 'GENERATED', 'GENERATION_FAILED', 'SIGNED'] as const;
 export const SALES_SUBSCRIPTION_ORIGIN_MODES = ['RESERVATION', 'DIRECT'] as const;
+export const SALES_AUTOMATION_RUN_STATUSES = ['RUNNING', 'SUCCESS', 'PARTIAL', 'FAILED', 'SKIPPED'] as const;
+export const SALES_AUTOMATION_EXECUTION_MODES = ['AUTOMATIC', 'MANUAL', 'RETRY', 'DRY_RUN'] as const;
+export const SALES_AUTOMATION_TYPES = ['INSTALLMENT_INVOICING', 'INVOICE_REMINDERS'] as const;
+export const SALES_INVOICE_REMINDER_TYPES = ['INVOICE_ISSUED', 'UPCOMING_DUE', 'DUE_TODAY', 'OVERDUE', 'FINAL_NOTICE'] as const;
+export const SALES_INVOICE_REMINDER_STATUSES = ['PENDING', 'PROCESSING', 'SENT', 'SKIPPED', 'FAILED', 'CANCELLED'] as const;
+export const SALES_COLLECTION_EMAIL_MODES = ['DISABLED', 'TEST_REDIRECT', 'LIVE'] as const;
 
 export function normalizeSalesModuleCode(moduleCode: string | null | undefined) {
   return String(moduleCode ?? SALES_MODULE_CODE).trim().toUpperCase() || SALES_MODULE_CODE;
@@ -86,6 +92,19 @@ export type SalesSettings = {
   contract_generation_mode?: string | null;
   invoice_generation_mode?: string | null;
   revenue_recognition_mode?: string | null;
+  sales_auto_issue_invoice?: boolean | null;
+  sales_installment_automation_enabled?: boolean | null;
+  sales_auto_generate_invoice_days_before?: number | null;
+  sales_auto_send_invoice?: boolean | null;
+  sales_reminders_enabled?: boolean | null;
+  sales_reminder_days_before?: number[] | null;
+  sales_overdue_reminder_days?: number[] | null;
+  sales_reminder_execution_time?: string | null;
+  sales_reminder_timezone?: string | null;
+  sales_max_reminders_per_invoice?: number | null;
+  sales_reminder_cooldown_hours?: number | null;
+  sales_collection_email_mode?: 'DISABLED' | 'TEST_REDIRECT' | 'LIVE' | string | null;
+  sales_overdue_grace_days?: number | null;
   settings_json?: Record<string, unknown> | null;
 };
 

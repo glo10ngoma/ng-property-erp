@@ -2,6 +2,9 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { createHash } from 'crypto';
 import type { PoolClient } from 'pg';
 import { RequestContext } from '../auth/request-context';
+import { EmailService } from '../communication/email/email.service';
+import { DocumentDeliveryTrigger } from '../communication/shared/enums/document-delivery-trigger.enum';
+import { DocumentType } from '../communication/shared/enums/document-type.enum';
 import { DatabaseService } from '../database/database.service';
 import { PdfRendererService } from '../documents/pdf-renderer.service';
 import type {
@@ -34,6 +37,7 @@ type SalesInvoiceRow = {
   refunded_amount: number;
   balance_due: number;
   buyer_name?: string | null;
+  buyer_email?: string | null;
   subscription_number?: string | null;
   catalog_title?: string | null;
   project_name?: string | null;
@@ -115,6 +119,7 @@ export class SalesFinancialsService {
     private readonly db: DatabaseService,
     private readonly context: RequestContext,
     private readonly repository: SalesRepository,
+    private readonly emailService: EmailService,
   ) {}
 
   async listInvoices(query: SalesInvoiceListQueryDto) {
@@ -337,128 +342,151 @@ export class SalesFinancialsService {
 
   async generateInvoice(subscriptionId: number, installmentId: number) {
     return this.db.transaction(async (client) => {
-      const organizationId = this.context.organizationId();
-      const subscription = await this.requireSubscriptionFinancialContext(organizationId, subscriptionId, client);
-      const installment = await this.requireInstallment(organizationId, subscriptionId, installmentId, client);
-      const existing = await this.findActiveInvoiceByInstallment(organizationId, subscriptionId, installmentId, client);
-      if (existing) {
-        return this.normalizeInvoice(existing);
-      }
-      const settings = await this.repository.findSettings(organizationId, client);
-      const configuredInvoiceFormat = String(settings?.sales_invoice_number_format ?? '').trim();
-      const legacyInvoicePrefix = String(settings?.invoice_prefix ?? '').trim();
-      const invoiceNumberFormat = configuredInvoiceFormat
-        ? configuredInvoiceFormat
-        : legacyInvoicePrefix
-          ? `${legacyInvoicePrefix}-{YYYY}-{SEQ:5}`
-          : 'FAC-VTE-{YYYY}-{SEQ:5}';
-      const invoiceNumber = await this.generateSequence(
-        organizationId,
-        'SALES_INVOICE',
-        invoiceNumberFormat,
+      return this.generateInvoiceForAutomation(
+        this.context.organizationId(),
+        subscriptionId,
+        installmentId,
+        this.context.userId(),
         client,
       );
-      const feeAllocation = await this.resolveDeductibleAllocation(organizationId, subscriptionId, client);
-      const baseAmount = Number(installment.amount ?? 0);
-      const totalAmount = Math.max(roundMoney(baseAmount - feeAllocation.remainingDeductible), 0);
-      const created = await client.query<SalesInvoiceRow>(
-        `INSERT INTO sales_invoices (
-           organization_id, subscription_id, installment_id, invoice_number, status,
-           issue_date, due_date, currency, subtotal_amount, discount_amount, fee_allocation_amount,
-           total_amount, paid_amount, refunded_amount, balance_due, generated_mode,
-           generation_key, created_by, updated_by, created_at, updated_at
-         )
-         VALUES (
-           $1, $2, $3, $4, 'DRAFT',
-           $5, $6, $7, $8, 0, $9,
-           $10, 0, 0, $10, 'MANUAL',
-           $11, $12, $12, NOW(), NOW()
-         )
-         RETURNING *`,
-        [
-          organizationId,
-          subscriptionId,
-          installmentId,
-          invoiceNumber,
-          asDateString(new Date().toISOString()),
-          asDateString(installment.due_date),
-          installment.currency,
-          baseAmount,
-          feeAllocation.remainingDeductible,
-          totalAmount,
-          `subscription:${subscriptionId}:installment:${installmentId}`,
-          this.context.userId(),
-        ],
-      );
-      const invoice = created.rows[0];
+    });
+  }
+
+  async generateInvoiceForAutomation(
+    organizationId: number,
+    subscriptionId: number,
+    installmentId: number,
+    actorUserId: number | null,
+    client: PoolClient,
+  ) {
+    const subscription = await this.requireSubscriptionFinancialContext(organizationId, subscriptionId, client);
+    const installment = await this.requireInstallment(organizationId, subscriptionId, installmentId, client);
+    const existing = await this.findActiveInvoiceByInstallment(organizationId, subscriptionId, installmentId, client);
+    if (existing) {
+      return this.normalizeInvoice(existing);
+    }
+    const settings = await this.repository.findSettings(organizationId, client);
+    const configuredInvoiceFormat = String(settings?.sales_invoice_number_format ?? '').trim();
+    const legacyInvoicePrefix = String(settings?.invoice_prefix ?? '').trim();
+    const invoiceNumberFormat = configuredInvoiceFormat
+      ? configuredInvoiceFormat
+      : legacyInvoicePrefix
+        ? `${legacyInvoicePrefix}-{YYYY}-{SEQ:5}`
+        : 'FAC-VTE-{YYYY}-{SEQ:5}';
+    const invoiceNumber = await this.generateSequence(
+      organizationId,
+      'SALES_INVOICE',
+      invoiceNumberFormat,
+      client,
+    );
+    const feeAllocation = await this.resolveDeductibleAllocation(organizationId, subscriptionId, client);
+    const baseAmount = Number(installment.amount ?? 0);
+    const totalAmount = Math.max(roundMoney(baseAmount - feeAllocation.remainingDeductible), 0);
+    const created = await client.query<SalesInvoiceRow>(
+      `INSERT INTO sales_invoices (
+         organization_id, subscription_id, installment_id, invoice_number, status,
+         issue_date, due_date, currency, subtotal_amount, discount_amount, fee_allocation_amount,
+         total_amount, paid_amount, refunded_amount, balance_due, generated_mode,
+         generation_key, created_by, updated_by, created_at, updated_at
+       )
+       VALUES (
+         $1, $2, $3, $4, 'DRAFT',
+         $5, $6, $7, $8, 0, $9,
+         $10, 0, 0, $10, 'AUTOMATIC',
+         $11, $12, $12, NOW(), NOW()
+       )
+       RETURNING *`,
+      [
+        organizationId,
+        subscriptionId,
+        installmentId,
+        invoiceNumber,
+        asDateString(new Date().toISOString()),
+        asDateString(installment.due_date),
+        installment.currency,
+        baseAmount,
+        feeAllocation.remainingDeductible,
+        totalAmount,
+        `subscription:${subscriptionId}:installment:${installmentId}`,
+        actorUserId,
+      ],
+    );
+    const invoice = created.rows[0];
+    await client.query(
+      `INSERT INTO sales_invoice_items (
+         organization_id, invoice_id, line_type, label, description, quantity, unit_price, line_amount, currency, sort_order, created_at, updated_at
+       )
+       VALUES ($1, $2, 'INSTALLMENT', $3, $4, 1, $5, $5, $6, 1, NOW(), NOW())`,
+      [
+        organizationId,
+        invoice.id,
+        installment.label || `Échéance ${installment.sequence_number}`,
+        `Souscription ${subscription.subscription_number}`,
+        baseAmount,
+        installment.currency,
+      ],
+    );
+    if (feeAllocation.remainingDeductible > 0) {
       await client.query(
         `INSERT INTO sales_invoice_items (
            organization_id, invoice_id, line_type, label, description, quantity, unit_price, line_amount, currency, sort_order, created_at, updated_at
          )
-         VALUES ($1, $2, 'INSTALLMENT', $3, $4, 1, $5, $5, $6, 1, NOW(), NOW())`,
+         VALUES ($1, $2, 'RESERVATION_FEE_ALLOCATION', $3, $4, 1, $5, $5, $6, 2, NOW(), NOW())`,
         [
           organizationId,
           invoice.id,
-          installment.label || `Échéance ${installment.sequence_number}`,
-          `Souscription ${subscription.subscription_number}`,
-          baseAmount,
+          'Déduction des frais de réservation',
+          'Allocation existante non redéduite au-delà du disponible',
+          -Math.abs(feeAllocation.remainingDeductible),
           installment.currency,
         ],
       );
-      if (feeAllocation.remainingDeductible > 0) {
-        await client.query(
-          `INSERT INTO sales_invoice_items (
-             organization_id, invoice_id, line_type, label, description, quantity, unit_price, line_amount, currency, sort_order, created_at, updated_at
-           )
-           VALUES ($1, $2, 'RESERVATION_FEE_ALLOCATION', $3, $4, 1, $5, $5, $6, 2, NOW(), NOW())`,
-          [
-            organizationId,
-            invoice.id,
-            'Déduction des frais de réservation',
-            'Allocation existante non redéduite au-delà du disponible',
-            -Math.abs(feeAllocation.remainingDeductible),
-            installment.currency,
-          ],
-        );
-      }
-      await this.repository.writeAuditEvent(
-        organizationId,
-        'sales_invoice',
-        invoice.id,
-        'SALES_INVOICE_CREATED',
-        this.context.userId(),
-        null,
-        invoice,
-        client,
-      );
-      return this.getInvoice(invoice.id, client);
-    });
+    }
+    await this.repository.writeAuditEvent(
+      organizationId,
+      'sales_invoice',
+      invoice.id,
+      'SALES_INVOICE_CREATED',
+      actorUserId,
+      null,
+      invoice,
+      client,
+    );
+    return this.getInvoice(invoice.id, client);
   }
 
   async issueInvoice(id: number) {
     return this.db.transaction(async (client) => {
-      const organizationId = this.context.organizationId();
-      const invoice = await this.requireInvoice(organizationId, id, client);
-      if (invoice.status === 'CANCELLED') {
-        throw new ConflictException({ code: 'INVOICE_CANCELLED', message: 'La facture est déjà annulée.' });
-      }
-      const updated = await client.query<SalesInvoiceRow>(
-        `UPDATE sales_invoices
-         SET status = CASE
-               WHEN balance_due <= 0 THEN 'PAID'
-               ELSE 'ISSUED'
-             END,
-             issued_at = COALESCE(issued_at, NOW()),
-             updated_by = $3,
-             updated_at = NOW()
-         WHERE organization_id = $1 AND id = $2
-         RETURNING *`,
-        [organizationId, id, this.context.userId()],
-      );
-      await this.repository.writeAuditEvent(organizationId, 'sales_invoice', id, 'SALES_INVOICE_ISSUED', this.context.userId(), invoice, updated.rows[0], client);
-      await this.generateInvoiceDocument(id, client);
-      return this.getInvoice(id, client);
+      return this.issueInvoiceForAutomation(this.context.organizationId(), id, this.context.userId(), client);
     });
+  }
+
+  async issueInvoiceForAutomation(
+    organizationId: number,
+    id: number,
+    actorUserId: number | null,
+    client: PoolClient,
+  ) {
+    const invoice = await this.requireInvoice(organizationId, id, client);
+    if (invoice.status === 'CANCELLED') {
+      throw new ConflictException({ code: 'INVOICE_CANCELLED', message: 'La facture est déjà annulée.' });
+    }
+    const updated = await client.query<SalesInvoiceRow>(
+      `UPDATE sales_invoices
+       SET status = CASE
+             WHEN balance_due <= 0 THEN 'PAID'
+             ELSE 'ISSUED'
+           END,
+           issued_at = COALESCE(issued_at, NOW()),
+           updated_by = $3,
+           updated_at = NOW()
+       WHERE organization_id = $1 AND id = $2
+       RETURNING *`,
+      [organizationId, id, actorUserId],
+    );
+    await this.repository.writeAuditEvent(organizationId, 'sales_invoice', id, 'SALES_INVOICE_ISSUED', actorUserId, invoice, updated.rows[0], client);
+    await this.generateInvoiceDocument(id, client);
+    return this.getInvoice(id, client);
   }
 
   async cancelInvoice(id: number, dto: SalesReservationStatusActionDto) {
@@ -784,21 +812,65 @@ export class SalesFinancialsService {
 
   async sendInvoice(invoiceId: number) {
     return this.db.transaction(async (client) => {
-      const organizationId = this.context.organizationId();
-      const invoice = await this.requireInvoice(organizationId, invoiceId, client);
-      const updated = await client.query(
-        `UPDATE sales_invoices
-         SET send_status = 'SKIPPED',
-             sent_at = NOW(),
-             updated_by = $3,
-             updated_at = NOW()
-         WHERE organization_id = $1 AND id = $2
-         RETURNING *`,
-        [organizationId, invoiceId, this.context.userId()],
-      );
-      await this.repository.writeAuditEvent(organizationId, 'sales_invoice', invoiceId, 'SALES_INVOICE_SENT', this.context.userId(), invoice, updated.rows[0], client);
-      return this.getInvoice(invoiceId, client);
+      return this.sendInvoiceForAutomation(this.context.organizationId(), invoiceId, this.context.userId(), client);
     });
+  }
+
+  async sendInvoiceForAutomation(
+    organizationId: number,
+    invoiceId: number,
+    actorUserId: number | null,
+    client: PoolClient,
+  ) {
+    const invoice = await this.requireInvoice(organizationId, invoiceId, client);
+    const delivery = await this.sendSalesInvoiceEmail(
+      organizationId,
+      invoiceId,
+      actorUserId,
+      client,
+      {
+        subject: `Votre facture ${invoice.invoice_number}`,
+        message: `Bonjour,\n\nVotre facture ${invoice.invoice_number} est disponible en pièce jointe.\nMerci de procéder au règlement avant l'échéance prévue.`,
+        idempotencyKey: `${organizationId}:EMAIL:SALES_INVOICE:${invoiceId}:AUTO`,
+      },
+    );
+    const updated = await client.query(
+      `UPDATE sales_invoices
+       SET send_status = $4,
+           sent_at = CASE WHEN $4 IN ('SENT', 'SKIPPED') THEN NOW() ELSE sent_at END,
+           updated_by = $3,
+           updated_at = NOW()
+       WHERE organization_id = $1 AND id = $2
+       RETURNING *`,
+      [organizationId, invoiceId, actorUserId, delivery.deliveryMode === 'DISABLED' ? 'SKIPPED' : 'SENT'],
+    );
+    await this.repository.writeAuditEvent(organizationId, 'sales_invoice', invoiceId, 'SALES_INVOICE_SENT', actorUserId, invoice, updated.rows[0], client);
+    return this.getInvoice(invoiceId, client);
+  }
+
+  async sendInvoiceReminderForAutomation(
+    organizationId: number,
+    invoiceId: number,
+    actorUserId: number | null,
+    client: PoolClient,
+    args: {
+      reminderType: string;
+      reminderStage: string;
+      idempotencyKey: string;
+    },
+  ) {
+    const invoice = await this.requireInvoice(organizationId, invoiceId, client);
+    return this.sendSalesInvoiceEmail(
+      organizationId,
+      invoiceId,
+      actorUserId,
+      client,
+      {
+        subject: this.buildReminderSubject(invoice.invoice_number, args.reminderType),
+        message: this.buildReminderMessage(invoice.invoice_number, Number(invoice.balance_due ?? 0), invoice.currency, invoice.due_date, args.reminderType),
+        idempotencyKey: args.idempotencyKey,
+      },
+    );
   }
 
   async listOutstandingInvoices() {
@@ -834,6 +906,7 @@ export class SalesFinancialsService {
          si.*,
          ss.subscription_number,
          sb.full_name AS buyer_name,
+         sb.email AS buyer_email,
          sc.title AS catalog_title,
          sp.name AS project_name,
          ssi.label AS installment_label,
@@ -893,6 +966,125 @@ export class SalesFinancialsService {
     return result.rows[0] ?? null;
   }
 
+  private async sendSalesInvoiceEmail(
+    organizationId: number,
+    invoiceId: number,
+    actorUserId: number | null,
+    client: PoolClient,
+    args: {
+      subject: string;
+      message: string;
+      idempotencyKey: string;
+    },
+  ) {
+    const invoice = await this.requireInvoice(organizationId, invoiceId, client);
+    const document = await this.buildSalesInvoiceEmailDocument(organizationId, invoiceId, invoice, args.message, client);
+    return this.context.run({
+      user: {
+        sub: actorUserId ?? 0,
+        email: 'sales-automation@test.local',
+        role: 'SYSTEM',
+        organization_id: organizationId,
+        permissions: [],
+        active_modules: ['SALES'],
+      },
+    }, () => this.emailService.sendDocumentEmail({
+      to: invoice.buyer_email ?? undefined,
+      subject: args.subject,
+      message: args.message,
+      document,
+      documentType: DocumentType.INVOICE,
+      documentId: Number(document.documentId),
+      trigger: DocumentDeliveryTrigger.AUTO,
+      idempotencyKey: args.idempotencyKey,
+    }));
+  }
+
+  private async buildSalesInvoiceEmailDocument(
+    organizationId: number,
+    invoiceId: number,
+    invoice: any,
+    message: string,
+    client: PoolClient,
+  ) {
+    let currentInvoice = invoice;
+    if (!currentInvoice.pdf_document_id) {
+      await this.generateInvoiceDocument(invoiceId, client);
+      currentInvoice = await this.requireInvoice(organizationId, invoiceId, client);
+    }
+    const generationId = Number(currentInvoice.pdf_document_id ?? 0);
+    if (!generationId) {
+      throw new BadRequestException('Le PDF de la facture est indisponible.');
+    }
+    const { rows } = await client.query<{
+      id: number;
+      document_number: string | null;
+      file_name: string | null;
+      mime_type: string | null;
+      pdf_base64: string | null;
+    }>(
+      `SELECT id, document_number, file_name, mime_type, pdf_base64
+       FROM sales_document_generations
+       WHERE organization_id = $1 AND id = $2
+       LIMIT 1`,
+      [organizationId, generationId],
+    );
+    const generation = rows[0];
+    if (!generation?.pdf_base64) {
+      throw new BadRequestException('Le PDF de la facture est indisponible.');
+    }
+    return {
+      documentType: DocumentType.INVOICE,
+      documentId: generation.id,
+      recipientFallback: currentInvoice.buyer_email ?? null,
+      subjectFallback: `Facture ${currentInvoice.invoice_number}`,
+      attachmentFileName: generation.file_name || `${generation.document_number || currentInvoice.invoice_number}.pdf`,
+      templateName: 'invoice.html',
+      templateVariables: {
+        recipient_name: currentInvoice.buyer_name || 'client',
+        message_body: message.replace(/\n/g, '<br />'),
+        reference: currentInvoice.invoice_number,
+        amount: this.formatMoney(currentInvoice.total_amount, currentInvoice.currency),
+        due_date: this.formatDate(currentInvoice.due_date),
+      },
+      pdfBuffer: Buffer.from(String(generation.pdf_base64), 'base64'),
+    };
+  }
+
+  private buildReminderSubject(invoiceNumber: string, reminderType: string) {
+    const labels: Record<string, string> = {
+      UPCOMING_DUE: 'Rappel avant échéance',
+      DUE_TODAY: "Échéance aujourd'hui",
+      OVERDUE: 'Facture en retard',
+      FINAL_NOTICE: 'Dernière relance',
+    };
+    return `${labels[reminderType] ?? 'Relance de facture'} - ${invoiceNumber}`;
+  }
+
+  private buildReminderMessage(
+    invoiceNumber: string,
+    balanceDue: number,
+    currency: string,
+    dueDate: string | Date | null | undefined,
+    reminderType: string,
+  ) {
+    const introMap: Record<string, string> = {
+      UPCOMING_DUE: `La facture ${invoiceNumber} arrive prochainement à échéance.`,
+      DUE_TODAY: `La facture ${invoiceNumber} arrive à échéance aujourd'hui.`,
+      OVERDUE: `La facture ${invoiceNumber} est échue et reste impayée.`,
+      FINAL_NOTICE: `La facture ${invoiceNumber} reste impayée malgré nos précédentes relances.`,
+    };
+    return [
+      'Bonjour,',
+      '',
+      introMap[reminderType] ?? `La facture ${invoiceNumber} nécessite votre attention.`,
+      `Solde restant : ${this.formatMoney(balanceDue, currency)}.`,
+      `Échéance : ${this.formatDate(dueDate)}.`,
+      '',
+      'Merci de régulariser la situation dans les meilleurs délais.',
+    ].join('\n');
+  }
+
   private normalizeInvoice(row: SalesInvoiceRow) {
     const balanceDue = roundMoney(Number(row.balance_due ?? row.total_amount ?? 0));
     const paidAmount = roundMoney(Number(row.paid_amount ?? 0));
@@ -912,6 +1104,27 @@ export class SalesFinancialsService {
       refunded_amount: refundedAmount,
       balance_due: balanceDue,
     };
+  }
+
+  private formatMoney(value: number | string | null | undefined, currency: string | null | undefined) {
+    const amount = roundMoney(Number(value ?? 0));
+    const normalizedCurrency = String(currency ?? '').trim() || 'USD';
+    return new Intl.NumberFormat('fr-FR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount) + ` ${normalizedCurrency}`;
+  }
+
+  private formatDate(value: string | Date | null | undefined) {
+    if (!value) return 'Non définie';
+    const date = value instanceof Date ? value : new Date(String(value));
+    if (Number.isNaN(date.getTime())) return 'Non définie';
+    return new Intl.DateTimeFormat('fr-FR', {
+      timeZone: 'Africa/Kinshasa',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(date);
   }
 
   private async listPaymentsForInvoiceInternal(organizationId: number, invoiceId: number, client?: PoolClient) {
@@ -1208,11 +1421,19 @@ export class SalesFinancialsService {
     );
     const html = this.renderInvoiceHtml(invoice);
     const buffer = await this.pdfRenderer.renderA4Pdf(html);
-    await this.repository.markDocumentGenerationSuccess(organizationId, generation.id, {
+    const document = await this.repository.markDocumentGenerationSuccess(organizationId, generation.id, {
       pdf_base64: buffer.toString('base64'),
       mime_type: 'application/pdf',
       generated_by: this.context.userId(),
     }, client);
+    await client.query(
+      `UPDATE sales_invoices
+       SET pdf_document_id = $3,
+           updated_by = $4,
+           updated_at = NOW()
+       WHERE organization_id = $1 AND id = $2`,
+      [organizationId, invoiceId, document.id, this.context.userId()],
+    );
     await this.repository.writeAuditEvent(organizationId, 'sales_invoice', invoiceId, 'SALES_INVOICE_PDF_GENERATED', this.context.userId(), null, { document_generation_id: generation.id }, client);
   }
 
