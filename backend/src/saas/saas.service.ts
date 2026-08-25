@@ -25,6 +25,15 @@ import { DocumentTemplateService } from '../documents/document-template.service'
 import { PdfRendererService } from '../documents/pdf-renderer.service';
 import { LEASE_DOCUMENT_RENDERER_VERSION, LEASE_PDF_MIME_TYPE } from '../documents/document-storage.service';
 import { isPlatformRole, normalizeRole } from './permissions';
+import {
+  CreatePlatformMembershipDto,
+  CreatePlatformOrganizationDto,
+  CreatePlatformUserDto,
+  PlatformListQueryDto,
+  UpdatePlatformMembershipDto,
+  UpdatePlatformOrganizationDto,
+  UpdatePlatformUserDto,
+} from './settings.dto';
 
 @Injectable()
 export class SaasService {
@@ -573,7 +582,7 @@ export class SaasService {
     };
   }
 
-  async platformOrganizations(filters: { search?: string; status?: string }) {
+  async platformOrganizations(filters: PlatformListQueryDto) {
     const params: unknown[] = [];
     const where: string[] = [];
     if (filters.search) {
@@ -608,10 +617,11 @@ export class SaasService {
     return rows;
   }
 
-  async platformCreateOrganization(body: Record<string, unknown>) {
+  async platformCreateOrganization(body: CreatePlatformOrganizationDto) {
+    this.ensureActorIsSuperAdmin();
     const name = String(body.name ?? '').trim();
     const slug = String(body.slug ?? '').trim().toLowerCase();
-    if (!name || !slug) throw new BadRequestException('Nom et slug sont obligatoires.');
+    if (!name || !slug) throw new BadRequestException('PLATFORM_ORGANIZATION_REQUIRED');
 
     const { rows } = await this.db.query(
       `INSERT INTO organizations (name, slug, status)
@@ -634,11 +644,12 @@ export class SaasService {
     return organization;
   }
 
-  async platformUpdateOrganization(id: number, body: Record<string, unknown>) {
+  async platformUpdateOrganization(id: number, body: UpdatePlatformOrganizationDto) {
+    this.ensureActorIsSuperAdmin();
     const before = await this.db.query(`SELECT * FROM organizations WHERE id = $1 LIMIT 1`, [id]);
     const existing = requireRow(before.rows[0], 'Organization');
-    const keys = ['name', 'slug', 'status'].filter((key) => body[key] !== undefined);
-    if (!keys.length) throw new BadRequestException('No data provided');
+    const keys = (['name', 'slug', 'status'] as const).filter((key) => body[key] !== undefined);
+    if (!keys.length) throw new BadRequestException('PLATFORM_UPDATE_EMPTY');
     const assignments = keys.map((key, index) => `${key} = $${index + 2}`);
     const { rows } = await this.db.query(
       `UPDATE organizations
@@ -652,7 +663,7 @@ export class SaasService {
     return updated;
   }
 
-  async platformUsers(filters: { search?: string; status?: string }) {
+  async platformUsers(filters: PlatformListQueryDto) {
     const params: unknown[] = [];
     const where = ['au.deleted_at IS NULL'];
     if (filters.search) {
@@ -748,48 +759,76 @@ export class SaasService {
     }
   }
 
-  async platformCreateUser(body: Record<string, unknown>) {
-    const password = String(body.password ?? body.password_hash ?? 'demo');
+  async platformCreateUser(body: CreatePlatformUserDto) {
+    this.ensureActorIsSuperAdmin();
+    const organizationId = Number(body.organization_id ?? 0);
+    if (!organizationId) throw new BadRequestException('PLATFORM_ORGANIZATION_REQUIRED');
+    await this.ensureActivePlatformOrganization(organizationId);
+    const password = String(body.password ?? '');
     const firstName = String(body.first_name ?? '').trim();
     const lastName = String(body.last_name ?? '').trim();
     const email = String(body.email ?? '').trim();
     const status = String(body.status ?? 'ACTIVE').trim().toUpperCase() || 'ACTIVE';
-    const platformRole = body.platform_role ? String(body.platform_role).trim().toUpperCase() : null;
+    const platformRole = this.normalizePlatformRole(body.platform_role);
     if (!firstName || !lastName || !email) {
       throw new BadRequestException('Nom, prénom et adresse e-mail sont obligatoires.');
+    }
+    if (!password) {
+      throw new BadRequestException('PLATFORM_PASSWORD_REQUIRED');
     }
     const { rows } = await this.db.query(
       `INSERT INTO app_users (
          first_name, last_name, email, password_hash, role, platform_role, status, organization_id
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, 1))
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [firstName, lastName, email, await hashPassword(password), 'VIEWER_CLIENT', platformRole, status, Number(body.organization_id ?? 1)],
+      [firstName, lastName, email, await hashPassword(password), 'VIEWER_CLIENT', platformRole, status, organizationId],
     );
     const created = rows[0];
     await this.writePlatformAudit('PLATFORM_USER_CREATED', created.id, created.organization_id ?? null, null, created);
-    return created;
+    return this.sanitizePlatformUserResponse(created);
   }
 
-  async platformUpdateUser(id: number, body: Record<string, unknown>) {
+  async platformUpdateUser(id: number, body: UpdatePlatformUserDto) {
+    this.ensureActorIsSuperAdmin();
     const before = await this.db.query(`SELECT * FROM app_users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [id]);
     const existing = requireRow(before.rows[0], 'User');
-    const keys = ['first_name', 'last_name', 'email', 'status', 'platform_role'].filter((key) => body[key] !== undefined);
-    if (!keys.length) throw new BadRequestException('No data provided');
+    const keys = (['first_name', 'last_name', 'email', 'status', 'platform_role'] as const).filter(
+      (key) => body[key] !== undefined,
+    );
+    if (!keys.length) throw new BadRequestException('PLATFORM_UPDATE_EMPTY');
+    const nextPlatformRole = body.platform_role === undefined ? String(existing.platform_role ?? '').trim().toUpperCase() || null : this.normalizePlatformRole(body.platform_role);
+    const nextStatus = String(body.status ?? existing.status ?? 'ACTIVE').trim().toUpperCase() || 'ACTIVE';
+    if (Number(existing.id) === Number(this.context.userId() ?? 0) && (nextStatus !== 'ACTIVE' || nextPlatformRole !== 'SUPER_ADMIN')) {
+      throw new ConflictException('PLATFORM_USER_SELF_LOCKOUT');
+    }
+    if (String(existing.platform_role ?? '').trim().toUpperCase() === 'SUPER_ADMIN' && (nextStatus !== 'ACTIVE' || nextPlatformRole !== 'SUPER_ADMIN')) {
+      const activeSuperAdmins = await this.countActiveSuperAdmins();
+      if (activeSuperAdmins <= 1) {
+        throw new ConflictException('LAST_ACTIVE_SUPER_ADMIN');
+      }
+    }
     const assignments = keys.map((key, index) => `${key} = $${index + 2}`);
     const { rows } = await this.db.query(
       `UPDATE app_users
        SET ${assignments.join(', ')}
        WHERE id = $1 AND deleted_at IS NULL
        RETURNING *`,
-      [id, ...keys.map((key) => key === 'platform_role' && body[key] ? String(body[key]).toUpperCase() : body[key])],
+      [
+        id,
+        ...keys.map((key) => {
+          if (key === 'platform_role') return nextPlatformRole;
+          if (key === 'status') return nextStatus;
+          return body[key];
+        }),
+      ],
     );
     const updated = requireRow(rows[0], 'User');
     await this.writePlatformAudit('PLATFORM_USER_UPDATED', id, updated.organization_id ?? null, existing, updated);
-    return updated;
+    return this.sanitizePlatformUserResponse(updated);
   }
 
-  async platformMemberships(filters: { userId?: number; organizationId?: number }) {
+  async platformMemberships(filters: PlatformListQueryDto) {
     const params: unknown[] = [];
     const where: string[] = [];
     if (filters.userId) {
@@ -857,75 +896,79 @@ export class SaasService {
     }
   }
 
-  async platformUpsertMembership(body: Record<string, unknown>) {
-    const userId = Number(body.user_id ?? body.userId ?? 0);
-    const organizationId = Number(body.organization_id ?? body.organizationId ?? 0);
-    const roleCode = this.normalizeScopedUserRole(body.role_code ?? body.role ?? 'VIEWER_CLIENT');
+  async platformUpsertMembership(body: CreatePlatformMembershipDto) {
+    this.ensureActorIsSuperAdmin();
+    const userId = Number(body.user_id ?? 0);
+    const organizationId = Number(body.organization_id ?? 0);
+    const roleCode = this.normalizeScopedUserRole(body.role_code ?? 'VIEWER_CLIENT');
     const isActive = body.is_active === undefined ? true : Boolean(body.is_active);
     const isDefault = body.is_default === undefined ? false : Boolean(body.is_default);
-    if (!userId || !organizationId) throw new BadRequestException('Utilisateur et organisation sont requis.');
-
-    const roleId = await this.resolveOrganizationRoleId(organizationId, roleCode);
-    const before = await this.db.query(`SELECT * FROM user_organizations WHERE user_id = $1 AND organization_id = $2 LIMIT 1`, [userId, organizationId]);
+    if (!userId || !organizationId) throw new BadRequestException('PLATFORM_MEMBERSHIP_REQUIRED');
     if (isDefault && !isActive) {
-      throw new BadRequestException('Une adhésion inactive ne peut pas être définie par défaut.');
+      throw new BadRequestException('PLATFORM_MEMBERSHIP_INACTIVE');
     }
 
-    if (isDefault) {
-      await this.db.query(`UPDATE user_organizations SET is_default = FALSE, updated_at = NOW() WHERE user_id = $1`, [userId]);
-    }
+    await this.ensureActivePlatformOrganization(organizationId);
+    await this.ensureActivePlatformUser(userId);
+    const roleId = await this.resolveOrganizationRoleId(organizationId, roleCode);
 
-    const { rows } = await this.db.query(
-      `INSERT INTO user_organizations (
-         user_id, organization_id, role_code, role_id, is_active, is_default, created_by, updated_by
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-       ON CONFLICT (user_id, organization_id)
-       DO UPDATE SET
-         role_code = EXCLUDED.role_code,
-         role_id = EXCLUDED.role_id,
-         is_active = EXCLUDED.is_active,
-         is_default = EXCLUDED.is_default,
-         updated_by = EXCLUDED.updated_by,
-         updated_at = NOW()
-       RETURNING *`,
-      [userId, organizationId, roleCode, roleId, isActive, isDefault, this.context.userId() ?? 1],
-    );
-    const membership = rows[0];
-    await this.writePlatformAudit('MEMBERSHIP_UPSERTED', userId, organizationId, before.rows[0] ?? null, membership);
-    return membership;
+    return this.db.transaction(async (client) => {
+      const before = await client.query(`SELECT * FROM user_organizations WHERE user_id = $1 AND organization_id = $2 LIMIT 1`, [userId, organizationId]);
+      if (before.rows[0]) {
+        throw new ConflictException('PLATFORM_MEMBERSHIP_ALREADY_EXISTS');
+      }
+      if (isDefault) {
+        await client.query(`UPDATE user_organizations SET is_default = FALSE, updated_at = NOW() WHERE user_id = $1`, [userId]);
+      }
+      const { rows } = await client.query(
+        `INSERT INTO user_organizations (
+           user_id, organization_id, role_code, role_id, is_active, is_default, created_by, updated_by
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+         RETURNING *`,
+        [userId, organizationId, roleCode, roleId, isActive, isDefault, this.context.userId() ?? 1],
+      );
+      const membership = rows[0];
+      await this.writePlatformAudit('MEMBERSHIP_CREATED', userId, organizationId, null, membership);
+      return membership;
+    });
   }
 
-  async platformUpdateMembership(id: number, body: Record<string, unknown>) {
+  async platformUpdateMembership(id: number, body: UpdatePlatformMembershipDto) {
+    this.ensureActorIsSuperAdmin();
     const before = await this.db.query(`SELECT * FROM user_organizations WHERE id = $1 LIMIT 1`, [id]);
     const existing = requireRow(before.rows[0], 'Membership');
-    const nextRoleCode = body.role_code !== undefined || body.role !== undefined
-      ? this.normalizeScopedUserRole(body.role_code ?? body.role)
+    await this.ensureActivePlatformOrganization(Number(existing.organization_id));
+    await this.ensureActivePlatformUser(Number(existing.user_id));
+    const nextRoleCode = body.role_code !== undefined
+      ? this.normalizeScopedUserRole(body.role_code)
       : existing.role_code;
     const nextIsActive = body.is_active === undefined ? existing.is_active : Boolean(body.is_active);
     const nextIsDefault = body.is_default === undefined ? existing.is_default : Boolean(body.is_default);
     if (nextIsDefault && !nextIsActive) {
-      throw new BadRequestException('Une adhésion inactive ne peut pas être définie par défaut.');
-    }
-    if (nextIsDefault) {
-      await this.db.query(`UPDATE user_organizations SET is_default = FALSE, updated_at = NOW() WHERE user_id = $1`, [existing.user_id]);
+      throw new BadRequestException('PLATFORM_MEMBERSHIP_INACTIVE');
     }
     const roleId = await this.resolveOrganizationRoleId(existing.organization_id, nextRoleCode);
-    const { rows } = await this.db.query(
-      `UPDATE user_organizations
-       SET role_code = $2,
-           role_id = $3,
-           is_active = $4,
-           is_default = $5,
-           updated_by = $6,
-           updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [id, nextRoleCode, roleId, nextIsActive, nextIsDefault, this.context.userId() ?? 1],
-    );
-    const updated = requireRow(rows[0], 'Membership');
-    await this.writePlatformAudit('MEMBERSHIP_UPDATED', updated.user_id, updated.organization_id, existing, updated);
-    return updated;
+    return this.db.transaction(async (client) => {
+      if (nextIsDefault) {
+        await client.query(`UPDATE user_organizations SET is_default = FALSE, updated_at = NOW() WHERE user_id = $1`, [existing.user_id]);
+      }
+      const { rows } = await client.query(
+        `UPDATE user_organizations
+         SET role_code = $2,
+             role_id = $3,
+             is_active = $4,
+             is_default = $5,
+             updated_by = $6,
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [id, nextRoleCode, roleId, nextIsActive, nextIsDefault, this.context.userId() ?? 1],
+      );
+      const updated = requireRow(rows[0], 'Membership');
+      await this.writePlatformAudit('MEMBERSHIP_UPDATED', updated.user_id, updated.organization_id, existing, updated);
+      return updated;
+    });
   }
 
   async platformRoles() {
@@ -973,11 +1016,62 @@ export class SaasService {
     return this.createScopedUser(body);
   }
 
+  private ensureActorIsSuperAdmin() {
+    const platformRole = String(this.context.user()?.platform_role ?? this.context.user()?.role ?? '').trim().toUpperCase();
+    if (platformRole !== 'SUPER_ADMIN') {
+      throw new ForbiddenException('PLATFORM_SUPER_ADMIN_REQUIRED');
+    }
+  }
+
+  private normalizePlatformRole(role: unknown) {
+    if (role === null) return null;
+    const value = String(role ?? '').trim().toUpperCase();
+    if (!value) return null;
+    if (value === 'SUPER_ADMIN' || value === 'ADMIN_PLATFORM') return value;
+    throw new BadRequestException('PLATFORM_ROLE_INVALID');
+  }
+
   private normalizeScopedUserRole(role: unknown) {
     const value = String(role ?? 'EDITOR_CLIENT').trim().toUpperCase();
     if (value === 'ADMIN' || value === 'ADMIN_CLIENT') return 'ADMIN_CLIENT';
     if (['EDITOR', 'EDITOR_CLIENT', 'ACCOUNTANT', 'STAFF', 'AGENT', 'GESTIONNAIRE', 'COMPTABLE'].includes(value)) return 'EDITOR_CLIENT';
-    return 'VIEWER_CLIENT';
+    if (value === 'VIEWER' || value === 'VIEWER_CLIENT' || !value) return 'VIEWER_CLIENT';
+    throw new BadRequestException('PLATFORM_ROLE_INVALID');
+  }
+
+  private async ensureActivePlatformOrganization(organizationId: number) {
+    const { rows } = await this.db.query(`SELECT id, status FROM organizations WHERE id = $1 LIMIT 1`, [organizationId]);
+    const organization = requireRow(rows[0], 'Organization');
+    if (String(organization.status ?? '').trim().toUpperCase() !== 'ACTIVE') {
+      throw new ConflictException('ORGANIZATION_ACCESS_DENIED');
+    }
+    return organization;
+  }
+
+  private async ensureActivePlatformUser(userId: number) {
+    const { rows } = await this.db.query(
+      `SELECT id, status, platform_role
+       FROM app_users
+       WHERE id = $1 AND deleted_at IS NULL
+       LIMIT 1`,
+      [userId],
+    );
+    const user = requireRow(rows[0], 'User');
+    if (String(user.status ?? '').trim().toUpperCase() !== 'ACTIVE') {
+      throw new ConflictException('PLATFORM_USER_NOT_FOUND');
+    }
+    return user;
+  }
+
+  private async countActiveSuperAdmins() {
+    const { rows } = await this.db.query(
+      `SELECT COUNT(*)::INT AS count
+       FROM app_users
+       WHERE deleted_at IS NULL
+         AND status = 'ACTIVE'
+         AND COALESCE(platform_role, '') = 'SUPER_ADMIN'`,
+    );
+    return Number(rows[0]?.count ?? 0);
   }
 
   private async resolveOrganizationRoleId(organizationId: number, roleCode: string) {
@@ -999,10 +1093,13 @@ export class SaasService {
          WHEN 'DIRECTOR' THEN 4
          ELSE 99
        END
-       LIMIT 1`,
+      LIMIT 1`,
       [organizationId, candidates],
     );
-    return rows[0]?.id ?? null;
+    if (!rows[0]?.id) {
+      throw new ConflictException('PLATFORM_ROLE_ORGANIZATION_MISMATCH');
+    }
+    return rows[0].id;
   }
 
   private async writePlatformAudit(action: string, targetUserId: number | null, organizationId: number | null, beforeJson: unknown, afterJson: unknown) {
@@ -1017,14 +1114,37 @@ export class SaasService {
           targetUserId,
           organizationId,
           action,
-          beforeJson ? JSON.stringify(beforeJson) : null,
-          afterJson ? JSON.stringify(afterJson) : null,
+          beforeJson ? JSON.stringify(this.sanitizePlatformAuditPayload(beforeJson)) : null,
+          afterJson ? JSON.stringify(this.sanitizePlatformAuditPayload(afterJson)) : null,
         ],
       );
     } catch (error: any) {
       if (error?.code === '42P01') return;
       throw error;
     }
+  }
+
+  private sanitizePlatformAuditPayload(payload: unknown): unknown {
+    if (Array.isArray(payload)) {
+      return payload.map((item) => this.sanitizePlatformAuditPayload(item));
+    }
+    if (!payload || typeof payload !== 'object') {
+      return payload;
+    }
+    const clone: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
+      if (['password', 'password_hash', 'jwt', 'token', 'refresh_token'].includes(key)) {
+        clone[key] = '[REDACTED]';
+        continue;
+      }
+      clone[key] = this.sanitizePlatformAuditPayload(value);
+    }
+    return clone;
+  }
+
+  private sanitizePlatformUserResponse(payload: Record<string, unknown>) {
+    const { password_hash, password, ...safe } = payload;
+    return safe;
   }
 
   workflowDefinitions() {

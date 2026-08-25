@@ -138,6 +138,14 @@ const viewerPermissions = [
 
 const additionalPermissions = [
   'tenant_credits.update',
+  'platform.organizations.read',
+  'platform.organizations.manage',
+  'platform.users.read',
+  'platform.users.manage',
+  'platform.memberships.read',
+  'platform.memberships.manage',
+  'platform.roles.read',
+  'platform.audit.read',
   'sales.read',
   'sales.admin',
   'sales.settings.read',

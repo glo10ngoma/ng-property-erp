@@ -4,7 +4,18 @@ import { PlatformRoleGuard } from '../auth/platform-role.guard';
 import { SuperAdminOnly, SuperAdminOnlyGuard } from '../auth/super-admin-only.guard';
 import { PERMISSIONS, ROLE_LABELS, ROLE_PERMISSIONS } from './permissions';
 import { SaasService } from './saas.service';
-import { SendTestEmailDto, UpdateCompanySettingsDto, UpdateExchangeRateDto } from './settings.dto';
+import {
+  CreatePlatformMembershipDto,
+  CreatePlatformOrganizationDto,
+  CreatePlatformUserDto,
+  PlatformListQueryDto,
+  SendTestEmailDto,
+  UpdateCompanySettingsDto,
+  UpdateExchangeRateDto,
+  UpdatePlatformMembershipDto,
+  UpdatePlatformOrganizationDto,
+  UpdatePlatformUserDto,
+} from './settings.dto';
 
 @Controller('users')
 export class UsersController {
@@ -1567,17 +1578,21 @@ export class PlatformController {
   }
 
   @Get('organizations')
-  organizations(@Query('search') search?: string, @Query('status') status?: string) {
-    return this.service.platformOrganizations({ search, status });
+  organizations(@Query() query: PlatformListQueryDto) {
+    return this.service.platformOrganizations(query);
   }
 
   @Post('organizations')
-  createOrganization(@Body() body: Record<string, unknown>) {
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut créer une organisation plateforme.')
+  createOrganization(@Body() body: CreatePlatformOrganizationDto) {
     return this.service.platformCreateOrganization(body);
   }
 
   @Patch('organizations/:id')
-  updateOrganization(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut modifier une organisation plateforme.')
+  updateOrganization(@Param('id', ParseIntPipe) id: number, @Body() body: UpdatePlatformOrganizationDto) {
     return this.service.platformUpdateOrganization(id, body);
   }
 
@@ -1591,34 +1606,33 @@ export class PlatformController {
   @Post('users')
   @UseGuards(SuperAdminOnlyGuard)
   @SuperAdminOnly('Seul le Super Administrateur peut créer un utilisateur.')
-  createUser(@Body() body: Record<string, unknown>) {
+  createUser(@Body() body: CreatePlatformUserDto) {
     return this.service.platformCreateUser(body);
   }
 
   @Patch('users/:id')
-  updateUser(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut modifier un utilisateur plateforme.')
+  updateUser(@Param('id', ParseIntPipe) id: number, @Body() body: UpdatePlatformUserDto) {
     return this.service.platformUpdateUser(id, body);
   }
 
   @Get('memberships')
-  memberships(@Query('userId') userId?: string, @Query('organizationId') organizationId?: string) {
-    return this.service.platformMemberships({
-      userId: userId ? Number(userId) : undefined,
-      organizationId: organizationId ? Number(organizationId) : undefined,
-    });
+  memberships(@Query() query: PlatformListQueryDto) {
+    return this.service.platformMemberships(query);
   }
 
   @Post('memberships')
   @UseGuards(SuperAdminOnlyGuard)
   @SuperAdminOnly('Seul le Super Administrateur peut gérer les adhésions utilisateur.')
-  upsertMembership(@Body() body: Record<string, unknown>) {
+  upsertMembership(@Body() body: CreatePlatformMembershipDto) {
     return this.service.platformUpsertMembership(body);
   }
 
   @Patch('memberships/:id')
   @UseGuards(SuperAdminOnlyGuard)
   @SuperAdminOnly('Seul le Super Administrateur peut gérer les adhésions utilisateur.')
-  updateMembership(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+  updateMembership(@Param('id', ParseIntPipe) id: number, @Body() body: UpdatePlatformMembershipDto) {
     return this.service.platformUpdateMembership(id, body);
   }
 
