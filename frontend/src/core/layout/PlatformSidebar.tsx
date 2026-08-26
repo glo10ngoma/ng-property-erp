@@ -1,4 +1,4 @@
-import { Activity, Building2, Layers, Settings, ShieldCheck, Users } from 'lucide-react';
+import { Activity, Blocks, Building2, Layers, Settings, ShieldCheck, Users } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { appConfig } from '../../app/config';
 import { useAuth } from '../auth/AuthContext';
@@ -7,6 +7,7 @@ import { isPlatformSuperAdmin } from '../auth/PlatformRoute';
 const items = [
   { to: '/platform/overview', label: 'Vue d’ensemble', icon: Layers },
   { to: '/platform/organizations', label: 'Organisations', icon: Building2 },
+  { to: '/platform/modules', label: 'Modules', icon: Blocks },
   { to: '/platform/users', label: 'Utilisateurs', icon: Users, superAdminOnly: true },
   { to: '/platform/memberships', label: 'Adhésions', icon: ShieldCheck },
   { to: '/platform/roles', label: 'Rôles et permissions', icon: ShieldCheck, superAdminOnly: true },

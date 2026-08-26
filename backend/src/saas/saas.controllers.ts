@@ -8,8 +8,12 @@ import {
   CreatePlatformMembershipDto,
   CreatePlatformOrganizationDto,
   CreatePlatformUserDto,
+  DisablePlatformOrganizationModuleDto,
   PlatformListQueryDto,
+  PlatformOrganizationListQueryDto,
+  ReactivatePlatformOrganizationDto,
   SendTestEmailDto,
+  SuspendPlatformOrganizationDto,
   UpdateCompanySettingsDto,
   UpdateExchangeRateDto,
   UpdatePlatformMembershipDto,
@@ -1578,8 +1582,13 @@ export class PlatformController {
   }
 
   @Get('organizations')
-  organizations(@Query() query: PlatformListQueryDto) {
+  organizations(@Query() query: PlatformOrganizationListQueryDto) {
     return this.service.platformOrganizations(query);
+  }
+
+  @Get('organizations/:id')
+  organizationDetail(@Param('id', ParseIntPipe) id: number) {
+    return this.service.platformOrganizationDetail(id);
   }
 
   @Post('organizations')
@@ -1594,6 +1603,49 @@ export class PlatformController {
   @SuperAdminOnly('Seul le Super Administrateur peut modifier une organisation plateforme.')
   updateOrganization(@Param('id', ParseIntPipe) id: number, @Body() body: UpdatePlatformOrganizationDto) {
     return this.service.platformUpdateOrganization(id, body);
+  }
+
+  @Post('organizations/:id/suspend')
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut suspendre une organisation plateforme.')
+  suspendOrganization(@Param('id', ParseIntPipe) id: number, @Body() body: SuspendPlatformOrganizationDto) {
+    return this.service.platformSuspendOrganization(id, body);
+  }
+
+  @Post('organizations/:id/reactivate')
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut réactiver une organisation plateforme.')
+  reactivateOrganization(@Param('id', ParseIntPipe) id: number, @Body() body: ReactivatePlatformOrganizationDto) {
+    return this.service.platformReactivateOrganization(id, body);
+  }
+
+  @Get('organizations/:id/activity')
+  organizationActivity(@Param('id', ParseIntPipe) id: number) {
+    return this.service.platformOrganizationActivity(id);
+  }
+
+  @Get('modules')
+  modules() {
+    return this.service.platformModulesCatalog();
+  }
+
+  @Get('organizations/:id/modules')
+  organizationModules(@Param('id', ParseIntPipe) id: number) {
+    return this.service.platformOrganizationModules(id);
+  }
+
+  @Post('organizations/:id/modules/:code/enable')
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut activer un module organisation.')
+  enableOrganizationModule(@Param('id', ParseIntPipe) id: number, @Param('code') code: string) {
+    return this.service.platformEnableOrganizationModule(id, code);
+  }
+
+  @Post('organizations/:id/modules/:code/disable')
+  @UseGuards(SuperAdminOnlyGuard)
+  @SuperAdminOnly('Seul le Super Administrateur peut désactiver un module organisation.')
+  disableOrganizationModule(@Param('id', ParseIntPipe) id: number, @Param('code') code: string, @Body() body: DisablePlatformOrganizationModuleDto) {
+    return this.service.platformDisableOrganizationModule(id, code, body);
   }
 
   @Get('users')

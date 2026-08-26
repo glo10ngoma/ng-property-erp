@@ -140,6 +140,8 @@ const additionalPermissions = [
   'tenant_credits.update',
   'platform.organizations.read',
   'platform.organizations.manage',
+  'platform.modules.read',
+  'platform.modules.manage',
   'platform.users.read',
   'platform.users.manage',
   'platform.memberships.read',

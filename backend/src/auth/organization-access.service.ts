@@ -19,6 +19,7 @@ type MembershipRow = {
   organization_id: number;
   organization_name: string;
   organization_slug: string;
+  status: string;
   role_code: string;
   is_active: boolean;
   is_default: boolean;
@@ -165,6 +166,7 @@ export class OrganizationAccessService {
            uo.organization_id,
            o.name AS organization_name,
            o.slug AS organization_slug,
+           o.status,
            uo.role_code,
            uo.is_active,
            uo.is_default
@@ -182,7 +184,7 @@ export class OrganizationAccessService {
           organization_name: row.organization_name,
           organization_slug: row.organization_slug,
           role_code: row.role_code,
-          is_active: row.is_active,
+          is_active: Boolean(row.is_active) && String(row.status ?? '').toUpperCase() === 'ACTIVE',
           is_default: row.is_default,
         }));
       }
@@ -213,7 +215,7 @@ export class OrganizationAccessService {
         organization_name: fallbackOrganization.name,
         organization_slug: fallbackOrganization.slug,
         role_code: this.legacyClientRole(user.role),
-        is_active: true,
+        is_active: String(fallbackOrganization.status ?? '').toUpperCase() === 'ACTIVE',
         is_default: true,
       },
     ];
@@ -234,7 +236,7 @@ export class OrganizationAccessService {
       organization_name: row.name,
       organization_slug: row.slug,
       role_code: 'ADMIN',
-      is_active: row.status !== 'ARCHIVED',
+      is_active: String(row.status ?? '').toUpperCase() === 'ACTIVE',
       is_default: false,
     }));
   }

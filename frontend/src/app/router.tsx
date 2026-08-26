@@ -84,6 +84,8 @@ import { InvoicePrintPage } from '../modules/invoices/pages/InvoicePrintPage';
 import {
   PlatformActivityPage,
   PlatformMembershipsPage,
+  PlatformModulesPage,
+  PlatformOrganizationDetailPage,
   PlatformOrganizationsPage,
   PlatformOverviewPage,
   PlatformRolesPage,
@@ -116,6 +118,8 @@ export function AppRouter() {
             <Route index element={<Navigate to="/platform/overview" replace />} />
             <Route path="overview" element={<PlatformOverviewPage />} />
             <Route path="organizations" element={<PlatformOrganizationsPage />} />
+            <Route path="organizations/:id" element={<PlatformOrganizationDetailPage />} />
+            <Route path="modules" element={<PlatformModulesPage />} />
             <Route path="memberships" element={<PlatformMembershipsPage />} />
             <Route path="activity" element={<PlatformActivityPage />} />
             <Route path="settings" element={<PlatformSettingsPage />} />

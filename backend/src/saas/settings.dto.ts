@@ -11,12 +11,34 @@ import {
   Matches,
   MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 
 const PLATFORM_ORGANIZATION_STATUSES = ['ACTIVE', 'SUSPENDED', 'INACTIVE', 'ARCHIVED'] as const;
 const PLATFORM_USER_STATUSES = ['ACTIVE', 'INACTIVE', 'ARCHIVED'] as const;
 const PLATFORM_SCOPED_ROLE_CODES = ['ADMIN_CLIENT', 'EDITOR_CLIENT', 'VIEWER_CLIENT'] as const;
 const PLATFORM_ROLES = ['SUPER_ADMIN', 'ADMIN_PLATFORM'] as const;
+const PLATFORM_MODULE_CODES = [
+  'CORE',
+  'BUILDINGS',
+  'UNITS',
+  'TENANTS',
+  'LEASES',
+  'FINANCE',
+  'CASH',
+  'BANKING',
+  'GUARANTEE_CASH',
+  'STOCK',
+  'MAINTENANCE',
+  'HR',
+  'DOCUMENTS',
+  'COMMUNICATION',
+  'REPORTS',
+  'WORKFLOW',
+  'SALES',
+] as const;
+const PLATFORM_ORGANIZATION_SORT_FIELDS = ['created_at', 'updated_at', 'name', 'slug', 'status'] as const;
+const SORT_DIRECTIONS = ['asc', 'desc'] as const;
 
 function trimNullableString(value: unknown) {
   if (value === null || value === undefined) return undefined;
@@ -240,6 +262,38 @@ export class PlatformListQueryDto {
   organizationId?: number;
 }
 
+export class PlatformOrganizationListQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => trimNullableString(value))
+  @IsString()
+  @MaxLength(120)
+  search?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => normalizeUppercase(value))
+  @IsString()
+  @IsIn(['ALL', ...PLATFORM_ORGANIZATION_STATUSES])
+  status?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => normalizeUppercase(value))
+  @IsString()
+  @IsIn(['ALL', ...PLATFORM_MODULE_CODES])
+  moduleCode?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => normalizeLowercase(value))
+  @IsString()
+  @IsIn(PLATFORM_ORGANIZATION_SORT_FIELDS)
+  sortBy?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => normalizeLowercase(value))
+  @IsString()
+  @IsIn(SORT_DIRECTIONS)
+  sortOrder?: string;
+}
+
 export class CreatePlatformOrganizationDto {
   @Transform(({ value }) => trimNullableString(value))
   @IsString()
@@ -278,6 +332,31 @@ export class UpdatePlatformOrganizationDto {
   @IsString()
   @IsIn(PLATFORM_ORGANIZATION_STATUSES)
   status?: string;
+}
+
+export class SuspendPlatformOrganizationDto {
+  @Transform(({ value }) => trimNullableString(value))
+  @IsString()
+  @MinLength(3)
+  @MaxLength(500)
+  reason!: string;
+}
+
+export class ReactivatePlatformOrganizationDto {
+  @IsOptional()
+  @Transform(({ value }) => trimNullableString(value))
+  @IsString()
+  @MinLength(3)
+  @MaxLength(500)
+  reason?: string;
+}
+
+export class DisablePlatformOrganizationModuleDto {
+  @Transform(({ value }) => trimNullableString(value))
+  @IsString()
+  @MinLength(3)
+  @MaxLength(500)
+  reason!: string;
 }
 
 export class CreatePlatformUserDto {

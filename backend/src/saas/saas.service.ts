@@ -29,7 +29,11 @@ import {
   CreatePlatformMembershipDto,
   CreatePlatformOrganizationDto,
   CreatePlatformUserDto,
+  DisablePlatformOrganizationModuleDto,
   PlatformListQueryDto,
+  PlatformOrganizationListQueryDto,
+  ReactivatePlatformOrganizationDto,
+  SuspendPlatformOrganizationDto,
   UpdatePlatformMembershipDto,
   UpdatePlatformOrganizationDto,
   UpdatePlatformUserDto,
@@ -52,6 +56,25 @@ export class SaasService {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   ]);
+  private readonly platformModuleCatalogItems = [
+    { code: 'CORE', label: 'Noyau applicatif', category: 'PLATFORM', description: 'Paramètres généraux et session.', icon: 'layers', is_core: true, is_assignable: false, is_active: true, dependencies: [] },
+    { code: 'BUILDINGS', label: 'Immeubles', category: 'PROPERTY', description: 'Gestion des immeubles.', icon: 'building-2', is_core: false, is_assignable: true, is_active: true, dependencies: ['CORE'] },
+    { code: 'UNITS', label: 'Unités locatives', category: 'PROPERTY', description: 'Gestion des appartements et unités.', icon: 'home', is_core: false, is_assignable: true, is_active: true, dependencies: ['BUILDINGS'] },
+    { code: 'TENANTS', label: 'Locataires', category: 'PROPERTY', description: 'Gestion des locataires.', icon: 'users', is_core: false, is_assignable: true, is_active: true, dependencies: ['UNITS'] },
+    { code: 'LEASES', label: 'Baux', category: 'PROPERTY', description: 'Gestion des baux et contrats.', icon: 'scroll-text', is_core: false, is_assignable: true, is_active: true, dependencies: ['TENANTS'] },
+    { code: 'FINANCE', label: 'Finance', category: 'FINANCE', description: 'Factures, paiements et synthèse financière.', icon: 'credit-card', is_core: false, is_assignable: true, is_active: true, dependencies: ['CORE'] },
+    { code: 'CASH', label: 'Caisse principale', category: 'FINANCE', description: 'Mouvements de caisse principale.', icon: 'wallet-cards', is_core: false, is_assignable: true, is_active: true, dependencies: ['FINANCE'] },
+    { code: 'BANKING', label: 'Banque', category: 'FINANCE', description: 'Comptes bancaires et transactions.', icon: 'landmark', is_core: false, is_assignable: true, is_active: true, dependencies: ['FINANCE'] },
+    { code: 'GUARANTEE_CASH', label: 'Caisse garanties', category: 'FINANCE', description: 'Garanties locatives et encaissements associés.', icon: 'shield-check', is_core: false, is_assignable: true, is_active: true, dependencies: ['FINANCE'] },
+    { code: 'STOCK', label: 'Stock', category: 'OPERATIONS', description: 'Articles, mouvements et inventaires.', icon: 'boxes', is_core: false, is_assignable: true, is_active: true, dependencies: ['CORE'] },
+    { code: 'MAINTENANCE', label: 'Maintenance', category: 'OPERATIONS', description: 'Demandes, interventions et suivi technique.', icon: 'wrench', is_core: false, is_assignable: true, is_active: true, dependencies: ['BUILDINGS'] },
+    { code: 'HR', label: 'Ressources humaines', category: 'OPERATIONS', description: 'Employés, contrats et paie.', icon: 'briefcase-business', is_core: false, is_assignable: true, is_active: true, dependencies: ['CORE'] },
+    { code: 'DOCUMENTS', label: 'Documents', category: 'PLATFORM', description: 'Bibliothèque documentaire et pièces jointes.', icon: 'folder-open', is_core: false, is_assignable: true, is_active: true, dependencies: ['CORE'] },
+    { code: 'COMMUNICATION', label: 'Communication', category: 'PLATFORM', description: 'Emails, SMS, journaux et notifications.', icon: 'message-square', is_core: false, is_assignable: true, is_active: true, dependencies: ['CORE'] },
+    { code: 'REPORTS', label: 'Rapports', category: 'PLATFORM', description: 'Rapports et exports métier.', icon: 'file-text', is_core: false, is_assignable: true, is_active: true, dependencies: ['CORE'] },
+    { code: 'WORKFLOW', label: 'Workflow', category: 'PLATFORM', description: 'Circuits d’approbation et tâches.', icon: 'workflow', is_core: false, is_assignable: true, is_active: true, dependencies: ['CORE'] },
+    { code: 'SALES', label: 'Ventes immobilières', category: 'COMMERCIAL', description: 'Réservations, souscriptions et recouvrement commercial.', icon: 'line-chart', is_core: false, is_assignable: true, is_active: true, dependencies: ['CORE', 'FINANCE'] },
+  ] as const;
   private readonly documentRenderer = new DocumentRendererService();
   private readonly documentTemplate = new DocumentTemplateService();
   private readonly pdfRenderer = new PdfRendererService();
@@ -582,7 +605,7 @@ export class SaasService {
     };
   }
 
-  async platformOrganizations(filters: PlatformListQueryDto) {
+  async platformOrganizations(filters: PlatformOrganizationListQueryDto) {
     const params: unknown[] = [];
     const where: string[] = [];
     if (filters.search) {
@@ -593,6 +616,25 @@ export class SaasService {
       params.push(filters.status);
       where.push(`o.status = $${params.length}`);
     }
+    if (filters.moduleCode && filters.moduleCode !== 'ALL') {
+      params.push(filters.moduleCode);
+      where.push(`EXISTS (
+        SELECT 1
+        FROM organization_modules om
+        WHERE om.organization_id = o.id
+          AND om.module_code = $${params.length}
+          AND om.is_enabled = TRUE
+      )`);
+    }
+    const sortByMap: Record<string, string> = {
+      created_at: 'o.created_at',
+      updated_at: 'COALESCE(o.reactivated_at, o.suspended_at, o.created_at)',
+      name: 'o.name',
+      slug: 'o.slug',
+      status: 'o.status',
+    };
+    const sortColumn = sortByMap[String(filters.sortBy ?? 'created_at').toLowerCase()] ?? 'o.created_at';
+    const sortDirection = String(filters.sortOrder ?? 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
     const { rows } = await this.db.query(
       `SELECT
@@ -601,20 +643,300 @@ export class SaasService {
          o.slug,
          o.status,
          o.created_at,
+         COALESCE(o.reactivated_at, o.suspended_at, o.created_at) AS updated_at,
+         o.suspended_at,
+         o.suspension_reason,
+         o.reactivated_at,
+         o.reactivation_reason,
          cs.company_name,
          cs.email AS primary_email,
          cs.phone,
          cs.company_country AS country,
          cs.company_city AS city,
          (SELECT COUNT(*)::INT FROM app_users au WHERE au.organization_id = o.id AND au.deleted_at IS NULL) AS users_count,
-         (SELECT COUNT(*)::INT FROM user_organizations uo WHERE uo.organization_id = o.id) AS memberships_count
+         (SELECT COUNT(*)::INT FROM user_organizations uo WHERE uo.organization_id = o.id) AS memberships_count,
+         COALESCE((
+           SELECT json_agg(om.module_code ORDER BY om.module_code)
+           FROM organization_modules om
+           WHERE om.organization_id = o.id
+             AND om.is_enabled = TRUE
+         ), '[]'::json) AS active_modules
        FROM organizations o
        LEFT JOIN company_settings cs ON cs.organization_id = o.id AND cs.deleted_at IS NULL
        ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-       ORDER BY o.created_at DESC, o.id DESC`,
+       ORDER BY ${sortColumn} ${sortDirection}, o.id DESC`,
       params,
     );
     return rows;
+  }
+
+  async platformOrganizationDetail(id: number) {
+    const { rows } = await this.db.query(
+      `SELECT
+         o.*,
+         COALESCE(o.reactivated_at, o.suspended_at, o.created_at) AS updated_at,
+         cs.company_name,
+         cs.legal_name,
+         cs.email AS primary_email,
+         cs.phone,
+         cs.company_country AS country,
+         cs.company_city AS city,
+         cs.currency,
+         cs.language,
+         cs.timezone,
+         (
+           SELECT COUNT(*)::INT
+           FROM app_users au
+           WHERE au.organization_id = o.id
+             AND au.deleted_at IS NULL
+         ) AS users_count,
+         (
+           SELECT COUNT(*)::INT
+           FROM user_organizations uo
+           WHERE uo.organization_id = o.id
+         ) AS memberships_count,
+         COALESCE((
+           SELECT json_agg(om.module_code ORDER BY om.module_code)
+           FROM organization_modules om
+           WHERE om.organization_id = o.id
+             AND om.is_enabled = TRUE
+         ), '[]'::json) AS active_modules
+       FROM organizations o
+       LEFT JOIN company_settings cs ON cs.organization_id = o.id AND cs.deleted_at IS NULL
+       WHERE o.id = $1
+       LIMIT 1`,
+      [id],
+    );
+    return requireRow(rows[0], 'Organization');
+  }
+
+  async platformOrganizationActivity(id: number) {
+    await this.platformOrganizationDetail(id);
+    const { rows } = await this.db.query(
+      `SELECT
+         id,
+         action,
+         target_user_id,
+         organization_id,
+         before_json,
+         after_json,
+         created_at
+       FROM platform_admin_audit_logs
+       WHERE organization_id = $1
+       ORDER BY created_at DESC, id DESC
+       LIMIT 50`,
+      [id],
+    );
+    return rows;
+  }
+
+  async platformModulesCatalog() {
+    try {
+      const { rows } = await this.db.query(
+        `SELECT code, label, category, description, icon, is_core, is_assignable, is_active, dependencies, sort_order
+         FROM modules_catalog
+         WHERE is_active = TRUE
+         ORDER BY sort_order ASC, code ASC`,
+      );
+      if (rows.length) return rows;
+    } catch (error) {
+      if (!this.isOptionalSchemaError(error)) throw error;
+    }
+    return this.platformModuleCatalogItems.map((module, index) => ({
+      ...module,
+      dependencies: JSON.stringify(module.dependencies),
+      sort_order: index + 1,
+    }));
+  }
+
+  async platformOrganizationModules(id: number) {
+    await this.platformOrganizationDetail(id);
+    const catalog = await this.platformModulesCatalog();
+    const { rows } = await this.db.query(
+      `SELECT
+         module_code,
+         is_enabled,
+         enabled_at,
+         enabled_by,
+         disabled_at,
+         disabled_by,
+         disable_reason
+       FROM organization_modules
+       WHERE organization_id = $1`,
+      [id],
+    );
+    const stateByCode = new Map(rows.map((row) => [String(row.module_code), row]));
+    return catalog.map((item: Record<string, unknown>) => {
+      const moduleCode = String(item.code);
+      const state = stateByCode.get(moduleCode);
+      return {
+        ...item,
+        organization_id: id,
+        module_code: moduleCode,
+        is_enabled: Boolean(state?.is_enabled),
+        enabled_at: state?.enabled_at ?? null,
+        enabled_by: state?.enabled_by ?? null,
+        disabled_at: state?.disabled_at ?? null,
+        disabled_by: state?.disabled_by ?? null,
+        disable_reason: state?.disable_reason ?? null,
+      };
+    });
+  }
+
+  async platformSuspendOrganization(id: number, body: SuspendPlatformOrganizationDto) {
+    this.ensureActorIsSuperAdmin();
+    const existing = await this.platformOrganizationDetail(id);
+    if (String(existing.status ?? '').toUpperCase() === 'ARCHIVED') {
+      throw new ConflictException('PLATFORM_ORGANIZATION_ARCHIVED');
+    }
+    if (String(existing.status ?? '').toUpperCase() === 'SUSPENDED') {
+      throw new ConflictException('PLATFORM_ORGANIZATION_ALREADY_SUSPENDED');
+    }
+    const reason = String(body.reason ?? '').trim();
+    if (!reason) {
+      throw new BadRequestException('PLATFORM_SUSPENSION_REASON_REQUIRED');
+    }
+    const { rows } = await this.db.query(
+      `UPDATE organizations
+       SET status = 'SUSPENDED',
+           suspended_at = NOW(),
+           suspended_by = $2,
+           suspension_reason = $3,
+           reactivated_at = NULL,
+           reactivated_by = NULL,
+           reactivation_reason = NULL
+       WHERE id = $1
+       RETURNING *`,
+      [id, this.context.userId() ?? null, reason],
+    );
+    const updated = requireRow(rows[0], 'Organization');
+    await this.writePlatformAudit('ORGANIZATION_SUSPENDED', null, id, existing, updated);
+    return updated;
+  }
+
+  async platformReactivateOrganization(id: number, body: ReactivatePlatformOrganizationDto) {
+    this.ensureActorIsSuperAdmin();
+    const existing = await this.platformOrganizationDetail(id);
+    if (String(existing.status ?? '').toUpperCase() === 'ARCHIVED') {
+      throw new ConflictException('PLATFORM_ORGANIZATION_ARCHIVED');
+    }
+    const reason = String(body.reason ?? '').trim() || null;
+    const { rows } = await this.db.query(
+      `UPDATE organizations
+       SET status = 'ACTIVE',
+           reactivated_at = NOW(),
+           reactivated_by = $2,
+           reactivation_reason = $3
+       WHERE id = $1
+       RETURNING *`,
+      [id, this.context.userId() ?? null, reason],
+    );
+    const updated = requireRow(rows[0], 'Organization');
+    await this.writePlatformAudit('ORGANIZATION_REACTIVATED', null, id, existing, updated);
+    return updated;
+  }
+
+  async platformEnableOrganizationModule(id: number, code: string) {
+    this.ensureActorIsSuperAdmin();
+    const organization = await this.platformOrganizationDetail(id);
+    if (String(organization.status ?? '').toUpperCase() !== 'ACTIVE') {
+      throw new ConflictException('PLATFORM_ORGANIZATION_NOT_ACTIVE');
+    }
+    const moduleCode = this.normalizePlatformModuleCode(code);
+    const moduleDefinition = await this.getPlatformModuleDefinition(moduleCode);
+    if (!moduleDefinition.is_active) {
+      throw new ConflictException('PLATFORM_MODULE_INACTIVE');
+    }
+    if (!moduleDefinition.is_assignable) {
+      throw new ConflictException('PLATFORM_MODULE_NOT_ASSIGNABLE');
+    }
+    const dependencyCodes = this.normalizeModuleDependencies(moduleDefinition.dependencies);
+    if (dependencyCodes.length) {
+      const { rows } = await this.db.query<{ module_code: string }>(
+        `SELECT module_code
+         FROM organization_modules
+         WHERE organization_id = $1
+           AND is_enabled = TRUE
+           AND module_code = ANY($2::text[])`,
+        [id, dependencyCodes],
+      );
+      const enabledDependencyCodes = new Set(rows.map((row) => String(row.module_code)));
+      const missingDependencies = dependencyCodes.filter((dependency) => !enabledDependencyCodes.has(dependency));
+      if (missingDependencies.length) {
+        throw new ConflictException(`PLATFORM_MODULE_DEPENDENCIES_MISSING:${missingDependencies.join(',')}`);
+      }
+    }
+    const { rows } = await this.db.query(
+      `INSERT INTO organization_modules (
+         organization_id, module_code, is_enabled, enabled_at, enabled_by, disabled_at, disabled_by, disable_reason
+       )
+       VALUES ($1, $2, TRUE, NOW(), $3, NULL, NULL, NULL)
+       ON CONFLICT (organization_id, module_code)
+       DO UPDATE SET
+         is_enabled = TRUE,
+         enabled_at = NOW(),
+         enabled_by = EXCLUDED.enabled_by,
+         disabled_at = NULL,
+         disabled_by = NULL,
+         disable_reason = NULL
+       RETURNING *`,
+      [id, moduleCode, this.context.userId() ?? null],
+    );
+    const updated = requireRow(rows[0], 'Organization module');
+    await this.writePlatformAudit('ORGANIZATION_MODULE_ENABLED', null, id, null, updated);
+    return updated;
+  }
+
+  async platformDisableOrganizationModule(id: number, code: string, body: DisablePlatformOrganizationModuleDto) {
+    this.ensureActorIsSuperAdmin();
+    await this.platformOrganizationDetail(id);
+    const moduleCode = this.normalizePlatformModuleCode(code);
+    const moduleDefinition = await this.getPlatformModuleDefinition(moduleCode);
+    if (moduleDefinition.is_core) {
+      throw new ConflictException('PLATFORM_MODULE_CORE_REQUIRED');
+    }
+    const reason = String(body.reason ?? '').trim();
+    if (!reason) {
+      throw new BadRequestException('PLATFORM_MODULE_DISABLE_REASON_REQUIRED');
+    }
+    const { rows: dependentRows } = await this.db.query<{ module_code: string }>(
+      `SELECT om.module_code
+       FROM organization_modules om
+       JOIN modules_catalog mc ON mc.code = om.module_code
+       WHERE om.organization_id = $1
+         AND om.is_enabled = TRUE
+         AND om.module_code <> $2
+         AND mc.dependencies @> to_jsonb(ARRAY[$2]::text[])`,
+      [id, moduleCode],
+    );
+    if (dependentRows.length) {
+      throw new ConflictException(`PLATFORM_MODULE_DEPENDENTS_ACTIVE:${dependentRows.map((row) => row.module_code).join(',')}`);
+    }
+    const before = await this.db.query(
+      `SELECT *
+       FROM organization_modules
+       WHERE organization_id = $1
+         AND module_code = $2
+       LIMIT 1`,
+      [id, moduleCode],
+    );
+    const { rows } = await this.db.query(
+      `INSERT INTO organization_modules (
+         organization_id, module_code, is_enabled, enabled_at, enabled_by, disabled_at, disabled_by, disable_reason
+       )
+       VALUES ($1, $2, FALSE, NULL, NULL, NOW(), $3, $4)
+       ON CONFLICT (organization_id, module_code)
+       DO UPDATE SET
+         is_enabled = FALSE,
+         disabled_at = NOW(),
+         disabled_by = EXCLUDED.disabled_by,
+         disable_reason = EXCLUDED.disable_reason
+       RETURNING *`,
+      [id, moduleCode, this.context.userId() ?? null, reason],
+    );
+    const updated = requireRow(rows[0], 'Organization module');
+    await this.writePlatformAudit('ORGANIZATION_MODULE_DISABLED', null, id, before.rows[0] ?? null, updated);
+    return updated;
   }
 
   async platformCreateOrganization(body: CreatePlatformOrganizationDto) {
@@ -1014,6 +1336,68 @@ export class SaasService {
 
   async createUser(body: Record<string, unknown>) {
     return this.createScopedUser(body);
+  }
+
+  private normalizePlatformModuleCode(value: string) {
+    const normalized = String(value ?? '').trim().toUpperCase();
+    if (!normalized) {
+      throw new BadRequestException('PLATFORM_MODULE_REQUIRED');
+    }
+    return normalized;
+  }
+
+  private normalizeModuleDependencies(value: unknown) {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.normalizePlatformModuleCode(String(item)));
+    }
+    if (typeof value === 'string' && value.trim()) {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed.map((item) => this.normalizePlatformModuleCode(String(item))) : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  private async getPlatformModuleDefinition(moduleCode: string) {
+    try {
+      const { rows } = await this.db.query<{
+        code: string;
+        label: string;
+        category: string;
+        description: string | null;
+        icon: string | null;
+        is_core: boolean;
+        is_assignable: boolean;
+        is_active: boolean;
+        dependencies: unknown;
+      }>(
+        `SELECT code, label, category, description, icon, is_core, is_assignable, is_active, dependencies
+         FROM modules_catalog
+         WHERE code = $1
+         LIMIT 1`,
+        [moduleCode],
+      );
+      if (rows[0]) {
+        return rows[0];
+      }
+    } catch (error) {
+      if (!this.isOptionalSchemaError(error)) throw error;
+    }
+    const fallback = this.platformModuleCatalogItems.find((item) => item.code === moduleCode);
+    if (fallback) {
+      return {
+        ...fallback,
+        dependencies: fallback.dependencies,
+      };
+    }
+    throw new NotFoundException('PLATFORM_MODULE_NOT_FOUND');
+  }
+
+  private async ensurePlatformModuleExists(moduleCode: string) {
+    await this.getPlatformModuleDefinition(moduleCode);
   }
 
   private ensureActorIsSuperAdmin() {
