@@ -839,7 +839,7 @@ export class SaasService {
   async platformEnableOrganizationModule(id: number, code: string) {
     this.ensureActorIsSuperAdmin();
     const organization = await this.platformOrganizationDetail(id);
-    if (String(organization.status ?? '').toUpperCase() !== 'ACTIVE') {
+    if (!this.isAccessibleOrganizationStatus(organization.status)) {
       throw new ConflictException('PLATFORM_ORGANIZATION_NOT_ACTIVE');
     }
     const moduleCode = this.normalizePlatformModuleCode(code);
@@ -1426,10 +1426,15 @@ export class SaasService {
   private async ensureActivePlatformOrganization(organizationId: number) {
     const { rows } = await this.db.query(`SELECT id, status FROM organizations WHERE id = $1 LIMIT 1`, [organizationId]);
     const organization = requireRow(rows[0], 'Organization');
-    if (String(organization.status ?? '').trim().toUpperCase() !== 'ACTIVE') {
+    if (!this.isAccessibleOrganizationStatus(organization.status)) {
       throw new ConflictException('ORGANIZATION_ACCESS_DENIED');
     }
     return organization;
+  }
+
+  private isAccessibleOrganizationStatus(status: unknown) {
+    const normalized = String(status ?? '').trim().toUpperCase();
+    return normalized === 'ACTIVE' || normalized === 'TEST';
   }
 
   private async ensureActivePlatformUser(userId: number) {

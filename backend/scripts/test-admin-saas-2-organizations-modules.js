@@ -101,11 +101,31 @@ function main() {
   includesAll(
     orgAccess,
     [
-      "String(row.status ?? '').toUpperCase() === 'ACTIVE'",
-      "String(fallbackOrganization.status ?? '').toUpperCase() === 'ACTIVE'",
+      "this.isOrganizationAccessibleStatus(row.status)",
+      "this.isOrganizationAccessibleStatus(fallbackOrganization.status)",
+      "this.isOrganizationAccessibleStatus(row.status)",
+      "normalized === 'ACTIVE' || normalized === 'TEST'",
       'throw this.organizationAccessDenied();',
     ],
     'admin saas 2 organization access',
+  );
+
+  includesAll(
+    service,
+    [
+      'private isAccessibleOrganizationStatus(status: unknown)',
+      "normalized === 'ACTIVE' || normalized === 'TEST'",
+      '!this.isAccessibleOrganizationStatus(organization.status)',
+    ],
+    'admin saas 2 service accessible status',
+  );
+
+  includesAll(
+    dto,
+    [
+      "['ACTIVE', 'TEST', 'SUSPENDED', 'INACTIVE', 'ARCHIVED']",
+    ],
+    'admin saas 2 dto TEST status',
   );
 
   includesAll(

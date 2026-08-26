@@ -184,7 +184,7 @@ export class OrganizationAccessService {
           organization_name: row.organization_name,
           organization_slug: row.organization_slug,
           role_code: row.role_code,
-          is_active: Boolean(row.is_active) && String(row.status ?? '').toUpperCase() === 'ACTIVE',
+          is_active: Boolean(row.is_active) && this.isOrganizationAccessibleStatus(row.status),
           is_default: row.is_default,
         }));
       }
@@ -215,7 +215,7 @@ export class OrganizationAccessService {
         organization_name: fallbackOrganization.name,
         organization_slug: fallbackOrganization.slug,
         role_code: this.legacyClientRole(user.role),
-        is_active: String(fallbackOrganization.status ?? '').toUpperCase() === 'ACTIVE',
+        is_active: this.isOrganizationAccessibleStatus(fallbackOrganization.status),
         is_default: true,
       },
     ];
@@ -236,9 +236,14 @@ export class OrganizationAccessService {
       organization_name: row.name,
       organization_slug: row.slug,
       role_code: 'ADMIN',
-      is_active: String(row.status ?? '').toUpperCase() === 'ACTIVE',
+      is_active: this.isOrganizationAccessibleStatus(row.status),
       is_default: false,
     }));
+  }
+
+  private isOrganizationAccessibleStatus(status?: string | null) {
+    const normalized = String(status ?? '').trim().toUpperCase();
+    return normalized === 'ACTIVE' || normalized === 'TEST';
   }
 
   private selectActiveOrganization(

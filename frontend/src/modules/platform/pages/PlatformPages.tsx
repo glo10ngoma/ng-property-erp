@@ -211,6 +211,7 @@ export function PlatformOrganizationsPage() {
           <select value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="ALL">Tous les statuts</option>
             <option value="ACTIVE">Active</option>
+            <option value="TEST">Test</option>
             <option value="SUSPENDED">Suspendue</option>
             <option value="INACTIVE">Inactive</option>
             <option value="ARCHIVED">Archivée</option>
@@ -257,6 +258,7 @@ export function PlatformOrganizationsPage() {
             <label>Statut
               <select name="status" defaultValue="ACTIVE">
                 <option value="ACTIVE">Active</option>
+                <option value="TEST">Test</option>
                 <option value="SUSPENDED">Suspendue</option>
                 <option value="INACTIVE">Inactive</option>
               </select>
@@ -494,6 +496,7 @@ export function PlatformOrganizationDetailPage() {
             <label>Statut
               <select name="status" defaultValue={detail.status}>
                 <option value="ACTIVE">Active</option>
+                <option value="TEST">Test</option>
                 <option value="SUSPENDED">Suspendue</option>
                 <option value="INACTIVE">Inactive</option>
                 <option value="ARCHIVED">Archivée</option>
