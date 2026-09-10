@@ -40,6 +40,9 @@ const DOCX_TEMPLATE_CANDIDATES = [
   path.resolve(__dirname, '..', '..', 'templates', 'leases', DOCX_TEMPLATE_NAME),
 ];
 const DOCX_TEMPLATE_FORBIDDEN_SEQUENCES = ['\u00c3\u0192\u00c6\u2019', '\u00c3\u0192\u00e2\u20ac\u0161', '\u00c3\u00a2\u00e2\u201a\u00ac\u00e2\u201e\u00a2', '\u00c3\u00a2\u00e2\u201a\u00ac\u00c5\u201c', '\u00c3\u00a2\u00e2\u201a\u00ac\u009d', '\u00c3\u00af\u00c2\u00bf\u00c2\u00bd'];
+const LEASE_ARTICLE_2_REVISION_CLAUSE = 'd) Les montants prévus peuvent être révisés par accord écrit, notamment en fonction des fluctuations économiques et des réalités du marché immobilier.';
+const LEASE_ARTICLE_2_RATE_SENTENCE = 'Le montant en dollars équivaut au taux du jour.';
+const LEASE_ARTICLE_2_FINAL_REVISION_CLAUSE = `${LEASE_ARTICLE_2_REVISION_CLAUSE} ${LEASE_ARTICLE_2_RATE_SENTENCE}`;
 
 const winAnsiMap: Record<string, number> = {
   '\u20ac': 128,
@@ -164,8 +167,31 @@ function parseContractBlocks(content: string): ContractBlock[] {
 export function renderLeaseContractTemplate(template: string, variables: Record<string, unknown>) {
   const flattened = flattenVariables(variables);
   return normalizeWhitespace(
-    template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, rawKey: string) => flattened[rawKey.trim()] ?? ''),
+    ensureLeaseArticle2RateSentence(template).replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, rawKey: string) => flattened[rawKey.trim()] ?? ''),
   );
+}
+
+export function ensureLeaseArticle2RateSentence(template: string) {
+  const article2Match = /ARTICLE\s+0?2\b[\s\S]*?(?=\n\s*ARTICLE\s+0?3\b|$)/i.exec(template);
+  if (!article2Match?.[0]) return template.replace(/\brevisés\b/g, 'révisés').replace(/\bequivaut\b/g, 'équivaut');
+
+  const article2 = article2Match[0]
+    .replace(/\brevisés\b/g, 'révisés')
+    .replace(/\bequivaut\b/g, 'équivaut');
+  const normalizedArticle2 = article2.replace(/d\)\.?\s*/g, 'd) ');
+
+  const revisionClausePattern = /d\)\s*(?:Les\s+Parties\s+conviennent\s+que\s+)?(?:les\s+montants\s+pr[ée]vus(?:\s+au\s+pr[ée]sent\s+contrat)?\s+peuvent\s+[êe]tre\s+r[ée]vis[ée]s|le\s+loyer\s+pourra\s+[êe]tre\s+revu)[\s\S]*?march[ée]\s+immobilier\.(?:\s*Le montant en dollars [ée]quivaut au taux du jour\.)?/i;
+  if (!revisionClausePattern.test(normalizedArticle2)) {
+    return template.slice(0, article2Match.index)
+      + normalizedArticle2
+      + template.slice(article2Match.index + article2Match[0].length);
+  }
+
+  return template.slice(0, article2Match.index)
+    + normalizedArticle2.replace(revisionClausePattern, (match) => {
+      return LEASE_ARTICLE_2_FINAL_REVISION_CLAUSE;
+    })
+    + template.slice(article2Match.index + article2Match[0].length);
 }
 
 export function unresolvedPlaceholders(content: string) {
