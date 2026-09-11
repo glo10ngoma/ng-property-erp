@@ -43,6 +43,7 @@ const DOCX_TEMPLATE_FORBIDDEN_SEQUENCES = ['\u00c3\u0192\u00c6\u2019', '\u00c3\u
 const LEASE_ARTICLE_2_REVISION_CLAUSE = 'd) Les montants prévus peuvent être révisés par accord écrit, notamment en fonction des fluctuations économiques et des réalités du marché immobilier.';
 const LEASE_ARTICLE_2_RATE_SENTENCE = 'Les montants en dollars équivalent au taux du jour en franc congolais.';
 const LEASE_ARTICLE_2_FINAL_REVISION_CLAUSE = `${LEASE_ARTICLE_2_REVISION_CLAUSE} ${LEASE_ARTICLE_2_RATE_SENTENCE}`;
+const LEASE_CONTRACT_TIME_ZONE = 'Africa/Kinshasa';
 
 const winAnsiMap: Record<string, number> = {
   '\u20ac': 128,
@@ -103,6 +104,31 @@ function formatVariableValue(value: VariableValue) {
 function cleanText(value: unknown, fallback = '') {
   const normalized = formatVariableValue(value as VariableValue);
   return normalized || fallback;
+}
+
+export function formatDateInTimeZone(
+  value: string | number | Date,
+  timeZone = LEASE_CONTRACT_TIME_ZONE,
+  format: 'display' | 'technical' = 'display',
+) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('fr-FR', {
+    timeZone,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).formatToParts(date).reduce<Record<string, string>>((accumulator, part) => {
+    if (part.type === 'day' || part.type === 'month' || part.type === 'year') {
+      accumulator[part.type] = part.value;
+    }
+    return accumulator;
+  }, {});
+  const day = parts.day;
+  const month = parts.month;
+  const year = parts.year;
+  if (!day || !month || !year) return '';
+  return format === 'technical' ? `${year}-${month}-${day}` : `${day}/${month}/${year}`;
 }
 
 function resolveDocxTemplatePath() {
@@ -268,10 +294,11 @@ function buildHeaderRows(variables: Record<string, unknown>): LeaseContractHeade
 
 function buildFooterContext(variables: Record<string, unknown>) {
   const company = (variables.bailleur ?? variables.company ?? {}) as Record<string, unknown>;
+  const generatedAtSource = variables.GENERATED_AT ?? variables.generatedAt ?? variables.generated_at ?? new Date();
   return {
     companyName: cleanText(company.raison_sociale ?? variables.LANDLORD_NAME ?? '', 'NG Property ERP'),
     contractNumber: cleanText(variables.LEASE_REFERENCE ?? variables.lease_reference ?? '', ''),
-    generatedAt: cleanText(new Date().toISOString().slice(0, 10), ''),
+    generatedAt: cleanText(formatDateInTimeZone(generatedAtSource as string | number | Date), ''),
   };
 }
 

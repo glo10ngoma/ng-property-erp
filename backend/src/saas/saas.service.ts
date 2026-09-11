@@ -14,6 +14,7 @@ import { EmailService } from '../email/email.service';
 import { AutomationsService } from '../automations/automations.service';
 import {
   buildLeaseContractDocxBuffer,
+  formatDateInTimeZone,
   buildLeaseContractHtml,
   getDocxBufferSha256,
   getLeaseContractTemplateMetadata,
@@ -7189,7 +7190,8 @@ export class SaasService {
         throw new BadRequestException("Activite ou destination des lieux requise pour generer ce contrat.");
       }
 
-      const snapshot = this.buildLeaseContractSnapshot(lease, company);
+      const generationInstant = new Date();
+      const snapshot = this.buildLeaseContractSnapshot(lease, company, generationInstant);
       currentStep = 'context_loaded';
       this.logLeasePdfV9('context_loaded', { leaseId, organizationId, templateCode });
 
@@ -7408,7 +7410,8 @@ export class SaasService {
         throw new BadRequestException("Activite ou destination des lieux requise pour generer ce contrat.");
       }
       const template = await this.activeLeaseContractTemplate(client, templateCode);
-      const snapshot = this.buildLeaseContractSnapshot(lease, company);
+      const generationInstant = new Date();
+      const snapshot = this.buildLeaseContractSnapshot(lease, company, generationInstant);
       const renderedContent = renderLeaseContractTemplate(template.content, snapshot);
       const placeholders = unresolvedPlaceholders(renderedContent);
       if (placeholders.length) {
@@ -15810,7 +15813,7 @@ export class SaasService {
     return persistError;
   }
 
-  private buildLeaseContractSnapshot(lease: Record<string, any>, company: Record<string, any>) {
+  private buildLeaseContractSnapshot(lease: Record<string, any>, company: Record<string, any>, generatedAt = new Date()) {
     const totalMonthly = Number(lease.lease_total_amount ?? 0);
     const guaranteeMonths = Number(lease.guarantee_months ?? company.default_guarantee_months ?? 0);
     const guaranteeAmount = Number(lease.rental_guarantee_amount ?? lease.guarantee?.amount ?? 0);
@@ -15853,7 +15856,9 @@ export class SaasService {
     ].filter(Boolean).join(' ');
     const apartmentLabel = lease.is_furnished ? 'Meublé' : 'Non Meublé';
     const tenantPhysicalNote = '';
-    const signatureDate = this.formatDate(lease.signature_date ?? new Date().toISOString().slice(0, 10));
+    const signatureDate = lease.signature_date
+      ? this.formatDate(lease.signature_date)
+      : formatDateInTimeZone(generatedAt, 'Africa/Kinshasa');
     const leaseStartDate = this.formatDate(lease.start_date);
     const leaseEndDate = this.formatDate(lease.end_date) || this.formatDate(new Date().toISOString().slice(0, 10));
     const otherChargesAmount = Number(lease.other_charges_amount ?? 0);
@@ -15952,6 +15957,7 @@ export class SaasService {
       GUARANTEE_MONTHS: String(guaranteeMonths),
       GUARANTEE_TOTAL: this.formatMoney(guaranteeAmount),
       GUARANTEE_SECTION: guaranteeSection,
+      GENERATED_AT: generatedAt.toISOString(),
       SIGNATURE_PLACE: lease.signature_place ?? company.default_signature_place ?? company.company_city ?? 'Kinshasa',
       SIGNATURE_DATE: signatureDate,
       LEASE_REFERENCE: this.leaseReferenceCode(lease.id),

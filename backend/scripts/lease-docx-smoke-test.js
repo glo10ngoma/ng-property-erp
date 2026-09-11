@@ -1,7 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 const PizZip = require('pizzip');
-const { buildLeaseContractDocxBuffer, ensureLeaseArticle2RateSentence } = require('../dist/leases/lease-contracts.js');
+const {
+  buildLeaseContractDocxBuffer,
+  buildLeaseContractPdfBase64,
+  ensureLeaseArticle2RateSentence,
+  formatDateInTimeZone,
+} = require('../dist/leases/lease-contracts.js');
 
 const sourcePath = path.resolve(__dirname, '..', 'templates', 'leases', 'LEASE_RESIDENTIAL_SOURCE.docx');
 const templatePath = path.resolve(__dirname, '..', 'templates', 'leases', 'LEASE_RESIDENTIAL.docx');
@@ -131,6 +136,21 @@ function run() {
   assertOccurrence('NORMALIZATION hors ARTICLE 02 ancienne phrase conservée', outsideNormalized, 'Le montant en dollars équivaut au taux du jour.', 1);
   assertOccurrence('NORMALIZATION hors ARTICLE 02 nouvelle phrase article 02', outsideNormalized, rateSentence, 1);
 
+  const timezoneCases = [
+    ['2026-09-10T22:30:00.000Z', '10/09/2026', '2026-09-10'],
+    ['2026-09-10T23:30:00.000Z', '11/09/2026', '2026-09-11'],
+    ['2026-09-11T00:30:00.000Z', '11/09/2026', '2026-09-11'],
+  ];
+  timezoneCases.forEach(([instant, displayDate, technicalDate]) => {
+    const date = new Date(instant);
+    if (formatDateInTimeZone(date, 'Africa/Kinshasa') !== displayDate) {
+      throw new Error(`TIMEZONE ${instant}: date Kinshasa attendue ${displayDate}`);
+    }
+    if (formatDateInTimeZone(date, 'Africa/Kinshasa', 'technical') !== technicalDate) {
+      throw new Error(`TIMEZONE ${instant}: date technique attendue ${technicalDate}`);
+    }
+  });
+
   const variables = {
     LANDLORD_NAME: 'Société immobilière de gestion',
     LANDLORD_RCCM: 'RCCM-123',
@@ -157,6 +177,7 @@ function run() {
     BEDROOM_COUNT_TEXT: 'deux',
     SIGNATURE_PLACE: 'Kinshasa',
     SIGNATURE_DATE: '12/07/2026',
+    GENERATED_AT: '2026-07-12T10:00:00.000Z',
   };
   const buffer = buildLeaseContractDocxBuffer(variables, renderedContent);
 
@@ -174,6 +195,26 @@ function run() {
     throw new Error(`GENERATED: document trop petit (${buffer.byteLength} octets)`);
   }
 
+  const timezoneInstant = '2026-09-10T23:30:00.000Z';
+  const timezoneDate = formatDateInTimeZone(new Date(timezoneInstant), 'Africa/Kinshasa');
+  const timezoneRenderedContent = renderedContent.replace('Fait à Kinshasa, le 12/07/2026.', `Fait à Kinshasa, le ${timezoneDate}.`);
+  const timezoneVariables = {
+    ...variables,
+    SIGNATURE_DATE: timezoneDate,
+    GENERATED_AT: timezoneInstant,
+  };
+  const timezoneBuffer = buildLeaseContractDocxBuffer(timezoneVariables, timezoneRenderedContent);
+  const timezoneXml = new PizZip(timezoneBuffer).file('word/document.xml').asText();
+  assertOccurrence('TIMEZONE DOCX signature', timezoneXml, 'Fait à Kinshasa, le 11/09/2026.', 1);
+  assertOccurrence('TIMEZONE DOCX footer', timezoneXml, 'Généré le 11/09/2026', 1);
+  const timezonePdfBuffer = Buffer.from(buildLeaseContractPdfBase64(timezoneRenderedContent, 'CONTRAT DE BAIL TEST TIMEZONE', timezoneVariables), 'base64');
+  if (!timezonePdfBuffer.subarray(0, 4).equals(Buffer.from('%PDF'))) {
+    throw new Error('TIMEZONE PDF: signature PDF absente');
+  }
+  if (timezonePdfBuffer.byteLength < 1000) {
+    throw new Error(`TIMEZONE PDF: document trop petit (${timezonePdfBuffer.byteLength} octets)`);
+  }
+
   console.log(`SOURCE OK: ${sourcePath}`);
   console.log(`TEMPLATE OK: ${templatePath}`);
   console.log(`GENERATED OK: ${outputPath}`);
@@ -182,6 +223,9 @@ function run() {
   console.log(`REVISION CLAUSE OK: 1`);
   console.log(`RATE SENTENCE OK: 1`);
   console.log(`NORMALIZATION IDEMPOTENT OK: 1`);
+  console.log(`TIMEZONE KINSHASA OK: ${timezoneDate}`);
+  console.log(`TIMEZONE DOCX OK: Fait à Kinshasa, le ${timezoneDate}.`);
+  console.log(`TIMEZONE PDF OK: ${timezonePdfBuffer.byteLength} bytes`);
   console.log('Occurrences mojibake -> 0');
 }
 
