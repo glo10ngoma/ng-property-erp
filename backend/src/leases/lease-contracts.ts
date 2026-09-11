@@ -41,7 +41,7 @@ const DOCX_TEMPLATE_CANDIDATES = [
 ];
 const DOCX_TEMPLATE_FORBIDDEN_SEQUENCES = ['\u00c3\u0192\u00c6\u2019', '\u00c3\u0192\u00e2\u20ac\u0161', '\u00c3\u00a2\u00e2\u201a\u00ac\u00e2\u201e\u00a2', '\u00c3\u00a2\u00e2\u201a\u00ac\u00c5\u201c', '\u00c3\u00a2\u00e2\u201a\u00ac\u009d', '\u00c3\u00af\u00c2\u00bf\u00c2\u00bd'];
 const LEASE_ARTICLE_2_REVISION_CLAUSE = 'd) Les montants prévus peuvent être révisés par accord écrit, notamment en fonction des fluctuations économiques et des réalités du marché immobilier.';
-const LEASE_ARTICLE_2_RATE_SENTENCE = 'Le montant en dollars équivaut au taux du jour.';
+const LEASE_ARTICLE_2_RATE_SENTENCE = 'Les montants en dollars équivalent au taux du jour en franc congolais.';
 const LEASE_ARTICLE_2_FINAL_REVISION_CLAUSE = `${LEASE_ARTICLE_2_REVISION_CLAUSE} ${LEASE_ARTICLE_2_RATE_SENTENCE}`;
 
 const winAnsiMap: Record<string, number> = {
@@ -173,14 +173,16 @@ export function renderLeaseContractTemplate(template: string, variables: Record<
 
 export function ensureLeaseArticle2RateSentence(template: string) {
   const article2Match = /ARTICLE\s+0?2\b[\s\S]*?(?=\n\s*ARTICLE\s+0?3\b|$)/i.exec(template);
-  if (!article2Match?.[0]) return template.replace(/\brevisés\b/g, 'révisés').replace(/\bequivaut\b/g, 'équivaut');
+  if (!article2Match?.[0]) return template;
 
   const article2 = article2Match[0]
     .replace(/\brevisés\b/g, 'révisés')
-    .replace(/\bequivaut\b/g, 'équivaut');
+    .replace(/Le montant en dollars equivaut au taux du jour(?: en franc congolais)?\./gi, 'Le montant en dollars équivaut au taux du jour.')
+    .replace(/Le montant en dollars équivaut au taux du jour(?: en franc congolais)?\./gi, LEASE_ARTICLE_2_RATE_SENTENCE)
+    .replace(/Les montants en dollars equivalent au taux du jour en franc congolais\./gi, LEASE_ARTICLE_2_RATE_SENTENCE);
   const normalizedArticle2 = article2.replace(/d\)\.?\s*/g, 'd) ');
 
-  const revisionClausePattern = /d\)\s*(?:Les\s+Parties\s+conviennent\s+que\s+)?(?:les\s+montants\s+pr[ée]vus(?:\s+au\s+pr[ée]sent\s+contrat)?\s+peuvent\s+[êe]tre\s+r[ée]vis[ée]s|le\s+loyer\s+pourra\s+[êe]tre\s+revu)[\s\S]*?march[ée]\s+immobilier\.(?:\s*Le montant en dollars [ée]quivaut au taux du jour\.)?/i;
+  const revisionClausePattern = /d\)\s*(?:Les\s+Parties\s+conviennent\s+que\s+)?(?:les\s+montants\s+pr[ée]vus(?:\s+au\s+pr[ée]sent\s+contrat)?\s+peuvent\s+[êe]tre\s+r[ée]vis[ée]s|le\s+loyer\s+pourra\s+[êe]tre\s+revu)[\s\S]*?march[ée]\s+immobilier\.(?:\s*(?:Le montant en dollars [ée]quivalent au taux du jour(?: en franc congolais)?|Les montants en dollars [ée]quivalent au taux du jour en franc congolais)\.)?/i;
   if (!revisionClausePattern.test(normalizedArticle2)) {
     return template.slice(0, article2Match.index)
       + normalizedArticle2

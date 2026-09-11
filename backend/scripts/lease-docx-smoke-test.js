@@ -7,7 +7,7 @@ const sourcePath = path.resolve(__dirname, '..', 'templates', 'leases', 'LEASE_R
 const templatePath = path.resolve(__dirname, '..', 'templates', 'leases', 'LEASE_RESIDENTIAL.docx');
 const outputPath = path.resolve(process.cwd(), 'tmp-lease-contract-smoke.docx');
 const revisionClause = 'd) Les montants prévus peuvent être révisés par accord écrit, notamment en fonction des fluctuations économiques et des réalités du marché immobilier.';
-const rateSentence = 'Le montant en dollars équivaut au taux du jour.';
+const rateSentence = 'Les montants en dollars équivalent au taux du jour en franc congolais.';
 const finalRevisionClause = `${revisionClause} ${rateSentence}`;
 const renderedContent = [
   'CONTRAT DE BAIL À USAGE RÉSIDENTIEL',
@@ -45,7 +45,7 @@ const requiredTerms = [
   finalRevisionClause,
 ];
 
-const forbiddenTerms = ['Ãƒ', 'Ã‚', 'â€™', 'â€œ', 'â€\u009d', 'ï¿½'];
+const forbiddenTerms = ['\u00c3\u0192', '\u00c3\u201a', '\u00e2\u20ac\u2122', '\u00e2\u20ac\u0153', '\u00e2\u20ac\u009d', '\u00ef\u00bf\u00bd'];
 
 function readDocxXml(filePath) {
   const zip = new PizZip(fs.readFileSync(filePath));
@@ -76,6 +76,7 @@ function run() {
   assertTerms('TEMPLATE', templateXml, ['{{LANDLORD_NAME}}', '{{TENANT_PRESENTATION}}', '{{GUARANTEE_SECTION}}'], true);
   assertTerms('TEMPLATE', templateXml, ['Crédit Mobilier', 'République Démocratique', 'l’identification'], true);
   assertTerms('TEMPLATE', templateXml, forbiddenTerms, false);
+
   const normalizedTemplate = ensureLeaseArticle2RateSentence(renderedContent);
   const normalizedTwice = ensureLeaseArticle2RateSentence(normalizedTemplate);
   if (normalizedTemplate !== normalizedTwice) {
@@ -84,6 +85,51 @@ function run() {
   assertOccurrence('NORMALIZATION', normalizedTemplate, revisionClause, 1);
   assertOccurrence('NORMALIZATION', normalizedTemplate, rateSentence, 1);
   assertTerms('NORMALIZATION', normalizedTemplate, ['d). Les montants prévus', 'equivaut', 'revisés'], false);
+  assertOccurrence('NORMALIZATION garantie équivaut préservée', normalizedTemplate, 'La garantie locative équivaut à', 1);
+
+  const targetedCases = [
+    {
+      name: 'ancienne phrase singulier',
+      content: renderedContent.replace(rateSentence, 'Le montant en dollars équivaut au taux du jour.'),
+    },
+    {
+      name: 'ancienne phrase singulier franc congolais',
+      content: renderedContent.replace(rateSentence, 'Le montant en dollars équivaut au taux du jour en franc congolais.'),
+    },
+    {
+      name: 'nouvelle phrase pluriel',
+      content: renderedContent,
+    },
+    {
+      name: 'clause revision seule',
+      content: renderedContent.replace(` ${rateSentence}`, ''),
+    },
+  ];
+
+  targetedCases.forEach(({ name, content }) => {
+    const firstPass = ensureLeaseArticle2RateSentence(content);
+    const secondPass = ensureLeaseArticle2RateSentence(firstPass);
+    if (firstPass !== secondPass) {
+      throw new Error(`NORMALIZATION ${name}: second passage non idempotent`);
+    }
+    assertOccurrence(`NORMALIZATION ${name}`, firstPass, finalRevisionClause, 1);
+    assertOccurrence(`NORMALIZATION ${name}`, firstPass, rateSentence, 1);
+    assertTerms(`NORMALIZATION ${name}`, firstPass, ['Le montant en dollars équivaut au taux du jour.', 'Le montant en dollars équivaut au taux du jour en franc congolais.', 'equivaut', 'revisés'], false);
+    assertOccurrence(`NORMALIZATION ${name} garantie équivaut préservée`, firstPass, 'La garantie locative équivaut à', 1);
+  });
+
+  const outsideArticle2 = [
+    'ARTICLE 01 - DESCRIPTION DES LIEUX',
+    'Le montant en dollars équivaut au taux du jour.',
+    '',
+    'ARTICLE 02 - DURÉE DU BAIL ET LOYER',
+    revisionClause,
+    '',
+    'ARTICLE 03 - GARANTIE LOCATIVE',
+  ].join('\n');
+  const outsideNormalized = ensureLeaseArticle2RateSentence(outsideArticle2);
+  assertOccurrence('NORMALIZATION hors ARTICLE 02 ancienne phrase conservée', outsideNormalized, 'Le montant en dollars équivaut au taux du jour.', 1);
+  assertOccurrence('NORMALIZATION hors ARTICLE 02 nouvelle phrase article 02', outsideNormalized, rateSentence, 1);
 
   const variables = {
     LANDLORD_NAME: 'Société immobilière de gestion',
@@ -119,7 +165,8 @@ function run() {
 
   assertTerms('GENERATED', generatedXml, requiredTerms, true);
   assertTerms('GENERATED', generatedXml, forbiddenTerms, false);
-  assertTerms('GENERATED', generatedXml, ['revisés', 'equivaut', 'd). Les montants prévus'], false);
+  assertTerms('GENERATED', generatedXml, ['revisés', 'equivaut', 'd). Les montants prévus', 'Le montant en dollars équivaut au taux du jour.'], false);
+  assertOccurrence('GENERATED garantie équivaut préservée', generatedXml, 'La garantie locative équivaut à', 1);
   assertOccurrence('GENERATED', generatedXml, revisionClause, 1);
   assertOccurrence('GENERATED', generatedXml, rateSentence, 1);
   assertOccurrence('GENERATED', generatedXml, finalRevisionClause, 1);
@@ -135,7 +182,7 @@ function run() {
   console.log(`REVISION CLAUSE OK: 1`);
   console.log(`RATE SENTENCE OK: 1`);
   console.log(`NORMALIZATION IDEMPOTENT OK: 1`);
-  console.log(`Occurrences mojibake -> Ãƒ: 0, Ã‚: 0, â€™: 0, â€œ: 0, â€”: 0, ï¿½: 0`);
+  console.log('Occurrences mojibake -> 0');
 }
 
 run();
