@@ -223,7 +223,7 @@ export function LeaseDetail() {
         if (pdfPreviewUrlRef.current) window.URL.revokeObjectURL(pdfPreviewUrlRef.current);
         pdfPreviewUrlRef.current = nextUrl;
         setPdfPreviewBlob(blob);
-        setPdfPreviewFileName(lease.latest_contract?.pdf_file_name || `Contrat_bail_${leaseReference(lease)}.pdf`);
+        setPdfPreviewFileName(contentDispositionFileName(response) || leasePdfDownloadName(lease));
         setPdfPreviewCacheKey(previewCacheKey);
         setPdfPreviewUrl(nextUrl);
       })
@@ -481,7 +481,7 @@ export function LeaseDetail() {
     await api.post(`/leases/${lease.id}/contracts/${lease.latest_contract.id}/printed`);
     const currentCacheKey = leaseContractCacheKey(lease.id, lease.latest_contract.id);
     const cachedFileName = pdfPreviewCacheKey === currentCacheKey ? pdfPreviewFileName : '';
-    const fileName = lease.latest_contract.pdf_file_name || cachedFileName || `Contrat_bail_${leaseReference(lease)}.pdf`;
+    const fileName = cachedFileName || leasePdfDownloadName(lease);
     if (pdfPreviewBlob && pdfPreviewUrl && pdfPreviewCacheKey === currentCacheKey) {
       downloadFile(pdfPreviewUrl, fileName);
       await load();
@@ -491,7 +491,7 @@ export function LeaseDetail() {
       const response = await api.get(`/leases/${lease.id}/contracts/${lease.latest_contract.id}/download`, { responseType: 'arraybuffer' });
       const blob = await pdfBlobFromResponse(response);
       const objectUrl = window.URL.createObjectURL(blob);
-      downloadFile(objectUrl, fileName);
+      downloadFile(objectUrl, contentDispositionFileName(response) || fileName);
       window.URL.revokeObjectURL(objectUrl);
       await load();
     } catch (err: any) {
@@ -1046,6 +1046,17 @@ function leaseContractCacheKey(leaseId: unknown, contractId: unknown) {
   return `${Number(leaseId)}:${Number(contractId)}`;
 }
 
+function leasePdfDownloadName(lease: Lease) {
+  const leaseNumber = Number(lease.lease_number);
+  const fallbackId = Number(lease.id);
+  const reference = Number.isInteger(leaseNumber) && leaseNumber > 0
+    ? `B-${String(leaseNumber).padStart(6, '0')}`
+    : Number.isInteger(fallbackId) && fallbackId > 0
+      ? `B-${String(fallbackId).padStart(6, '0')}`
+      : leaseReference(lease);
+  return `${safeDownloadFileName(reference)}.pdf`;
+}
+
 function amount(value: unknown) {
   return Number(value ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
 }
@@ -1204,6 +1215,33 @@ function downloadFile(url: string, fileName: string) {
   document.body.appendChild(link);
   link.click();
   link.remove();
+}
+
+function contentDispositionFileName(response: any) {
+  const header = String(response.headers?.['content-disposition'] ?? response.headers?.['Content-Disposition'] ?? '');
+  const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return safeDownloadFileName(decodeURIComponent(utf8Match[1]));
+    } catch {
+      return safeDownloadFileName(utf8Match[1]);
+    }
+  }
+  const quotedMatch = header.match(/filename="([^"]+)"/i);
+  if (quotedMatch?.[1]) return safeDownloadFileName(quotedMatch[1]);
+  const plainMatch = header.match(/filename=([^;]+)/i);
+  if (plainMatch?.[1]) return safeDownloadFileName(plainMatch[1]);
+  return '';
+}
+
+function safeDownloadFileName(value: unknown) {
+  const fileName = String(value ?? '')
+    .replace(/[\u0000-\u001F\u007F]/g, '')
+    .replace(/[\\/]/g, '_')
+    .replace(/\.\.+/g, '.')
+    .replace(/"/g, "'")
+    .trim();
+  return fileName || 'document.pdf';
 }
 
 async function pdfBlobFromResponse(response: any) {

@@ -7505,30 +7505,33 @@ export class SaasService {
 
   async downloadLeaseContractDocx(leaseId: number, contractId: number) {
     const { rows } = await this.db.query(
-      `SELECT id, lease_id, template_version, generated_at, docx_file_name, docx_file_url, docx_storage_path,
-              docx_mime_type, docx_file_hash, pdf_file_name, pdf_file_url
-       FROM lease_contract_generations
-       WHERE id = $1 AND lease_id = $2 AND organization_id = $3 AND deleted_at IS NULL`,
+      `SELECT cg.id, cg.lease_id, cg.template_version, cg.generated_at, cg.docx_file_name, cg.docx_file_url, cg.docx_storage_path,
+              cg.docx_mime_type, cg.docx_file_hash, cg.pdf_file_name, cg.pdf_file_url,
+              l.lease_number
+       FROM lease_contract_generations cg
+       JOIN leases l ON l.id = cg.lease_id AND l.organization_id = cg.organization_id
+       WHERE cg.id = $1 AND cg.lease_id = $2 AND cg.organization_id = $3 AND cg.deleted_at IS NULL`,
       [contractId, leaseId, this.context.organizationId()],
     );
     const contract = requireRow(rows[0], 'Lease contract generation');
     const pdfFileName = String(contract.pdf_file_name ?? '').trim();
     const pdfFileUrl = String(contract.pdf_file_url ?? '').trim();
+    const pdfDownloadName = `${this.leaseReferenceCodeFromNumber(contract.lease_number ?? leaseId)}.pdf`;
     if (pdfFileName && pdfFileUrl) {
       if (pdfFileUrl.startsWith('data:')) {
-        return this.dataUrlFile(pdfFileUrl, pdfFileName);
+        return { ...this.dataUrlFile(pdfFileUrl, pdfFileName), downloadName: pdfDownloadName };
       }
       const generatedAt = new Date(contract.generated_at ?? new Date().toISOString());
       const templateVersion = Number(contract.template_version ?? 9);
       const storagePath = this.leaseContractStoragePath(leaseId, contractId, templateVersion, generatedAt, pdfFileName);
       try {
-        return await this.downloadLeaseContractStorage(storagePath, pdfFileName, LEASE_PDF_MIME_TYPE);
+        return { ...(await this.downloadLeaseContractStorage(storagePath, pdfFileName, LEASE_PDF_MIME_TYPE)), downloadName: pdfDownloadName };
       } catch (error: any) {
         const fallbackStoragePath = await this.findLeaseContractStoragePathByPrefix(leaseId, contractId, templateVersion, pdfFileName);
         if (!fallbackStoragePath) {
           throw error;
         }
-        return this.downloadLeaseContractStorage(fallbackStoragePath, pdfFileName, LEASE_PDF_MIME_TYPE);
+        return { ...(await this.downloadLeaseContractStorage(fallbackStoragePath, pdfFileName, LEASE_PDF_MIME_TYPE)), downloadName: pdfDownloadName };
       }
     }
     const fileName = String(contract.docx_file_name ?? '').trim();
@@ -16148,6 +16151,14 @@ export class SaasService {
 
   private leaseReferenceCode(id: number) {
     return `B-${String(id).padStart(6, '0')}`;
+  }
+
+  private leaseReferenceCodeFromNumber(value: unknown) {
+    const numeric = Number(value);
+    if (Number.isInteger(numeric) && numeric > 0) {
+      return `B-${String(numeric).padStart(6, '0')}`;
+    }
+    return 'Bail_sans_reference';
   }
 
   private async nextLeaseNumber(client: PoolClient, organizationId: number) {

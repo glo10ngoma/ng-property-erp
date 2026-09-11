@@ -1378,10 +1378,9 @@ export class LeasesController {
     @Res() response: any,
   ) {
     const file = await this.service.downloadLeaseContractDocx(id, contractId);
-    const downloadName = String(file.downloadName ?? 'contrat.docx').replace(/"/g, '');
     const mode = disposition === 'inline' ? 'inline' : 'attachment';
     response.setHeader('Content-Type', file.mimeType);
-    response.setHeader('Content-Disposition', `${mode}; filename="${downloadName}"`);
+    response.setHeader('Content-Disposition', contentDispositionHeader(mode, file.downloadName ?? 'contrat.docx'));
     response.setHeader('Content-Length', String(file.buffer.byteLength));
     response.setHeader('Cache-Control', 'private, no-store');
     response.status(200);
@@ -1411,6 +1410,22 @@ export class LeasesController {
   invoice(@Param('id', ParseIntPipe) id: number) {
     return this.service.createLeaseInvoice(id);
   }
+}
+
+function safeDownloadFileName(value: unknown) {
+  const name = String(value ?? 'document')
+    .replace(/[\u0000-\u001F\u007F]/g, '')
+    .replace(/[\\/]/g, '_')
+    .replace(/\.\.+/g, '.')
+    .replace(/"/g, "'")
+    .trim();
+  return name || 'document';
+}
+
+function contentDispositionHeader(mode: 'inline' | 'attachment', fileName: unknown) {
+  const safeName = safeDownloadFileName(fileName);
+  const asciiName = safeName.replace(/[^\x20-\x7E]/g, '_');
+  return `${mode}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`;
 }
 
 @Controller('reports')
