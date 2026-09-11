@@ -13,6 +13,7 @@ type Lease = Record<string, any>;
 
 type LeaseContractGeneration = {
   id: number;
+  lease_id?: number;
   template_version?: number;
   template_code?: string;
   template_hash?: string;
@@ -104,6 +105,7 @@ export function LeaseDetail() {
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
   const [pdfPreviewBlob, setPdfPreviewBlob] = useState<Blob | null>(null);
   const [pdfPreviewFileName, setPdfPreviewFileName] = useState('');
+  const [pdfPreviewCacheKey, setPdfPreviewCacheKey] = useState('');
   const pdfPreviewUrlRef = useRef('');
 
   const previewRequested = useMemo(() => new URLSearchParams(location.search).get('previewContract') === '1', [location.search]);
@@ -211,6 +213,7 @@ export function LeaseDetail() {
     setError('');
     setPdfPreviewUrl('');
     setPdfPreviewBlob(null);
+    const previewCacheKey = leaseContractCacheKey(lease.id, lease.latest_contract.id);
     api.get(`/leases/${lease.id}/contracts/${lease.latest_contract.id}/download?disposition=inline`, { responseType: 'arraybuffer' })
       .then(async (response) => {
         if (cancelled) return;
@@ -221,6 +224,7 @@ export function LeaseDetail() {
         pdfPreviewUrlRef.current = nextUrl;
         setPdfPreviewBlob(blob);
         setPdfPreviewFileName(lease.latest_contract?.pdf_file_name || `Contrat_bail_${leaseReference(lease)}.pdf`);
+        setPdfPreviewCacheKey(previewCacheKey);
         setPdfPreviewUrl(nextUrl);
       })
       .catch((err: any) => {
@@ -233,6 +237,10 @@ export function LeaseDetail() {
     };
   }, [previewOpen, lease?.id, lease?.latest_contract?.id, lease?.latest_contract?.pdf_file_name, hasGeneratedPdf]);
 
+  useEffect(() => {
+    clearPdfPreview();
+  }, [lease?.id, lease?.latest_contract?.id]);
+
   useEffect(() => () => clearPdfPreview(false), []);
 
   function clearPdfPreview(updateState = true) {
@@ -244,6 +252,7 @@ export function LeaseDetail() {
     setPdfPreviewUrl('');
     setPdfPreviewBlob(null);
     setPdfPreviewFileName('');
+    setPdfPreviewCacheKey('');
   }
 
   async function loadLatestDocx() {
@@ -470,8 +479,10 @@ export function LeaseDetail() {
   async function downloadGeneratedPdf() {
     if (!lease?.latest_contract?.id) return;
     await api.post(`/leases/${lease.id}/contracts/${lease.latest_contract.id}/printed`);
-    const fileName = lease.latest_contract.pdf_file_name || pdfPreviewFileName || `Contrat_bail_${leaseReference(lease)}.pdf`;
-    if (pdfPreviewBlob && pdfPreviewUrl) {
+    const currentCacheKey = leaseContractCacheKey(lease.id, lease.latest_contract.id);
+    const cachedFileName = pdfPreviewCacheKey === currentCacheKey ? pdfPreviewFileName : '';
+    const fileName = lease.latest_contract.pdf_file_name || cachedFileName || `Contrat_bail_${leaseReference(lease)}.pdf`;
+    if (pdfPreviewBlob && pdfPreviewUrl && pdfPreviewCacheKey === currentCacheKey) {
       downloadFile(pdfPreviewUrl, fileName);
       await load();
       return;
@@ -1029,6 +1040,10 @@ function SimpleSection({ title, empty, children }: { title: string; empty: strin
 
 function leaseReference(lease: Lease) {
   return formatLeaseReference(lease.lease_number, lease.id);
+}
+
+function leaseContractCacheKey(leaseId: unknown, contractId: unknown) {
+  return `${Number(leaseId)}:${Number(contractId)}`;
 }
 
 function amount(value: unknown) {
