@@ -1572,9 +1572,13 @@ export class AutomationsService {
       }
     }
 
-    const year = this.yearFromDate(calculatedPeriod.period_start);
-    const month = this.monthFromDate(calculatedPeriod.period_start);
-    const period = this.buildBillingPeriod(year, month, basePeriod.dueDay);
+    const closingYear = this.yearFromDate(calculatedPeriod.period_end);
+    const closingMonth = this.monthFromDate(calculatedPeriod.period_end);
+    if (closingYear !== basePeriod.year || closingMonth !== basePeriod.month) {
+      return null;
+    }
+
+    const period = this.buildBillingPeriod(closingYear, closingMonth, basePeriod.dueDay);
     return {
       ...period,
       frequencyMonths: calculatedPeriod.frequency_months,
@@ -1627,9 +1631,10 @@ export class AutomationsService {
   }
 
   private formatDate(value: string) {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleDateString('fr-FR');
+    const dateOnly = this.dateOnly(value);
+    if (!dateOnly) return value;
+    const [year, month, day] = dateOnly.split('-');
+    return `${day}/${month}/${year}`;
   }
 
   private runStatus(eligibleCount: number, createdCount: number, skippedCount: number, failedCount: number) {
