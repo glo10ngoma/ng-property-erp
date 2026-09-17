@@ -63,6 +63,7 @@ type PaymentDetailData = {
   tenant_credit_status?: string;
   created_by_user_id?: number;
   created_by_name?: string;
+  invoice_items?: { id: number; invoice_id: number; invoice_number?: string; item_type?: string; description?: string; amount: number }[];
   allocations?: { id: number; invoice_id: number; invoice_number: string; amount: number }[];
   reminders?: { id: number; channel: string; message: string; status: string; reminded_at: string; reminded_by?: number }[];
   audit?: { id: number; date: string; action: string; resource: string; method: string; path: string; status_code?: number; metadata?: Record<string, unknown>; user_name?: string }[];
@@ -281,6 +282,24 @@ export function PaymentDetail() {
             </tr>
           </tbody>
         </table>
+
+        {(payment.invoice_items?.length ?? 0) > 0 && (
+          <section className="receipt-invoice-lines">
+            <h3>Détail de la facture</h3>
+            <table>
+              <thead><tr><th>Facture</th><th>Description</th><th className="right">Montant facturé</th></tr></thead>
+              <tbody>
+                {payment.invoice_items?.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.invoice_number ?? payment.invoice_number ?? '—'}</td>
+                    <td>{item.description || item.item_type || '—'}</td>
+                    <td className="right">{money(item.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
 
         {payment.notes && <p className="thanks">{payment.notes}</p>}
         <p className="thanks">Merci pour votre confiance.</p>

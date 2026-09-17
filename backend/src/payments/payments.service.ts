@@ -161,6 +161,7 @@ export class PaymentsService {
        ORDER BY pa.id`,
       [id, organizationId],
     );
+    const invoiceItems = await this.loadInvoiceItemsForPayment(payment, allocations.rows, organizationId);
     const reminders = payment.invoice_id
       ? await this.db.query(
         `SELECT * FROM invoice_reminders WHERE invoice_id = $1 AND organization_id = $2 ORDER BY reminded_at DESC`,
@@ -176,7 +177,7 @@ export class PaymentsService {
        ORDER BY al.created_at DESC`,
       [organizationId, String(id)],
     );
-    return { ...payment, allocations: allocations.rows, reminders: reminders.rows, audit: audit.rows };
+    return { ...payment, allocations: allocations.rows, invoice_items: invoiceItems, reminders: reminders.rows, audit: audit.rows };
   }
 
   async findTrashedOne(id: number) {
@@ -192,6 +193,32 @@ export class PaymentsService {
       auditResource: 'payments',
       auditResourceId: String(id),
     });
+  }
+
+  private async loadInvoiceItemsForPayment(
+    payment: Record<string, unknown>,
+    allocations: Array<Record<string, unknown>>,
+    organizationId: number,
+  ) {
+    const invoiceIds = Array.from(new Set([
+      Number(payment.invoice_id ?? 0),
+      ...allocations.map((allocation) => Number(allocation.invoice_id ?? 0)),
+    ].filter((invoiceId) => Number.isInteger(invoiceId) && invoiceId > 0)));
+    if (invoiceIds.length === 0) return [];
+
+    const { rows } = await this.db.query(
+      `SELECT ii.id, ii.invoice_id, i.invoice_number, ii.item_type, ii.description, ii.amount
+       FROM invoice_items ii
+       JOIN invoices i
+         ON i.id = ii.invoice_id
+        AND i.organization_id = ii.organization_id
+       WHERE ii.invoice_id = ANY($1::INT[])
+         AND ii.organization_id = $2
+         AND ii.deleted_at IS NULL
+       ORDER BY i.invoice_number, ii.id`,
+      [invoiceIds, organizationId],
+    );
+    return rows;
   }
 
   private async supportsGuaranteePaymentSchema() {
@@ -318,6 +345,7 @@ export class PaymentsService {
        ORDER BY pa.id`,
       [id, organizationId],
     );
+    const invoiceItems = await this.loadInvoiceItemsForPayment(payment, allocations.rows, organizationId);
     const reminders = payment.invoice_id
       ? await this.db.query(
         `SELECT * FROM invoice_reminders WHERE invoice_id = $1 AND organization_id = $2 ORDER BY reminded_at DESC`,
@@ -333,7 +361,7 @@ export class PaymentsService {
        ORDER BY al.created_at DESC`,
       [organizationId, String(id)],
     );
-    return { ...payment, allocations: allocations.rows, reminders: reminders.rows, audit: audit.rows };
+    return { ...payment, allocations: allocations.rows, invoice_items: invoiceItems, reminders: reminders.rows, audit: audit.rows };
   }
 
   private async findOneGuaranteePaymentWithoutTenantCredits(id: number, organizationId: number) {
@@ -399,6 +427,7 @@ export class PaymentsService {
        ORDER BY pa.id`,
       [id, organizationId],
     );
+    const invoiceItems = await this.loadInvoiceItemsForPayment(payment, allocations.rows, organizationId);
     const reminders = payment.invoice_id
       ? await this.db.query(
         `SELECT * FROM invoice_reminders WHERE invoice_id = $1 AND organization_id = $2 ORDER BY reminded_at DESC`,
@@ -414,7 +443,7 @@ export class PaymentsService {
        ORDER BY al.created_at DESC`,
       [organizationId, String(id)],
     );
-    return { ...payment, allocations: allocations.rows, reminders: reminders.rows, audit: audit.rows };
+    return { ...payment, allocations: allocations.rows, invoice_items: invoiceItems, reminders: reminders.rows, audit: audit.rows };
   }
 
   async create(dto: CreatePaymentDto) {

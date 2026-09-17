@@ -129,6 +129,33 @@ export class DocumentResolverService {
     if (!payment.receipt_number) {
       throw new BadRequestException('Aucun reçu PDF n’est disponible pour ce paiement.');
     }
+    const invoiceItems = await this.db.query(
+      `SELECT ii.id, ii.invoice_id, i.invoice_number, ii.item_type, ii.description, ii.amount
+       FROM invoice_items ii
+       JOIN invoices i
+         ON i.id = ii.invoice_id
+        AND i.organization_id = ii.organization_id
+        AND i.deleted_at IS NULL
+       WHERE ii.organization_id = $1
+         AND ii.deleted_at IS NULL
+         AND ii.invoice_id IN (
+           SELECT p.invoice_id
+           FROM payments p
+           WHERE p.id = $2
+             AND p.organization_id = $1
+             AND p.deleted_at IS NULL
+             AND p.invoice_id IS NOT NULL
+           UNION
+           SELECT pa.invoice_id
+           FROM payment_allocations pa
+           WHERE pa.payment_id = $2
+             AND pa.organization_id = $1
+             AND pa.deleted_at IS NULL
+         )
+       ORDER BY i.invoice_number, ii.id`,
+      [this.context.organizationId(), id],
+    );
+    payment.invoice_items = invoiceItems.rows;
     return payment;
   }
 
@@ -161,6 +188,16 @@ export class DocumentResolverService {
   }
 
   private renderPaymentReceiptPdfHtml(payment: Record<string, any>) {
+    const invoiceItems = Array.isArray(payment.invoice_items) ? payment.invoice_items : [];
+    const invoiceItemsTable = invoiceItems.length
+      ? `<h2>Détail de la facture</h2>
+      <table>
+        <thead><tr><th>Facture</th><th>Description</th><th class="right">Montant facturé</th></tr></thead>
+        <tbody>
+          ${invoiceItems.map((item: Record<string, any>) => `<tr><td>${escapeHtml(String(item.invoice_number ?? '-'))}</td><td>${escapeHtml(String(item.description ?? item.item_type ?? '-'))}</td><td class="right">${this.money(item.amount)}</td></tr>`).join('')}
+        </tbody>
+      </table>`
+      : '';
     return this.renderPdfShell(`Reçu ${payment.receipt_number}`, `
       <div class="meta">Date: ${this.formatDate(payment.payment_date)} | Mode: ${escapeHtml(String(payment.payment_method ?? '-'))}</div>
       <div class="grid">
@@ -175,6 +212,7 @@ export class DocumentResolverService {
           <tr><td>Équivalent total</td><td>USD</td><td class="right">${this.money(payment.total_equivalent_usd ?? payment.amount)}</td></tr>
         </tbody>
       </table>
+      ${invoiceItemsTable}
     `);
   }
 

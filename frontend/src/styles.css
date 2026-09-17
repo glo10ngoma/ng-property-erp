@@ -297,6 +297,8 @@ textarea { min-height: 72px; resize: vertical; }
 .receipt-amount-summary div { display: grid; grid-template-columns: minmax(180px, 1fr) auto; gap: 12px; align-items: baseline; }
 .receipt-amount-summary span { color: #637783; font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .receipt-amount-summary strong { color: #203845; font-size: 13px; text-align: right; }
+.receipt-invoice-lines { margin-top: 16px; }
+.receipt-invoice-lines h3 { margin: 0 0 8px; color: #203845; font-size: 14px; }
 .payment-summary { display: none; }
 .thanks { margin-top: 18px; color: #526a78; }
 .invoice-stamp { margin: 8px 0; border: 1px solid #dce5eb; border-radius: 6px; padding: 8px 12px; display: inline-flex; font-weight: 900; color: #425466; letter-spacing: .02em; }
