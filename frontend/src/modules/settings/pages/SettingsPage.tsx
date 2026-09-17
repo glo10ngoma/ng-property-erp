@@ -1115,7 +1115,7 @@ export function SettingsPage() {
       {can('automations.read') && automation ? (
         <SettingsSection
           title="Automatisations"
-        description="Facturation automatique des loyers le 25 du mois courant, avec échéance fixée au mois suivant."
+        description="Facturation des loyers au début de chaque période, avec une échéance à 5 jours."
         icon={<Settings2 size={16} />}
       >
           <form className="settings-grid" onSubmit={saveAutomationSection}>
@@ -1141,7 +1141,7 @@ export function SettingsPage() {
               />
             </SettingField>
             <SettingField label="Jour de génération">
-              <input value={String(automation.generationDay ?? 25)} readOnly className="locked-field" />
+              <input value={String(automation.generationDay ?? 1)} readOnly className="locked-field" />
             </SettingField>
             <SettingField label="Fuseau horaire">
               <input
@@ -1150,7 +1150,7 @@ export function SettingsPage() {
                 disabled={automationDisabled}
               />
             </SettingField>
-            <SettingField label="Jour d'échéance (mois suivant)">
+            <SettingField label="Délai d'échéance (jours)">
               <input value={String(automation.dueDay || 5)} readOnly className="locked-field" />
             </SettingField>
             <SettingField label="Email automatique">
@@ -1183,7 +1183,7 @@ export function SettingsPage() {
               <input value={automation.lastRun?.status ?? 'Aucun run'} readOnly className="locked-field" />
             </SettingField>
             <SettingField label="Règle de facturation" wide>
-              <input value="Le 25 du mois M : facture du mois M, date de facture = 25, échéance = 05 du mois M+1." readOnly className="locked-field" />
+              <input value="Facture émise au début de la période ; échéance 5 jours plus tard. Un premier mois commencé en cours de mois est facturé le jour du début du bail." readOnly className="locked-field" />
             </SettingField>
             <SettingActions>
               <button type="submit" disabled={automationDisabled}>
