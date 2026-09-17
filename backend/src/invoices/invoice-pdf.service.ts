@@ -273,9 +273,13 @@ export class InvoicePdfService {
 
   private periodLabel(month: number, year: number) {
     if (!month || !year) return '-';
-    const start = new Date(Number(year), Number(month) - 1, 1);
-    const end = new Date(Number(year), Number(month), 0);
-    return `${this.monthLabel(month)} ${year} (${this.formatDate(start.toISOString())} - ${this.formatDate(end.toISOString())})`;
+    const normalizedMonth = Math.min(Math.max(Number(month), 1), 12);
+    const normalizedYear = Number(year);
+    const lastDay = new Date(Date.UTC(normalizedYear, normalizedMonth, 0)).getUTCDate();
+    const monthText = String(normalizedMonth).padStart(2, '0');
+    const start = `${normalizedYear}-${monthText}-01`;
+    const end = `${normalizedYear}-${monthText}-${String(lastDay).padStart(2, '0')}`;
+    return `${this.monthLabel(normalizedMonth)} ${normalizedYear} (${this.formatDate(start)} - ${this.formatDate(end)})`;
   }
 
   private monthLabel(month: number) {

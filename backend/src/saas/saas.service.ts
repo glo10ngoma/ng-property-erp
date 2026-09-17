@@ -10855,7 +10855,7 @@ export class SaasService {
     }
 
     const invoiceResult = await client.query(
-      `SELECT id, invoice_number, invoice_type, issue_date, status, total
+      `SELECT id, invoice_number, invoice_type, issue_date::TEXT AS issue_date, status, total
        FROM invoices
        WHERE id = $1
          AND organization_id = $2
@@ -16135,9 +16135,13 @@ export class SaasService {
 
   private formatDate(value?: string | null) {
     if (!value) return '';
+    const isoDate = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value));
+    if (isoDate) {
+      return `${isoDate[3]}/${isoDate[2]}/${isoDate[1]}`;
+    }
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value);
-    return date.toLocaleDateString('fr-FR');
+    return date.toLocaleDateString('fr-FR', { timeZone: 'Africa/Kinshasa' });
   }
 
   private slugify(value: string) {
