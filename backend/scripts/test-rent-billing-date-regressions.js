@@ -16,8 +16,7 @@ assert.equal(
 const automations = Object.create(AutomationsService.prototype);
 automations.generationDay = 1;
 automations.defaultAutomaticDueDay = 5;
-assert.equal(automations.resolveDueDay(10), 5, 'Rent invoice due dates must always use the fixed five-day grace period.');
-assert.equal(automations.addCalendarDays('2026-12-29', 5), '2027-01-03', 'The five-day deadline must cross month and year boundaries safely.');
+assert.equal(automations.resolveDueDay(10), 5, 'Regular rent invoice due dates must always fall on day 5.');
 const quarterlyLease = {
   id: 999,
   tenant_id: 1,
@@ -44,7 +43,7 @@ assert.deepEqual(
   },
   {
     issueDate: '2026-07-19',
-    dueDate: '2026-07-24',
+    dueDate: '2026-07-19',
     periodStart: '2026-07-19',
     periodEnd: '2026-09-30',
   },
@@ -70,7 +69,7 @@ assert.deepEqual(
   },
   {
     issueDate: '2026-10-01',
-    dueDate: '2026-10-06',
+    dueDate: '2026-10-05',
     periodStart: '2026-10-01',
     periodEnd: '2026-12-31',
   },
@@ -89,7 +88,7 @@ assert.deepEqual(
   },
   {
     issueDate: '2026-09-17',
-    dueDate: '2026-09-22',
+    dueDate: '2026-09-17',
     periodStart: '2026-09-17',
     periodEnd: '2026-09-30',
   },

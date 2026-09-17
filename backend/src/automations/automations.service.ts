@@ -1434,7 +1434,7 @@ export class AutomationsService {
             failedCount: Number(lastRun.failed_count ?? 0),
           }
         : null,
-      explanation: `Facturation au debut de chaque periode, avec une echeance fixee a 5 jours apres la date d emission.`,
+      explanation: `Facturation au debut de chaque periode : emission le 1er et echeance le 5. Une premiere facture emise en cours de mois est exigible immediatement.`,
     };
   }
 
@@ -1468,7 +1468,7 @@ export class AutomationsService {
       month,
       year,
       issueDate,
-      dueDate: this.addCalendarDays(issueDate, resolvedDueDay),
+      dueDate: `${year}-${this.two(month)}-${this.two(resolvedDueDay)}`,
       dueDay: resolvedDueDay,
       periodStart: `${year}-${this.two(month)}-01`,
       periodEnd: `${year}-${this.two(month)}-${this.two(lastDay)}`,
@@ -1627,10 +1627,11 @@ export class AutomationsService {
 
     const issueDate = calculatedPeriod.period_start;
     const period = this.buildBillingPeriod(openingYear, openingMonth, basePeriod.dueDay);
+    const startsDuringMonth = this.dayFromDate(issueDate) > 1;
     return {
       ...period,
       issueDate,
-      dueDate: this.addCalendarDays(issueDate, basePeriod.dueDay),
+      dueDate: startsDuringMonth ? issueDate : period.dueDate,
       frequencyMonths: calculatedPeriod.frequency_months,
       periodStart: calculatedPeriod.period_start,
       periodEnd: calculatedPeriod.period_end,
@@ -1674,12 +1675,6 @@ export class AutomationsService {
 
   private dayFromDate(value: string) {
     return Number(value.slice(8, 10));
-  }
-
-  private addCalendarDays(value: string, days: number) {
-    const date = parseDate(value);
-    date.setDate(date.getDate() + Number(days));
-    return `${date.getFullYear()}-${this.two(date.getMonth() + 1)}-${this.two(date.getDate())}`;
   }
 
   private money(value: number) {

@@ -1115,7 +1115,7 @@ export function SettingsPage() {
       {can('automations.read') && automation ? (
         <SettingsSection
           title="Automatisations"
-        description="Facturation des loyers au début de chaque période, avec une échéance à 5 jours."
+        description="Facturation des loyers au début de chaque période : émission le 1er et échéance le 5."
         icon={<Settings2 size={16} />}
       >
           <form className="settings-grid" onSubmit={saveAutomationSection}>
@@ -1150,7 +1150,7 @@ export function SettingsPage() {
                 disabled={automationDisabled}
               />
             </SettingField>
-            <SettingField label="Délai d'échéance (jours)">
+            <SettingField label="Jour d'échéance">
               <input value={String(automation.dueDay || 5)} readOnly className="locked-field" />
             </SettingField>
             <SettingField label="Email automatique">
@@ -1183,7 +1183,7 @@ export function SettingsPage() {
               <input value={automation.lastRun?.status ?? 'Aucun run'} readOnly className="locked-field" />
             </SettingField>
             <SettingField label="Règle de facturation" wide>
-              <input value="Facture émise au début de la période ; échéance 5 jours plus tard. Un premier mois commencé en cours de mois est facturé le jour du début du bail." readOnly className="locked-field" />
+              <input value="Facture périodique émise le 1er, échéance le 5. Une première facture émise en cours de mois est exigible immédiatement." readOnly className="locked-field" />
             </SettingField>
             <SettingActions>
               <button type="submit" disabled={automationDisabled}>
