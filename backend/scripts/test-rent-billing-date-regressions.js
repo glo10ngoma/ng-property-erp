@@ -3,7 +3,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 require('reflect-metadata');
+require('../dist/database/database.service');
+const { types } = require('pg');
 const { AutomationsService } = require('../dist/automations/automations.service');
+
+assert.equal(
+  types.getTypeParser(types.builtins.DATE, 'text')('2026-09-16'),
+  '2026-09-16',
+  'PostgreSQL DATE values must remain date-only strings and never shift to the previous UTC day.',
+);
 
 const automations = Object.create(AutomationsService.prototype);
 automations.generationDay = 25;

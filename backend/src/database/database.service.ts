@@ -1,6 +1,11 @@
 import { Injectable, Logger, OnModuleDestroy, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
+import { Pool, PoolClient, QueryResult, QueryResultRow, types } from 'pg';
+
+// PostgreSQL DATE values represent calendar dates, not instants in time.
+// Keeping OID 1082 as YYYY-MM-DD prevents a local midnight in Kinshasa from
+// being serialized to the previous UTC day when API responses are JSON encoded.
+types.setTypeParser(types.builtins.DATE, (value) => value);
 
 @Injectable()
 export class DatabaseService implements OnModuleDestroy {
