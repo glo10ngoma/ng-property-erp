@@ -329,16 +329,31 @@ export function LeaseNew() {
   );
 }
 
+function dateOnlyParts(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) };
+}
+
 function addMonths(dateValue: string, months: number) {
-  const date = new Date(dateValue);
-  date.setMonth(date.getMonth() + months);
-  return date.toISOString().slice(0, 10);
+  const parts = dateOnlyParts(dateValue);
+  if (!parts || !Number.isFinite(months)) return dateValue;
+  const targetMonthIndex = parts.year * 12 + (parts.month - 1) + Math.trunc(months);
+  const targetYear = Math.floor(targetMonthIndex / 12);
+  const targetMonth = targetMonthIndex - targetYear * 12 + 1;
+  const lastDay = new Date(Date.UTC(targetYear, targetMonth, 0)).getUTCDate();
+  return [
+    targetYear,
+    String(targetMonth).padStart(2, '0'),
+    String(Math.min(parts.day, lastDay)).padStart(2, '0'),
+  ].join('-');
 }
 
 function monthDiff(startValue: string, endValue: string) {
-  const start = new Date(startValue);
-  const end = new Date(endValue);
-  const diff = (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth();
+  const start = dateOnlyParts(startValue);
+  const end = dateOnlyParts(endValue);
+  if (!start || !end) return 0;
+  const diff = (end.year - start.year) * 12 + end.month - start.month;
   return Math.max(diff, 0);
 }
 
