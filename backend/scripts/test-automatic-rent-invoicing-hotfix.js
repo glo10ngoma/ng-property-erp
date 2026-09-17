@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
 
 const { readEnvFile, getConfig, ensureDatabaseTarget } = require('./sales-test-helpers');
 
@@ -52,9 +53,60 @@ async function main() {
   const previewMagic = await runAsOrg(5, () => automations.previewMonthlyRentBilling({ month: 8, year: 2026 }));
   const previewSandbox = await runAsOrg(6, () => automations.previewMonthlyRentBilling({ month: 8, year: 2026 }));
 
-  assert.equal(previewCatalyse.create_count, 6, 'CATALYSE dry-run must predict 6 invoices.');
-  assert.equal(previewMagic.create_count, 2, 'Magic Construction dry-run must predict 2 invoices.');
+  assert.equal(previewCatalyse.create_count, 0, 'Quarterly CATALYSE invoices must not be generated before the closing month.');
+  assert.equal(previewMagic.create_count, 2, 'Magic Construction dry-run must predict 2 monthly invoices.');
   assert.equal(previewSandbox.due_date, '2026-09-10', 'SANDBOX dry-run must respect the configured due_day.');
+
+  const augustPeriod = automations.buildBillingPeriod(2026, 8, 5);
+  const septemberPeriod = automations.buildBillingPeriod(2026, 9, 5);
+  const quarterlyLease = {
+    id: 999,
+    tenant_id: 1,
+    unit_id: 1,
+    monthly_rent: 2000,
+    maintenance_fee_amount: 0,
+    monthly_syndic_amount: 150,
+    billing_frequency_months: 3,
+    status: 'ACTIVE',
+    start_date: '2026-07-19',
+  };
+  assert.equal(
+    automations.nextBillingPeriodForLease(augustPeriod, quarterlyLease),
+    null,
+    'A July-September quarterly cycle must not be invoiced on August 25.',
+  );
+  const quarterlySeptember = automations.nextBillingPeriodForLease(septemberPeriod, quarterlyLease);
+  assert.deepEqual(
+    {
+      issueDate: quarterlySeptember.issueDate,
+      dueDate: quarterlySeptember.dueDate,
+      periodStart: quarterlySeptember.periodStart,
+      periodEnd: quarterlySeptember.periodEnd,
+    },
+    {
+      issueDate: '2026-09-25',
+      dueDate: '2026-10-05',
+      periodStart: '2026-07-19',
+      periodEnd: '2026-09-30',
+    },
+  );
+  assert.equal(
+    automations.recurringAmountsForPeriod(quarterlyLease, quarterlySeptember).total,
+    5201.61,
+    'The 19 July quarterly cycle must apply the first-month prorata to rent and syndic.',
+  );
+
+  const saasSource = fs.readFileSync(path.resolve(__dirname, '../src/saas/saas.service.ts'), 'utf8');
+  assert.match(
+    saasSource,
+    /issue_date::TEXT AS issue_date/,
+    'Tenant-credit allocation must read PostgreSQL DATE values as YYYY-MM-DD text.',
+  );
+  assert.doesNotMatch(
+    saasSource,
+    /SELECT id, invoice_number, invoice_type, issue_date, status, total/,
+    'The unsafe Date-object conversion path must not return.',
+  );
 
   const originalDbQuery = automations.db.query.bind(automations.db);
   automations.db.query = async () => ({ rows: [{ id: 999, status: 'SUCCESS', started_at: new Date().toISOString() }] });
@@ -109,6 +161,8 @@ async function main() {
             create_count: previewCatalyse.create_count,
             skipped_count: previewCatalyse.skipped_count,
             due_date: previewCatalyse.due_date,
+            quarterlySeptemberIssueDate: quarterlySeptember.issueDate,
+            quarterlySeptemberTotal: automations.recurringAmountsForPeriod(quarterlyLease, quarterlySeptember).total,
           },
           magicConstruction: {
             create_count: previewMagic.create_count,
