@@ -132,6 +132,58 @@ export function calculateInitialBillingCycle(
   };
 }
 
+export function calculateBillingCycleForPeriod(
+  periodStartDate: Date,
+  periodEndDate: Date,
+  components: BillingComponentInput[],
+): InitialBillingCycleCalculation {
+  const periodStart = cloneDate(periodStartDate);
+  const periodEnd = cloneDate(periodEndDate);
+  if (periodEnd.getTime() < periodStart.getTime()) {
+    throw new Error('Billing period end must not precede its start');
+  }
+
+  const lines: BillingCycleLine[] = [];
+  let monthDate = startOfMonth(periodStart);
+  while (monthDate.getTime() <= periodEnd.getTime()) {
+    const monthStart = monthDate.getFullYear() === periodStart.getFullYear() && monthDate.getMonth() === periodStart.getMonth()
+      ? periodStart
+      : startOfMonth(monthDate);
+    const naturalMonthEnd = lastDayOfMonth(monthDate);
+    const monthEnd = naturalMonthEnd.getTime() > periodEnd.getTime() ? periodEnd : naturalMonthEnd;
+    const billableDays = countBillableDays(monthStart, monthEnd);
+    const monthDays = daysInMonth(monthDate);
+    const isProrated = monthStart.getDate() > 1 || monthEnd.getDate() < naturalMonthEnd.getDate();
+
+    for (const component of components) {
+      const amount = isProrated
+        ? calculateProratedAmount(component.monthlyAmount, billableDays, monthDays).amount
+        : roundMoney(component.monthlyAmount);
+      lines.push({
+        component_code: component.code,
+        component_label: component.label,
+        period_start: formatDate(monthStart),
+        period_end: formatDate(monthEnd),
+        billable_days: billableDays,
+        days_in_month: monthDays,
+        is_prorated: isProrated,
+        amount,
+      });
+    }
+    monthDate = addMonths(monthDate, 1);
+  }
+
+  const monthSpan = (periodEnd.getFullYear() - periodStart.getFullYear()) * 12
+    + periodEnd.getMonth() - periodStart.getMonth() + 1;
+  return {
+    period_start: formatDate(periodStart),
+    period_end: formatDate(periodEnd),
+    frequency_months: monthSpan,
+    lines,
+    total_amount: roundMoney(lines.reduce((sum, line) => sum + line.amount, 0)),
+  };
+}
+
 export function parseDate(value: string): Date {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) {

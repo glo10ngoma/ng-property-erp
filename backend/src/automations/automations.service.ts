@@ -8,6 +8,7 @@ import { DocumentType } from '../communication/shared/enums/document-type.enum';
 import { DatabaseService } from '../database/database.service';
 import { SaasService } from '../saas/saas.service';
 import {
+  calculateBillingCycleForPeriod,
   calculateInitialBillingCycle,
   calculateNextFullBillingPeriod,
   daysInMonth as billingDaysInMonth,
@@ -46,6 +47,7 @@ type RecurringAmountSummary = {
 
 type EligibleLease = {
   id: number;
+  organization_id?: number;
   lease_number?: number | null;
   tenant_id: number;
   unit_id: number;
@@ -61,6 +63,7 @@ type EligibleLease = {
   last_rent_period_end?: string | null;
   last_rent_billing_month?: number | null;
   last_rent_billing_year?: number | null;
+  tenant_quarterly_anchor_start_date?: string | null;
   tenant_name: string;
   tenant_email?: string | null;
   tenant_phone?: string | null;
@@ -94,6 +97,7 @@ export class AutomationsService {
   private readonly generationDay = 1;
   private readonly defaultAutomaticDueDay = 5;
   private readonly staleRunMinutes = 30;
+  private readonly tenantSynchronizedBillingOrganizationIds = new Set([1, 5]);
 
   constructor(
     private readonly db: DatabaseService,
@@ -674,11 +678,19 @@ export class AutomationsService {
       const lockedLease = await client.query<
         Pick<
           EligibleLease,
-          'id' | 'lease_number' | 'tenant_id' | 'unit_id' | 'monthly_rent' | 'maintenance_fee_amount' | 'monthly_syndic_amount' | 'billing_frequency_months' | 'status' | 'start_date' | 'end_date'
+          'id' | 'organization_id' | 'lease_number' | 'tenant_id' | 'unit_id' | 'monthly_rent' | 'maintenance_fee_amount' | 'monthly_syndic_amount' | 'billing_frequency_months' | 'status' | 'start_date' | 'end_date' | 'tenant_quarterly_anchor_start_date'
         >
       >(
-        `SELECT l.id, l.lease_number, l.tenant_id, l.unit_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
+        `SELECT l.id, l.organization_id, l.lease_number, l.tenant_id, l.unit_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
                 COALESCE(l.billing_frequency_months, 1) AS billing_frequency_months,
+                (SELECT MIN(l2.start_date)
+                   FROM leases l2
+                  WHERE l2.organization_id = l.organization_id
+                    AND l2.tenant_id = l.tenant_id
+                    AND l2.status = 'ACTIVE'
+                    AND l2.deleted_at IS NULL
+                    AND l2.archived_at IS NULL
+                    AND COALESCE(l2.billing_frequency_months, 1) = 3) AS tenant_quarterly_anchor_start_date,
                 l.status, l.start_date, l.end_date
          FROM leases l
          WHERE l.id = $1
@@ -1144,8 +1156,16 @@ export class AutomationsService {
 
   private async fetchEligibleLeases(organizationId: number, period: BillingPeriod, asOfDate: string) {
     const { rows } = await this.db.query<EligibleLease>(
-      `SELECT l.id, l.lease_number, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
+      `SELECT l.id, l.organization_id, l.lease_number, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
               COALESCE(l.billing_frequency_months, 1) AS billing_frequency_months,
+              (SELECT MIN(l2.start_date)
+                 FROM leases l2
+                WHERE l2.organization_id = l.organization_id
+                  AND l2.tenant_id = l.tenant_id
+                  AND l2.status = 'ACTIVE'
+                  AND l2.deleted_at IS NULL
+                  AND l2.archived_at IS NULL
+                  AND COALESCE(l2.billing_frequency_months, 1) = 3) AS tenant_quarterly_anchor_start_date,
               l.status, l.start_date, l.end_date,
               last_invoice.period_start AS last_rent_period_start,
               last_invoice.period_end AS last_rent_period_end,
@@ -1189,8 +1209,16 @@ export class AutomationsService {
 
   private async fetchLeaseCandidateById(organizationId: number, leaseId: number) {
     const { rows } = await this.db.query<EligibleLease>(
-      `SELECT l.id, l.lease_number, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
+      `SELECT l.id, l.organization_id, l.lease_number, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
               COALESCE(l.billing_frequency_months, 1) AS billing_frequency_months,
+              (SELECT MIN(l2.start_date)
+                 FROM leases l2
+                WHERE l2.organization_id = l.organization_id
+                  AND l2.tenant_id = l.tenant_id
+                  AND l2.status = 'ACTIVE'
+                  AND l2.deleted_at IS NULL
+                  AND l2.archived_at IS NULL
+                  AND COALESCE(l2.billing_frequency_months, 1) = 3) AS tenant_quarterly_anchor_start_date,
               l.status, l.start_date, l.end_date,
               last_invoice.period_start AS last_rent_period_start,
               last_invoice.period_end AS last_rent_period_end,
@@ -1229,8 +1257,16 @@ export class AutomationsService {
 
   private async fetchLeaseCandidates(organizationId: number) {
     const { rows } = await this.db.query<EligibleLease>(
-      `SELECT l.id, l.lease_number, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
+      `SELECT l.id, l.organization_id, l.lease_number, l.tenant_id, l.unit_id, u.building_id, l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount,
               COALESCE(l.billing_frequency_months, 1) AS billing_frequency_months,
+              (SELECT MIN(l2.start_date)
+                 FROM leases l2
+                WHERE l2.organization_id = l.organization_id
+                  AND l2.tenant_id = l.tenant_id
+                  AND l2.status = 'ACTIVE'
+                  AND l2.deleted_at IS NULL
+                  AND l2.archived_at IS NULL
+                  AND COALESCE(l2.billing_frequency_months, 1) = 3) AS tenant_quarterly_anchor_start_date,
               l.status, l.start_date, l.end_date,
               last_invoice.period_start AS last_rent_period_start,
               last_invoice.period_end AS last_rent_period_end,
@@ -1600,6 +1636,13 @@ export class AutomationsService {
 
   private nextBillingPeriodForLease(basePeriod: BillingPeriod, lease: Partial<EligibleLease>) {
     const frequencyMonths = normalizeBillingFrequency(lease.billing_frequency_months);
+    if (
+      frequencyMonths === 3
+      && this.tenantSynchronizedBillingOrganizationIds.has(Number(lease.organization_id))
+      && this.dateOnly(lease.tenant_quarterly_anchor_start_date)
+    ) {
+      return this.nextTenantAlignedQuarterlyPeriod(basePeriod, lease);
+    }
     const lastEnd = this.dateOnly(lease.last_rent_period_end) ?? this.lastRentPeriodEndFromBillingFields(lease);
     let calculatedPeriod: { period_start: string; period_end: string; frequency_months: number } | null = null;
 
@@ -1639,7 +1682,7 @@ export class AutomationsService {
   }
 
   private recurringAmountsForPeriod(lease: Partial<EligibleLease>, period: BillingPeriod): { rent: RecurringAmountSummary; syndic: RecurringAmountSummary; total: number } {
-    const cycle = calculateInitialBillingCycle(parseDate(period.periodStart), period.frequencyMonths, [
+    const cycle = calculateBillingCycleForPeriod(parseDate(period.periodStart), parseDate(period.periodEnd), [
       { code: 'RENT', label: 'Loyer', monthlyAmount: this.leaseRentAmount(lease) },
       { code: 'SYNDIC', label: 'Syndic', monthlyAmount: Number(lease.monthly_syndic_amount ?? 0) },
     ]);
@@ -1653,6 +1696,43 @@ export class AutomationsService {
       rent: { amount: rentAmount },
       syndic: { amount: syndicAmount },
       total: cycle.total_amount,
+    };
+  }
+
+  private nextTenantAlignedQuarterlyPeriod(basePeriod: BillingPeriod, lease: Partial<EligibleLease>) {
+    const anchorDate = this.dateOnly(lease.tenant_quarterly_anchor_start_date);
+    const leaseStart = this.dateOnly(lease.start_date);
+    if (!anchorDate || !leaseStart) return null;
+
+    const hasExistingInvoice = Boolean(
+      this.dateOnly(lease.last_rent_period_end)
+      || lease.last_rent_billing_month
+      || lease.last_rent_billing_year,
+    );
+    const referenceDate = hasExistingInvoice ? basePeriod.periodStart : leaseStart;
+    const anchorMonthIndex = this.yearFromDate(anchorDate) * 12 + this.monthFromDate(anchorDate) - 1;
+    const referenceMonthIndex = this.yearFromDate(referenceDate) * 12 + this.monthFromDate(referenceDate) - 1;
+    if (referenceMonthIndex < anchorMonthIndex) return null;
+
+    const cycleOffset = Math.floor((referenceMonthIndex - anchorMonthIndex) / 3) * 3;
+    const cycleStartDate = new Date(this.yearFromDate(anchorDate), this.monthFromDate(anchorDate) - 1 + cycleOffset, 1);
+    const cycleEndDate = new Date(cycleStartDate.getFullYear(), cycleStartDate.getMonth() + 3, 0);
+    const cycleStart = `${cycleStartDate.getFullYear()}-${this.two(cycleStartDate.getMonth() + 1)}-01`;
+    const cycleEnd = `${cycleEndDate.getFullYear()}-${this.two(cycleEndDate.getMonth() + 1)}-${this.two(cycleEndDate.getDate())}`;
+    const issueDate = hasExistingInvoice ? cycleStart : leaseStart;
+
+    if (this.yearFromDate(issueDate) !== basePeriod.year || this.monthFromDate(issueDate) !== basePeriod.month) {
+      return null;
+    }
+    const period = this.buildBillingPeriod(basePeriod.year, basePeriod.month, basePeriod.dueDay);
+    const startsDuringMonth = this.dayFromDate(issueDate) > 1;
+    return {
+      ...period,
+      issueDate,
+      dueDate: startsDuringMonth ? issueDate : period.dueDate,
+      frequencyMonths: 3,
+      periodStart: hasExistingInvoice ? cycleStart : leaseStart,
+      periodEnd: cycleEnd,
     };
   }
 

@@ -16,9 +16,11 @@ assert.equal(
 const automations = Object.create(AutomationsService.prototype);
 automations.generationDay = 1;
 automations.defaultAutomaticDueDay = 5;
+automations.tenantSynchronizedBillingOrganizationIds = new Set([1, 5]);
 assert.equal(automations.resolveDueDay(10), 5, 'Regular rent invoice due dates must always fall on day 5.');
 const quarterlyLease = {
   id: 999,
+  organization_id: 1,
   tenant_id: 1,
   unit_id: 1,
   monthly_rent: 2000,
@@ -27,6 +29,7 @@ const quarterlyLease = {
   billing_frequency_months: 3,
   status: 'ACTIVE',
   start_date: '2026-07-19',
+  tenant_quarterly_anchor_start_date: '2026-07-19',
 };
 
 const july = automations.buildBillingPeriod(2026, 7, 5);
@@ -48,6 +51,48 @@ assert.deepEqual(
     periodEnd: '2026-09-30',
   },
 );
+
+const laterQuarterlyLease = {
+  ...quarterlyLease,
+  id: 1000,
+  start_date: '2026-08-20',
+  last_rent_period_start: '2026-08-01',
+  last_rent_period_end: '2026-08-30',
+};
+const synchronizedOctober = automations.nextBillingPeriodForLease(
+  automations.buildBillingPeriod(2026, 10, 5),
+  laterQuarterlyLease,
+);
+assert.deepEqual(
+  {
+    issueDate: synchronizedOctober.issueDate,
+    dueDate: synchronizedOctober.dueDate,
+    periodStart: synchronizedOctober.periodStart,
+    periodEnd: synchronizedOctober.periodEnd,
+  },
+  {
+    issueDate: '2026-10-01',
+    dueDate: '2026-10-05',
+    periodStart: '2026-10-01',
+    periodEnd: '2026-12-31',
+  },
+  'Quarterly leases for the same tenant must share the October-December cycle even when an older invoice has legacy dates.',
+);
+
+const monthlyLeaseRemainsIndependent = automations.nextBillingPeriodForLease(
+  automations.buildBillingPeriod(2026, 10, 5),
+  {
+    ...quarterlyLease,
+    id: 1001,
+    billing_frequency_months: 1,
+    start_date: '2026-10-01',
+    last_rent_period_start: null,
+    last_rent_period_end: null,
+    last_rent_billing_month: null,
+    last_rent_billing_year: null,
+  },
+);
+assert.equal(monthlyLeaseRemainsIndependent.periodEnd, '2026-10-31', 'Monthly leases must not be changed by tenant quarterly synchronization.');
 assert.equal(automations.nextBillingPeriodForLease(august, quarterlyLease), null);
 assert.equal(automations.nextBillingPeriodForLease(september, quarterlyLease), null);
 assert.equal(
