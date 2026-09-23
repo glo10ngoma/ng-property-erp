@@ -100,6 +100,7 @@ const navGroups: NavGroup[] = [
       { to: '/tenant-credits', label: 'Crédits locataires', icon: WalletCards, permission: 'payments.read' },
       { to: '/shareholders', label: 'Actionnaires', icon: Users, permission: 'shareholders.read' },
       { to: '/cash', label: 'Caisse principale', icon: WalletCards, permission: 'cash.read' },
+      { to: '/syndic-cash', label: 'Caisse syndic', icon: WalletCards, permission: 'cash.read' },
       { to: '/guarantee-cash', label: 'Caisse garanties locatives', icon: WalletCards, permission: 'guarantee_cash.read' },
     ],
   },

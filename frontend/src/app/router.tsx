@@ -62,6 +62,7 @@ import { ArchivesPage } from '../pages/ArchivesPage';
 import { BankAccountDetailPage, BankPage } from '../pages/BankPage';
 import { CashDetailPage } from '../pages/CashEnterprise';
 import { GuaranteeCashPage } from '../pages/GuaranteeCashPage';
+import { SyndicCashPage } from '../pages/SyndicCashPage';
 import { LeaseDetail } from '../pages/LeaseDetail';
 import { LeaseNew } from '../pages/LeaseNew';
 import { Login } from '../pages/Login';
@@ -167,6 +168,7 @@ export function AppRouter() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/cash" element={guarded('cash.read', <CashPage />)} />
           <Route path="/guarantee-cash" element={guarded('guarantee_cash.read', <GuaranteeCashPage />)} />
+          <Route path="/syndic-cash" element={guarded('cash.read', <SyndicCashPage />)} />
           <Route path="/cash/categories" element={guarded('cash.read', <CashExpenseCategoriesPage />)} />
           <Route path="/cash/:id" element={guarded('cash.read', <CashDetailPage />)} />
           <Route path="/staff" element={guarded('staff.read', <StaffPage />)} />

@@ -2416,6 +2416,142 @@ export class SaasService {
     );
   }
 
+  async createInvoicePaymentVentilation(client: PoolClient, args: {
+    paymentId: number;
+    primaryInvoiceId: number;
+    paymentDate: string;
+    paymentMethod: string;
+    reference?: string | null;
+    amountUsd: number;
+    amountCdf: number;
+    cdfEquivalentUsd: number;
+    exchangeRateUsed?: number | null;
+    exchangeRateDate?: string | null;
+  }) {
+    await this.ensureSyndicCashSchema(client);
+    const organizationId = this.context.organizationId();
+    const allocationResult = await client.query(
+      `SELECT pa.invoice_id,
+              pa.amount::FLOAT AS allocated_amount,
+              i.tenant_id,
+              COALESCE(lines.total_amount, i.total, 0)::FLOAT AS invoice_amount,
+              COALESCE(lines.syndic_amount, 0)::FLOAT AS syndic_amount
+       FROM payment_allocations pa
+       JOIN invoices i
+         ON i.id = pa.invoice_id
+        AND i.organization_id = pa.organization_id
+        AND i.deleted_at IS NULL
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(SUM(ii.amount), 0) AS total_amount,
+                COALESCE(SUM(
+                  CASE
+                    WHEN UPPER(TRIM(COALESCE(ii.item_type, ''))) = 'SYNDIC'
+                      OR UPPER(TRIM(COALESCE(ii.description, ''))) LIKE 'SYNDIC%'
+                    THEN ii.amount ELSE 0
+                  END
+                ), 0) AS syndic_amount
+         FROM invoice_items ii
+         WHERE ii.invoice_id = i.id
+           AND ii.organization_id = i.organization_id
+           AND ii.deleted_at IS NULL
+       ) lines ON TRUE
+       WHERE pa.payment_id = $1
+         AND pa.organization_id = $2
+         AND pa.deleted_at IS NULL
+       ORDER BY pa.id`,
+      [args.paymentId, organizationId],
+    );
+    const breakdown = allocationResult.rows.map((row) => {
+      const invoiceAmount = Number(row.invoice_amount ?? 0);
+      const syndicAmount = Number(row.syndic_amount ?? 0);
+      const allocatedAmount = Number(row.allocated_amount ?? 0);
+      const syndicRatio = invoiceAmount > 0 ? Math.min(Math.max(syndicAmount / invoiceAmount, 0), 1) : 0;
+      return {
+        invoice_id: Number(row.invoice_id),
+        allocated_amount: allocatedAmount,
+        syndic_ratio: Number(syndicRatio.toFixed(8)),
+        syndic_equivalent_usd: Number((allocatedAmount * syndicRatio).toFixed(2)),
+        tenant_id: Number(row.tenant_id ?? 0) || null,
+      };
+    });
+    const allocationTotal = breakdown.reduce((sum, row) => sum + row.allocated_amount, 0);
+    const syndicEquivalentTotal = breakdown.reduce((sum, row) => sum + row.syndic_equivalent_usd, 0);
+    const syndicRatio = allocationTotal > 0
+      ? Math.min(Math.max(syndicEquivalentTotal / allocationTotal, 0), 1)
+      : 0;
+    const tenantId = breakdown.find((row) => row.tenant_id)?.tenant_id ?? null;
+    const treasuryLocation = args.paymentMethod === 'BANK' ? 'BANK' : 'MAIN_CASH';
+
+    const currencies = [
+      { currency: 'USD', amount: args.amountUsd, equivalentUsd: args.amountUsd },
+      { currency: 'CDF', amount: args.amountCdf, equivalentUsd: args.cdfEquivalentUsd },
+    ].filter((entry) => entry.amount > 0);
+
+    for (const entry of currencies) {
+      const syndicAmount = Number((entry.amount * syndicRatio).toFixed(2));
+      const syndicEquivalentUsd = Number((entry.equivalentUsd * syndicRatio).toFixed(2));
+      const rentAmount = Number((entry.amount - syndicAmount).toFixed(2));
+      const rentEquivalentUsd = Number((entry.equivalentUsd - syndicEquivalentUsd).toFixed(2));
+
+      if (args.paymentMethod !== 'BANK' && rentAmount > 0) {
+        await this.createInvoicePaymentMovement(client, args.paymentId, args.primaryInvoiceId, rentAmount, args.reference, {
+          currency: entry.currency,
+          exchangeRateUsed: entry.currency === 'CDF' ? args.exchangeRateUsed : null,
+          exchangeRateDate: entry.currency === 'CDF' ? args.exchangeRateDate : null,
+          equivalentUsd: rentEquivalentUsd,
+        });
+        await client.query(
+          `UPDATE cash_movements
+           SET movement_date = $2,
+               description = 'Paiement loyer (hors syndic)'
+           WHERE payment_id = $1
+             AND organization_id = $3
+             AND currency = $4
+             AND deleted_at IS NULL`,
+          [args.paymentId, args.paymentDate, organizationId, entry.currency],
+        );
+      }
+
+      if (syndicAmount > 0) {
+        await client.query(
+          `INSERT INTO syndic_cash_movements (
+             organization_id, type, movement_type, amount, currency, equivalent_usd,
+             exchange_rate_used, exchange_rate_date, movement_date, payment_id, invoice_id,
+             tenant_id, payment_method, treasury_location, reference, description,
+             allocation_breakdown, created_by
+           ) VALUES (
+             $1, 'IN', 'SYNDIC_PAYMENT', $2, $3, $4,
+             $5, $6, $7, $8, $9,
+             $10, $11, $12, $13, 'Paiement syndic',
+             $14::JSONB, $15
+           )`,
+          [
+            organizationId,
+            syndicAmount,
+            entry.currency,
+            syndicEquivalentUsd,
+            entry.currency === 'CDF' ? args.exchangeRateUsed ?? null : null,
+            entry.currency === 'CDF' ? args.exchangeRateDate ?? null : null,
+            args.paymentDate,
+            args.paymentId,
+            args.primaryInvoiceId,
+            tenantId,
+            args.paymentMethod,
+            treasuryLocation,
+            args.reference ?? null,
+            JSON.stringify(breakdown),
+            this.context.userId() ?? 1,
+          ],
+        );
+      }
+    }
+
+    return {
+      syndic_ratio: Number(syndicRatio.toFixed(8)),
+      syndic_equivalent_usd: Number((args.amountUsd * syndicRatio + args.cdfEquivalentUsd * syndicRatio).toFixed(2)),
+    };
+  }
+
   async cashExpenseCategories() {
     try {
       return await this.findAll('cash_expense_categories', 'name');
@@ -3940,6 +4076,9 @@ export class SaasService {
 
     await this.restoreFinanceRows(client, 'cash_movements', 'payment_id', paymentId);
     await this.restoreFinanceRows(client, 'guarantee_cash_movements', 'payment_id', paymentId);
+    if (await this.tableExists('syndic_cash_movements')) {
+      await this.restoreFinanceRows(client, 'syndic_cash_movements', 'payment_id', paymentId);
+    }
     await this.restoreFinanceRows(client, 'payment_allocations', 'payment_id', paymentId);
     await this.restoreFinanceRows(client, 'payments', 'id', paymentId);
 
@@ -4192,7 +4331,7 @@ export class SaasService {
 
   private async restoreFinanceRows(
     client: PoolClient,
-    tableName: 'payments' | 'payment_allocations' | 'cash_movements' | 'guarantee_cash_movements' | 'tenant_credits' | 'tenant_credit_refunds' | 'tenant_credit_allocations',
+    tableName: 'payments' | 'payment_allocations' | 'cash_movements' | 'guarantee_cash_movements' | 'syndic_cash_movements' | 'tenant_credits' | 'tenant_credit_refunds' | 'tenant_credit_allocations',
     keyColumn: 'id' | 'payment_id',
     value: number,
   ) {
@@ -8403,6 +8542,54 @@ export class SaasService {
     return { overview, movements };
   }
 
+  async syndicCashOverview(filters: Record<string, unknown> = {}) {
+    await this.ensureSyndicCashSchema();
+    const { where, values } = this.syndicCashWhere(filters);
+    const { rows } = await this.db.query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN scm.type = 'IN' THEN scm.equivalent_usd ELSE -scm.equivalent_usd END), 0)::FLOAT AS balance_usd,
+         COALESCE(SUM(CASE WHEN scm.type = 'IN' THEN scm.equivalent_usd ELSE 0 END), 0)::FLOAT AS total_in,
+         COALESCE(SUM(CASE WHEN scm.type = 'OUT' THEN scm.equivalent_usd ELSE 0 END), 0)::FLOAT AS total_out,
+         COALESCE(SUM(CASE WHEN scm.treasury_location = 'MAIN_CASH' THEN scm.equivalent_usd ELSE 0 END), 0)::FLOAT AS main_cash_total,
+         COALESCE(SUM(CASE WHEN scm.treasury_location = 'BANK' THEN scm.equivalent_usd ELSE 0 END), 0)::FLOAT AS bank_total,
+         COUNT(*)::INT AS movement_count,
+         MAX(scm.movement_date) AS last_movement_date
+       FROM syndic_cash_movements scm
+       ${where}`,
+      values,
+    );
+    return rows[0] ?? {};
+  }
+
+  async syndicCashMovements(filters: Record<string, unknown> = {}) {
+    await this.ensureSyndicCashSchema();
+    const { where, values } = this.syndicCashWhere(filters);
+    const { rows } = await this.db.query(
+      `SELECT scm.*,
+              i.invoice_number,
+              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
+                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
+              END AS tenant_name,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS user_name
+       FROM syndic_cash_movements scm
+       LEFT JOIN invoices i ON i.id = scm.invoice_id AND i.organization_id = scm.organization_id
+       LEFT JOIN tenants t ON t.id = scm.tenant_id AND t.organization_id = scm.organization_id
+       LEFT JOIN app_users u ON u.id = scm.created_by
+       ${where}
+       ORDER BY scm.movement_date DESC, scm.id DESC`,
+      values,
+    );
+    return rows;
+  }
+
+  async syndicCashReport(filters: Record<string, unknown> = {}) {
+    const [overview, movements] = await Promise.all([
+      this.syndicCashOverview(filters),
+      this.syndicCashMovements(filters),
+    ]);
+    return { overview, movements };
+  }
+
   async bankDashboard(filters: Record<string, unknown> = {}) {
     await this.ensureBankSchema();
     const period = this.normalizeBankPeriod(filters);
@@ -11089,7 +11276,7 @@ export class SaasService {
 
   private async softDeleteFinanceRows(
     client: PoolClient,
-    tableName: 'payments' | 'payment_allocations' | 'cash_movements' | 'guarantee_cash_movements' | 'maintenance_expenses',
+    tableName: 'payments' | 'payment_allocations' | 'cash_movements' | 'guarantee_cash_movements' | 'syndic_cash_movements' | 'maintenance_expenses',
     keyColumn: 'id' | 'payment_id',
     value: number,
     reason: string,
@@ -11148,6 +11335,9 @@ export class SaasService {
 
     await this.softDeleteFinanceRows(client, 'cash_movements', 'payment_id', paymentId, reason);
     await this.softDeleteFinanceRows(client, 'guarantee_cash_movements', 'payment_id', paymentId, reason);
+    if (await this.tableExists('syndic_cash_movements')) {
+      await this.softDeleteFinanceRows(client, 'syndic_cash_movements', 'payment_id', paymentId, reason);
+    }
     await this.softDeleteFinanceRows(client, 'payment_allocations', 'payment_id', paymentId, reason);
     await this.softDeleteFinanceRows(client, 'payments', 'id', paymentId, reason);
 
@@ -16873,6 +17063,39 @@ export class SaasService {
   private async ensureGuaranteeCashSchema() {
     if (!(await this.tableExists('guarantee_cash_movements')) || !(await this.columnExists('payments', 'guarantee_cash_movement_id'))) {
       throw new BadRequestException('La caisse des garanties locatives n est pas encore configuree.');
+    }
+  }
+
+  private syndicCashWhere(filters: Record<string, unknown> = {}) {
+    const values: unknown[] = [this.context.organizationId()];
+    const clauses = ['scm.organization_id = $1', 'scm.deleted_at IS NULL'];
+    const add = (sql: string, value: unknown) => {
+      values.push(value);
+      clauses.push(sql.replace('?', `$${values.length}`));
+    };
+    if (filters.date_from) add('scm.movement_date >= ?::DATE', String(filters.date_from));
+    if (filters.date_to) add('scm.movement_date <= ?::DATE', String(filters.date_to));
+    if (filters.currency) add('scm.currency = ?', String(filters.currency).toUpperCase());
+    if (filters.payment_method) add('scm.payment_method = ?', String(filters.payment_method).toUpperCase());
+    if (filters.treasury_location) add('scm.treasury_location = ?', String(filters.treasury_location).toUpperCase());
+    if (filters.payment_id) add('scm.payment_id = ?::INT', Number(filters.payment_id));
+    if (filters.invoice_id) add('scm.invoice_id = ?::INT', Number(filters.invoice_id));
+    if (filters.tenant_id) add('scm.tenant_id = ?::INT', Number(filters.tenant_id));
+    return { where: `WHERE ${clauses.join(' AND ')}`, values };
+  }
+
+  private async ensureSyndicCashSchema(client?: PoolClient) {
+    const query = `SELECT 1
+       FROM information_schema.tables
+       WHERE table_schema = 'public'
+         AND table_name = 'syndic_cash_movements'
+       LIMIT 1`;
+    const result = client
+      ? await client.query(query)
+      : await this.db.query(query);
+    const { rows } = result;
+    if (!rows[0]) {
+      throw new BadRequestException('La caisse syndic n est pas encore configuree.');
     }
   }
 

@@ -672,6 +672,26 @@ export class GuaranteeCashController {
   }
 }
 
+@Controller('syndic-cash')
+export class SyndicCashController {
+  constructor(private readonly service: SaasService) {}
+
+  @Get('overview')
+  overview(@Query() query: Record<string, unknown>) {
+    return this.service.syndicCashOverview(query);
+  }
+
+  @Get('movements')
+  movements(@Query() query: Record<string, unknown>) {
+    return this.service.syndicCashMovements(query);
+  }
+
+  @Get('report')
+  report(@Query() query: Record<string, unknown>) {
+    return this.service.syndicCashReport(query);
+  }
+}
+
 @Controller('shareholders')
 export class ShareholdersController {
   constructor(private readonly service: SaasService) {}

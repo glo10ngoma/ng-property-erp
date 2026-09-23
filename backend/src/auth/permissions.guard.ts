@@ -410,6 +410,9 @@ export class PermissionsGuard implements CanActivate {
     if (/^\/api\/guarantee-cash/.test(path)) {
       return method === 'GET' ? 'guarantee_cash.read' : 'guarantee_cash.create';
     }
+    if (/^\/api\/syndic-cash/.test(path)) {
+      return 'cash.read';
+    }
     if (/^\/api\/tenants\/trash$/.test(path)) {
       return 'tenants.read';
     }

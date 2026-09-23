@@ -532,20 +532,18 @@ export class PaymentsService {
         );
         await this.invoices.refreshStatus(client, allocation.invoice_id);
       }
-      if (paymentMethod !== 'BANK' && amountUsd > 0) {
-        await this.saas.createInvoicePaymentMovement(client, rows[0].id, primaryInvoiceId, amountUsd, dto.reference, {
-          currency: 'USD',
-          equivalentUsd: amountUsd,
-        });
-      }
-      if (paymentMethod !== 'BANK' && amountCdf > 0) {
-        await this.saas.createInvoicePaymentMovement(client, rows[0].id, primaryInvoiceId, amountCdf, dto.reference, {
-          currency: 'CDF',
-          exchangeRateUsed: rateUsed,
-          exchangeRateDate: exchangeRateDate ? String(exchangeRateDate) : null,
-          equivalentUsd: cdfEquivalentUsd,
-        });
-      }
+      await this.saas.createInvoicePaymentVentilation(client, {
+        paymentId: Number(rows[0].id),
+        primaryInvoiceId: Number(primaryInvoiceId),
+        paymentDate: String(dto.payment_date),
+        paymentMethod,
+        reference: dto.reference ?? null,
+        amountUsd,
+        amountCdf,
+        cdfEquivalentUsd,
+        exchangeRateUsed: rateUsed,
+        exchangeRateDate: exchangeRateDate ? String(exchangeRateDate) : null,
+      });
       if (bankAccount) {
         await this.createBankPaymentTransaction(client, {
           paymentId: Number(rows[0].id),
