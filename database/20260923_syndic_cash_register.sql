@@ -40,4 +40,20 @@ CREATE INDEX IF NOT EXISTS syndic_cash_movements_invoice_idx
   ON syndic_cash_movements (organization_id, invoice_id)
   WHERE deleted_at IS NULL;
 
+CREATE TABLE IF NOT EXISTS syndic_cash_reclassification_audit (
+  id BIGSERIAL PRIMARY KEY,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id),
+  payment_id INTEGER NOT NULL REFERENCES payments(id),
+  cash_movement_id INTEGER REFERENCES cash_movements(id),
+  currency VARCHAR(10) NOT NULL,
+  original_cash_amount NUMERIC(12,2),
+  reclassified_syndic_amount NUMERIC(12,2) NOT NULL,
+  resulting_cash_amount NUMERIC(12,2),
+  original_equivalent_usd NUMERIC(12,2),
+  reclassified_equivalent_usd NUMERIC(12,2) NOT NULL,
+  resulting_equivalent_usd NUMERIC(12,2),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  UNIQUE (organization_id, payment_id, currency)
+);
+
 COMMIT;
