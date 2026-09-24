@@ -8888,112 +8888,7 @@ export class SaasService {
         ? 'BANK_ACCOUNT_ARCHIVED'
         : 'BANK_ACCOUNT_UPDATED';
       await this.db.query(
-        `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
-         VALUES ($1, $2, $3, 'bank_accounts', $4, 'PATCH', $5, 200, $6::JSONB)`,
-        [
-          this.context.organizationId(),
-          this.context.userId() ?? null,
-          action,
-          String(updated.id),
-          `/api/bank-accounts/${updated.id}`,
-          JSON.stringify({
-            bank_account_id: updated.id,
-            bank_name: updated.bank_name,
-            account_name: updated.account_name,
-            currency: updated.currency,
-            previous: {
-              bank_name: current.bank_name,
-              account_name: current.account_name,
-              account_number: current.account_number,
-              account_type: current.account_type,
-              notes: current.notes,
-              status: current.status,
-            },
-            next: {
-              bank_name: updated.bank_name,
-              account_name: updated.account_name,
-              account_number: updated.account_number,
-              account_type: updated.account_type,
-              notes: updated.notes,
-              status: updated.status,
-            },
-          }),
-        ],
-      );
-      return this.bankAccount(Number(updated.id));
-    } catch (error: any) {
-      if (error?.code === '23505') {
-        throw new ConflictException('Un compte bancaire identique existe d√©j√† pour cette organisation et cette devise.');
-      }
-      throw error;
-    }
-  }
-
-  async bankTransactions(filters: Record<string, unknown> = {}) {
-    await this.ensureBankSchema();
-    const hasTreasuryTransfers = await this.tableExists('treasury_transfers');
-    const treasurySelect = hasTreasuryTransfers
-      ? `,
-              tt.id AS source_treasury_transfer_id,
-              tt.transfer_number AS source_treasury_transfer_number,`
-      : `,
-              NULL::INT AS source_treasury_transfer_id,
-              NULL::VARCHAR AS source_treasury_transfer_number,`;
-    const treasuryJoin = hasTreasuryTransfers
-      ? `
-       LEFT JOIN treasury_transfers tt ON tt.id = bt.source_entity_id
-         AND bt.source_module = 'TREASURY_TRANSFERS'
-         AND bt.source_entity_type = 'TREASURY_TRANSFER'
-         AND tt.organization_id = bt.organization_id`
-      : '';
-    const values: unknown[] = [this.context.organizationId()];
-    const clauses = ['bt.organization_id = $1'];
-    if (filters.bank_account_id) {
-      values.push(Number(filters.bank_account_id));
-      clauses.push(`bt.bank_account_id = $${values.length}`);
-    }
-    if (filters.currency) {
-      values.push(String(filters.currency).trim().toUpperCase());
-      clauses.push(`bt.currency = $${values.length}`);
-    }
-    if (filters.direction) {
-      values.push(String(filters.direction).trim().toUpperCase());
-      clauses.push(`bt.direction = $${values.length}`);
-    }
-    if (filters.transaction_type) {
-      values.push(String(filters.transaction_type).trim().toUpperCase());
-      clauses.push(`bt.transaction_type = $${values.length}`);
-    }
-    if (filters.source_module) {
-      values.push(String(filters.source_module).trim().toUpperCase());
-      clauses.push(`UPPER(COALESCE(bt.source_module, '')) = $${values.length}`);
-    }
-    if (filters.status) {
-      values.push(String(filters.status).trim().toUpperCase());
-      clauses.push(`bt.status = $${values.length}`);
-    }
-    if (filters.start) {
-      values.push(this.normalizeLeasePayloadDate(filters.start, 'start'));
-      clauses.push(`bt.transaction_date >= $${values.length}`);
-    }
-    if (filters.end) {
-      values.push(this.normalizeLeasePayloadDate(filters.end, 'end'));
-      clauses.push(`bt.transaction_date <= $${values.length}`);
-    }
-    if (filters.bank_name) {
-      values.push(`%${String(filters.bank_name).trim().toLowerCase()}%`);
-      clauses.push(`LOWER(COALESCE(ba.bank_name, '')) LIKE $${values.length}`);
-    }
-    if (filters.reference) {
-      values.push(`%${String(filters.reference).trim().toLowerCase()}%`);
-      clauses.push(`LOWER(COALESCE(bt.reference, '')) LIKE $${values.length}`);
-    }
-    if (filters.search) {
-      values.push(`%${String(filters.search).trim().toLowerCase()}%`);
-      clauses.push(`(
-        LOWER(COALESCE(bt.transaction_number, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(ba.bank_name, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(ba.account_name, '')) LIKE $${values.length}
+       ÁŒˆo+^≤â¢∂◊ùSCE(ba.account_name, '')) LIKE $${values.length}
         OR LOWER(COALESCE(bt.reference, '')) LIKE $${values.length}
         OR LOWER(COALESCE(bt.description, '')) LIKE $${values.length}
         OR LOWER(COALESCE(bt.counterparty_name, '')) LIKE $${values.length}
@@ -11030,6 +10925,143 @@ export class SaasService {
     });
   }
 
+  private async ventilateCashTenantCreditAllocationInTransaction(client: PoolClient, args: {
+    organizationId: number;
+    tenantCreditId: number;
+    invoiceId: number;
+    amountApplied: number;
+    createdBy?: number | null;
+  }) {
+    await this.ensureSyndicCashSchema(client);
+    const sourceResult = await client.query(
+      `SELECT tc.source_payment_id,
+              tc.tenant_id,
+              p.payment_method,
+              p.payment_date::TEXT AS payment_date,
+              p.reference,
+              cm.id AS cash_movement_id,
+              cm.amount::FLOAT AS cash_amount,
+              cm.currency,
+              cm.equivalent_usd::FLOAT AS cash_equivalent_usd,
+              cm.exchange_rate_used::FLOAT AS exchange_rate_used,
+              cm.exchange_rate_date::TEXT AS exchange_rate_date
+       FROM tenant_credits tc
+       JOIN payments p
+         ON p.id = tc.source_payment_id
+        AND p.organization_id = tc.organization_id
+        AND p.deleted_at IS NULL
+       JOIN cash_movements cm
+         ON cm.organization_id = tc.organization_id
+        AND (cm.tenant_credit_id = tc.id OR cm.payment_id = tc.source_payment_id)
+        AND cm.deleted_at IS NULL
+       WHERE tc.id = $1
+         AND tc.organization_id = $2
+         AND tc.deleted_at IS NULL
+         AND p.payment_method IN ('CASH', 'MOBILE_MONEY')
+       ORDER BY CASE WHEN cm.tenant_credit_id = tc.id THEN 0 ELSE 1 END, cm.id DESC
+       LIMIT 1
+       FOR UPDATE OF cm`,
+      [args.tenantCreditId, args.organizationId],
+    );
+    const source = sourceResult.rows[0];
+    if (!source) return { syndic_amount: 0, skipped: true };
+
+    const invoiceResult = await client.query(
+      `SELECT COALESCE(lines.total_amount, i.total, 0)::FLOAT AS invoice_amount,
+              COALESCE(lines.syndic_amount, 0)::FLOAT AS syndic_amount
+       FROM invoices i
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(SUM(ii.amount), 0) AS total_amount,
+                COALESCE(SUM(
+                  CASE
+                    WHEN UPPER(TRIM(COALESCE(ii.item_type, ''))) = 'SYNDIC'
+                      OR UPPER(TRIM(COALESCE(ii.description, ''))) LIKE 'SYNDIC%'
+                    THEN ii.amount ELSE 0
+                  END
+                ), 0) AS syndic_amount
+         FROM invoice_items ii
+         WHERE ii.invoice_id = i.id
+           AND ii.organization_id = i.organization_id
+           AND ii.deleted_at IS NULL
+       ) lines ON TRUE
+       WHERE i.id = $1
+         AND i.organization_id = $2
+         AND i.deleted_at IS NULL`,
+      [args.invoiceId, args.organizationId],
+    );
+    const invoice = requireRow(invoiceResult.rows[0], 'Invoice');
+    const invoiceAmount = Number(invoice.invoice_amount ?? 0);
+    const invoiceSyndicAmount = Number(invoice.syndic_amount ?? 0);
+    const syndicRatio = invoiceAmount > 0
+      ? Math.min(Math.max(invoiceSyndicAmount / invoiceAmount, 0), 1)
+      : 0;
+    const syndicAmount = Number((args.amountApplied * syndicRatio).toFixed(2));
+    if (!(syndicAmount > 0)) return { syndic_amount: 0, skipped: true };
+    if (Number(source.cash_amount ?? 0) < syndicAmount) {
+      throw new ConflictException('La ventilation syndic d√©passe le solde du mouvement de caisse source.');
+    }
+
+    const equivalentRatio = Number(source.cash_amount ?? 0) > 0
+      ? Number(source.cash_equivalent_usd ?? 0) / Number(source.cash_amount)
+      : 1;
+    const syndicEquivalentUsd = Number((syndicAmount * equivalentRatio).toFixed(2));
+    const breakdownEntry = {
+      tenant_credit_id: args.tenantCreditId,
+      invoice_id: args.invoiceId,
+      allocated_amount: args.amountApplied,
+      syndic_ratio: Number(syndicRatio.toFixed(8)),
+      syndic_amount: syndicAmount,
+    };
+
+    await client.query(
+      `UPDATE cash_movements
+       SET amount = amount - $2,
+           equivalent_usd = GREATEST(0, equivalent_usd - $3),
+           description = 'Cr√©dit locataire (hors syndic)'
+       WHERE id = $1
+         AND organization_id = $4
+         AND deleted_at IS NULL`,
+      [source.cash_movement_id, syndicAmount, syndicEquivalentUsd, args.organizationId],
+    );
+    await client.query(
+      `INSERT INTO syndic_cash_movements (
+         organization_id, type, movement_type, amount, currency, equivalent_usd,
+         exchange_rate_used, exchange_rate_date, movement_date, payment_id, invoice_id,
+         tenant_id, payment_method, treasury_location, reference, description,
+         allocation_breakdown, created_by
+       ) VALUES (
+         $1, 'IN', 'SYNDIC_PAYMENT', $2, $3, $4,
+         $5, $6, $7, $8, $9,
+         $10, $11, 'MAIN_CASH', $12, 'Paiement syndic via cr√©dit locataire',
+         $13::JSONB, $14
+       )
+       ON CONFLICT (organization_id, payment_id, currency)
+       WHERE payment_id IS NOT NULL AND deleted_at IS NULL
+       DO UPDATE SET
+         amount = syndic_cash_movements.amount + EXCLUDED.amount,
+         equivalent_usd = syndic_cash_movements.equivalent_usd + EXCLUDED.equivalent_usd,
+         invoice_id = EXCLUDED.invoice_id,
+         allocation_breakdown = syndic_cash_movements.allocation_breakdown || EXCLUDED.allocation_breakdown`,
+      [
+        args.organizationId,
+        syndicAmount,
+        source.currency,
+        syndicEquivalentUsd,
+        source.exchange_rate_used ?? null,
+        source.exchange_rate_date ?? null,
+        source.payment_date,
+        source.source_payment_id,
+        args.invoiceId,
+        source.tenant_id,
+        source.payment_method,
+        source.reference ?? null,
+        JSON.stringify([breakdownEntry]),
+        args.createdBy ?? null,
+      ],
+    );
+    return { syndic_amount: syndicAmount, skipped: false };
+  }
+
   async applyTenantCreditsToRentInvoiceInTransaction(client: PoolClient, args: {
     organizationId: number;
     invoiceId: number;
@@ -11147,15 +11179,25 @@ export class SaasService {
          ON CONFLICT DO NOTHING`,
         [args.organizationId, payment.id, args.invoiceId, amountApplied],
       );
-      await client.query(
+      const allocationInsert = await client.query(
         `INSERT INTO tenant_credit_allocations
           (organization_id, tenant_credit_id, invoice_id, payment_id, amount_applied, currency, created_by)
          VALUES ($1, $2, $3, $4, $5, 'USD', $6)
          ON CONFLICT (organization_id, tenant_credit_id, invoice_id)
          WHERE deleted_at IS NULL
-         DO NOTHING`,
+         DO NOTHING
+         RETURNING id`,
         [args.organizationId, credit.id, args.invoiceId, payment.id, amountApplied, args.createdBy ?? null],
       );
+      if (allocationInsert.rows[0]) {
+        await this.ventilateCashTenantCreditAllocationInTransaction(client, {
+          organizationId: args.organizationId,
+          tenantCreditId: Number(credit.id),
+          invoiceId: args.invoiceId,
+          amountApplied,
+          createdBy: args.createdBy ?? null,
+        });
+      }
 
       const remainingAmount = Number((available - amountApplied).toFixed(2));
       const nextStatus = remainingAmount <= 0 ? 'USED' : 'PARTIALLY_USED';
