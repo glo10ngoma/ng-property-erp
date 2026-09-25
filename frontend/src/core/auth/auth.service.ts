@@ -34,6 +34,20 @@ export async function changePassword(payload: {
   return response.data;
 }
 
+export async function forgotPassword(payload: { email: string }) {
+  const response = await api.post<{ message: string }>('/auth/forgot-password', payload);
+  return response.data;
+}
+
+export async function resetPassword(payload: {
+  token: string;
+  newPassword: string;
+  confirmPassword: string;
+}) {
+  const response = await api.post<{ message: string; forceLogout?: boolean }>('/auth/reset-password', payload);
+  return response.data;
+}
+
 export async function logoutRequest() {
   await api.post('/auth/logout');
 }

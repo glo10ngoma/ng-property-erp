@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, LockKeyhole, Mail } from 'lucide-react';
 import { useAuth } from '../auth';
@@ -12,8 +12,11 @@ export function Login() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [resetMessage, setResetMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const successMessage = useMemo(
+    () => (location.state as { message?: string } | null)?.message ?? '',
+    [location.state],
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -80,12 +83,12 @@ export function Login() {
             </div>
           </label>
           {error ? <div className="error-message">{error}</div> : null}
-          {resetMessage ? <div className="info-message">{resetMessage}</div> : null}
+          {successMessage ? <div className="info-message">{successMessage}</div> : null}
           <button disabled={submitting}>{submitting ? 'Connexion…' : 'Se connecter'}</button>
           <button
             className="login-link"
             type="button"
-            onClick={() => setResetMessage('Veuillez contacter l’administrateur pour réinitialiser votre mot de passe.')}
+            onClick={() => navigate('/forgot-password')}
           >
             Mot de passe oublié ?
           </button>
