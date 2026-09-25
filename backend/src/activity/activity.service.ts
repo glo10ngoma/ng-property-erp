@@ -72,7 +72,7 @@ export class ActivityService {
       tasks.push(...maintenance.rows.map((row) => this.task(`maintenance-${row.id}`, 'Intervention maintenance', `${row.request_number} - ${row.title}`, 'Maintenance', row.due_date, row.status, '/maintenance', row.priority)));
       const leases = await this.db.query(
         `SELECT id, lease_number, end_date FROM leases
-         WHERE organization_id = $1 AND deleted_at IS NULL AND archived_at IS NULL AND status = 'ACTIVE' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+         WHERE organization_id = $1 AND deleted_at IS NULL AND status = 'ACTIVE' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
          ORDER BY end_date LIMIT 8`,
         [organizationId],
       );
@@ -120,7 +120,6 @@ export class ActivityService {
        WHERE g.organization_id = $1
          AND g.deleted_at IS NULL
          AND l.deleted_at IS NULL
-         AND l.archived_at IS NULL
          AND COALESCE(g.amount, 0) > 0
          AND COALESCE(g.paid_amount, 0) < COALESCE(g.amount, 0)
        ORDER BY g.id DESC LIMIT 10`,
@@ -191,8 +190,8 @@ export class ActivityService {
         (SELECT COALESCE(SUM(amount),0)::FLOAT FROM payments WHERE organization_id = $1 AND deleted_at IS NULL AND payment_date = CURRENT_DATE) AS payments_today,
         (SELECT COALESCE(SUM(amount),0)::FLOAT FROM cash_movements WHERE organization_id = $1 AND deleted_at IS NULL AND type='OUT' AND movement_date = CURRENT_DATE) AS expenses_today,
         (SELECT COUNT(*)::INT FROM invoices i LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id WHERE i.organization_id = $1 AND i.deleted_at IS NULL AND i.status IN ('DRAFT','UNPAID','PARTIAL') AND COALESCE(s.remaining_amount, i.total) > 0) AS pending_invoices,
-        (SELECT COUNT(*)::INT FROM leases WHERE organization_id = $1 AND deleted_at IS NULL AND archived_at IS NULL AND created_at::DATE = CURRENT_DATE) AS new_leases_today,
-        (SELECT COUNT(*)::INT FROM leases WHERE organization_id = $1 AND deleted_at IS NULL AND archived_at IS NULL AND status = 'ACTIVE' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days') AS contracts_due,
+        (SELECT COUNT(*)::INT FROM leases WHERE organization_id = $1 AND deleted_at IS NULL AND created_at::DATE = CURRENT_DATE) AS new_leases_today,
+        (SELECT COUNT(*)::INT FROM leases WHERE organization_id = $1 AND deleted_at IS NULL AND status = 'ACTIVE' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days') AS contracts_due,
         (SELECT COUNT(*)::INT FROM tenants WHERE organization_id = $1 AND deleted_at IS NULL AND status='ACTIVE') AS active_tenants,
         (SELECT COUNT(*)::INT FROM units WHERE organization_id = $1 AND deleted_at IS NULL AND status='VACANT') AS vacant_units`,
       [organizationId],
@@ -233,7 +232,7 @@ export class ActivityService {
   async week() {
     const organizationId = this.context.organizationId();
     const [leases, guarantees, leaves, inventories, maintenance] = await Promise.all([
-      this.db.query(`SELECT id, end_date AS due_date, 'Contrat à échéance' AS title, 'Baux' AS module FROM leases WHERE organization_id=$1 AND deleted_at IS NULL AND archived_at IS NULL AND status = 'ACTIVE' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'`, [organizationId]),
+      this.db.query(`SELECT id, end_date AS due_date, 'Contrat à échéance' AS title, 'Baux' AS module FROM leases WHERE organization_id=$1 AND deleted_at IS NULL AND status = 'ACTIVE' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'`, [organizationId]),
       this.db.query(`SELECT id, payment_date AS due_date, 'Garantie à suivre' AS title, 'Baux' AS module FROM lease_guarantees WHERE organization_id=$1 AND deleted_at IS NULL AND COALESCE(amount, 0) > 0 AND COALESCE(paid_amount, 0) < COALESCE(amount, 0) LIMIT 10`, [organizationId]),
       this.db.query(`SELECT id, start_date AS due_date, 'Congé prévu' AS title, 'Personnel' AS module FROM leaves WHERE organization_id=$1 AND deleted_at IS NULL AND start_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'`, [organizationId]),
       this.db.query(`SELECT id, count_date AS due_date, 'Inventaire en attente' AS title, 'Stock' AS module FROM inventory_counts WHERE organization_id=$1 AND deleted_at IS NULL AND status='DRAFT'`, [organizationId]),
@@ -248,7 +247,7 @@ export class ActivityService {
     const organizationId = this.context.organizationId();
     const [tenants, leases, invoices, buildings, units, employees] = await Promise.all([
       this.db.query(`SELECT id, CONCAT(first_name,' ',last_name) AS label, 'Locataire' AS type, '/tenants' AS path FROM tenants WHERE organization_id=$1 AND deleted_at IS NULL AND CONCAT(first_name,' ',last_name,' ',COALESCE(phone,'')) ILIKE $2 LIMIT 8`, [organizationId, q]),
-      this.db.query(`SELECT id, CONCAT('B-', LPAD(COALESCE(lease_number, id)::TEXT, 5, '0')) AS label, 'Bail' AS type, '/leases' AS path FROM leases WHERE organization_id=$1 AND deleted_at IS NULL AND archived_at IS NULL AND (id::TEXT ILIKE $2 OR COALESCE(lease_number, id)::TEXT ILIKE $2) LIMIT 8`, [organizationId, q]),
+      this.db.query(`SELECT id, CONCAT('B-', LPAD(COALESCE(lease_number, id)::TEXT, 5, '0')) AS label, 'Bail' AS type, '/leases' AS path FROM leases WHERE organization_id=$1 AND deleted_at IS NULL AND (id::TEXT ILIKE $2 OR COALESCE(lease_number, id)::TEXT ILIKE $2) LIMIT 8`, [organizationId, q]),
       this.db.query(`SELECT id, invoice_number AS label, 'Facture' AS type, CONCAT('/invoices/', id) AS path FROM invoices WHERE organization_id=$1 AND deleted_at IS NULL AND invoice_number ILIKE $2 LIMIT 8`, [organizationId, q]),
       this.db.query(`SELECT id, name AS label, 'Immeuble' AS type, '/buildings' AS path FROM buildings WHERE organization_id=$1 AND deleted_at IS NULL AND name ILIKE $2 LIMIT 8`, [organizationId, q]),
       this.db.query(`SELECT id, number AS label, 'Appartement' AS type, '/rental-units' AS path FROM units WHERE organization_id=$1 AND deleted_at IS NULL AND number ILIKE $2 LIMIT 8`, [organizationId, q]),

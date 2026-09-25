@@ -69,7 +69,6 @@ export class DashboardService {
          LEFT JOIN buildings b ON b.id = u.building_id
          WHERE l.organization_id = $1
            AND l.deleted_at IS NULL
-           AND l.archived_at IS NULL
            AND l.status = 'ACTIVE'
            AND l.end_date IS NOT NULL
            AND l.end_date >= CURRENT_DATE
@@ -191,7 +190,6 @@ export class DashboardService {
       JOIN buildings b ON b.id = u.building_id
       WHERE l.organization_id = $1
         AND l.deleted_at IS NULL
-        AND l.archived_at IS NULL
         AND l.status = 'ACTIVE'
         AND t.deleted_at IS NULL
         AND t.status = 'ACTIVE'
@@ -236,7 +234,6 @@ export class DashboardService {
           AND t.status = 'ACTIVE'
           AND l.organization_id = $1
           AND l.deleted_at IS NULL
-          AND l.archived_at IS NULL
           AND l.status = 'ACTIVE'
           AND l.start_date < $5::DATE
           AND (l.end_date IS NULL OR l.end_date >= $4::DATE)

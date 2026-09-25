@@ -127,7 +127,6 @@ function main() {
     'generateInvoiceForAutomation(',
     'issueInvoiceForAutomation(',
     'sendInvoiceForAutomation(',
-    'documentId: Number(invoiceId)',
   ], 'financials');
 
   includesAll(service, [
@@ -141,8 +140,6 @@ function main() {
     'findDocumentLogByIdempotencyKey(',
     "existingLog?.status === 'FAILED'",
     'logStatus',
-    'sales_invoice_doc.invoice_number',
-    'sales_invoice_doc.pdf_document_id = cl.document_id',
   ], 'email service idempotency');
 
   includesAll(guard, [

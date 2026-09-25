@@ -84,8 +84,6 @@ type ValidatedEmailSettings = {
   apiKey: string;
 };
 
-type AuthEmailPurpose = 'PASSWORD_RESET' | 'ACCOUNT_ACTIVATION';
-
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -259,116 +257,6 @@ export class EmailService {
         await this.finalizeLog(logId, 'FAILED', null, this.combineLogMessage(delivery.logNote, message));
       }
       this.logger.error(`Unable to send communication test email: ${message}`);
-      throw error;
-    }
-  }
-
-  async sendAuthActionEmail(args: {
-    organizationId: number;
-    recipient: string;
-    subject: string;
-    actionUrl: string;
-    purpose: AuthEmailPurpose;
-    validityMinutes: number;
-  }) {
-    const settings = await this.getValidatedSettingsForSending(args.organizationId, true);
-    const recipient = String(args.recipient ?? '').trim();
-    if (!recipient) {
-      throw new BadRequestException("L'adresse email du destinataire est obligatoire.");
-    }
-    if (!this.isEmail(recipient)) {
-      throw new BadRequestException("L'adresse email du destinataire est invalide.");
-    }
-
-    const delivery = this.resolveEmailDeliveryPlan(recipient, []);
-    const templateName = args.purpose === 'ACCOUNT_ACTIVATION' ? 'account-activation.html' : 'password-reset.html';
-    const [baseTemplate, bodyTemplate, organizationName] = await Promise.all([
-      this.readTemplate('base.html'),
-      this.readTemplate(templateName),
-      this.resolveOrganizationName(args.organizationId),
-    ]);
-
-    const bodyHtml = this.renderTemplate(bodyTemplate, {
-      organization_name: organizationName,
-      action_url: args.actionUrl,
-      validity_minutes: String(args.validityMinutes),
-      action_label: args.purpose === 'ACCOUNT_ACTIVATION' ? 'Activer mon accès' : 'Réinitialiser mon mot de passe',
-      action_reason: args.purpose === 'ACCOUNT_ACTIVATION'
-        ? 'Vous recevez ce message pour définir le mot de passe initial de votre accès NG Property.'
-        : 'Vous recevez ce message suite à une demande de réinitialisation de mot de passe.',
-    });
-    const html = this.renderTemplate(baseTemplate, {
-      title: args.subject,
-      body: bodyHtml,
-    });
-    const text = [
-      args.purpose === 'ACCOUNT_ACTIVATION'
-        ? 'Activez votre accès NG Property.'
-        : 'Réinitialisez votre mot de passe NG Property.',
-      '',
-      args.purpose === 'ACCOUNT_ACTIVATION'
-        ? 'Utilisez le lien sécurisé ci-dessous pour définir votre mot de passe initial.'
-        : 'Utilisez le lien sécurisé ci-dessous pour définir un nouveau mot de passe.',
-      args.actionUrl,
-      '',
-      `Ce lien reste valide pendant ${args.validityMinutes} minutes.`,
-      'Si vous n’êtes pas à l’origine de cette demande, ignorez simplement cet email.',
-    ].join('\n');
-
-    let logId: number | null = null;
-    try {
-      logId = await this.insertPendingLog({
-        organizationId: args.organizationId,
-        provider: settings.provider,
-        recipient: delivery.recipient,
-        subject: args.subject,
-        createdBy: null,
-      });
-      if (delivery.mode === 'DISABLED') {
-        if (logId) {
-          await this.finalizeLog(logId, 'SKIPPED', null, delivery.logNote);
-        }
-        return {
-          success: true,
-          provider: settings.provider,
-          recipient: delivery.recipient,
-          externalMessageId: null,
-          logId,
-          skipped: true,
-          deliveryMode: delivery.mode,
-          redirected: delivery.redirected,
-        };
-      }
-
-      const sent = await this.provider.send({
-        apiKey: settings.apiKey,
-        fromEmail: settings.fromEmail,
-        fromName: settings.fromName,
-        replyTo: settings.replyTo,
-        to: delivery.recipient,
-        subject: args.subject,
-        html,
-        text,
-      });
-
-      if (logId) {
-        await this.finalizeLog(logId, 'SENT', sent.externalMessageId, delivery.logNote);
-      }
-
-      return {
-        success: true,
-        provider: sent.provider,
-        recipient: delivery.recipient,
-        externalMessageId: sent.externalMessageId,
-        logId,
-        deliveryMode: delivery.mode,
-        redirected: delivery.redirected,
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erreur inconnue';
-      if (logId) {
-        await this.finalizeLog(logId, 'FAILED', null, this.combineLogMessage(delivery.logNote, message));
-      }
       throw error;
     }
   }
@@ -938,13 +826,13 @@ export class EmailService {
             ELSE COALESCE(cl.document_type, 'Document')
           END AS document_label,
           CASE
-            WHEN cl.document_type = 'INVOICE' THEN COALESCE(sales_invoice_doc.invoice_number, invoice_doc.invoice_number)
+            WHEN cl.document_type = 'INVOICE' THEN invoice_doc.invoice_number
             WHEN cl.document_type = 'PAYMENT_RECEIPT' THEN payment_doc.receipt_number
             WHEN cl.document_type = 'TENANT_CREDIT_RECEIPT' THEN credit_doc.receipt_number
             ELSE NULL
           END AS document_reference,
           CASE
-            WHEN cl.document_type = 'INVOICE' THEN COALESCE(sales_invoice_doc.invoice_number, invoice_doc.invoice_number)
+            WHEN cl.document_type = 'INVOICE' THEN invoice_doc.invoice_number
             WHEN cl.document_type = 'PAYMENT_RECEIPT' THEN payment_invoice.invoice_number
             WHEN cl.document_type = 'TENANT_CREDIT_RECEIPT' THEN credit_invoice.invoice_number
             ELSE NULL
@@ -969,25 +857,17 @@ export class EmailService {
         FROM public.communication_logs cl
         LEFT JOIN organizations o
           ON o.id = cl.organization_id
-         ${hasCreatedBy ? `LEFT JOIN app_users u ON u.id = cl.created_by AND u.deleted_at IS NULL` : ''}
-         LEFT JOIN invoices invoice_doc
-           ON cl.document_type = 'INVOICE'
-          AND invoice_doc.id = cl.document_id
-          AND invoice_doc.organization_id = cl.organization_id
-          AND invoice_doc.deleted_at IS NULL
-         LEFT JOIN sales_invoices sales_invoice_doc
-           ON cl.document_type = 'INVOICE'
-          AND sales_invoice_doc.organization_id = cl.organization_id
-          AND sales_invoice_doc.deleted_at IS NULL
-          AND (
-            sales_invoice_doc.id = cl.document_id
-            OR sales_invoice_doc.pdf_document_id = cl.document_id
-          )
-         LEFT JOIN payments payment_doc
-           ON cl.document_type = 'PAYMENT_RECEIPT'
-          AND payment_doc.id = cl.document_id
-          AND payment_doc.organization_id = cl.organization_id
-          AND payment_doc.deleted_at IS NULL
+        ${hasCreatedBy ? `LEFT JOIN app_users u ON u.id = cl.created_by AND u.deleted_at IS NULL` : ''}
+        LEFT JOIN invoices invoice_doc
+          ON cl.document_type = 'INVOICE'
+         AND invoice_doc.id = cl.document_id
+         AND invoice_doc.organization_id = cl.organization_id
+         AND invoice_doc.deleted_at IS NULL
+        LEFT JOIN payments payment_doc
+          ON cl.document_type = 'PAYMENT_RECEIPT'
+         AND payment_doc.id = cl.document_id
+         AND payment_doc.organization_id = cl.organization_id
+         AND payment_doc.deleted_at IS NULL
         LEFT JOIN invoices payment_invoice
           ON payment_invoice.id = payment_doc.invoice_id
          AND payment_invoice.organization_id = cl.organization_id
@@ -1013,7 +893,7 @@ export class EmailService {
             AND u2.deleted_at IS NULL
         ) u_full ON TRUE
         LEFT JOIN LATERAL (
-          SELECT COALESCE(sales_invoice_doc.invoice_number, invoice_doc.invoice_number, payment_doc.receipt_number, credit_doc.receipt_number) AS reference
+          SELECT COALESCE(invoice_doc.invoice_number, payment_doc.receipt_number, credit_doc.receipt_number) AS reference
         ) document_reference ON TRUE
         WHERE ${conditions.join(' AND ')}
       )

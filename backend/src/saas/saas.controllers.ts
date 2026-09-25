@@ -1704,13 +1704,6 @@ export class PlatformController {
     return this.service.platformUpdateUser(id, body);
   }
 
-  @Post('users/:id/send-activation')
-  @UseGuards(SuperAdminOnlyGuard)
-  @SuperAdminOnly('Seul le Super Administrateur peut renvoyer une invitation sécurisée.')
-  sendActivation(@Param('id', ParseIntPipe) id: number) {
-    return this.service.platformSendUserActivation(id);
-  }
-
   @Get('memberships')
   memberships(@Query() query: PlatformListQueryDto) {
     return this.service.platformMemberships(query);

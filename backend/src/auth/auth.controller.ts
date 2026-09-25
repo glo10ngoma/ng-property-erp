@@ -1,12 +1,11 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Logger, Patch, Post, Req, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Logger, Patch, Post, Req, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Type } from 'class-transformer';
-import { IsEmail, IsInt, IsPositive, IsString } from 'class-validator';
+import { IsInt, IsPositive, IsString } from 'class-validator';
 import { createHmac } from 'crypto';
 import { DatabaseService } from '../database/database.service';
 import { hashPassword, isBcryptHash, verifyPassword } from './password';
 import { OrganizationAccessService } from './organization-access.service';
-import { PasswordResetService } from './password-reset.service';
 import { AuthPayload } from './request-context';
 
 class LoginDto {
@@ -35,27 +34,9 @@ class ChangePasswordDto {
   confirmPassword: string;
 }
 
-class ForgotPasswordDto {
-  @IsEmail()
-  email: string;
-}
-
-class ResetPasswordDto {
-  @IsString()
-  token: string;
-
-  @IsString()
-  newPassword: string;
-
-  @IsString()
-  confirmPassword: string;
-}
-
 type RequestWithHeaders = {
   headers: Record<string, string | string[] | undefined>;
   user?: AuthPayload;
-  ip?: string;
-  socket?: { remoteAddress?: string };
 };
 
 @Controller('auth')
@@ -67,7 +48,6 @@ export class AuthController {
   constructor(
     private readonly db: DatabaseService,
     private readonly organizationAccess: OrganizationAccessService,
-    private readonly passwordReset: PasswordResetService,
     config: ConfigService,
   ) {
     const jwtSecret = config.get<string>('JWT_SECRET');
@@ -84,7 +64,7 @@ export class AuthController {
   async login(@Body() dto: LoginDto, @Req() request: RequestWithHeaders) {
     const normalizedEmail = String(dto.email ?? '').trim().toLowerCase();
     const { rows } = await this.db.query(
-      `SELECT id, email, status, password_hash, role, platform_role, COALESCE(password_version, 1) AS password_version
+      `SELECT id, email, status, password_hash, role, platform_role
        FROM app_users
        WHERE LOWER(TRIM(email)) = $1
        LIMIT 1`,
@@ -113,7 +93,6 @@ export class AuthController {
         role: String(loginUser.platform_role ?? loginUser.role),
         organizationId: loginUser.organization_id,
         organizationConfirmed,
-        passwordVersion: Number(user.password_version ?? 1),
       }),
       user: loginUser,
     };
@@ -141,7 +120,6 @@ export class AuthController {
     }
 
     const nextUser = await this.organizationAccess.loginPayload(request.user.sub, Number(dto.organizationId));
-    const passwordVersion = await this.readPasswordVersion(request.user.sub);
     return {
       token: this.issueToken({
         sub: request.user.sub,
@@ -149,29 +127,9 @@ export class AuthController {
         role: String(nextUser.platform_role ?? nextUser.role),
         organizationId: nextUser.organization_id,
         organizationConfirmed: true,
-        passwordVersion,
       }),
       user: nextUser,
     };
-  }
-
-  @Post('forgot-password')
-  @HttpCode(HttpStatus.OK)
-  async forgotPassword(@Body() dto: ForgotPasswordDto, @Req() request: RequestWithHeaders) {
-    return this.passwordReset.requestPasswordReset({
-      email: dto.email,
-      requestIp: this.readRequestIp(request),
-    });
-  }
-
-  @Post('reset-password')
-  async resetPassword(@Body() dto: ResetPasswordDto, @Req() request: RequestWithHeaders) {
-    return this.passwordReset.resetPassword({
-      token: dto.token,
-      newPassword: dto.newPassword,
-      confirmPassword: dto.confirmPassword,
-      requestIp: this.readRequestIp(request),
-    });
   }
 
   @Patch('change-password')
@@ -199,14 +157,15 @@ export class AuthController {
       throw new UnauthorizedException('Le mot de passe actuel est incorrect.');
     }
 
-    await this.passwordReset.updatePasswordForUser(request.user.sub, newPassword, {
-      actorUserId: request.user.sub,
-      organizationId: request.user.organization_id ?? 1,
-      auditAction: 'PASSWORD_CHANGED',
-      auditPath: '/api/auth/change-password',
-      auditMethod: 'PATCH',
-      auditMetadata: { organization_confirmed: Boolean(request.user.organization_confirmed) },
-    });
+    const nextHash = await hashPassword(newPassword);
+    await this.db.query(
+      `UPDATE app_users
+       SET password_hash = $2, updated_at = NOW()
+       WHERE id = $1`,
+      [request.user.sub, nextHash],
+    );
+
+    await this.writePasswordAudit(request.user);
 
     return {
       message: 'Mot de passe modifié avec succès. Veuillez vous reconnecter.',
@@ -233,7 +192,6 @@ export class AuthController {
     role: string;
     organizationId?: number;
     organizationConfirmed: boolean;
-    passwordVersion: number;
   }) {
     const issuedAt = Math.floor(Date.now() / 1000);
     const body = Buffer.from(
@@ -243,7 +201,6 @@ export class AuthController {
         role: input.role,
         organization_id: input.organizationId ?? null,
         organization_confirmed: input.organizationConfirmed,
-        password_version: input.passwordVersion,
         iat: issuedAt,
         exp: issuedAt + this.absoluteTimeoutSeconds,
       }),
@@ -256,10 +213,7 @@ export class AuthController {
     const nextHash = await hashPassword(password);
     await this.db.query(
       `UPDATE app_users
-       SET password_hash = $2,
-           password_version = COALESCE(password_version, 1) + 1,
-           password_changed_at = NOW(),
-           updated_at = NOW()
+       SET password_hash = $2, updated_at = NOW()
        WHERE id = $1 AND deleted_at IS NULL`,
       [userId, nextHash],
     );
@@ -295,31 +249,33 @@ export class AuthController {
     if (!/[a-z]/.test(password)) return false;
     if (!/\d/.test(password)) return false;
     if (!/[^\w\s]/.test(password)) return false;
-    if (password.length > 128) return false;
-    const normalized = password.trim().toLowerCase();
-    if (['password', 'password123', 'qwerty123', 'azerty123', 'admin123', 'welcome123', 'letmein123'].includes(normalized)) {
-      return false;
-    }
     return true;
   }
 
-  private async readPasswordVersion(userId: number) {
-    const result = await this.db.query<{ password_version: number }>(
-      `SELECT COALESCE(password_version, 1) AS password_version
-       FROM app_users
-       WHERE id = $1 AND deleted_at IS NULL
-       LIMIT 1`,
-      [userId],
-    );
-    return Number(result.rows[0]?.password_version ?? 1);
-  }
-
-  private readRequestIp(request: RequestWithHeaders) {
-    const forwarded = request.headers['x-forwarded-for'];
-    const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-    if (raw) {
-      return String(raw).split(',')[0]?.trim() || null;
+  private async writePasswordAudit(user: AuthPayload) {
+    try {
+      await this.db.query(
+        `INSERT INTO audit_logs (
+           organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          user.organization_id ?? 1,
+          user.sub,
+          'PASSWORD_CHANGED',
+          'auth',
+          String(user.sub),
+          'PATCH',
+          '/api/auth/change-password',
+          200,
+          JSON.stringify({ organization_confirmed: Boolean(user.organization_confirmed) }),
+        ],
+      );
+    } catch (error: any) {
+      if (error?.code === '42P01') {
+        return;
+      }
+      throw error;
     }
-    return request.ip?.trim() || request.socket?.remoteAddress?.trim() || null;
   }
 }

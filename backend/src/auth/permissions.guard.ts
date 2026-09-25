@@ -2,7 +2,6 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Unauthor
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { createHmac } from 'crypto';
-import { DatabaseService } from '../database/database.service';
 import { ORGANIZATION_MODULE_METADATA_KEY } from '../sales/sales-module.decorator';
 import { OrganizationModulesService } from '../sales/organization-modules.service';
 import { OrganizationAccessService } from './organization-access.service';
@@ -21,7 +20,6 @@ type TokenPayload = {
   role?: string;
   organization_id?: number;
   organization_confirmed?: boolean;
-  password_version?: number;
   iat?: number;
   exp?: number;
 };
@@ -62,7 +60,6 @@ export class PermissionsGuard implements CanActivate {
   private readonly jwtSecret: string;
 
   constructor(
-    private readonly db: DatabaseService,
     private readonly organizationAccess: OrganizationAccessService,
     private readonly organizationModules: OrganizationModulesService,
     private readonly reflector: Reflector,
@@ -73,16 +70,9 @@ export class PermissionsGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<GuardRequest>();
-    if (
-      request.path === '/api/auth/login'
-      || request.path === '/api/auth/logout'
-      || request.path === '/api/auth/forgot-password'
-      || request.path === '/api/auth/reset-password'
-      || request.path === '/api/health'
-    ) return true;
+    if (request.path === '/api/auth/login' || request.path === '/api/auth/logout' || request.path === '/api/health') return true;
 
     const tokenPayload = this.decode(request);
-    await this.ensurePasswordSessionIsCurrent(tokenPayload);
     const lockedOrganizationId =
       tokenPayload.organization_confirmed && Number.isFinite(Number(tokenPayload.organization_id))
         ? Number(tokenPayload.organization_id)
@@ -526,24 +516,5 @@ export class PermissionsGuard implements CanActivate {
 
   private isPreSelectionRoute(path: string) {
     return path === '/api/auth/me' || path === '/api/auth/switch-organization' || path === '/api/auth/logout';
-  }
-
-  private async ensurePasswordSessionIsCurrent(tokenPayload: TokenPayload) {
-    const result = await this.db.query<{ password_version: number; status: string }>(
-      `SELECT COALESCE(password_version, 1) AS password_version, status
-       FROM app_users
-       WHERE id = $1 AND deleted_at IS NULL
-       LIMIT 1`,
-      [tokenPayload.sub],
-    );
-    const row = result.rows[0];
-    if (!row || String(row.status ?? '').trim().toUpperCase() !== 'ACTIVE') {
-      throw new UnauthorizedException('Invalid user session');
-    }
-    const currentVersion = Number(row.password_version ?? 1);
-    const tokenVersion = Number(tokenPayload.password_version ?? 1);
-    if (!Number.isFinite(tokenVersion) || tokenVersion < currentVersion) {
-      throw new UnauthorizedException('Session invalide. Veuillez vous reconnecter.');
-    }
   }
 }

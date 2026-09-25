@@ -61,7 +61,6 @@ import { BuildingReport } from '../pages/BuildingReport';
 import { ArchivesPage } from '../pages/ArchivesPage';
 import { BankAccountDetailPage, BankPage } from '../pages/BankPage';
 import { CashDetailPage } from '../pages/CashEnterprise';
-import { ForgotPasswordPage } from '../pages/ForgotPassword';
 import { GuaranteeCashPage } from '../pages/GuaranteeCashPage';
 import { SyndicCashPage } from '../pages/SyndicCashPage';
 import { LeaseDetail } from '../pages/LeaseDetail';
@@ -75,7 +74,6 @@ import { TenantCreditRefundDetail } from '../pages/TenantCreditRefundDetail';
 import { TenantCredits } from '../pages/TenantCredits';
 import { TreasuryTransferDetailPage } from '../pages/TreasuryTransfers';
 import { ProfilePage } from '../pages/ProfilePage';
-import { ResetPasswordPage } from '../pages/ResetPassword';
 import { SelectOrganization } from '../pages/SelectOrganization';
 import { BuildingStatementPage, TenantStatementPage, UnitStatementPage } from '../pages/StatementPage';
 import { StockDetailPage } from '../pages/StockDetailPage';
@@ -114,8 +112,6 @@ export function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route element={<ProtectedRoute />}>
         <Route path="/select-organization" element={<SelectOrganization />} />
         <Route element={<PlatformRoute />}>

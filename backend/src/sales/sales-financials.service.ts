@@ -994,7 +994,7 @@ export class SalesFinancialsService {
       message: args.message,
       document,
       documentType: DocumentType.INVOICE,
-      documentId: Number(invoiceId),
+      documentId: Number(document.documentId),
       trigger: DocumentDeliveryTrigger.AUTO,
       idempotencyKey: args.idempotencyKey,
     }));
