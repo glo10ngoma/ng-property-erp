@@ -8888,8561 +8888,12 @@ export class SaasService {
         ? 'BANK_ACCOUNT_ARCHIVED'
         : 'BANK_ACCOUNT_UPDATED';
       await this.db.query(
-       ÁŒˆo+^≤â¢∂◊ùSCE(ba.account_name, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(bt.reference, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(bt.description, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(bt.counterparty_name, '')) LIKE $${values.length}
-          OR LOWER(COALESCE(bp.receipt_number, '')) LIKE $${values.length}
-          OR LOWER(COALESCE(tcp.receipt_number, '')) LIKE $${values.length}
-          OR LOWER(COALESCE(splr.receipt_number, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(spb.reference, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(sh.display_name, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(bi.invoice_number, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(ten.company_name, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(ten.first_name, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(ten.last_name, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(tten.company_name, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(tten.first_name, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(tten.last_name, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(tcred.reference, '')) LIKE $${values.length}
-      )`);
-    }
-    const { rows } = await this.db.query(
-      `SELECT bt.*,
-              ba.bank_name,
-              ba.account_name,
-              ba.account_number,
-              ba.account_type,
-              CASE WHEN bt.direction = 'IN' THEN bt.amount ELSE 0 END AS entry_amount,
-              CASE WHEN bt.direction = 'OUT' THEN bt.amount ELSE 0 END AS exit_amount,
-              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
-              COALESCE(bp.id, tcp.id) AS source_payment_id,
-              COALESCE(bp.receipt_number, tcp.receipt_number) AS source_payment_receipt_number,
-              bg.id AS source_guarantee_id,
-              tcred.id AS source_tenant_credit_id,
-              COALESCE(tcp.receipt_number, bp.receipt_number) AS source_tenant_credit_receipt_number,
-              splr.id AS source_shareholder_payout_line_id,
-              splr.receipt_number AS source_shareholder_payout_receipt_number,
-              spb.id AS source_shareholder_payout_batch_id,
-              spb.reference AS source_shareholder_payout_batch_reference,
-              sh.id AS source_shareholder_id,
-              sh.display_name AS source_shareholder_name,
-              COALESCE(bl.id, rbl.id, tcl.id) AS source_lease_id,
-              COALESCE(bl.lease_number, rbl.lease_number, tcl.lease_number) AS source_lease_number,
-              bi.id AS source_invoice_id,
-              bi.invoice_number AS source_invoice_number
-              ${treasurySelect}
-              COALESCE(bu.id, rbu.id, tcu.id) AS source_unit_id,
-              COALESCE(bu.number, rbu.number, tcu.number) AS source_unit_number,
-              COALESCE(ten.id, rten.id, tten.id) AS source_tenant_id,
-              COALESCE(
-                CASE WHEN ten.tenant_type = 'COMPANY' THEN COALESCE(ten.company_name, '')
-                     ELSE TRIM(CONCAT(COALESCE(ten.first_name, ''), ' ', COALESCE(ten.last_name, ''), ' ', COALESCE(ten.post_name, '')))
-                END,
-                CASE WHEN rten.tenant_type = 'COMPANY' THEN COALESCE(rten.company_name, '')
-                     ELSE TRIM(CONCAT(COALESCE(rten.first_name, ''), ' ', COALESCE(rten.last_name, ''), ' ', COALESCE(rten.post_name, '')))
-                END,
-                CASE WHEN tten.tenant_type = 'COMPANY' THEN COALESCE(tten.company_name, '')
-                     ELSE TRIM(CONCAT(COALESCE(tten.first_name, ''), ' ', COALESCE(tten.last_name, ''), ' ', COALESCE(tten.post_name, '')))
-                END
-              ) AS source_tenant_name
-       FROM bank_transactions bt
-       JOIN bank_accounts ba ON ba.id = bt.bank_account_id AND ba.organization_id = bt.organization_id
-       LEFT JOIN app_users u ON u.id = bt.created_by
-       LEFT JOIN payments bp ON bp.id = bt.source_entity_id
-         AND bt.source_module IN ('PAYMENTS', 'GUARANTEES')
-         AND bp.organization_id = bt.organization_id
-         AND bp.deleted_at IS NULL
-       LEFT JOIN tenant_credits tcred ON tcred.id = bt.source_entity_id
-         AND bt.source_module = 'TENANT_CREDITS'
-         AND bt.source_entity_type = 'TENANT_CREDIT'
-         AND tcred.organization_id = bt.organization_id
-         AND tcred.deleted_at IS NULL
-       LEFT JOIN shareholder_payout_lines splr ON splr.id = bt.source_entity_id
-         AND bt.source_module = 'SHAREHOLDER_PAYOUTS'
-         AND bt.source_entity_type = 'SHAREHOLDER_PAYOUT_LINE'
-         AND splr.organization_id = bt.organization_id
-       LEFT JOIN shareholder_payout_batches spb ON spb.id = splr.batch_id AND spb.organization_id = splr.organization_id
-       LEFT JOIN shareholders sh ON sh.id = splr.shareholder_id AND sh.organization_id = splr.organization_id
-       LEFT JOIN payments tcp ON tcp.id = tcred.source_payment_id
-         AND tcp.organization_id = tcred.organization_id
-         AND tcp.deleted_at IS NULL
-       LEFT JOIN invoices bi ON bi.id = bp.invoice_id AND bi.organization_id = bp.organization_id AND bi.deleted_at IS NULL
-       LEFT JOIN lease_guarantees bg ON bg.id = bp.lease_guarantee_id AND bg.organization_id = bp.organization_id AND bg.deleted_at IS NULL
-       LEFT JOIN leases bl ON bl.id = COALESCE(bi.lease_id, bg.lease_id) AND bl.organization_id = bt.organization_id AND bl.deleted_at IS NULL
-       LEFT JOIN units bu ON bu.id = COALESCE(bi.unit_id, bl.unit_id) AND bu.organization_id = bt.organization_id AND bu.deleted_at IS NULL
-       LEFT JOIN tenants ten ON ten.id = COALESCE(bi.tenant_id, bl.tenant_id) AND ten.organization_id = bt.organization_id AND ten.deleted_at IS NULL
-       LEFT JOIN leases rbl ON rbl.id = bt.source_entity_id
-         AND bt.source_module = 'GUARANTEES'
-         AND bt.source_entity_type = 'GUARANTEE_REFUND'
-         AND rbl.organization_id = bt.organization_id
-         AND rbl.deleted_at IS NULL
-       LEFT JOIN units rbu ON rbu.id = rbl.unit_id AND rbu.organization_id = bt.organization_id AND rbu.deleted_at IS NULL
-       LEFT JOIN tenants rten ON rten.id = rbl.tenant_id AND rten.organization_id = bt.organization_id AND rten.deleted_at IS NULL
-       LEFT JOIN leases tcl ON tcl.id = tcred.lease_id AND tcl.organization_id = bt.organization_id AND tcl.deleted_at IS NULL
-       LEFT JOIN units tcu ON tcu.id = tcl.unit_id AND tcu.organization_id = bt.organization_id AND tcu.deleted_at IS NULL
-       LEFT JOIN tenants tten ON tten.id = tcred.tenant_id AND tten.organization_id = bt.organization_id AND tten.deleted_at IS NULL
-       ${treasuryJoin}
-       WHERE ${clauses.join(' AND ')}
-       ORDER BY bt.transaction_date DESC, bt.id DESC`,
-      values,
-    );
-    return rows;
-  }
-
-  async bankTransaction(id: number) {
-    await this.ensureBankSchema();
-    const hasTreasuryTransfers = await this.tableExists('treasury_transfers');
-    const treasurySelect = hasTreasuryTransfers
-      ? `,
-              tt.id AS source_treasury_transfer_id,
-              tt.transfer_number AS source_treasury_transfer_number,`
-      : `,
-              NULL::INT AS source_treasury_transfer_id,
-              NULL::VARCHAR AS source_treasury_transfer_number,`;
-    const treasuryJoin = hasTreasuryTransfers
-      ? `
-       LEFT JOIN treasury_transfers tt ON tt.id = bt.source_entity_id
-         AND bt.source_module = 'TREASURY_TRANSFERS'
-         AND bt.source_entity_type = 'TREASURY_TRANSFER'
-         AND tt.organization_id = bt.organization_id`
-      : '';
-    const { rows } = await this.db.query(
-      `SELECT bt.*,
-              ba.bank_name,
-              ba.account_name,
-              ba.account_number,
-              ba.account_type,
-              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
-              COALESCE(bp.id, tcp.id) AS source_payment_id,
-              COALESCE(bp.receipt_number, tcp.receipt_number) AS source_payment_receipt_number,
-              bg.id AS source_guarantee_id,
-              tcred.id AS source_tenant_credit_id,
-              COALESCE(tcp.receipt_number, bp.receipt_number) AS source_tenant_credit_receipt_number,
-              splr.id AS source_shareholder_payout_line_id,
-              splr.receipt_number AS source_shareholder_payout_receipt_number,
-              spb.id AS source_shareholder_payout_batch_id,
-              spb.reference AS source_shareholder_payout_batch_reference,
-              sh.id AS source_shareholder_id,
-              sh.display_name AS source_shareholder_name,
-              COALESCE(bl.id, rbl.id, tcl.id) AS source_lease_id,
-              COALESCE(bl.lease_number, rbl.lease_number, tcl.lease_number) AS source_lease_number,
-              bi.id AS source_invoice_id,
-              bi.invoice_number AS source_invoice_number
-              ${treasurySelect}
-              COALESCE(bu.id, rbu.id, tcu.id) AS source_unit_id,
-              COALESCE(bu.number, rbu.number, tcu.number) AS source_unit_number,
-              COALESCE(ten.id, rten.id, tten.id) AS source_tenant_id,
-              COALESCE(
-                CASE WHEN ten.tenant_type = 'COMPANY' THEN COALESCE(ten.company_name, '')
-                     ELSE TRIM(CONCAT(COALESCE(ten.first_name, ''), ' ', COALESCE(ten.last_name, ''), ' ', COALESCE(ten.post_name, '')))
-                END,
-                CASE WHEN rten.tenant_type = 'COMPANY' THEN COALESCE(rten.company_name, '')
-                     ELSE TRIM(CONCAT(COALESCE(rten.first_name, ''), ' ', COALESCE(rten.last_name, ''), ' ', COALESCE(rten.post_name, '')))
-                END,
-                CASE WHEN tten.tenant_type = 'COMPANY' THEN COALESCE(tten.company_name, '')
-                     ELSE TRIM(CONCAT(COALESCE(tten.first_name, ''), ' ', COALESCE(tten.last_name, ''), ' ', COALESCE(tten.post_name, '')))
-                END
-              ) AS source_tenant_name
-       FROM bank_transactions bt
-       JOIN bank_accounts ba ON ba.id = bt.bank_account_id AND ba.organization_id = bt.organization_id
-       LEFT JOIN app_users u ON u.id = bt.created_by
-       LEFT JOIN payments bp ON bp.id = bt.source_entity_id
-         AND bt.source_module IN ('PAYMENTS', 'GUARANTEES')
-         AND bp.organization_id = bt.organization_id
-         AND bp.deleted_at IS NULL
-       LEFT JOIN tenant_credits tcred ON tcred.id = bt.source_entity_id
-         AND bt.source_module = 'TENANT_CREDITS'
-         AND bt.source_entity_type = 'TENANT_CREDIT'
-         AND tcred.organization_id = bt.organization_id
-         AND tcred.deleted_at IS NULL
-       LEFT JOIN shareholder_payout_lines splr ON splr.id = bt.source_entity_id
-         AND bt.source_module = 'SHAREHOLDER_PAYOUTS'
-         AND bt.source_entity_type = 'SHAREHOLDER_PAYOUT_LINE'
-         AND splr.organization_id = bt.organization_id
-       LEFT JOIN shareholder_payout_batches spb ON spb.id = splr.batch_id AND spb.organization_id = splr.organization_id
-       LEFT JOIN shareholders sh ON sh.id = splr.shareholder_id AND sh.organization_id = splr.organization_id
-       LEFT JOIN payments tcp ON tcp.id = tcred.source_payment_id
-         AND tcp.organization_id = tcred.organization_id
-         AND tcp.deleted_at IS NULL
-       LEFT JOIN invoices bi ON bi.id = bp.invoice_id AND bi.organization_id = bp.organization_id AND bi.deleted_at IS NULL
-       LEFT JOIN lease_guarantees bg ON bg.id = bp.lease_guarantee_id AND bg.organization_id = bp.organization_id AND bg.deleted_at IS NULL
-       LEFT JOIN leases bl ON bl.id = COALESCE(bi.lease_id, bg.lease_id) AND bl.organization_id = bt.organization_id AND bl.deleted_at IS NULL
-       LEFT JOIN units bu ON bu.id = COALESCE(bi.unit_id, bl.unit_id) AND bu.organization_id = bt.organization_id AND bu.deleted_at IS NULL
-       LEFT JOIN tenants ten ON ten.id = COALESCE(bi.tenant_id, bl.tenant_id) AND ten.organization_id = bt.organization_id AND ten.deleted_at IS NULL
-       LEFT JOIN leases rbl ON rbl.id = bt.source_entity_id
-         AND bt.source_module = 'GUARANTEES'
-         AND bt.source_entity_type = 'GUARANTEE_REFUND'
-         AND rbl.organization_id = bt.organization_id
-         AND rbl.deleted_at IS NULL
-       LEFT JOIN units rbu ON rbu.id = rbl.unit_id AND rbu.organization_id = bt.organization_id AND rbu.deleted_at IS NULL
-       LEFT JOIN tenants rten ON rten.id = rbl.tenant_id AND rten.organization_id = bt.organization_id AND rten.deleted_at IS NULL
-       LEFT JOIN leases tcl ON tcl.id = tcred.lease_id AND tcl.organization_id = bt.organization_id AND tcl.deleted_at IS NULL
-       LEFT JOIN units tcu ON tcu.id = tcl.unit_id AND tcu.organization_id = bt.organization_id AND tcu.deleted_at IS NULL
-       LEFT JOIN tenants tten ON tten.id = tcred.tenant_id AND tten.organization_id = bt.organization_id AND tten.deleted_at IS NULL
-       ${treasuryJoin}
-       WHERE bt.organization_id = $1
-         AND bt.id = $2`,
-      [this.context.organizationId(), id],
-    );
-    return requireRow(rows[0], 'Bank transaction');
-  }
-
-  async treasuryTransferFormData(sourceRegister: 'MAIN_CASH' | 'BANK') {
-    await this.ensureBankSchema();
-    await this.ensureTreasuryTransferSchema();
-    const [bankAccounts, cashBalances, cashSessionResult] = await Promise.all([
-      this.shareholderBankAccounts(),
-      this.treasuryCashBalances(),
-      this.db.query(
-        `SELECT id, status, opened_at, opening_balance
-         FROM cash_sessions
-         WHERE organization_id = $1
-           AND status = 'OPEN'
-           AND deleted_at IS NULL
-         ORDER BY opened_at DESC
-         LIMIT 1`,
-        [this.context.organizationId()],
-      ),
-    ]);
-    const transferTypes: Array<{ value: string; label: string }> = [];
-    if (this.hasPermission('treasury_transfers.from_cash')) {
-      transferTypes.push({ value: 'CASH_TO_BANK', label: 'D√©p√¥t en banque' });
-    }
-    if (this.hasPermission('treasury_transfers.from_bank')) {
-      transferTypes.push({ value: 'BANK_TO_CASH', label: 'Retrait bancaire vers caisse' });
-    }
-    if (sourceRegister === 'BANK' && this.hasPermission('treasury_transfers.bank_to_bank')) {
-      transferTypes.push({ value: 'BANK_TO_BANK', label: 'Virement entre comptes' });
-    }
-    return {
-      source_register: sourceRegister,
-      transfer_types: transferTypes,
-      payment_methods: [
-        { value: 'BANK_TRANSFER', label: 'Virement bancaire' },
-        { value: 'CASH', label: 'Esp√®ces' },
-        { value: 'CHEQUE', label: 'Ch√®que' },
-        { value: 'OTHER', label: 'Autre' },
-      ],
-      cash_session: cashSessionResult.rows[0] ?? null,
-      cash_balances: cashBalances,
-      bank_accounts: bankAccounts,
-    };
-  }
-
-  async createTreasuryTransfer(sourceRegister: 'MAIN_CASH' | 'BANK', body: Record<string, unknown>) {
-    await this.ensureBankSchema();
-    await this.ensureTreasuryTransferSchema();
-    const payload = this.normalizeTreasuryTransferPayload(sourceRegister, body);
-    this.assertTreasuryTransferPermission(payload.transferType);
-    return this.db.transaction(async (client) => this.createTreasuryTransferInTransaction(client, sourceRegister, payload));
-  }
-
-  async treasuryTransfer(id: number) {
-    return this.treasuryTransferByExecutor(this.db, id);
-  }
-
-  private async treasuryTransferByExecutor(
-    executor: Pick<DatabaseService, 'query'> | PoolClient,
-    id: number,
-  ) {
-    await this.ensureTreasuryTransferSchema();
-    const runner = executor as { query: <T = any>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> };
-    const { rows } = await runner.query(
-      `SELECT tt.*,
-              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
-              src_ba.bank_name AS source_bank_name,
-              src_ba.account_name AS source_bank_account_name,
-              src_ba.account_number AS source_bank_account_number,
-              dst_ba.bank_name AS destination_bank_name,
-              dst_ba.account_name AS destination_bank_account_name,
-              dst_ba.account_number AS destination_bank_account_number,
-              src_cm.piece_number AS source_cash_piece_number,
-              src_cm.movement_date AS source_cash_movement_date,
-              dst_cm.piece_number AS destination_cash_piece_number,
-              dst_cm.movement_date AS destination_cash_movement_date,
-              src_bt.transaction_number AS source_bank_transaction_number,
-              src_bt.transaction_date AS source_bank_transaction_date,
-              dst_bt.transaction_number AS destination_bank_transaction_number,
-              dst_bt.transaction_date AS destination_bank_transaction_date
-       FROM treasury_transfers tt
-       LEFT JOIN app_users u ON u.id = tt.created_by
-       LEFT JOIN bank_accounts src_ba ON src_ba.id = tt.source_bank_account_id AND src_ba.organization_id = tt.organization_id
-       LEFT JOIN bank_accounts dst_ba ON dst_ba.id = tt.destination_bank_account_id AND dst_ba.organization_id = tt.organization_id
-       LEFT JOIN cash_movements src_cm ON src_cm.id = tt.source_cash_movement_id AND src_cm.organization_id = tt.organization_id AND src_cm.deleted_at IS NULL
-       LEFT JOIN cash_movements dst_cm ON dst_cm.id = tt.destination_cash_movement_id AND dst_cm.organization_id = tt.organization_id AND dst_cm.deleted_at IS NULL
-       LEFT JOIN bank_transactions src_bt ON src_bt.id = tt.source_bank_transaction_id AND src_bt.organization_id = tt.organization_id
-       LEFT JOIN bank_transactions dst_bt ON dst_bt.id = tt.destination_bank_transaction_id AND dst_bt.organization_id = tt.organization_id
-       WHERE tt.organization_id = $1
-         AND tt.id = $2`,
-      [this.context.organizationId(), id],
-    );
-    const transfer = requireRow(rows[0], 'Treasury transfer');
-    return {
-      ...transfer,
-      source_label: this.treasurySupportLabel({
-        supportType: String(transfer.source_type),
-        bankName: transfer.source_bank_name,
-        accountName: transfer.source_bank_account_name,
-      }),
-      destination_label: this.treasurySupportLabel({
-        supportType: String(transfer.destination_type),
-        bankName: transfer.destination_bank_name,
-        accountName: transfer.destination_bank_account_name,
-      }),
-    };
-  }
-
-  private async ensureBankSchema() {
-    if (!(await this.tableExists('bank_accounts')) || !(await this.tableExists('bank_transactions'))) {
-      throw new BadRequestException('Le module Banque n‚Äôest pas encore configur√©.');
-    }
-  }
-
-  private async ensureTreasuryTransferSchema() {
-    if (!(await this.tableExists('treasury_transfers'))) {
-      throw new ServiceUnavailableException(
-        'Le module des transferts internes n‚Äôest pas disponible. Appliquez la migration 20260723_bank_treasury_transfers.sql.',
-      );
-    }
-  }
-
-  private normalizeBankPeriod(filters: Record<string, unknown>) {
-    const now = new Date();
-    const start = filters.start
-      ? (this.normalizeLeasePayloadDate(filters.start, 'start', true) ?? this.localDateString(new Date(now.getFullYear(), now.getMonth(), 1)))
-      : this.localDateString(new Date(now.getFullYear(), now.getMonth(), 1));
-    const end = filters.end
-      ? (this.normalizeLeasePayloadDate(filters.end, 'end', true) ?? this.localDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0)))
-      : this.localDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0));
-    if (start > end) {
-      throw new BadRequestException('La p√©riode bancaire est invalide.');
-    }
-    return { start, end };
-  }
-
-  private normalizeBankAccountCreatePayload(body: Record<string, unknown>) {
-    const bankName = String(body.bank_name ?? '').trim();
-    const accountName = String(body.account_name ?? '').trim();
-    const accountNumber = String(body.account_number ?? '').trim() || null;
-    const accountType = String(body.account_type ?? 'CURRENT').trim().toUpperCase();
-    const currency = String(body.currency ?? '').trim().toUpperCase();
-    const status = String(body.status ?? 'ACTIVE').trim().toUpperCase();
-    const openingBalance = body.opening_balance === '' || body.opening_balance == null ? 0 : Number(body.opening_balance);
-    const openingDate = this.normalizeLeasePayloadDate(body.opening_date ?? this.localDateString(new Date()), 'opening_date', true);
-    if (!bankName) {
-      throw new BadRequestException('Le nom de la banque est obligatoire.');
-    }
-    if (!accountName) {
-      throw new BadRequestException('Le nom du compte est obligatoire.');
-    }
-    if (!['CURRENT', 'SAVINGS', 'ESCROW', 'OTHER'].includes(accountType)) {
-      throw new BadRequestException('Type de compte bancaire invalide.');
-    }
-    if (!['USD', 'CDF'].includes(currency)) {
-      throw new BadRequestException('Devise bancaire invalide.');
-    }
-    if (!['ACTIVE', 'INACTIVE', 'ARCHIVED'].includes(status)) {
-      throw new BadRequestException('Statut de compte bancaire invalide.');
-    }
-    if (!Number.isFinite(openingBalance) || openingBalance < 0) {
-      throw new BadRequestException('Le solde initial doit √™tre sup√©rieur ou √©gal √† z√©ro.');
-    }
-    return {
-      bank_name: bankName,
-      account_name: accountName,
-      account_number: accountNumber,
-      account_type: accountType,
-      currency,
-      opening_balance: Number(openingBalance.toFixed(2)),
-      opening_date: openingDate,
-      status,
-      notes: String(body.notes ?? '').trim() || null,
-    };
-  }
-
-  private normalizeBankAccountUpdatePayload(body: Record<string, unknown>) {
-    const payload: Record<string, unknown> = {};
-    if (body.bank_name !== undefined) {
-      const bankName = String(body.bank_name ?? '').trim();
-      if (!bankName) throw new BadRequestException('Le nom de la banque est obligatoire.');
-      payload.bank_name = bankName;
-    }
-    if (body.account_name !== undefined) {
-      const accountName = String(body.account_name ?? '').trim();
-      if (!accountName) throw new BadRequestException('Le nom du compte est obligatoire.');
-      payload.account_name = accountName;
-    }
-    if (body.account_number !== undefined) {
-      payload.account_number = String(body.account_number ?? '').trim() || null;
-    }
-    if (body.account_type !== undefined) {
-      const accountType = String(body.account_type ?? '').trim().toUpperCase();
-      if (!['CURRENT', 'SAVINGS', 'ESCROW', 'OTHER'].includes(accountType)) {
-        throw new BadRequestException('Type de compte bancaire invalide.');
-      }
-      payload.account_type = accountType;
-    }
-    if (body.status !== undefined) {
-      const status = String(body.status ?? '').trim().toUpperCase();
-      if (!['ACTIVE', 'INACTIVE', 'ARCHIVED'].includes(status)) {
-        throw new BadRequestException('Statut de compte bancaire invalide.');
-      }
-      payload.status = status;
-    }
-    if (body.notes !== undefined) {
-      payload.notes = String(body.notes ?? '').trim() || null;
-    }
-    return payload;
-  }
-
-  private normalizeTreasuryTransferPayload(sourceRegister: 'MAIN_CASH' | 'BANK', body: Record<string, unknown>) {
-    const transferType = String(body.transfer_type ?? '').trim().toUpperCase();
-    if (!['CASH_TO_BANK', 'BANK_TO_CASH', 'BANK_TO_BANK'].includes(transferType)) {
-      throw new BadRequestException('Type de transfert interne invalide.');
-    }
-    if (sourceRegister === 'MAIN_CASH' && transferType === 'BANK_TO_BANK') {
-      throw new BadRequestException('Ce type de transfert doit √™tre initi√© depuis la page Banque.');
-    }
-    const transferDate = this.normalizeLeasePayloadDate(body.transfer_date ?? this.localDateString(new Date()), 'transfer_date', true);
-    if (!transferDate) {
-      throw new BadRequestException('La date du transfert est obligatoire.');
-    }
-    const currency = String(body.currency ?? '').trim().toUpperCase();
-    if (!['USD', 'CDF'].includes(currency)) {
-      throw new BadRequestException('Devise de transfert invalide.');
-    }
-    const amount = Number(body.amount ?? 0);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new BadRequestException('Le montant du transfert est invalide.');
-    }
-    const paymentMethod = String(
-      body.payment_method
-      ?? (transferType === 'BANK_TO_CASH' ? 'CASH' : 'BANK_TRANSFER'),
-    ).trim().toUpperCase();
-    if (!['BANK_TRANSFER', 'CASH', 'CHEQUE', 'OTHER'].includes(paymentMethod)) {
-      throw new BadRequestException('Mode de transfert invalide.');
-    }
-    const sourceBankAccountId = this.normalizeNullablePositiveInt(body.source_bank_account_id);
-    const destinationBankAccountId = this.normalizeNullablePositiveInt(body.destination_bank_account_id);
-    if (transferType === 'CASH_TO_BANK' && !destinationBankAccountId) {
-      throw new BadRequestException('Le compte bancaire de destination est obligatoire.');
-    }
-    if (transferType === 'BANK_TO_CASH' && !sourceBankAccountId) {
-      throw new BadRequestException('Le compte bancaire source est obligatoire.');
-    }
-    if (transferType === 'BANK_TO_BANK') {
-      if (!sourceBankAccountId || !destinationBankAccountId) {
-        throw new BadRequestException('Les comptes bancaires source et destination sont obligatoires.');
-      }
-      if (sourceBankAccountId === destinationBankAccountId) {
-        throw new BadRequestException('Le compte source et le compte destination doivent √™tre diff√©rents.');
-      }
-    }
-    return {
-      transferType: transferType as 'CASH_TO_BANK' | 'BANK_TO_CASH' | 'BANK_TO_BANK',
-      transferDate,
-      currency,
-      amount: Number(amount.toFixed(2)),
-      paymentMethod,
-      sourceBankAccountId,
-      destinationBankAccountId,
-      reference: String(body.reference ?? '').trim() || null,
-      description: String(body.description ?? body.reason ?? '').trim() || null,
-      notes: String(body.notes ?? '').trim() || null,
-      idempotencyKey: String(
-        body.idempotency_key
-        ?? body.client_request_id
-        ?? [
-          'TREASURY_TRANSFER',
-          this.context.organizationId(),
-          this.context.userId() ?? 'anon',
-          transferType,
-          Date.now(),
-        ].join(':'),
-      ),
-    };
-  }
-
-  private async nextBankTransactionNumber(client: PoolClient) {
-    const year = new Date().getFullYear();
-    const { rows } = await client.query(
-      `SELECT COALESCE(MAX((SUBSTRING(transaction_number FROM $1))::INT), 0) + 1 AS value
-       FROM bank_transactions
-       WHERE organization_id = $2
-         AND transaction_number LIKE $3`,
-      [`BTR-${year}-([0-9]+)`, this.context.organizationId(), `BTR-${year}-%`],
-    );
-    return `BTR-${year}-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
-  }
-
-  private async nextTreasuryTransferNumber(client: PoolClient) {
-    const year = new Date().getFullYear();
-    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`treasury-transfer-number-${this.context.organizationId()}`]);
-    const { rows } = await client.query(
-      `SELECT COALESCE(MAX((SUBSTRING(transfer_number FROM $1))::INT), 0) + 1 AS value
-       FROM treasury_transfers
-       WHERE organization_id = $2
-         AND transfer_number LIKE $3`,
-      [`TRF-${year}-([0-9]+)`, this.context.organizationId(), `TRF-${year}-%`],
-    );
-    return `TRF-${year}-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
-  }
-
-  private localDateString(value: Date) {
-    const year = value.getFullYear();
-    const month = String(value.getMonth() + 1).padStart(2, '0');
-    const day = String(value.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
-
-  private normalizeNullablePositiveInt(value: unknown) {
-    if (value === undefined || value === null || value === '') return null;
-    const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-      throw new BadRequestException('Identifiant de transfert interne invalide.');
-    }
-    return parsed;
-  }
-
-  async shareholders(filters: Record<string, unknown> = {}) {
-    await this.ensureShareholderSchema();
-    const values: unknown[] = [this.context.organizationId()];
-    const clauses = ['s.organization_id = $1', 's.deleted_at IS NULL'];
-    if (filters.status) {
-      values.push(String(filters.status).toUpperCase());
-      clauses.push(`s.status = $${values.length}`);
-    }
-    if (filters.search) {
-      values.push(`%${String(filters.search).trim().toLowerCase()}%`);
-      clauses.push(`(
-        LOWER(COALESCE(s.display_name, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(s.email, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(s.phone, '')) LIKE $${values.length}
-      )`);
-    }
-    const { rows } = await this.db.query(
-      `SELECT s.*,
-              COALESCE(main.total_usd, 0)::NUMERIC(14,2) AS total_received_usd,
-              COALESCE(main.total_cdf, 0)::NUMERIC(14,2) AS total_received_cdf,
-              COALESCE(main.payout_count, 0)::INT AS payout_count
-       FROM shareholders s
-         LEFT JOIN (
-           SELECT spl.shareholder_id,
-                  SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'USD' THEN spl.amount ELSE 0 END) AS total_usd,
-                  SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'CDF' THEN spl.amount ELSE 0 END) AS total_cdf,
-                  COUNT(*) FILTER (WHERE spb.status = 'VALIDATED') AS payout_count
-           FROM shareholder_payout_lines spl
-           JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
-           WHERE spl.organization_id = $1
-             AND spl.deleted_at IS NULL
-             AND spb.deleted_at IS NULL
-           GROUP BY spl.shareholder_id
-         ) main ON main.shareholder_id = s.id
-       WHERE ${clauses.join(' AND ')}
-       ORDER BY s.display_name ASC`,
-      values,
-    );
-    return rows;
-  }
-
-  async shareholder(id: number) {
-    await this.ensureShareholderSchema();
-    const { rows } = await this.db.query(
-      `SELECT s.*,
-              COALESCE(main.total_usd, 0)::NUMERIC(14,2) AS total_received_usd,
-              COALESCE(main.total_cdf, 0)::NUMERIC(14,2) AS total_received_cdf,
-              COALESCE(main.payout_count, 0)::INT AS payout_count
-       FROM shareholders s
-       LEFT JOIN (
-         SELECT spl.shareholder_id,
-                SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'USD' THEN spl.amount ELSE 0 END) AS total_usd,
-                SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'CDF' THEN spl.amount ELSE 0 END) AS total_cdf,
-                COUNT(*) FILTER (WHERE spb.status = 'VALIDATED') AS payout_count
-         FROM shareholder_payout_lines spl
-         JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
-         WHERE spl.organization_id = $1
-           AND spl.deleted_at IS NULL
-           AND spb.deleted_at IS NULL
-         GROUP BY spl.shareholder_id
-       ) main ON main.shareholder_id = s.id
-       WHERE s.id = $2
-         AND s.organization_id = $1
-         AND s.deleted_at IS NULL`,
-      [this.context.organizationId(), id],
-    );
-    return requireRow(rows[0], 'Shareholder');
-  }
-
-  async shareholderHistory(id: number) {
-    await this.ensureShareholderSchema();
-    await this.shareholder(id);
-    const { rows } = await this.db.query(
-      `SELECT spl.id,
-              spl.amount,
-              spl.currency,
-              spl.payment_method,
-              spl.reference,
-              spl.notes,
-              spl.receipt_number,
-              spl.cash_movement_id,
-              spl.guarantee_cash_movement_id,
-              spl.created_at,
-              spb.id AS batch_id,
-              spb.reference AS batch_reference,
-              spb.payout_date,
-              spb.source_register,
-              spb.operation_type,
-              spb.reason,
-              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name
-       FROM shareholder_payout_lines spl
-       JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
-       LEFT JOIN app_users u ON u.id = spb.created_by
-       WHERE spl.organization_id = $1
-         AND spl.shareholder_id = $2
-         AND spl.deleted_at IS NULL
-         AND spb.deleted_at IS NULL
-        ORDER BY spb.payout_date DESC, spl.id DESC`,
-      [this.context.organizationId(), id],
-    );
-    return rows;
-  }
-
-  async createShareholder(body: Record<string, unknown>) {
-    await this.ensureShareholderSchema();
-    const payload = this.normalizeShareholderPayload(body);
-    const { rows } = await this.db.query(
-      `INSERT INTO shareholders
-        (organization_id, shareholder_type, display_name, first_name, last_name, company_name, phone, email,
-         identity_number, address, ownership_percentage, notes, status, created_by)
-       VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8,
-         $9, $10, $11, $12, $13, $14)
-       RETURNING *`,
-      [
-        this.context.organizationId(),
-        payload.shareholder_type,
-        payload.display_name,
-        payload.first_name,
-        payload.last_name,
-        payload.company_name,
-        payload.phone,
-        payload.email,
-        payload.identity_number,
-        payload.address,
-        payload.ownership_percentage,
-        payload.notes,
-        payload.status,
-        this.context.userId() ?? null,
-      ],
-    );
-    const shareholder = requireRow(rows[0], 'Shareholder');
-    await this.db.query(
-      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
-       VALUES ($1, $2, 'SHAREHOLDER_CREATED', 'shareholders', $3, 'POST', '/api/shareholders', 201, $4::JSONB)`,
-      [
-        this.context.organizationId(),
-        this.context.userId() ?? null,
-        String(shareholder.id),
-        JSON.stringify({
-          shareholder_id: shareholder.id,
-          shareholder_type: shareholder.shareholder_type,
-          display_name: shareholder.display_name,
-          status: shareholder.status,
-        }),
-      ],
-    );
-    return shareholder;
-  }
-
-  async updateShareholder(id: number, body: Record<string, unknown>) {
-    await this.ensureShareholderSchema();
-    await this.shareholder(id);
-    const payload = this.normalizeShareholderPayload(body);
-    const { rows } = await this.db.query(
-      `UPDATE shareholders
-       SET shareholder_type = $3,
-           display_name = $4,
-           first_name = $5,
-           last_name = $6,
-           company_name = $7,
-           phone = $8,
-           email = $9,
-           identity_number = $10,
-           address = $11,
-           ownership_percentage = $12,
-           notes = $13,
-           status = $14,
-           archived_at = CASE WHEN $14::VARCHAR(20) = 'ARCHIVED' THEN COALESCE(archived_at, NOW()) ELSE NULL END,
-           updated_at = NOW()
-       WHERE id = $2
-         AND organization_id = $1
-         AND deleted_at IS NULL
-       RETURNING *`,
-      [
-        this.context.organizationId(),
-        id,
-        payload.shareholder_type,
-        payload.display_name,
-        payload.first_name,
-        payload.last_name,
-        payload.company_name,
-        payload.phone,
-        payload.email,
-        payload.identity_number,
-        payload.address,
-        payload.ownership_percentage,
-        payload.notes,
-        payload.status,
-      ],
-    );
-    const shareholder = requireRow(rows[0], 'Shareholder');
-    await this.db.query(
-      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
-       VALUES ($1, $2, 'SHAREHOLDER_UPDATED', 'shareholders', $3, 'PATCH', $4, 200, $5::JSONB)`,
-      [
-        this.context.organizationId(),
-        this.context.userId() ?? null,
-        String(shareholder.id),
-        `/api/shareholders/${shareholder.id}`,
-        JSON.stringify({
-          shareholder_id: shareholder.id,
-          shareholder_type: shareholder.shareholder_type,
-          display_name: shareholder.display_name,
-          status: shareholder.status,
-        }),
-      ],
-    );
-    return shareholder;
-  }
-
-  async shareholderPayoutFormData(sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH' | 'BANK') {
-    await this.ensureShareholderSchema();
-    this.assertShareholderPayoutPermission(sourceRegister);
-    if (sourceRegister === 'BANK') {
-      await this.ensureBankSchema();
-    }
-    const shareholders = await this.db.query(
-      `SELECT id, display_name, shareholder_type, phone, email
-       FROM shareholders
-       WHERE organization_id = $1
-         AND deleted_at IS NULL
-         AND status = 'ACTIVE'
-      ORDER BY display_name`,
-      [this.context.organizationId()],
-    );
-    const bankAccounts = sourceRegister === 'BANK'
-      ? await this.shareholderBankAccounts()
-      : [];
-    const balances = sourceRegister === 'MAIN_CASH'
-      ? await this.shareholderMainCashBalances()
-      : sourceRegister === 'GUARANTEE_CASH'
-        ? await this.shareholderGuaranteeCashBalances()
-        : this.shareholderBankBalances(bankAccounts);
-    return {
-      source_register: sourceRegister,
-      shareholders: shareholders.rows,
-      balances,
-      bank_accounts: bankAccounts,
-      payment_methods: [
-        { value: 'CASH', label: 'Esp√®ces' },
-        { value: 'BANK', label: 'Banque' },
-        { value: 'MOBILE_MONEY', label: 'Mobile Money' },
-      ],
-      operation_types: [
-        { value: 'SHAREHOLDER_REPAYMENT', label: 'Remboursement actionnaire' },
-        { value: 'SHAREHOLDER_CURRENT_ACCOUNT', label: 'Compte courant actionnaire' },
-        { value: 'DISTRIBUTION', label: 'Distribution' },
-        { value: 'ADVANCE', label: 'Avance' },
-        { value: 'OTHER', label: 'Autre' },
-      ],
-    };
-  }
-
-  async createShareholderPayout(sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH' | 'BANK', body: Record<string, unknown>) {
-    await this.ensureShareholderSchema();
-    this.assertShareholderPayoutPermission(sourceRegister);
-    return this.db.transaction(async (client) => this.createShareholderPayoutInTransaction(client, sourceRegister, body));
-  }
-
-  async shareholderPayoutBatch(id: number) {
-    await this.ensureShareholderSchema();
-    const { rows } = await this.db.query(
-      `SELECT spb.*,
-              o.name AS organization_name,
-              ba.bank_name,
-              ba.account_name AS bank_account_name,
-              ba.account_number AS bank_account_number,
-              ba.currency AS bank_account_currency,
-              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name
-       FROM shareholder_payout_batches spb
-       JOIN organizations o ON o.id = spb.organization_id
-       LEFT JOIN app_users u ON u.id = spb.created_by
-       LEFT JOIN bank_accounts ba ON ba.id = spb.bank_account_id AND ba.organization_id = spb.organization_id AND ba.deleted_at IS NULL
-       WHERE spb.organization_id = $1
-         AND spb.id = $2`,
-      [this.context.organizationId(), id],
-    );
-    const batch = requireRow(rows[0], 'Shareholder payout batch');
-    const lines = await this.db.query(
-      `SELECT spl.*,
-              s.display_name AS shareholder_name,
-              s.shareholder_type,
-              cm.piece_number AS cash_piece_number,
-              bt.id AS bank_transaction_id,
-              bt.transaction_number AS bank_transaction_number,
-              bt.reference AS bank_reference,
-              bt.bank_account_id,
-              ba.bank_name,
-              ba.account_name AS bank_account_name,
-              ba.account_number AS bank_account_number
-       FROM shareholder_payout_lines spl
-       JOIN shareholders s ON s.id = spl.shareholder_id AND s.organization_id = spl.organization_id
-       LEFT JOIN cash_movements cm ON cm.id = spl.cash_movement_id AND cm.organization_id = spl.organization_id
-       LEFT JOIN bank_transactions bt ON bt.id = spl.bank_transaction_id AND bt.organization_id = spl.organization_id
-       LEFT JOIN bank_accounts ba ON ba.id = bt.bank_account_id AND ba.organization_id = bt.organization_id
-       WHERE spl.organization_id = $1
-         AND spl.batch_id = $2
-         AND spl.deleted_at IS NULL
-        ORDER BY s.display_name, spl.id`,
-      [this.context.organizationId(), id],
-    );
-    return { ...batch, lines: lines.rows };
-  }
-
-  async shareholderPayoutLineReceipt(id: number) {
-    await this.ensureShareholderSchema();
-    const { rows } = await this.db.query(
-      `SELECT spl.*,
-              spb.reference AS batch_reference,
-              spb.source_register,
-              spb.operation_type,
-              spb.reason,
-              spb.notes AS batch_notes,
-              spb.payout_date,
-              spb.bank_account_id,
-              o.name AS organization_name,
-              ba.bank_name,
-              ba.account_name AS bank_account_name,
-              ba.account_number AS bank_account_number,
-              ba.currency AS bank_account_currency,
-              s.display_name AS shareholder_name,
-              s.shareholder_type,
-              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name,
-              cm.piece_number AS cash_piece_number,
-              bt.id AS bank_transaction_id,
-              bt.transaction_number AS bank_transaction_number,
-              bt.reference AS bank_reference
-       FROM shareholder_payout_lines spl
-       JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
-       JOIN organizations o ON o.id = spl.organization_id
-       JOIN shareholders s ON s.id = spl.shareholder_id AND s.organization_id = spl.organization_id
-       LEFT JOIN app_users u ON u.id = spb.created_by
-       LEFT JOIN cash_movements cm ON cm.id = spl.cash_movement_id AND cm.organization_id = spl.organization_id
-       LEFT JOIN bank_transactions bt ON bt.id = spl.bank_transaction_id AND bt.organization_id = spl.organization_id
-       LEFT JOIN bank_accounts ba ON ba.id = bt.bank_account_id AND ba.organization_id = bt.organization_id
-       WHERE spl.organization_id = $1
-         AND spl.id = $2`,
-      [this.context.organizationId(), id],
-    );
-    return requireRow(rows[0], 'Shareholder payout receipt');
-  }
-
-  async payLeaseGuarantee(id: number, body: Record<string, unknown>) {
-    return this.db.transaction(async (client) => {
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`lease-guarantee-payment-${this.context.organizationId()}-${id}`]);
-      const lease = await client.query(
-        `SELECT l.*,
-                CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
-                     ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
-                END AS tenant_name,
-                u.number AS unit_number,
-                l.lease_number
-         FROM leases l
-         LEFT JOIN tenants t ON t.id = l.tenant_id AND t.organization_id = l.organization_id AND t.deleted_at IS NULL
-         LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = l.organization_id AND u.deleted_at IS NULL
-         WHERE l.id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL`,
-        [id, this.context.organizationId()],
-      );
-      const row = requireRow(lease.rows[0], 'Lease');
-      const exchangeRate = await this.exchangeRate();
-      const paymentCurrency = String(body.payment_currency ?? 'USD').toUpperCase();
-      const amountUsd = Number(body.amount_usd ?? (paymentCurrency === 'USD' ? body.amount : 0)) || 0;
-      const amountCdf = Number(body.amount_cdf ?? 0) || 0;
-      const exchangeRateUsed = Number(body.exchange_rate_used ?? exchangeRate?.rate ?? 0) || null;
-      const exchangeRateDate = body.exchange_rate_date ?? exchangeRate?.effectiveDate ?? null;
-      if (!['USD', 'CDF', 'MIXED'].includes(paymentCurrency)) {
-        throw new BadRequestException('Devise de paiement invalide.');
-      }
-      if (!Number.isFinite(amountUsd) || amountUsd < 0 || !Number.isFinite(amountCdf) || amountCdf < 0) {
-        throw new BadRequestException('Montant de paiement invalide.');
-      }
-      if (amountUsd <= 0 && amountCdf <= 0) {
-        throw new BadRequestException('Le montant de la garantie doit etre superieur a 0.');
-      }
-      if ((paymentCurrency === 'CDF' || paymentCurrency === 'MIXED' || amountCdf > 0) && (!exchangeRateUsed || exchangeRateUsed <= 0)) {
-        throw new BadRequestException('Un taux de change est requis pour un paiement de garantie en CDF.');
-      }
-      const paymentMethodUsd = String(body.payment_method_usd ?? body.payment_method ?? 'CASH').toUpperCase();
-      const paymentMethodCdf = String(body.payment_method_cdf ?? body.payment_method ?? 'CASH').toUpperCase();
-      if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethodUsd) || !['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethodCdf)) {
-        throw new BadRequestException('Mode de paiement invalide.');
-      }
-      if (paymentCurrency === 'MIXED' && (paymentMethodUsd === 'BANK' || paymentMethodCdf === 'BANK')) {
-        throw new BadRequestException('Le paiement mixte de garantie bancaire n est pas encore pris en charge.');
-      }
-      const paymentMethod = amountUsd > 0 ? paymentMethodUsd : paymentMethodCdf;
-      const isBankPayment = paymentMethod === 'BANK';
-      const bankAccount = isBankPayment
-        ? await this.validateBankAccountForGuarantee(client, Number(body.bank_account_id ?? 0), paymentCurrency)
-        : null;
-      const bankGuaranteeTransactionType = isBankPayment
-        ? await this.bankGuaranteeTransactionType(client, 'GUARANTEE_PAYMENT')
-        : 'MANUAL_ADJUSTMENT';
-      if (!isBankPayment) {
-        await this.ensureGuaranteeCashSchema();
-      }
-      const cdfEquivalentUsd = amountCdf > 0 && exchangeRateUsed ? Number((amountCdf / exchangeRateUsed).toFixed(2)) : 0;
-      const amount = Number((amountUsd + cdfEquivalentUsd).toFixed(2));
-      const guarantee = await this.leaseGuarantee(id);
-      const guaranteeAmount = Number(guarantee?.amount ?? row.rental_guarantee_amount ?? 0);
-      const paidAmount = Number(guarantee?.paid_amount ?? row.rental_guarantee_paid ?? 0) + amount;
-      if (guaranteeAmount > 0 && paidAmount > guaranteeAmount + 0.01) {
-        throw new BadRequestException('Le paiement depasse le montant restant de la garantie.');
-      }
-      const status = paidAmount >= guaranteeAmount ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'NOT_PAID';
-      await this.upsertLeaseGuarantee(client, id, {
-        amount: guaranteeAmount,
-        paid_amount: paidAmount,
-        payment_date: String(body.payment_date ?? new Date().toISOString().slice(0, 10)),
-        status,
-      });
-      const persistedGuarantee = await this.leaseGuaranteeInTransaction(client, id);
-      const receiptNumber = await this.nextPaymentReceiptNumber(client);
-      const paymentDate = String(body.payment_date ?? new Date().toISOString().slice(0, 10));
-      const normalizedReference = body.reference ? String(body.reference) : `GAR-${id}`;
-      const idempotencyKey = [
-        'GUARANTEE',
-        this.context.organizationId(),
-        id,
-        persistedGuarantee.id,
-        paymentDate,
-        amount.toFixed(2),
-        amountUsd.toFixed(2),
-        amountCdf.toFixed(2),
-        normalizedReference,
-      ].join(':');
-      const paymentResult = await client.query(
-        `INSERT INTO payments
-          (invoice_id, payment_date, amount, payment_method, reference, notes, payer_name, receipt_number,
-           currency, amount_usd, amount_cdf, exchange_rate_used, exchange_rate_date, cdf_equivalent_usd, total_equivalent_usd, organization_id,
-           payment_type, lease_guarantee_id, idempotency_key)
-         VALUES
-          (NULL, $1, $2, $3, $4, $5, $6, $7,
-           $8, $9, $10, $11, $12, $13, $2, $14,
-           'GUARANTEE', $15, $16)
-         ON CONFLICT (organization_id, idempotency_key)
-         WHERE deleted_at IS NULL AND idempotency_key IS NOT NULL
-         DO NOTHING
-         RETURNING *`,
-        [
-          paymentDate,
-          amount,
-          paymentMethod,
-          normalizedReference,
-          body.notes ? String(body.notes) : 'Paiement garantie locative',
-          row.tenant_name ?? (row.tenant_id ? `Locataire #${row.tenant_id}` : null),
-          receiptNumber,
-          paymentCurrency,
-          amountUsd,
-          amountCdf,
-          exchangeRateUsed,
-          exchangeRateDate,
-          cdfEquivalentUsd,
-          this.context.organizationId(),
-          persistedGuarantee.id,
-          idempotencyKey,
-        ],
-      );
-      if (!paymentResult.rows[0]) {
-        throw new ConflictException('Ce paiement de garantie est deja en cours de traitement ou deja enregistre.');
-      }
-      const movements = [];
-      if (amountUsd > 0 && !isBankPayment) {
-        const movement = await this.createGuaranteeCashMovementInTransaction(client, {
-          movement_type: 'GARANTY_PAYMENT_IN',
-          type: 'IN',
-          amount: amountUsd,
-          movement_date: paymentDate,
-          lease_id: id,
-          lease_guarantee_id: persistedGuarantee.id,
-          payment_id: paymentResult.rows[0].id,
-          tenant_id: row.tenant_id,
-          reference: normalizedReference,
-          reason: 'Paiement garantie locative',
-          notes: body.notes ? String(body.notes) : null,
-          currency: 'USD',
-          equivalent_usd: amountUsd,
-        });
-        await this.auditGuaranteeCash(client, 'GARANTY_PAYMENT_IN', movement.id, { payment_id: paymentResult.rows[0].id, amount: amountUsd, currency: 'USD' });
-        movements.push(movement);
-      }
-      if (amountCdf > 0 && !isBankPayment) {
-        const movement = await this.createGuaranteeCashMovementInTransaction(client, {
-          movement_type: 'GARANTY_PAYMENT_IN',
-          type: 'IN',
-          amount: amountCdf,
-          movement_date: paymentDate,
-          lease_id: id,
-          lease_guarantee_id: persistedGuarantee.id,
-          payment_id: paymentResult.rows[0].id,
-          tenant_id: row.tenant_id,
-          reference: normalizedReference,
-          reason: 'Paiement garantie locative',
-          notes: body.notes ? String(body.notes) : null,
-          currency: 'CDF',
-          exchange_rate_used: exchangeRateUsed,
-          exchange_rate_date: exchangeRateDate,
-          equivalent_usd: cdfEquivalentUsd,
-        });
-        await this.auditGuaranteeCash(client, 'GARANTY_PAYMENT_IN', movement.id, { payment_id: paymentResult.rows[0].id, amount: amountCdf, currency: 'CDF' });
-        movements.push(movement);
-      }
-      let bankTransaction: Record<string, unknown> | null = null;
-      if (isBankPayment && bankAccount) {
-        bankTransaction = await this.createGuaranteeBankTransactionInTransaction(client, {
-          bankAccount,
-          amount: paymentCurrency === 'CDF' ? amountCdf : amountUsd,
-          currency: paymentCurrency === 'CDF' ? 'CDF' : 'USD',
-          receiptNumber: paymentResult.rows[0].receipt_number,
-          reference: normalizedReference,
-          createdBy: this.context.userId() ?? null,
-          transactionType: bankGuaranteeTransactionType,
-          sourceModule: 'GUARANTEES',
-          direction: 'IN',
-          sourceEntityType: 'GUARANTEE',
-          sourceEntityId: Number(paymentResult.rows[0].id),
-          description: 'Paiement de garantie locative',
-          tenantName: row.tenant_name ?? null,
-          leaseNumber: row.lease_number ?? null,
-          unitNumber: row.unit_number ?? null,
-        });
-      }
-      await client.query(
-        `UPDATE payments
-         SET guarantee_cash_movement_id = $2
-         WHERE id = $1 AND organization_id = $3`,
-        [paymentResult.rows[0].id, movements[0]?.id ?? null, this.context.organizationId()],
-      );
-      return {
-        guarantee: await this.leaseGuaranteeInTransaction(client, id),
-        payment_id: paymentResult.rows[0].id,
-        receipt_number: paymentResult.rows[0].receipt_number,
-        cash_movement_id: movements[0]?.id ?? null,
-        bank_transaction: bankTransaction,
-        movement: movements[0] ?? null,
-        movements,
-      };
-    });
-  }
-
-  async refundLeaseGuarantee(id: number, body: Record<string, unknown>) {
-    return this.db.transaction(async (client) => {
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`lease-guarantee-refund-${this.context.organizationId()}-${id}`]);
-      const lease = await client.query(
-        `SELECT l.*,
-                CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
-                     ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
-                END AS tenant_name,
-                u.number AS unit_number,
-                l.lease_number
-         FROM leases l
-         LEFT JOIN tenants t ON t.id = l.tenant_id AND t.organization_id = l.organization_id AND t.deleted_at IS NULL
-         LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = l.organization_id AND u.deleted_at IS NULL
-         WHERE l.id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL`,
-        [id, this.context.organizationId()],
-      );
-      const row = requireRow(lease.rows[0], 'Lease');
-      const exchangeRate = await this.exchangeRate();
-      const paymentCurrency = String(body.payment_currency ?? 'USD').toUpperCase();
-      const amountUsd = Number(body.amount_usd ?? (paymentCurrency === 'USD' ? body.amount : 0)) || 0;
-      const amountCdf = Number(body.amount_cdf ?? 0) || 0;
-      const exchangeRateUsed = Number(body.exchange_rate_used ?? exchangeRate?.rate ?? 0) || null;
-      const exchangeRateDate = body.exchange_rate_date ?? exchangeRate?.effectiveDate ?? null;
-      if (!['USD', 'CDF'].includes(paymentCurrency)) {
-        throw new BadRequestException('Devise de remboursement invalide.');
-      }
-      if (!Number.isFinite(amountUsd) || amountUsd < 0 || !Number.isFinite(amountCdf) || amountCdf < 0) {
-        throw new BadRequestException('Montant de remboursement invalide.');
-      }
-      if (amountUsd <= 0 && amountCdf <= 0) {
-        throw new BadRequestException('Le remboursement de la garantie doit etre superieur a 0.');
-      }
-      if ((paymentCurrency === 'CDF' || amountCdf > 0) && (!exchangeRateUsed || exchangeRateUsed <= 0)) {
-        throw new BadRequestException('Un taux de change est requis pour un remboursement de garantie en CDF.');
-      }
-      const paymentMethod = String(body.payment_method ?? 'CASH').toUpperCase();
-      if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethod)) {
-        throw new BadRequestException('Mode de remboursement invalide.');
-      }
-      if (paymentCurrency === 'CDF' && paymentMethod === 'BANK' && (!exchangeRateUsed || exchangeRateUsed <= 0)) {
-        throw new BadRequestException('Un taux de change est requis pour un remboursement de garantie bancaire en CDF.');
-      }
-      const isBankPayment = paymentMethod === 'BANK';
-      const bankAccount = isBankPayment
-        ? await this.validateBankAccountForGuarantee(client, Number(body.bank_account_id ?? 0), paymentCurrency)
-        : null;
-      const bankGuaranteeTransactionType = isBankPayment
-        ? await this.bankGuaranteeTransactionType(client, 'GUARANTEE_REFUND')
-        : 'MANUAL_ADJUSTMENT';
-      if (!isBankPayment) {
-        await this.ensureGuaranteeCashSchema();
-      }
-      const cdfEquivalentUsd = amountCdf > 0 && exchangeRateUsed ? Number((amountCdf / exchangeRateUsed).toFixed(2)) : 0;
-      const amount = Number((amountUsd + cdfEquivalentUsd).toFixed(2));
-      const paymentDate = String(body.payment_date ?? new Date().toISOString().slice(0, 10));
-      const normalizedReference = body.reference ? String(body.reference) : `GAR-REF-${id}`;
-      const refundMovementAmount = paymentCurrency === 'CDF' ? amountCdf : amountUsd;
-      const refundMovementEquivalentUsd = paymentCurrency === 'CDF' ? cdfEquivalentUsd : amountUsd;
-      if (!isBankPayment) {
-        const duplicate = await client.query(
-          `SELECT id
-           FROM guarantee_cash_movements
-           WHERE organization_id = $1
-             AND lease_id = $2
-             AND movement_type = 'GARANTY_REFUND'
-             AND type = 'OUT'
-             AND amount = $3
-             AND currency = $4
-             AND movement_date = $5::DATE
-             AND COALESCE(reference, '') = $6
-             AND deleted_at IS NULL
-           LIMIT 1`,
-          [this.context.organizationId(), id, refundMovementAmount, paymentCurrency, paymentDate, normalizedReference],
-        );
-        if (duplicate.rows[0]) {
-          throw new ConflictException('Ce remboursement de garantie est deja enregistre.');
-        }
-      }
-      const guarantee = await this.leaseGuarantee(id);
-      const guaranteeAmount = Number(guarantee?.amount ?? row.rental_guarantee_amount ?? 0);
-      const paidAmount = Number(guarantee?.paid_amount ?? row.rental_guarantee_paid ?? 0);
-      if (amount > paidAmount + 0.01) {
-        throw new BadRequestException('Le remboursement depasse le montant deja paye.');
-      }
-      const nextPaidAmount = Math.max(Number((paidAmount - amount).toFixed(2)), 0);
-      const status = nextPaidAmount >= guaranteeAmount ? 'PAID' : nextPaidAmount > 0 ? 'PARTIAL' : 'REFUNDED';
-      await this.upsertLeaseGuarantee(client, id, {
-        amount: guaranteeAmount,
-        paid_amount: nextPaidAmount,
-        payment_date: guarantee?.payment_date ?? null,
-        status,
-      });
-      const movements = [];
-      let bankTransaction: Record<string, unknown> | null = null;
-      if (isBankPayment && bankAccount) {
-        bankTransaction = await this.createGuaranteeBankTransactionInTransaction(client, {
-          bankAccount,
-          amount: refundMovementAmount,
-          currency: paymentCurrency === 'CDF' ? 'CDF' : 'USD',
-          receiptNumber: normalizedReference,
-          reference: normalizedReference,
-          createdBy: this.context.userId() ?? null,
-          transactionType: bankGuaranteeTransactionType,
-          sourceModule: 'GUARANTEES',
-          direction: 'OUT',
-          sourceEntityType: 'GUARANTEE_REFUND',
-          sourceEntityId: id,
-          description: 'Remboursement de garantie locative',
-          tenantName: row.tenant_name ?? null,
-          leaseNumber: row.lease_number ?? null,
-          unitNumber: row.unit_number ?? null,
-        });
-      } else {
-        const movement = await this.createGuaranteeCashMovementInTransaction(client, {
-          movement_type: 'GARANTY_REFUND',
-          type: 'OUT',
-          amount: refundMovementAmount,
-          movement_date: paymentDate,
-          lease_id: id,
-          lease_guarantee_id: guarantee?.id ?? null,
-          tenant_id: row.tenant_id,
-          reference: normalizedReference,
-          reason: 'Remboursement garantie locative',
-          notes: body.notes ? String(body.notes) : null,
-          currency: paymentCurrency,
-          exchange_rate_used: exchangeRateUsed,
-          exchange_rate_date: exchangeRateDate,
-          equivalent_usd: refundMovementEquivalentUsd,
-        });
-        await this.auditGuaranteeCash(client, 'GARANTY_REFUND', movement.id, { amount: refundMovementAmount, lease_id: id });
-        movements.push(movement);
-      }
-      return {
-        guarantee: await this.leaseGuaranteeInTransaction(client, id),
-        bank_transaction: bankTransaction,
-        movement: movements[0] ?? null,
-        movements,
-      };
-    });
-  }
-
-  private async nextPaymentReceiptNumber(client: PoolClient) {
-    const year = new Date().getFullYear();
-    const { rows } = await client.query(
-      `SELECT COALESCE(MAX((SUBSTRING(receipt_number FROM $1))::INT), 0) + 1 AS value
-       FROM payments
-       WHERE receipt_number LIKE $2 AND organization_id = $3`,
-      [`RCPT-${year}-([0-9]+)`, `RCPT-${year}-%`, this.context.organizationId()],
-    );
-    return `RCPT-${year}-${String(rows[0].value).padStart(4, '0')}`;
-  }
-
-  private async validateBankAccountForGuarantee(client: PoolClient, bankAccountId: number | undefined, paymentCurrency: string) {
-    const accountId = Number(bankAccountId ?? 0);
-    if (!accountId) {
-      throw new BadRequestException('Un compte bancaire actif est requis pour un paiement de garantie par banque.');
-    }
-    const { rows } = await client.query(
-      `SELECT id, bank_name, account_name, currency, status
-       FROM bank_accounts
-       WHERE id = $1
-         AND organization_id = $2
-         AND deleted_at IS NULL`,
-      [accountId, this.context.organizationId()],
-    );
-    const account = requireRow(rows[0], 'Bank account');
-    if (String(account.status).toUpperCase() !== 'ACTIVE') {
-      throw new BadRequestException('Le compte bancaire selectionne doit etre actif.');
-    }
-    if (String(account.currency).toUpperCase() !== String(paymentCurrency).toUpperCase()) {
-      throw new BadRequestException('La devise du compte bancaire doit correspondre a celle de la garantie.');
-    }
-    return account;
-  }
-
-  private async validateBankAccountForTenantCredit(client: PoolClient, bankAccountId: number | undefined, paymentCurrency: string) {
-    const accountId = Number(bankAccountId ?? 0);
-    if (!accountId) {
-      throw new BadRequestException('Un compte bancaire actif est requis pour un cr√©dit locataire par banque.');
-    }
-    const { rows } = await client.query(
-      `SELECT id, bank_name, account_name, currency, status
-       FROM bank_accounts
-       WHERE id = $1
-         AND organization_id = $2
-         AND deleted_at IS NULL`,
-      [accountId, this.context.organizationId()],
-    );
-    const account = requireRow(rows[0], 'Bank account');
-    if (String(account.status).toUpperCase() !== 'ACTIVE') {
-      throw new ConflictException('Le compte bancaire selectionne doit etre actif.');
-    }
-    if (String(account.currency).toUpperCase() !== String(paymentCurrency).toUpperCase()) {
-      throw new ConflictException('La devise du compte bancaire doit correspondre a celle du cr√©dit locataire.');
-    }
-    return account;
-  }
-
-  private async validateExpenseCategory(client: PoolClient, categoryCode: unknown) {
-    const code = String(categoryCode ?? '').trim();
-    if (!code) {
-      throw new BadRequestException('La cat√©gorie de d√©pense est obligatoire.');
-    }
-    const { rows } = await client.query(
-      `SELECT id, code, name, status
-       FROM cash_expense_categories
-       WHERE organization_id = $1
-         AND code = $2
-         AND deleted_at IS NULL`,
-      [this.context.organizationId(), code],
-    );
-    const category = requireRow(rows[0], 'Cash expense category');
-    if (String(category.status).toUpperCase() !== 'ACTIVE') {
-      throw new ConflictException('La cat√©gorie de d√©pense s√©lectionn√©e doit etre active.');
-    }
-    return category;
-  }
-
-  private async validateBankAccountForExpense(client: PoolClient, bankAccountId: number | undefined, currency: string) {
-    const accountId = Number(bankAccountId ?? 0);
-    if (!accountId) {
-      throw new BadRequestException('Un compte bancaire actif est requis pour une d√©pense bancaire.');
-    }
-    const { rows } = await client.query(
-      `SELECT ba.*,
-              COALESCE(tx.current_balance, 0)::NUMERIC(14,2) AS current_balance
-       FROM bank_accounts ba
-       LEFT JOIN (
-         SELECT bt.bank_account_id,
-                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'IN' THEN bt.amount ELSE -bt.amount END) AS current_balance
-         FROM bank_transactions bt
-         WHERE bt.organization_id = $1
-         GROUP BY bt.bank_account_id
-       ) tx ON tx.bank_account_id = ba.id
-       WHERE ba.id = $2
-         AND ba.organization_id = $1
-         AND ba.deleted_at IS NULL
-       FOR UPDATE`,
-      [this.context.organizationId(), accountId],
-    );
-    const account = rows[0];
-    if (!account) {
-      throw new NotFoundException('Compte bancaire introuvable dans cette organisation.');
-    }
-    if (String(account.status).toUpperCase() !== 'ACTIVE') {
-      throw new ConflictException('Le compte bancaire selectionne doit etre actif.');
-    }
-    if (String(account.currency).toUpperCase() !== String(currency).toUpperCase()) {
-      throw new ConflictException('La devise du compte bancaire doit correspondre a celle de la d√©pense.');
-    }
-    return account;
-  }
-
-  private async createBankExpenseInTransaction(client: PoolClient, body: Record<string, unknown>) {
-    const category = await this.validateExpenseCategory(client, body.category);
-    const currency = String(body.currency ?? '').trim().toUpperCase();
-    const amount = Number(body.amount ?? 0);
-    const movementDate = this.normalizeLeasePayloadDate(body.movement_date ?? this.localDateString(new Date()), 'movement_date', true);
-    const transactionType = await this.bankGuaranteeTransactionType(client, 'BANK_EXPENSE');
-    const supportsCategory = await this.columnExists('bank_transactions', 'category');
-    const supportsAttachmentName = await this.columnExists('bank_transactions', 'attachment_file_name');
-    const supportsAttachmentUrl = await this.columnExists('bank_transactions', 'attachment_file_url');
-    if (!['USD', 'CDF'].includes(currency)) {
-      throw new BadRequestException('Devise bancaire invalide.');
-    }
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new BadRequestException('Le montant de la d√©pense bancaire est invalide.');
-    }
-    const bankAccount = await this.validateBankAccountForExpense(client, Number(body.bank_account_id ?? 0), currency);
-    const transactionNumber = await this.nextBankTransactionNumber(client);
-    const normalizedReference = String(body.reference ?? '').trim() || null;
-    const supplierName = String(body.supplier ?? '').trim() || null;
-    const description = String(body.description ?? '').trim() || String(body.label ?? '').trim() || category.name;
-    const idempotencyKey = String(body.idempotency_key ?? [
-      'BANK_EXPENSE',
-      this.context.organizationId(),
-      bankAccount.id,
-      category.code,
-      movementDate,
-      currency,
-      amount.toFixed(2),
-      normalizedReference ?? supplierName ?? 'EXPENSE',
-    ].join(':'));
-    const insertColumns = [
-      'organization_id',
-      'bank_account_id',
-      'transaction_number',
-      'transaction_date',
-      'direction',
-      'transaction_type',
-      'amount',
-      'currency',
-      'reference',
-      'description',
-      'counterparty_name',
-      'source_module',
-      'source_entity_type',
-      'source_entity_id',
-      'status',
-      'reversal_of_id',
-      'idempotency_key',
-      'created_by',
-    ];
-    const insertValues: unknown[] = [
-      this.context.organizationId(),
-      Number(bankAccount.id),
-      transactionNumber,
-      movementDate,
-      'OUT',
-      transactionType,
-      amount,
-      String(currency).toUpperCase(),
-      normalizedReference,
-      description,
-      supplierName,
-      'EXPENSES',
-      'EXPENSE',
-      null,
-      'VALIDATED',
-      null,
-      idempotencyKey,
-      this.context.userId() ?? 1,
-    ];
-    if (supportsCategory) {
-      insertColumns.push('category');
-      insertValues.push(category.code);
-    }
-    if (supportsAttachmentName) {
-      insertColumns.push('attachment_file_name');
-      insertValues.push(body.attachment_file_name ?? null);
-    }
-    if (supportsAttachmentUrl) {
-      insertColumns.push('attachment_file_url');
-      insertValues.push(body.attachment_file_url ?? null);
-    }
-    const insertPlaceholders = insertValues.map((_, index) => `$${index + 1}`);
-    const { rows } = await client.query(
-      `INSERT INTO bank_transactions
-        (${insertColumns.join(', ')})
-       VALUES
-        (${insertPlaceholders.join(', ')})
-       ON CONFLICT (organization_id, idempotency_key)
-       WHERE idempotency_key IS NOT NULL
-       DO NOTHING
-       RETURNING *`,
-      insertValues,
-    );
-    let transaction = rows[0];
-    if (!transaction) {
-      const existing = await client.query(
-        `SELECT *
-         FROM bank_transactions
-         WHERE organization_id = $1
-           AND idempotency_key = $2
-         LIMIT 1`,
-        [this.context.organizationId(), idempotencyKey],
-      );
-      transaction = existing.rows[0];
-    }
-    transaction = requireRow(transaction, 'Bank transaction');
-    if (!transaction.source_entity_id) {
-      const updateValues: unknown[] = [transaction.id, transaction.id];
-      const updateSet: string[] = ['source_entity_id = $2'];
-      if (supportsCategory) {
-        updateValues.push(category.code);
-        updateSet.push(`category = COALESCE($${updateValues.length}, category)`);
-      }
-      if (supportsAttachmentName) {
-        updateValues.push(body.attachment_file_name ?? null);
-        updateSet.push(`attachment_file_name = COALESCE($${updateValues.length}, attachment_file_name)`);
-      }
-      if (supportsAttachmentUrl) {
-        updateValues.push(body.attachment_file_url ?? null);
-        updateSet.push(`attachment_file_url = COALESCE($${updateValues.length}, attachment_file_url)`);
-      }
-      updateValues.push(this.context.organizationId());
-      const updated = await client.query(
-        `UPDATE bank_transactions
-         SET ${updateSet.join(', ')}
-         WHERE id = $1 AND organization_id = $${updateValues.length}
-         RETURNING *`,
-        updateValues,
-      );
-      transaction = requireRow(updated.rows[0], 'Bank transaction');
-    }
-    return transaction;
-  }
-
-  private async bankGuaranteeTransactionType(client: PoolClient, transactionType: string) {
-    const { rows } = await client.query(
-      `SELECT EXISTS (
-         SELECT 1
-         FROM pg_constraint c
-         JOIN pg_class t ON t.oid = c.conrelid
-         JOIN pg_namespace n ON n.oid = t.relnamespace
-         WHERE n.nspname = 'public'
-           AND t.relname = 'bank_transactions'
-           AND c.contype = 'c'
-           AND pg_get_constraintdef(c.oid) ILIKE '%' || $1 || '%'
-       ) AS supported`,
-      [transactionType],
-    );
-    return rows[0]?.supported ? transactionType : 'MANUAL_ADJUSTMENT';
-  }
-
-  private async createGuaranteeBankTransactionInTransaction(
-    client: PoolClient,
-    payload: {
-      bankAccount: { id: number; bank_name?: string | null; account_name?: string | null; currency: string };
-      amount: number;
-      currency: string;
-      receiptNumber: string;
-      reference?: string | null;
-      createdBy: number | null;
-      transactionType: string;
-      sourceModule: string;
-      direction: 'IN' | 'OUT';
-      sourceEntityType: string;
-      sourceEntityId: number;
-      description: string;
-      tenantName?: string | null;
-      leaseNumber?: number | string | null;
-      unitNumber?: string | null;
-    },
-  ) {
-    const transactionNumber = await this.nextBankTransactionNumber(client);
-    const amount = Number(payload.amount ?? 0);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new BadRequestException('Le montant du mouvement bancaire est invalide.');
-    }
-    const { rows } = await client.query(
-      `INSERT INTO bank_transactions
-        (organization_id, bank_account_id, transaction_number, transaction_date, direction, transaction_type, amount, currency,
-         reference, description, counterparty_name, source_module, source_entity_type, source_entity_id, status, reversal_of_id,
-         idempotency_key, created_by)
-       VALUES
-        ($1, $2, $3, CURRENT_DATE, $4, $5, $6, $7,
-         $8, $9, $10, $11, $12, $13, 'VALIDATED', NULL,
-         $14, $15)
-       RETURNING *`,
-      [
-        this.context.organizationId(),
-        payload.bankAccount.id,
-        transactionNumber,
-        payload.direction,
-        payload.transactionType,
-        amount,
-        String(payload.currency).toUpperCase(),
-        String(payload.reference ?? '').trim() || payload.receiptNumber,
-        payload.description,
-        payload.tenantName ?? null,
-        payload.sourceModule,
-        payload.sourceEntityType,
-        payload.sourceEntityId,
-        `${String(payload.sourceModule).toLowerCase()}-${String(payload.direction).toLowerCase()}:${this.context.organizationId()}:${payload.sourceModule}:${payload.transactionType}:${payload.sourceEntityType}:${payload.sourceEntityId}:${payload.reference ?? payload.receiptNumber}`,
-        payload.createdBy,
-      ],
-    );
-    return rows[0];
-  }
-
-  async tenantCredits(filters: Record<string, unknown> = {}) {
-    await this.ensureTenantCreditSchema();
-    const values: unknown[] = [this.context.organizationId()];
-    const clauses = ['tc.organization_id = $1', 'tc.deleted_at IS NULL'];
-    const add = (sql: string, value: unknown) => {
-      values.push(value);
-      clauses.push(sql.replace('?', `$${values.length}`));
-    };
-    if (filters.tenant_id) add('tc.tenant_id = ?::INT', Number(filters.tenant_id));
-    if (filters.lease_id) add('tc.lease_id = ?::INT', Number(filters.lease_id));
-    if (filters.status) add('tc.status = ?', String(filters.status).toUpperCase());
-    if (filters.currency) add('tc.currency = ?', String(filters.currency).toUpperCase());
-    if (filters.start) add('tc.payment_date >= ?::DATE', String(filters.start));
-    if (filters.end) add('tc.payment_date <= ?::DATE', String(filters.end));
-    if (filters.id) add('tc.id = ?::INT', Number(filters.id));
-    const search = String(filters.search ?? '').trim();
-    if (search) {
-      const placeholders = [1, 2, 3, 4, 5].map(() => {
-        values.push(search);
-        return `$${values.length}`;
-      });
-      clauses.push(`(
-        tc.reference ILIKE '%' || ${placeholders[0]} || '%'
-        OR p.receipt_number ILIKE '%' || ${placeholders[1]} || '%'
-        OR tenant_name.name ILIKE '%' || ${placeholders[2]} || '%'
-        OR u.number ILIKE '%' || ${placeholders[3]} || '%'
-        OR b.name ILIKE '%' || ${placeholders[4]} || '%'
-      )`);
-    }
-    const { rows } = await this.db.query(
-      `SELECT tc.*, p.receipt_number, p.payment_method, p.amount_usd, p.amount_cdf, p.total_equivalent_usd,
-              tenant_name.name AS tenant_name,
-              t.email AS tenant_email,
-              u.number AS unit_number, b.name AS building_name,
-              l.lease_number
-       FROM tenant_credits tc
-       JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tc.organization_id
-       JOIN tenants t ON t.id = tc.tenant_id AND t.organization_id = tc.organization_id AND t.deleted_at IS NULL
-       LEFT JOIN LATERAL (
-         SELECT CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, t.first_name, '')
-                     ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
-                END AS name
-       ) tenant_name ON TRUE
-       LEFT JOIN leases l ON l.id = tc.lease_id AND l.organization_id = tc.organization_id AND l.deleted_at IS NULL
-       LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = tc.organization_id AND u.deleted_at IS NULL
-       LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = tc.organization_id AND b.deleted_at IS NULL
-       WHERE ${clauses.join(' AND ')}
-       ORDER BY tc.payment_date DESC, tc.id DESC`,
-      values,
-    );
-    return rows;
-  }
-
-  async trashedTenantCredits() {
-    await this.ensureTenantCreditSchema();
-    const { rows } = await this.db.query(
-      `SELECT tc.id,
-              tc.tenant_id,
-              tc.lease_id,
-              tc.source_payment_id,
-              tc.currency,
-              tc.original_amount AS amount,
-              tc.original_amount,
-              tc.remaining_amount,
-              tc.status,
-              tc.payment_date,
-              tc.reference,
-              tc.notes,
-              tc.receipt_number,
-              tc.payment_method,
-              tc.deleted_at,
-              tc.deletion_reason,
-              tc.organization_id,
-              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
-                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
-              END AS tenant_name,
-              t.email AS tenant_email,
-              u.number AS unit_number,
-              b.name AS building_name,
-              l.lease_number,
-              p.receipt_number AS source_receipt_number,
-              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u1.first_name, ''), ' ', COALESCE(u1.last_name, ''))), ''), u1.email) AS deleted_by_name
-       FROM tenant_credits tc
-       JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tc.organization_id
-       JOIN tenants t ON t.id = tc.tenant_id AND t.organization_id = tc.organization_id
-       LEFT JOIN leases l ON l.id = tc.lease_id AND l.organization_id = tc.organization_id
-       LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = tc.organization_id
-       LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = tc.organization_id
-       LEFT JOIN app_users u1 ON u1.id = tc.deleted_by AND u1.deleted_at IS NULL
-       WHERE tc.organization_id = $1
-         AND tc.deleted_at IS NOT NULL
-       ORDER BY tc.deleted_at DESC, tc.id DESC`,
-      [this.context.organizationId()],
-    );
-    return rows;
-  }
-
-  async tenantCreditDetail(id: number, includeDeleted = false) {
-    await this.ensureTenantCreditRefundSchema();
-    const childDeletedClause = includeDeleted ? 'IS NOT NULL' : 'IS NULL';
-    const { rows: direct } = await this.db.query(
-      `SELECT tc.*, p.receipt_number, p.payment_method, p.amount_usd, p.amount_cdf, p.total_equivalent_usd,
-              movement.id AS cash_movement_id,
-              movement.piece_number AS cash_piece_number,
-              movement.cash_session_id,
-              movement.session_status AS cash_session_status,
-              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, t.first_name, '')
-                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
-              END AS tenant_name,
-              t.email AS tenant_email,
-              u.number AS unit_number, b.name AS building_name, l.lease_number
-       FROM tenant_credits tc
-       JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tc.organization_id AND p.deleted_at ${includeDeleted ? 'IS NOT NULL' : 'IS NULL'}
-       JOIN tenants t ON t.id = tc.tenant_id AND t.organization_id = tc.organization_id AND t.deleted_at IS NULL
-       LEFT JOIN leases l ON l.id = tc.lease_id AND l.organization_id = tc.organization_id AND l.deleted_at IS NULL
-       LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = tc.organization_id AND u.deleted_at IS NULL
-       LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = tc.organization_id AND b.deleted_at IS NULL
-       LEFT JOIN LATERAL (
-         SELECT cm.id, cm.piece_number, cm.cash_session_id, cs.status AS session_status
-         FROM cash_movements cm
-         LEFT JOIN cash_sessions cs ON cs.id = cm.cash_session_id
-         WHERE cm.organization_id = tc.organization_id
-           AND cm.deleted_at IS NULL
-           AND (cm.tenant_credit_id = tc.id OR cm.payment_id = tc.source_payment_id)
-         ORDER BY CASE WHEN cm.tenant_credit_id = tc.id THEN 0 ELSE 1 END, cm.id DESC
-         LIMIT 1
-       ) movement ON TRUE
-       WHERE tc.id = $1 AND tc.organization_id = $2 AND tc.deleted_at ${includeDeleted ? 'IS NOT NULL' : 'IS NULL'}`,
-      [id, this.context.organizationId()],
-    );
-    const credit = requireRow(direct[0], 'Tenant credit');
-    const [allocations, refunds] = await Promise.all([
-      this.db.query(
-      `SELECT tca.id, tca.amount_applied, tca.currency, tca.created_at,
-              i.id AS invoice_id, i.invoice_number, i.issue_date, i.due_date,
-              p.id AS payment_id, p.payment_date
-       FROM tenant_credit_allocations tca
-       JOIN invoices i ON i.id = tca.invoice_id AND i.organization_id = tca.organization_id AND i.deleted_at IS NULL
-       JOIN payments p ON p.id = tca.payment_id AND p.organization_id = tca.organization_id AND p.deleted_at ${childDeletedClause}
-       WHERE tca.tenant_credit_id = $1
-         AND tca.organization_id = $2
-         AND tca.deleted_at ${childDeletedClause}
-       ORDER BY tca.created_at ASC, tca.id ASC`,
-      [id, this.context.organizationId()],
-      ),
-      this.db.query(
-        `SELECT tcr.id, tcr.amount, tcr.currency, tcr.refund_date, tcr.payment_method, tcr.reference, tcr.reason,
-                tcr.cash_movement_id, tcr.receipt_number, tcr.status, tcr.created_at,
-                cm.piece_number AS cash_piece_number,
-                COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS created_by_name
-         FROM tenant_credit_refunds tcr
-         LEFT JOIN cash_movements cm ON cm.id = tcr.cash_movement_id AND cm.organization_id = tcr.organization_id AND cm.deleted_at ${childDeletedClause}
-         LEFT JOIN app_users u ON u.id = tcr.created_by AND u.deleted_at IS NULL
-         WHERE tcr.tenant_credit_id = $1
-           AND tcr.organization_id = $2
-           AND tcr.deleted_at ${childDeletedClause}
-         ORDER BY tcr.refund_date ASC, tcr.id ASC`,
-        [id, this.context.organizationId()],
-      ),
-    ]);
-    const allocationsRows = allocations.rows;
-    const refundsRows = refunds.rows;
-    const hasAllocations = allocationsRows.length > 0;
-    const hasRefunds = refundsRows.length > 0;
-    const allocatedAmount = allocationsRows.reduce((sum, row) => sum + Number(row.amount_applied ?? 0), 0);
-    const refundedAmount = refundsRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
-    const remainingAmount = Number(credit.remaining_amount ?? 0);
-    return {
-      ...credit,
-      allocations: allocationsRows,
-      refunds: refundsRows,
-      allocated_amount: allocatedAmount,
-      refunded_amount: refundedAmount,
-      cash_movement_id: Number(credit.cash_movement_id ?? 0) || null,
-      cash_piece_number: credit.cash_piece_number ?? null,
-      cash_session_status: credit.cash_session_status ?? null,
-      can_refund: remainingAmount > 0,
-      can_cancel: !hasAllocations && !hasRefunds && Number(credit.original_amount ?? 0) === remainingAmount,
-    };
-  }
-
-  async trashedTenantCreditDetail(id: number) {
-    return this.tenantCreditDetail(id, true);
-  }
-
-  async trashedTenantCreditRefunds() {
-    await this.ensureTenantCreditRefundSchema();
-    const parentDeletedClause = 'IS NOT NULL';
-    const { rows } = await this.db.query(
-      `SELECT tcr.id,
-              tcr.tenant_credit_id,
-              tcr.tenant_id,
-              tcr.lease_id,
-              tcr.amount,
-              tcr.currency,
-              tcr.refund_date,
-              tcr.payment_method,
-              tcr.reference,
-              tcr.reason,
-              tcr.cash_movement_id,
-              tcr.receipt_number,
-              tcr.status,
-              tcr.deleted_at,
-              tcr.deletion_reason,
-              tcr.organization_id,
-              tc.reference AS credit_reference,
-              tc.source_payment_id,
-              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
-                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
-              END AS tenant_name,
-              l.lease_number,
-              u.number AS unit_number,
-              b.name AS building_name,
-              cm.piece_number AS cash_piece_number,
-              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u1.first_name, ''), ' ', COALESCE(u1.last_name, ''))), ''), u1.email) AS deleted_by_name
-       FROM tenant_credit_refunds tcr
-       JOIN tenant_credits tc ON tc.id = tcr.tenant_credit_id AND tc.organization_id = tcr.organization_id AND tc.deleted_at ${parentDeletedClause}
-       JOIN tenants t ON t.id = tcr.tenant_id AND t.organization_id = tcr.organization_id
-       LEFT JOIN leases l ON l.id = tcr.lease_id AND l.organization_id = tcr.organization_id
-       LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = tcr.organization_id
-       LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = tcr.organization_id
-       LEFT JOIN cash_movements cm ON cm.id = tcr.cash_movement_id AND cm.organization_id = tcr.organization_id AND cm.deleted_at ${parentDeletedClause}
-       LEFT JOIN app_users u1 ON u1.id = tcr.deleted_by AND u1.deleted_at IS NULL
-       WHERE tcr.organization_id = $1
-         AND tcr.deleted_at IS NOT NULL
-       ORDER BY tcr.deleted_at DESC, tcr.id DESC`,
-      [this.context.organizationId()],
-    );
-    return rows;
-  }
-
-  async tenantCreditRefundDetail(id: number, includeDeleted = false) {
-    await this.ensureTenantCreditRefundSchema();
-    const parentDeletedClause = includeDeleted ? 'IS NOT NULL' : 'IS NULL';
-    const { rows } = await this.db.query(
-      `SELECT tcr.*, tc.original_amount, tc.remaining_amount, tc.status AS credit_status, tc.reference AS credit_reference,
-              tc.source_payment_id, tc.payment_date AS credit_payment_date,
-              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, t.first_name, '')
-                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
-              END AS tenant_name,
-              l.lease_number,
-              u.number AS unit_number,
-              b.name AS building_name,
-              cm.piece_number AS cash_piece_number,
-              p.receipt_number AS source_receipt_number,
-              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(creator.first_name, ''), ' ', COALESCE(creator.last_name, ''))), ''), creator.email) AS created_by_name
-       FROM tenant_credit_refunds tcr
-       JOIN tenant_credits tc ON tc.id = tcr.tenant_credit_id AND tc.organization_id = tcr.organization_id AND tc.deleted_at ${parentDeletedClause}
-       JOIN tenants t ON t.id = tcr.tenant_id AND t.organization_id = tcr.organization_id AND t.deleted_at IS NULL
-       LEFT JOIN leases l ON l.id = tcr.lease_id AND l.organization_id = tcr.organization_id AND l.deleted_at IS NULL
-       LEFT JOIN units u ON u.id = l.unit_id AND u.organization_id = tcr.organization_id AND u.deleted_at IS NULL
-       LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = tcr.organization_id AND b.deleted_at IS NULL
-       LEFT JOIN cash_movements cm ON cm.id = tcr.cash_movement_id AND cm.organization_id = tcr.organization_id AND cm.deleted_at ${parentDeletedClause}
-       LEFT JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tcr.organization_id AND p.deleted_at ${parentDeletedClause}
-       LEFT JOIN app_users creator ON creator.id = tcr.created_by AND creator.deleted_at IS NULL
-       WHERE tcr.id = $1
-         AND tcr.organization_id = $2
-         AND tcr.deleted_at ${includeDeleted ? 'IS NOT NULL' : 'IS NULL'}`,
-      [id, this.context.organizationId()],
-    );
-    return requireRow(rows[0], 'Tenant credit refund');
-  }
-
-  async trashedTenantCreditRefundDetail(id: number) {
-    return this.tenantCreditRefundDetail(id, true);
-  }
-
-  async tenantCreditFormData() {
-    const [tenants, leases, bankAccounts] = await Promise.all([
-      this.db.query(
-        `SELECT id,
-                CASE WHEN tenant_type = 'COMPANY' THEN COALESCE(company_name, first_name, '')
-                     ELSE TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''), ' ', COALESCE(post_name, '')))
-                END AS name,
-                tenant_number
-         FROM tenants
-         WHERE organization_id = $1 AND deleted_at IS NULL
-         ORDER BY name`,
-        [this.context.organizationId()],
-      ),
-      this.db.query(
-        `SELECT l.id, l.tenant_id, l.lease_number, l.status, u.number AS unit_number, b.name AS building_name
-         FROM leases l
-         JOIN units u ON u.id = l.unit_id AND u.organization_id = l.organization_id AND u.deleted_at IS NULL
-         LEFT JOIN buildings b ON b.id = u.building_id AND b.organization_id = l.organization_id AND b.deleted_at IS NULL
-         WHERE l.organization_id = $1 AND l.deleted_at IS NULL AND l.archived_at IS NULL AND l.status = 'ACTIVE'
-         ORDER BY b.name, u.number, l.id DESC`,
-        [this.context.organizationId()],
-      ),
-      this.db.query(
-        `SELECT id, bank_name, account_name, account_number, currency, status
-         FROM bank_accounts
-         WHERE organization_id = $1
-           AND deleted_at IS NULL
-           AND status = 'ACTIVE'
-         ORDER BY bank_name, account_name, id DESC`,
-        [this.context.organizationId()],
-      ),
-    ]);
-    return {
-      tenants: tenants.rows,
-      leases: leases.rows,
-      bankAccounts: bankAccounts.rows,
-      paymentMethods: [
-        { value: 'CASH', label: 'Esp√®ces' },
-        { value: 'BANK', label: 'Banque' },
-        { value: 'MOBILE_MONEY', label: 'Mobile Money' },
-      ],
-      currencies: ['USD', 'CDF'],
-    };
-  }
-
-  async createTenantCredit(body: Record<string, unknown>) {
-    await this.ensureTenantCreditSchema();
-    if (!this.hasPermission('payments.create')) {
-      throw new ForbiddenException('Permission de cr√©ation de paiement requise.');
-    }
-    const credit = await this.db.transaction(async (client) => {
-      const tenantId = Number(body.tenant_id ?? 0);
-      const leaseId = body.lease_id ? Number(body.lease_id) : null;
-      const currency = String(body.currency ?? 'USD').toUpperCase();
-      const amount = Number(body.amount ?? 0);
-      const paymentMethod = String(body.payment_method ?? 'CASH').toUpperCase();
-      const paymentDate = String(body.payment_date ?? new Date().toISOString().slice(0, 10));
-      const exchangeRateUsed = Number(body.exchange_rate_used ?? 0) || null;
-      const exchangeRateDate = body.exchange_rate_date ? String(body.exchange_rate_date) : null;
-      if (!tenantId) throw new BadRequestException('Locataire requis.');
-      if (!['USD', 'CDF'].includes(currency)) throw new BadRequestException('Devise invalide.');
-      if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Montant du cr√©dit invalide.');
-      if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethod)) throw new BadRequestException('Mode de paiement invalide.');
-      if (currency === 'CDF' && (!exchangeRateUsed || exchangeRateUsed <= 0)) {
-        throw new BadRequestException('Un taux de change est requis pour un cr√©dit locataire en CDF.');
-      }
-      if (paymentMethod === 'BANK') {
-        await this.ensureBankSchema();
-      }
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`tenant-credit-${this.context.organizationId()}-${tenantId}-${paymentDate}-${amount}-${currency}`]);
-      const tenant = await client.query(
-        `SELECT id,
-                CASE WHEN tenant_type = 'COMPANY' THEN COALESCE(company_name, first_name, '')
-                     ELSE TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''), ' ', COALESCE(post_name, '')))
-                END AS name
-         FROM tenants
-         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
-        [tenantId, this.context.organizationId()],
-      );
-      const tenantRow = requireRow(tenant.rows[0], 'Tenant');
-      if (leaseId) {
-        const lease = await client.query(
-          `SELECT id FROM leases
-           WHERE id = $1 AND tenant_id = $2 AND organization_id = $3
-             AND deleted_at IS NULL AND archived_at IS NULL AND status = 'ACTIVE'`,
-          [leaseId, tenantId, this.context.organizationId()],
-        );
-        requireRow(lease.rows[0], 'Lease');
-      }
-      const bankAccount = paymentMethod === 'BANK'
-        ? await this.validateBankAccountForTenantCredit(client, Number(body.bank_account_id ?? 0), currency)
-        : null;
-      const amountUsd = currency === 'USD' ? amount : 0;
-      const amountCdf = currency === 'CDF' ? amount : 0;
-      const cdfEquivalentUsd = currency === 'CDF' && exchangeRateUsed ? Number((amount / exchangeRateUsed).toFixed(2)) : 0;
-      const totalEquivalentUsd = currency === 'USD' ? amount : cdfEquivalentUsd;
-      const receiptNumber = await this.nextPaymentReceiptNumber(client);
-      const normalizedReference = body.reference ? String(body.reference).trim() : `CREDIT-${tenantId}-${paymentDate}`;
-      const idempotencyKey = String(body.idempotency_key ?? [
-        'TENANT_CREDIT',
-        this.context.organizationId(),
-        tenantId,
-        leaseId ?? 'NOLEASE',
-        paymentDate,
-        currency,
-        amount.toFixed(2),
-        normalizedReference,
-      ].join(':'));
-      const payment = await client.query(
-        `INSERT INTO payments
-          (invoice_id, payment_date, amount, payment_method, reference, notes, payer_name, receipt_number,
-           currency, amount_usd, amount_cdf, exchange_rate_used, exchange_rate_date, cdf_equivalent_usd, total_equivalent_usd,
-           organization_id, payment_type, idempotency_key)
-         VALUES
-          (NULL, $1, $2, $3, $4, $5, $6, $7,
-           $8, $9, $10, $11, $12, $13, $14,
-           $15, 'TENANT_CREDIT', $16)
-         ON CONFLICT (organization_id, idempotency_key)
-         WHERE deleted_at IS NULL AND idempotency_key IS NOT NULL
-         DO NOTHING
-         RETURNING *`,
-        [
-          paymentDate,
-          totalEquivalentUsd,
-          paymentMethod,
-          normalizedReference,
-          body.notes ? String(body.notes) : 'Paiement anticip√© locataire',
-          tenantRow.name,
-          receiptNumber,
-          currency,
-          amountUsd,
-          amountCdf,
-          exchangeRateUsed,
-          exchangeRateDate,
-          cdfEquivalentUsd,
-          totalEquivalentUsd,
-          this.context.organizationId(),
-          idempotencyKey,
-        ],
-      );
-      if (!payment.rows[0]) throw new ConflictException('Ce cr√©dit locataire est d√©j√† enregistr√©.');
-      const credit = await client.query(
-        `INSERT INTO tenant_credits
-          (organization_id, tenant_id, lease_id, source_payment_id, currency, original_amount, remaining_amount,
-           status, payment_date, reference, notes, idempotency_key, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $6, 'AVAILABLE', $7, $8, $9, $10, $11)
-         RETURNING *`,
-        [
-          this.context.organizationId(),
-          tenantId,
-          leaseId,
-          payment.rows[0].id,
-          currency,
-          amount,
-          paymentDate,
-          normalizedReference,
-          body.notes ? String(body.notes) : null,
-          idempotencyKey,
-          this.context.userId() ?? 1,
-        ],
-      );
-      let movement: Record<string, unknown> | null = null;
-      let bankTransaction: Record<string, unknown> | null = null;
-      if (paymentMethod === 'BANK') {
-        const transactionType = await this.bankGuaranteeTransactionType(client, 'TENANT_CREDIT');
-        bankTransaction = await this.createGuaranteeBankTransactionInTransaction(client, {
-          bankAccount: bankAccount as { id: number; bank_name?: string | null; account_name?: string | null; currency: string },
-          amount,
-          currency,
-          receiptNumber,
-          reference: normalizedReference,
-          createdBy: this.context.userId() ?? null,
-          transactionType,
-          sourceModule: 'TENANT_CREDITS',
-          direction: 'IN',
-          sourceEntityType: 'TENANT_CREDIT',
-          sourceEntityId: Number(credit.rows[0].id),
-          description: 'Cr√©dit locataire / Paiement anticip√© locataire',
-          tenantName: tenantRow.name,
-          leaseNumber: leaseId ?? null,
-          unitNumber: null,
-        });
-      } else {
-        movement = await this.createCashMovementInTransaction(client, {
-          type: 'IN',
-          category: 'TENANT_CREDIT',
-          amount,
-          movement_date: paymentDate,
-          payment_id: payment.rows[0].id,
-          tenant_id: tenantId,
-          description: 'Paiement anticip√© locataire',
-          reference: normalizedReference,
-          currency,
-          exchange_rate_used: exchangeRateUsed,
-          exchange_rate_date: exchangeRateDate,
-          equivalent_usd: totalEquivalentUsd,
-        });
-        if (await this.columnExists('cash_movements', 'tenant_credit_id')) {
-          await client.query(
-            `UPDATE cash_movements
-             SET tenant_credit_id = $1
-             WHERE id = $2 AND organization_id = $3`,
-            [credit.rows[0].id, movement?.id ?? null, this.context.organizationId()],
-          );
-        }
-      }
-      await client.query(
-        `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
-         VALUES ($1, $2, 'TENANT_CREDIT_CREATED', 'tenant_credits', $3, 'POST', '/api/tenant-credits', 201, $4)`,
-        [
-          this.context.organizationId(),
-          this.context.userId() ?? null,
-          String(credit.rows[0].id),
-          JSON.stringify({ tenant_id: tenantId, lease_id: leaseId, source_payment_id: payment.rows[0].id, amount, currency }),
-        ],
-      );
-      return {
-        ...credit.rows[0],
-        receipt_number: payment.rows[0].receipt_number,
-        source_payment_id: payment.rows[0].id,
-        cash_movement_id: movement?.id ?? null,
-        cash_movement: movement,
-        bank_transaction: bankTransaction,
-      };
-    });
-    void this.sendTenantCreditReceiptIfEnabled(credit.id).catch((error) => {
-      this.logger.error(
-        `[TENANT_CREDIT] async receipt email failed creditId=${Number(credit.id)} organizationId=${this.context.organizationId()} message=${error instanceof Error ? error.message : String(error)}`,
-      );
-    });
-    return credit;
-  }
-
-  private async sendLeaseInvoiceEmailIfEnabled(invoice: Record<string, any>) {
-    await this.communicationService.sendDocument({
-      documentType: DocumentType.INVOICE,
-      documentId: Number(invoice.id),
-      message: 'Veuillez trouver ci-joint votre facture.',
-      trigger: DocumentDeliveryTrigger.AUTO,
-    });
-  }
-
-  private async sendTenantCreditReceiptIfEnabled(creditId: number) {
-    await this.communicationService.sendDocument({
-      documentType: DocumentType.TENANT_CREDIT_RECEIPT,
-      documentId: creditId,
-      message: 'Veuillez trouver ci-joint votre re√ßu de cr√©dit locataire.',
-      trigger: DocumentDeliveryTrigger.AUTO,
-    });
-  }
-
-  private async ventilateCashTenantCreditAllocationInTransaction(client: PoolClient, args: {
-    organizationId: number;
-    tenantCreditId: number;
-    invoiceId: number;
-    amountApplied: number;
-    createdBy?: number | null;
-  }) {
-    await this.ensureSyndicCashSchema(client);
-    const sourceResult = await client.query(
-      `SELECT tc.source_payment_id,
-              tc.tenant_id,
-              p.payment_method,
-              p.payment_date::TEXT AS payment_date,
-              p.reference,
-              cm.id AS cash_movement_id,
-              cm.amount::FLOAT AS cash_amount,
-              cm.currency,
-              cm.equivalent_usd::FLOAT AS cash_equivalent_usd,
-              cm.exchange_rate_used::FLOAT AS exchange_rate_used,
-              cm.exchange_rate_date::TEXT AS exchange_rate_date
-       FROM tenant_credits tc
-       JOIN payments p
-         ON p.id = tc.source_payment_id
-        AND p.organization_id = tc.organization_id
-        AND p.deleted_at IS NULL
-       JOIN cash_movements cm
-         ON cm.organization_id = tc.organization_id
-        AND (cm.tenant_credit_id = tc.id OR cm.payment_id = tc.source_payment_id)
-        AND cm.deleted_at IS NULL
-       WHERE tc.id = $1
-         AND tc.organization_id = $2
-         AND tc.deleted_at IS NULL
-         AND p.payment_method IN ('CASH', 'MOBILE_MONEY')
-       ORDER BY CASE WHEN cm.tenant_credit_id = tc.id THEN 0 ELSE 1 END, cm.id DESC
-       LIMIT 1
-       FOR UPDATE OF cm`,
-      [args.tenantCreditId, args.organizationId],
-    );
-    const source = sourceResult.rows[0];
-    if (!source) return { syndic_amount: 0, skipped: true };
-
-    const invoiceResult = await client.query(
-      `SELECT COALESCE(lines.total_amount, i.total, 0)::FLOAT AS invoice_amount,
-              COALESCE(lines.syndic_amount, 0)::FLOAT AS syndic_amount
-       FROM invoices i
-       LEFT JOIN LATERAL (
-         SELECT COALESCE(SUM(ii.amount), 0) AS total_amount,
-                COALESCE(SUM(
-                  CASE
-                    WHEN UPPER(TRIM(COALESCE(ii.item_type, ''))) = 'SYNDIC'
-                      OR UPPER(TRIM(COALESCE(ii.description, ''))) LIKE 'SYNDIC%'
-                    THEN ii.amount ELSE 0
-                  END
-                ), 0) AS syndic_amount
-         FROM invoice_items ii
-         WHERE ii.invoice_id = i.id
-           AND ii.organization_id = i.organization_id
-           AND ii.deleted_at IS NULL
-       ) lines ON TRUE
-       WHERE i.id = $1
-         AND i.organization_id = $2
-         AND i.deleted_at IS NULL`,
-      [args.invoiceId, args.organizationId],
-    );
-    const invoice = requireRow(invoiceResult.rows[0], 'Invoice');
-    const invoiceAmount = Number(invoice.invoice_amount ?? 0);
-    const invoiceSyndicAmount = Number(invoice.syndic_amount ?? 0);
-    const syndicRatio = invoiceAmount > 0
-      ? Math.min(Math.max(invoiceSyndicAmount / invoiceAmount, 0), 1)
-      : 0;
-    const syndicAmount = Number((args.amountApplied * syndicRatio).toFixed(2));
-    if (!(syndicAmount > 0)) return { syndic_amount: 0, skipped: true };
-    if (Number(source.cash_amount ?? 0) < syndicAmount) {
-      throw new ConflictException('La ventilation syndic d√©passe le solde du mouvement de caisse source.');
-    }
-
-    const equivalentRatio = Number(source.cash_amount ?? 0) > 0
-      ? Number(source.cash_equivalent_usd ?? 0) / Number(source.cash_amount)
-      : 1;
-    const syndicEquivalentUsd = Number((syndicAmount * equivalentRatio).toFixed(2));
-    const breakdownEntry = {
-      tenant_credit_id: args.tenantCreditId,
-      invoice_id: args.invoiceId,
-      allocated_amount: args.amountApplied,
-      syndic_ratio: Number(syndicRatio.toFixed(8)),
-      syndic_amount: syndicAmount,
-    };
-
-    await client.query(
-      `UPDATE cash_movements
-       SET amount = amount - $2,
-           equivalent_usd = GREATEST(0, equivalent_usd - $3),
-           description = 'Cr√©dit locataire (hors syndic)'
-       WHERE id = $1
-         AND organization_id = $4
-         AND deleted_at IS NULL`,
-      [source.cash_movement_id, syndicAmount, syndicEquivalentUsd, args.organizationId],
-    );
-    await client.query(
-      `INSERT INTO syndic_cash_movements (
-         organization_id, type, movement_type, amount, currency, equivalent_usd,
-         exchange_rate_used, exchange_rate_date, movement_date, payment_id, invoice_id,
-         tenant_id, payment_method, treasury_location, reference, description,
-         allocation_breakdown, created_by
-       ) VALUES (
-         $1, 'IN', 'SYNDIC_PAYMENT', $2, $3, $4,
-         $5, $6, $7, $8, $9,
-         $10, $11, 'MAIN_CASH', $12, 'Paiement syndic via cr√©dit locataire',
-         $13::JSONB, $14
-       )
-       ON CONFLICT (organization_id, payment_id, currency)
-       WHERE payment_id IS NOT NULL AND deleted_at IS NULL
-       DO UPDATE SET
-         amount = syndic_cash_movements.amount + EXCLUDED.amount,
-         equivalent_usd = syndic_cash_movements.equivalent_usd + EXCLUDED.equivalent_usd,
-         invoice_id = EXCLUDED.invoice_id,
-         allocation_breakdown = syndic_cash_movements.allocation_breakdown || EXCLUDED.allocation_breakdown`,
-      [
-        args.organizationId,
-        syndicAmount,
-        source.currency,
-        syndicEquivalentUsd,
-        source.exchange_rate_used ?? null,
-        source.exchange_rate_date ?? null,
-        source.payment_date,
-        source.source_payment_id,
-        args.invoiceId,
-        source.tenant_id,
-        source.payment_method,
-        source.reference ?? null,
-        JSON.stringify([breakdownEntry]),
-        args.createdBy ?? null,
-      ],
-    );
-    return { syndic_amount: syndicAmount, skipped: false };
-  }
-
-  async applyTenantCreditsToRentInvoiceInTransaction(client: PoolClient, args: {
-    organizationId: number;
-    invoiceId: number;
-    leaseId: number | null;
-    tenantId: number | null;
-    createdBy?: number | null;
-  }) {
-    if (!args.leaseId || !args.tenantId) {
-      return { applied_total: 0, allocations: [] as Array<Record<string, unknown>> };
-    }
-
-    const invoiceResult = await client.query(
-      `SELECT id, invoice_number, invoice_type, issue_date::TEXT AS issue_date, status, total
-       FROM invoices
-       WHERE id = $1
-         AND organization_id = $2
-         AND deleted_at IS NULL
-       FOR UPDATE`,
-      [args.invoiceId, args.organizationId],
-    );
-    const invoice = requireRow(invoiceResult.rows[0], 'Invoice');
-    if (String(invoice.invoice_type ?? '').toUpperCase() !== 'RENT') {
-      return { applied_total: 0, allocations: [] as Array<Record<string, unknown>> };
-    }
-    if (['DRAFT', 'CANCELLED'].includes(String(invoice.status ?? '').toUpperCase())) {
-      return { applied_total: 0, allocations: [] as Array<Record<string, unknown>> };
-    }
-
-    const credits = await client.query(
-      `SELECT *
-       FROM tenant_credits
-       WHERE organization_id = $1
-         AND lease_id = $2
-         AND tenant_id = $3
-         AND currency = 'USD'
-         AND status IN ('AVAILABLE', 'PARTIALLY_USED')
-         AND remaining_amount > 0
-         AND deleted_at IS NULL
-       ORDER BY payment_date ASC, id ASC
-       FOR UPDATE`,
-      [args.organizationId, args.leaseId, args.tenantId],
-    );
-
-    let remainingToApply = Number(invoice.total ?? 0);
-    const allocations: Array<Record<string, unknown>> = [];
-
-    for (const credit of credits.rows) {
-      if (remainingToApply <= 0) break;
-      const duplicate = await client.query(
-        `SELECT 1
-         FROM tenant_credit_allocations
-         WHERE organization_id = $1
-           AND tenant_credit_id = $2
-           AND invoice_id = $3
-           AND deleted_at IS NULL
-         LIMIT 1`,
-        [args.organizationId, credit.id, args.invoiceId],
-      );
-      if (duplicate.rows[0]) {
-        continue;
-      }
-
-      const available = Number(credit.remaining_amount ?? 0);
-      if (!(available > 0)) continue;
-      const amountApplied = Number(Math.min(available, remainingToApply).toFixed(2));
-      if (!(amountApplied > 0)) continue;
-
-      const paymentReference = `CREDIT-ALLOC-${credit.id}-${args.invoiceId}`;
-      const idempotencyKey = `TENANT_CREDIT_ALLOCATION:${args.organizationId}:${credit.id}:${args.invoiceId}`;
-      const paymentResult = await client.query(
-        `INSERT INTO payments
-          (invoice_id, payment_date, amount, payment_method, reference, notes, payer_name, receipt_number,
-           currency, amount_usd, amount_cdf, exchange_rate_used, exchange_rate_date, cdf_equivalent_usd, total_equivalent_usd,
-           organization_id, payment_type, idempotency_key)
-         VALUES
-          ($1, $2, $3, 'TENANT_CREDIT', $4, $5, $6, NULL,
-           'USD', $3, 0, NULL, NULL, 0, $3,
-           $7, 'TENANT_CREDIT_ALLOCATION', $8)
-         ON CONFLICT (organization_id, idempotency_key)
-         WHERE deleted_at IS NULL AND idempotency_key IS NOT NULL
-         DO NOTHING
-         RETURNING *`,
-        [
-          args.invoiceId,
-          String(invoice.issue_date).slice(0, 10),
-          amountApplied,
-          paymentReference,
-          'Paiement par cr√©dit locataire',
-          credit.reference ?? `Cr√©dit locataire #${credit.id}`,
-          args.organizationId,
-          idempotencyKey,
-        ],
-      );
-
-      const payment =
-        paymentResult.rows[0]
-        ?? (
-          await client.query(
-            `SELECT *
-             FROM payments
-             WHERE organization_id = $1
-               AND idempotency_key = $2
-               AND deleted_at IS NULL
-             LIMIT 1`,
-            [args.organizationId, idempotencyKey],
-          )
-        ).rows[0];
-      if (!payment) {
-        throw new ConflictException('Impossible de cr√©er le paiement d‚Äôaffectation du cr√©dit locataire.');
-      }
-
-      await client.query(
-        `INSERT INTO payment_allocations (organization_id, payment_id, invoice_id, amount)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT DO NOTHING`,
-        [args.organizationId, payment.id, args.invoiceId, amountApplied],
-      );
-      const allocationInsert = await client.query(
-        `INSERT INTO tenant_credit_allocations
-          (organization_id, tenant_credit_id, invoice_id, payment_id, amount_applied, currency, created_by)
-         VALUES ($1, $2, $3, $4, $5, 'USD', $6)
-         ON CONFLICT (organization_id, tenant_credit_id, invoice_id)
-         WHERE deleted_at IS NULL
-         DO NOTHING
-         RETURNING id`,
-        [args.organizationId, credit.id, args.invoiceId, payment.id, amountApplied, args.createdBy ?? null],
-      );
-      if (allocationInsert.rows[0]) {
-        await this.ventilateCashTenantCreditAllocationInTransaction(client, {
-          organizationId: args.organizationId,
-          tenantCreditId: Number(credit.id),
-          invoiceId: args.invoiceId,
-          amountApplied,
-          createdBy: args.createdBy ?? null,
-        });
-      }
-
-      const remainingAmount = Number((available - amountApplied).toFixed(2));
-      const nextStatus = remainingAmount <= 0 ? 'USED' : 'PARTIALLY_USED';
-      await client.query(
-        `UPDATE tenant_credits
-         SET remaining_amount = $2,
-             status = $3,
-             updated_at = NOW()
-         WHERE id = $1 AND organization_id = $4`,
-        [credit.id, remainingAmount, nextStatus, args.organizationId],
-      );
-      await client.query(
-        `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
-         VALUES ($1, $2, 'TENANT_CREDIT_APPLIED', 'tenant_credits', $3, 'POST', $4, 200, $5)`,
-        [
-          args.organizationId,
-          args.createdBy ?? null,
-          String(credit.id),
-          `/api/invoices/${args.invoiceId}/tenant-credit-allocation`,
-          JSON.stringify({
-            invoice_id: args.invoiceId,
-            payment_id: payment.id,
-            tenant_credit_allocation_amount: amountApplied,
-            invoice_number: invoice.invoice_number,
-          }),
-        ],
-      );
-
-      allocations.push({
-        tenant_credit_id: credit.id,
-        payment_id: payment.id,
-        invoice_id: args.invoiceId,
-        amount_applied: amountApplied,
-        currency: 'USD',
-      });
-      remainingToApply = Number((remainingToApply - amountApplied).toFixed(2));
-    }
-
-    await this.refreshInvoiceStatusInTransaction(client, args.organizationId, args.invoiceId);
-    return {
-      applied_total: allocations.reduce((sum, allocation) => sum + Number(allocation.amount_applied ?? 0), 0),
-      allocations,
-    };
-  }
-
-  async updateTenantCredit(id: number, body: Record<string, unknown>) {
-    await this.ensureTenantCreditRefundSchema();
-    if (!this.hasPermission('tenant_credits.update')) {
-      throw new ForbiddenException('Permission de correction de cr√©dit locataire requise.');
-    }
-    const updatedId = await this.db.transaction(async (client) => {
-      return this.updateTenantCreditInTransaction(client, id, body);
-    });
-    return this.tenantCreditDetail(updatedId);
-  }
-
-  async refundTenantCredit(id: number, body: Record<string, unknown>) {
-    await this.ensureTenantCreditRefundSchema();
-    if (!this.hasPermission('tenant_credits.refund')) {
-      throw new ForbiddenException('Permission de remboursement de cr√©dit locataire requise.');
-    }
-    return this.db.transaction(async (client) => {
-      return this.refundTenantCreditInTransaction(client, id, body, false);
-    });
-  }
-
-  async cancelTenantCredit(id: number, body: Record<string, unknown>) {
-    await this.ensureTenantCreditRefundSchema();
-    if (!this.hasPermission('tenant_credits.cancel')) {
-      throw new ForbiddenException('Permission d annulation de cr√©dit locataire requise.');
-    }
-    return this.db.transaction(async (client) => {
-      return this.refundTenantCreditInTransaction(client, id, body, true);
-    });
-  }
-
-  async leaseTenantCreditSummary(leaseId: number) {
-    if (!(await this.tableExists('tenant_credits'))) return { total_usd: 0, total_cdf: 0, credits: [] };
-    const { rows } = await this.db.query(
-      `SELECT tc.id, tc.currency, tc.remaining_amount, tc.original_amount, tc.status, tc.payment_date,
-              tc.source_payment_id, p.receipt_number
-       FROM tenant_credits tc
-       JOIN payments p ON p.id = tc.source_payment_id AND p.organization_id = tc.organization_id AND p.deleted_at IS NULL
-       WHERE tc.lease_id = $1
-         AND tc.organization_id = $2
-         AND tc.deleted_at IS NULL
-       ORDER BY tc.payment_date DESC, tc.id DESC`,
-      [leaseId, this.context.organizationId()],
-    );
-    const availableCredits = rows.filter((row) => ['AVAILABLE', 'PARTIALLY_USED'].includes(String(row.status ?? '').toUpperCase()) && Number(row.remaining_amount ?? 0) > 0);
-    return {
-      total_usd: availableCredits.filter((row) => row.currency === 'USD').reduce((sum, row) => sum + Number(row.remaining_amount ?? 0), 0),
-      total_cdf: availableCredits.filter((row) => row.currency === 'CDF').reduce((sum, row) => sum + Number(row.remaining_amount ?? 0), 0),
-      used_usd: rows.filter((row) => row.currency === 'USD').reduce((sum, row) => sum + Number((row.original_amount ?? 0) - (row.remaining_amount ?? 0)), 0),
-      used_cdf: rows.filter((row) => row.currency === 'CDF').reduce((sum, row) => sum + Number((row.original_amount ?? 0) - (row.remaining_amount ?? 0)), 0),
-      history_count: rows.length,
-      credits: availableCredits,
-    };
-  }
-
-  private async ensureTenantCreditSchema() {
-    if (!(await this.tableExists('tenant_credits'))) {
-      throw new BadRequestException('Le module des cr√©dits locataires n‚Äôest pas encore configur√©.');
-    }
-  }
-
-  private async ensureTenantCreditRefundSchema() {
-    await this.ensureTenantCreditSchema();
-    if (!(await this.tableExists('tenant_credit_refunds'))) {
-      throw new BadRequestException('Le module de remboursement des cr√©dits locataires n est pas encore configur√©.');
-    }
-  }
-
-  private hasPermission(permission: string) {
-    const permissions = this.context.user()?.permissions ?? [];
-    return permissions.includes('*') || permissions.includes(permission);
-  }
-
-  private async softDeleteFinanceRows(
-    client: PoolClient,
-    tableName: 'payments' | 'payment_allocations' | 'cash_movements' | 'guarantee_cash_movements' | 'syndic_cash_movements' | 'maintenance_expenses',
-    keyColumn: 'id' | 'payment_id',
-    value: number,
-    reason: string,
-  ) {
-    const supportsDeletionReason = await this.columnExists(tableName, 'deletion_reason');
-    const assignments = ['deleted_at = NOW()', 'deleted_by = $2'];
-    const params: unknown[] = [value, this.context.userId() ?? null, this.context.organizationId()];
-    if (supportsDeletionReason) {
-      params.splice(2, 0, reason);
-      assignments.push('deletion_reason = $3');
-    }
-    const organizationParam = supportsDeletionReason ? 4 : 3;
-    await client.query(
-      `UPDATE ${tableName}
-       SET ${assignments.join(', ')}
-       WHERE ${keyColumn} = $1
-         AND organization_id = $${organizationParam}
-         AND deleted_at IS NULL`,
-      params,
-    );
-  }
-
-  private async trashPaymentInTransaction(
-    client: PoolClient,
-    paymentId: number,
-    reason: string,
-    options?: {
-      auditAction?: string;
-      auditResource?: string;
-      auditResourceId?: string;
-      sourceMovementId?: number | null;
-    },
-  ) {
-    const paymentResult = await client.query(
-      `SELECT id, payment_type, lease_guarantee_id, deleted_at, invoice_id
-       FROM payments
-       WHERE id = $1
-         AND organization_id = $2
-       FOR UPDATE`,
-      [paymentId, this.context.organizationId()],
-    );
-    const payment = requireRow(paymentResult.rows[0], 'Payment') as Record<string, unknown>;
-    if (payment.deleted_at) {
-      throw new ConflictException('Ce paiement est d√©j√† dans la corbeille.');
-    }
-
-    const allocations = await client.query(
-      `SELECT invoice_id
-       FROM payment_allocations
-       WHERE payment_id = $1
-         AND organization_id = $2
-         AND deleted_at IS NULL
-       FOR UPDATE`,
-      [paymentId, this.context.organizationId()],
-    );
-
-    await this.softDeleteFinanceRows(client, 'cash_movements', 'payment_id', paymentId, reason);
-    await this.softDeleteFinanceRows(client, 'guarantee_cash_movements', 'payment_id', paymentId, reason);
-    if (await this.tableExists('syndic_cash_movements')) {
-      await this.softDeleteFinanceRows(client, 'syndic_cash_movements', 'payment_id', paymentId, reason);
-    }
-    await this.softDeleteFinanceRows(client, 'payment_allocations', 'payment_id', paymentId, reason);
-    await this.softDeleteFinanceRows(client, 'payments', 'id', paymentId, reason);
-
-    const invoiceIds = Array.from(
-      new Set(
-        [
-          Number(payment.invoice_id ?? 0),
-          ...allocations.rows.map((row) => Number(row.invoice_id ?? 0)),
-        ].filter((invoiceId) => invoiceId > 0),
-      ),
-    );
-
-    for (const invoiceId of invoiceIds) {
-      await this.refreshInvoiceStatusInTransaction(client, this.context.organizationId(), invoiceId);
-    }
-
-    if (String(payment.payment_type ?? '').toUpperCase() === 'GUARANTEE' && payment.lease_guarantee_id) {
-      await this.recalculateLeaseGuaranteeFromActiveRows(client, Number(payment.lease_guarantee_id));
-    }
-
-    await this.writeFinanceTrashAudit(
-      client,
-      options?.auditAction ?? 'PAYMENT_MOVED_TO_TRASH',
-      options?.auditResource ?? 'payments',
-      options?.auditResourceId ?? String(paymentId),
-      {
-        reason,
-        payment_id: paymentId,
-        payment_type: payment.payment_type ?? 'INVOICE',
-        invoice_ids: invoiceIds,
-        lease_guarantee_id: Number(payment.lease_guarantee_id ?? 0) || null,
-        source_movement_id: options?.sourceMovementId ?? null,
-      },
-    );
-
-    return {
-      deleted: true,
-      payment_id: paymentId,
-      payment_type: String(payment.payment_type ?? 'INVOICE'),
-      invoice_ids: invoiceIds,
-      lease_guarantee_id: Number(payment.lease_guarantee_id ?? 0) || null,
-    };
-  }
-
-  private async recalculateLeaseGuaranteeFromActiveRows(client: PoolClient, leaseGuaranteeId: number) {
-    const guaranteeResult = await client.query(
-      `SELECT id, lease_id, amount, payment_date
-       FROM lease_guarantees
-       WHERE id = $1
-         AND organization_id = $2
-         AND deleted_at IS NULL
-       FOR UPDATE`,
-      [leaseGuaranteeId, this.context.organizationId()],
-    );
-    const guarantee = requireRow(guaranteeResult.rows[0], 'Lease guarantee') as Record<string, unknown>;
-    const receipts = await client.query(
-      `SELECT COALESCE(SUM(total_equivalent_usd), 0)::NUMERIC(12,2) AS total
-       FROM payments
-       WHERE organization_id = $1
-         AND lease_guarantee_id = $2
-         AND payment_type = 'GUARANTEE'
-         AND deleted_at IS NULL`,
-      [this.context.organizationId(), leaseGuaranteeId],
-    );
-    const refunds = await client.query(
-      `SELECT COALESCE(SUM(COALESCE(equivalent_usd, amount)), 0)::NUMERIC(12,2) AS total
-       FROM guarantee_cash_movements
-       WHERE organization_id = $1
-         AND lease_guarantee_id = $2
-         AND movement_type = 'GARANTY_REFUND'
-         AND type = 'OUT'
-         AND deleted_at IS NULL`,
-      [this.context.organizationId(), leaseGuaranteeId],
-    );
-    const amount = Number(guarantee.amount ?? 0);
-    const paidAmount = Math.max(Number(receipts.rows[0]?.total ?? 0) - Number(refunds.rows[0]?.total ?? 0), 0);
-    const status = paidAmount >= amount && amount > 0
-      ? 'PAID'
-      : paidAmount > 0
-        ? 'PARTIAL'
-        : 'NOT_PAID';
-    await this.upsertLeaseGuarantee(client, Number(guarantee.lease_id), {
-      amount,
-      paid_amount: paidAmount,
-      payment_date: paidAmount > 0 ? (guarantee.payment_date ?? null) : null,
-      status,
-    });
-  }
-
-  async trashedShareholderPayoutLines() {
-    await this.ensureShareholderSchema();
-    const { rows } = await this.db.query(
-      `SELECT spl.id,
-              spl.batch_id,
-              spl.shareholder_id,
-              spl.amount,
-              spl.currency,
-              spl.payment_method,
-              spl.reference,
-              spl.receipt_number,
-              spl.cash_movement_id,
-              spl.guarantee_cash_movement_id,
-              spl.deleted_at,
-              spl.deletion_reason,
-              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.email) AS deleted_by_name,
-              spb.reference AS batch_reference,
-              spb.source_register,
-              sh.display_name AS shareholder_name
-       FROM shareholder_payout_lines spl
-       JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
-       JOIN shareholders sh ON sh.id = spl.shareholder_id AND sh.organization_id = spl.organization_id
-       LEFT JOIN app_users u ON u.id = spl.deleted_by
-       WHERE spl.organization_id = $1
-         AND spl.deleted_at IS NOT NULL
-       ORDER BY spl.deleted_at DESC, spl.id DESC`,
-      [this.context.organizationId()],
-    );
-    return rows;
-  }
-
-  private async trashShareholderPayoutInTransaction(
-    client: PoolClient,
-    payoutLineId: number,
-    reason: string,
-    options?: {
-      auditAction?: string;
-      auditResource?: string;
-      auditResourceId?: string;
-      sourceMovementId?: number | null;
-    },
-  ) {
-    const trace = (step: string, status: 'START' | 'OK' | 'FAIL', extra = '') => {
-      this.logger.log(
-        `shareholder payout trash ${step} ${status} | payoutLineId=${payoutLineId} organizationId=${this.context.organizationId()} sourceMovementId=${options?.sourceMovementId ?? null}${extra ? ` ${extra}` : ''}`,
-      );
-    };
-    const logPgError = (error: unknown) => {
-      const pgError = error as {
-        code?: string;
-        detail?: string;
-        constraint?: string;
-        table?: string;
-        column?: string;
-      };
-      this.logger.error(
-        `shareholder payout trash error | payoutLineId=${payoutLineId} organizationId=${this.context.organizationId()} message=${error instanceof Error ? error.message : String(error)} pgCode=${pgError?.code ?? null} pgDetail=${pgError?.detail ?? null} pgConstraint=${pgError?.constraint ?? null} pgTable=${pgError?.table ?? null} pgColumn=${pgError?.column ?? null}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-    };
-
-    let line: Record<string, unknown>;
-    let cashMovementId: number | null = null;
-    let guaranteeCashMovementId: number | null = null;
-    let remainingLineCount = 0;
-    let remainingTotalAmount = 0;
-    let nextBatchStatus: 'VALIDATED' | 'CANCELLED' = 'VALIDATED';
-    let shareholderTotals: { rows: Array<{ total_usd?: number; total_cdf?: number; payout_count?: number }> } = { rows: [] };
-
-    try {
-      trace('entry', 'START');
-      trace('payout line read', 'START');
-      const lineResult = await client.query(
-        `SELECT spl.id,
-                spl.batch_id,
-                spl.shareholder_id,
-                spl.amount,
-                spl.currency,
-                spl.reference,
-                spl.receipt_number,
-                spl.cash_movement_id,
-                spl.guarantee_cash_movement_id,
-                spl.bank_transaction_id,
-                spl.deleted_at,
-                spb.reference AS batch_reference,
-                spb.source_register,
-                spb.status AS batch_status,
-                spb.deleted_at AS batch_deleted_at,
-                sh.display_name AS shareholder_name
-         FROM shareholder_payout_lines spl
-         JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
-         JOIN shareholders sh ON sh.id = spl.shareholder_id AND sh.organization_id = spl.organization_id
-         WHERE spl.id = $1
-           AND spl.organization_id = $2
-         FOR UPDATE`,
-        [payoutLineId, this.context.organizationId()],
-      );
-      trace('payout line read', 'OK', `payoutFound=${Boolean(lineResult.rows[0])}`);
-      line = requireRow(lineResult.rows[0], 'Shareholder payout') as Record<string, unknown>;
-
-      trace('batch read', 'OK', `batchId=${Number(line.batch_id)} batchDeleted=${Boolean(line.batch_deleted_at)}`);
-      trace('shareholder read', 'OK', `shareholderId=${Number(line.shareholder_id)}`);
-
-      if (line.deleted_at) {
-        trace('payout line validation', 'FAIL', 'reason=already_in_trash');
-        throw new ConflictException('Ce remboursement actionnaire est d√©j√† dans la corbeille.');
-      }
-      if (line.batch_deleted_at) {
-        trace('batch validation', 'FAIL', 'reason=batch_already_in_trash');
-        throw new ConflictException('Le lot de remboursement actionnaire est d√©j√† dans la corbeille.');
-      }
-      if (line.bank_transaction_id) {
-        trace('bank transaction validation', 'FAIL', 'reason=bank_transaction_linked');
-        throw new ConflictException(
-          'Ce remboursement actionnaire bancaire ne peut pas encore √™tre supprim√© automatiquement depuis ce workflow.',
-        );
-      }
-
-      cashMovementId = Number(line.cash_movement_id ?? 0) || null;
-      guaranteeCashMovementId = Number(line.guarantee_cash_movement_id ?? 0) || null;
-      if (cashMovementId) {
-        trace('cash_movements soft delete', 'START', `cashMovementId=${cashMovementId}`);
-        await this.softDeleteFinanceRows(client, 'cash_movements', 'id', cashMovementId, reason);
-        trace('cash_movements soft delete', 'OK', `cashMovementId=${cashMovementId}`);
-      } else {
-        trace('cash_movements soft delete', 'OK', 'cashMovementId=null');
-      }
-      if (guaranteeCashMovementId) {
-        trace('guarantee_cash_movements soft delete', 'START', `guaranteeCashMovementId=${guaranteeCashMovementId}`);
-        await this.softDeleteFinanceRows(client, 'guarantee_cash_movements', 'id', guaranteeCashMovementId, reason);
-        trace('guarantee_cash_movements soft delete', 'OK', `guaranteeCashMovementId=${guaranteeCashMovementId}`);
-      } else {
-        trace('guarantee_cash_movements soft delete', 'OK', 'guaranteeCashMovementId=null');
-      }
-
-      trace('shareholder_payout_lines update', 'START');
-      await client.query(
-        `UPDATE shareholder_payout_lines
-         SET deleted_at = NOW(),
-             deleted_by = $2,
-             deletion_reason = $3
-         WHERE id = $1
-           AND organization_id = $4
-           AND deleted_at IS NULL`,
-        [payoutLineId, this.context.userId() ?? null, reason, this.context.organizationId()],
-      );
-      trace('shareholder_payout_lines update', 'OK');
-
-      trace('batch recalculation', 'START');
-      const remainingResult = await client.query(
-        `SELECT COUNT(*)::INT AS line_count,
-                COALESCE(SUM(amount), 0)::NUMERIC(14,2) AS total_amount
-         FROM shareholder_payout_lines
-         WHERE organization_id = $1
-           AND batch_id = $2
-           AND deleted_at IS NULL`,
-        [this.context.organizationId(), Number(line.batch_id)],
-      );
-      remainingLineCount = Number(remainingResult.rows[0]?.line_count ?? 0);
-      remainingTotalAmount = Number(remainingResult.rows[0]?.total_amount ?? 0);
-      nextBatchStatus = remainingLineCount > 0 ? 'VALIDATED' : 'CANCELLED';
-
-      if (remainingLineCount > 0) {
-        trace('batch recalculation', 'OK', `remainingLineCount=${remainingLineCount} totalAmount=${remainingTotalAmount} status=${nextBatchStatus}`);
-        trace('shareholder_payout_batches update', 'START');
-        await client.query(
-          `UPDATE shareholder_payout_batches
-           SET total_amount = $3,
-               beneficiary_count = $4,
-               status = $5
-           WHERE id = $1
-             AND organization_id = $2`,
-          [Number(line.batch_id), this.context.organizationId(), remainingTotalAmount, remainingLineCount, nextBatchStatus],
-        );
-        trace('shareholder_payout_batches update', 'OK', `remainingLineCount=${remainingLineCount}`);
-      } else {
-        trace('batch recalculation', 'OK', `remainingLineCount=0 totalAmount=0 status=${nextBatchStatus}`);
-        trace('shareholder_payout_batches update', 'START');
-        await client.query(
-          `UPDATE shareholder_payout_batches
-           SET total_amount = 0,
-               beneficiary_count = 0,
-               status = $3,
-               deleted_at = NOW(),
-               deleted_by = $4,
-               deletion_reason = $5
-           WHERE id = $1
-             AND organization_id = $2`,
-          [Number(line.batch_id), this.context.organizationId(), nextBatchStatus, this.context.userId() ?? null, reason],
-        );
-        trace('shareholder_payout_batches update', 'OK', 'batchMarkedDeleted=true');
-      }
-
-      trace('shareholder totals recalculation', 'START');
-      const shareholderTotalsResult = await client.query(
-        `SELECT COALESCE(SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'USD' THEN spl.amount ELSE 0 END), 0)::NUMERIC(14,2) AS total_usd,
-                COALESCE(SUM(CASE WHEN spb.status = 'VALIDATED' AND spl.currency = 'CDF' THEN spl.amount ELSE 0 END), 0)::NUMERIC(14,2) AS total_cdf,
-                COUNT(*) FILTER (WHERE spb.status = 'VALIDATED')::INT AS payout_count
-         FROM shareholder_payout_lines spl
-         JOIN shareholder_payout_batches spb ON spb.id = spl.batch_id AND spb.organization_id = spl.organization_id
-         WHERE spl.organization_id = $1
-           AND spl.shareholder_id = $2
-           AND spl.deleted_at IS NULL
-           AND spb.deleted_at IS NULL`,
-        [this.context.organizationId(), Number(line.shareholder_id)],
-      );
-      shareholderTotals = shareholderTotalsResult;
-      trace(
-        'shareholder totals recalculation',
-        'OK',
-        `totalUsd=${Number(shareholderTotals.rows[0]?.total_usd ?? 0)} totalCdf=${Number(shareholderTotals.rows[0]?.total_cdf ?? 0)} payoutCount=${Number(shareholderTotals.rows[0]?.payout_count ?? 0)}`,
-      );
-
-      trace('audit', 'START');
-      await this.writeFinanceTrashAudit(
-        client,
-        options?.auditAction ?? 'SHAREHOLDER_PAYOUT_MOVED_TO_TRASH',
-        options?.auditResource ?? 'shareholder_payouts',
-        options?.auditResourceId ?? String(payoutLineId),
-        {
-          reason,
-          shareholder_payout_line_id: payoutLineId,
-          shareholder_id: Number(line.shareholder_id),
-          shareholder_name: line.shareholder_name ?? null,
-          shareholder_batch_id: Number(line.batch_id),
-          batch_reference: line.batch_reference ?? null,
-          source_register: line.source_register ?? null,
-          amount: Number(line.amount ?? 0),
-          currency: String(line.currency ?? 'USD'),
-          receipt_number: line.receipt_number ?? null,
-          cash_movement_id: cashMovementId,
-          guarantee_cash_movement_id: guaranteeCashMovementId,
-          source_movement_id: options?.sourceMovementId ?? cashMovementId ?? guaranteeCashMovementId,
-          remaining_batch_lines: remainingLineCount,
-          batch_total_amount: remainingTotalAmount,
-          batch_status: nextBatchStatus,
-          shareholder_total_usd: Number(shareholderTotals.rows[0]?.total_usd ?? 0),
-          shareholder_total_cdf: Number(shareholderTotals.rows[0]?.total_cdf ?? 0),
-          shareholder_payout_count: Number(shareholderTotals.rows[0]?.payout_count ?? 0),
-        },
-      );
-      trace('audit', 'OK');
-
-      trace('return payload', 'OK');
-      return {
-        deleted: true,
-        shareholder_payout_line_id: payoutLineId,
-        batch_id: Number(line.batch_id),
-        shareholder_id: Number(line.shareholder_id),
-        remaining_batch_lines: remainingLineCount,
-        batch_deleted: remainingLineCount === 0,
-        batch_status: nextBatchStatus,
-        shareholder_total_usd: Number(shareholderTotals.rows[0]?.total_usd ?? 0),
-        shareholder_total_cdf: Number(shareholderTotals.rows[0]?.total_cdf ?? 0),
-        shareholder_payout_count: Number(shareholderTotals.rows[0]?.payout_count ?? 0),
-      };
-    } catch (error) {
-      trace('workflow', 'FAIL', `step=exception`);
-      this.logShareholderPayoutTrashError('workflow', payoutLineId, error);
-      throw error;
-    }
-  }
-
-  private logShareholderPayoutTrashError(stage: string, payoutLineId: number, error: unknown) {
-    const pgError = error as {
-      code?: string;
-      detail?: string;
-      constraint?: string;
-      table?: string;
-      column?: string;
-    };
-    this.logger.error(
-      `shareholder payout trash ${stage} error | payoutLineId=${payoutLineId} organizationId=${this.context.organizationId()} message=${error instanceof Error ? error.message : String(error)} pgCode=${pgError?.code ?? null} pgDetail=${pgError?.detail ?? null} pgConstraint=${pgError?.constraint ?? null} pgTable=${pgError?.table ?? null} pgColumn=${pgError?.column ?? null}`,
-      error instanceof Error ? error.stack : undefined,
-    );
-  }
-
-  private async writeFinanceTrashAudit(
-    client: PoolClient,
-    action: string,
-    resource: string,
-    resourceId: string,
-    metadata: Record<string, unknown>,
-  ) {
-    await client.query(
-      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
-       VALUES ($1, $2, $3, $4, $5, 'DELETE', $6, 200, $7::JSONB)`,
-      [
-        this.context.organizationId(),
-        this.context.userId() ?? null,
-        action,
-        resource,
-        resourceId,
-        `/api/${resource}/${resourceId}`,
-        JSON.stringify(metadata),
-      ],
-    );
-  }
-
-  private async ensureShareholderSchema() {
-    if (!(await this.hasShareholderPayoutSchema())) {
-      throw new BadRequestException('Le module des actionnaires n est pas encore configur√©.');
-    }
-  }
-
-  private async hasShareholderPayoutSchema() {
-    return (await this.tableExists('shareholders'))
-      && (await this.tableExists('shareholder_payout_batches'))
-      && (await this.tableExists('shareholder_payout_lines'));
-  }
-
-  private assertShareholderPayoutPermission(sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH' | 'BANK') {
-    if (sourceRegister === 'GUARANTEE_CASH') {
-      if (!this.hasPermission('shareholder_payouts.from_guarantee_cash')) {
-        throw new ForbiddenException('Permission requise pour utiliser la caisse des garanties locatives.');
-      }
-      return;
-    }
-    if (sourceRegister === 'BANK') {
-      if (!this.hasPermission('shareholder_payouts.from_bank')) {
-        throw new ForbiddenException('Permission requise pour utiliser la banque comme source de remboursement actionnaire.');
-      }
-      return;
-    }
-    if (!this.hasPermission('shareholder_payouts.create')) {
-      throw new ForbiddenException('Permission requise pour valider un remboursement actionnaire.');
-    }
-  }
-
-  private async shareholderBankAccounts() {
-    await this.ensureBankSchema();
-    const { rows } = await this.db.query(
-      `SELECT ba.*,
-              COALESCE(tx.total_in, 0)::NUMERIC(14,2) AS total_in,
-              COALESCE(tx.total_out, 0)::NUMERIC(14,2) AS total_out,
-              COALESCE(tx.current_balance, 0)::NUMERIC(14,2) AS current_balance,
-              COALESCE(tx.transaction_count, 0)::INT AS transaction_count
-       FROM bank_accounts ba
-       LEFT JOIN (
-         SELECT bt.bank_account_id,
-                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'IN' THEN bt.amount ELSE 0 END) AS total_in,
-                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'OUT' THEN bt.amount ELSE 0 END) AS total_out,
-                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'IN' THEN bt.amount ELSE -bt.amount END) AS current_balance,
-                COUNT(*) FILTER (WHERE bt.status = 'VALIDATED') AS transaction_count
-         FROM bank_transactions bt
-         WHERE bt.organization_id = $1
-         GROUP BY bt.bank_account_id
-       ) tx ON tx.bank_account_id = ba.id
-       WHERE ba.organization_id = $1
-         AND ba.deleted_at IS NULL
-         AND ba.status = 'ACTIVE'
-       ORDER BY ba.bank_name ASC, ba.account_name ASC, ba.id DESC`,
-      [this.context.organizationId()],
-    );
-    return rows;
-  }
-
-  private shareholderBankBalances(bankAccounts: Array<Record<string, unknown>>) {
-    const balances: Record<string, number> = { USD: 0, CDF: 0 };
-    for (const account of bankAccounts) {
-      const currency = String(account.currency ?? 'USD').toUpperCase();
-      balances[currency] = Number((balances[currency] ?? 0) + Number(account.current_balance ?? 0));
-    }
-    return balances;
-  }
-
-  private assertTreasuryTransferPermission(transferType: 'CASH_TO_BANK' | 'BANK_TO_CASH' | 'BANK_TO_BANK') {
-    if (!this.hasPermission('treasury_transfers.create')) {
-      throw new ForbiddenException('Permission requise pour cr√©er un transfert interne.');
-    }
-    if (transferType === 'CASH_TO_BANK' && !this.hasPermission('treasury_transfers.from_cash')) {
-      throw new ForbiddenException('Permission requise pour d√©poser la caisse en banque.');
-    }
-    if (transferType === 'BANK_TO_CASH' && !this.hasPermission('treasury_transfers.from_bank')) {
-      throw new ForbiddenException('Permission requise pour retirer un compte bancaire vers la caisse.');
-    }
-    if (transferType === 'BANK_TO_BANK' && !this.hasPermission('treasury_transfers.bank_to_bank')) {
-      throw new ForbiddenException('Permission requise pour virer entre comptes bancaires.');
-    }
-  }
-
-  private async treasuryCashBalances() {
-    const session = await this.db.query(
-      `SELECT id, opening_balance
-       FROM cash_sessions
-       WHERE organization_id = $1
-         AND status = 'OPEN'
-         AND deleted_at IS NULL
-       ORDER BY opened_at DESC
-       LIMIT 1`,
-      [this.context.organizationId()],
-    );
-    const openSession = session.rows[0];
-    const balances: Record<string, number> = { USD: 0, CDF: 0 };
-    if (!openSession) return balances;
-    const supportsCurrency = await this.columnExists('cash_movements', 'currency');
-    const totals = await this.db.query(
-      supportsCurrency
-        ? `SELECT COALESCE(currency, 'USD') AS currency,
-                  COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)::NUMERIC(14,2) AS balance
-           FROM cash_movements
-           WHERE organization_id = $1
-             AND cash_session_id = $2
-             AND deleted_at IS NULL
-             AND category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')
-           GROUP BY COALESCE(currency, 'USD')`
-        : `SELECT 'USD' AS currency,
-                  COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)::NUMERIC(14,2) AS balance
-           FROM cash_movements
-           WHERE organization_id = $1
-             AND cash_session_id = $2
-             AND deleted_at IS NULL
-             AND category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')`,
-      [this.context.organizationId(), openSession.id],
-    );
-    balances.USD = Number(openSession.opening_balance ?? 0);
-    for (const row of totals.rows) {
-      const currency = String(row.currency ?? 'USD').toUpperCase();
-      balances[currency] = Number((balances[currency] ?? 0) + Number(row.balance ?? 0));
-    }
-    return balances;
-  }
-
-  private async openCashSessionForTreasury(client: PoolClient) {
-    const { rows } = await client.query(
-      `SELECT id, status, opened_at, opening_balance
-       FROM cash_sessions
-       WHERE organization_id = $1
-         AND status = 'OPEN'
-         AND deleted_at IS NULL
-       ORDER BY opened_at DESC
-       LIMIT 1
-       FOR UPDATE`,
-      [this.context.organizationId()],
-    );
-    return requireRow(rows[0], 'Cash session');
-  }
-
-  private async treasuryCashBalanceForCurrency(client: PoolClient, sessionId: number, currency: string, openingBalance: number) {
-    const normalizedCurrency = String(currency ?? 'USD').toUpperCase();
-    const { rows } = await client.query(
-      `SELECT COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)::NUMERIC(14,2) AS balance
-       FROM cash_movements
-       WHERE organization_id = $1
-         AND cash_session_id = $2
-         AND deleted_at IS NULL
-         AND category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')`,
-      [this.context.organizationId(), sessionId],
-    );
-    const base = normalizedCurrency === 'USD' ? Number(openingBalance ?? 0) : 0;
-    return Number((base + Number(rows[0]?.balance ?? 0)).toFixed(2));
-  }
-
-  private async validateBankAccountForTreasuryTransfer(
-    client: PoolClient,
-    bankAccountId: number | null,
-    currency: string,
-    options: { role: 'source' | 'destination'; forUpdate?: boolean },
-  ) {
-    const accountId = Number(bankAccountId ?? 0);
-    if (!accountId) {
-      throw new BadRequestException(
-        options.role === 'source'
-          ? 'Le compte bancaire source est obligatoire.'
-          : 'Le compte bancaire de destination est obligatoire.',
-      );
-    }
-    if (options.forUpdate) {
-      await client.query(
-        `SELECT id
-         FROM bank_accounts
-         WHERE id = $2
-           AND organization_id = $1
-           AND deleted_at IS NULL
-         FOR UPDATE`,
-        [this.context.organizationId(), accountId],
-      );
-    }
-    const { rows } = await client.query(
-      `SELECT ba.*,
-              COALESCE(tx.current_balance, 0)::NUMERIC(14,2) AS current_balance
-       FROM bank_accounts ba
-       LEFT JOIN (
-         SELECT bt.bank_account_id,
-                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'IN' THEN bt.amount ELSE -bt.amount END) AS current_balance
-         FROM bank_transactions bt
-         WHERE bt.organization_id = $1
-         GROUP BY bt.bank_account_id
-       ) tx ON tx.bank_account_id = ba.id
-       WHERE ba.id = $2
-         AND ba.organization_id = $1
-         AND ba.deleted_at IS NULL
-       `,
-      [this.context.organizationId(), accountId],
-    );
-    const account = requireRow(rows[0], 'Bank account');
-    if (String(account.status).toUpperCase() !== 'ACTIVE') {
-      throw new ConflictException('Le compte bancaire s√©lectionn√© doit √™tre actif.');
-    }
-    if (String(account.currency).toUpperCase() !== String(currency).toUpperCase()) {
-      throw new ConflictException('La devise du compte bancaire doit correspondre √† celle du transfert.');
-    }
-    return account;
-  }
-
-  private async assertBankTransactionTypeSupported(client: PoolClient, transactionType: string) {
-    const { rows } = await client.query(
-      `SELECT EXISTS (
-         SELECT 1
-         FROM pg_constraint c
-         JOIN pg_class t ON t.oid = c.conrelid
-         JOIN pg_namespace n ON n.oid = t.relnamespace
-         WHERE n.nspname = 'public'
-           AND t.relname = 'bank_transactions'
-           AND c.contype = 'c'
-           AND pg_get_constraintdef(c.oid) ILIKE '%' || $1 || '%'
-       ) AS supported`,
-      [transactionType],
-    );
-    if (!rows[0]?.supported) {
-      throw new ServiceUnavailableException(
-        'La migration 20260723_bank_treasury_transfers.sql doit √™tre appliqu√©e pour activer les transferts internes.',
-      );
-    }
-  }
-
-  private async createTreasuryBankTransactionInTransaction(
-    client: PoolClient,
-    payload: {
-      transferId: number;
-      transferNumber: string;
-      transferDate: string;
-      direction: 'IN' | 'OUT';
-      bankAccount: Record<string, unknown>;
-      amount: number;
-      currency: string;
-      reference?: string | null;
-      description: string;
-      counterpartyName: string;
-      idempotencyKey: string;
-    },
-  ) {
-    const transactionType = payload.direction === 'IN' ? 'TRANSFER_IN' : 'TRANSFER_OUT';
-    await this.assertBankTransactionTypeSupported(client, transactionType);
-    const transactionNumber = await this.nextBankTransactionNumber(client);
-    const { rows } = await client.query(
-      `INSERT INTO bank_transactions
-        (organization_id, bank_account_id, transaction_number, transaction_date, direction, transaction_type, amount, currency,
-         reference, description, counterparty_name, source_module, source_entity_type, source_entity_id, status, reversal_of_id,
-         idempotency_key, created_by)
-       VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8,
-         $9, $10, $11, 'TREASURY_TRANSFERS', 'TREASURY_TRANSFER', $12, 'VALIDATED', NULL,
-         $13, $14)
-       RETURNING *`,
-      [
-        this.context.organizationId(),
-        Number(payload.bankAccount.id),
-        transactionNumber,
-        payload.transferDate,
-        payload.direction,
-        transactionType,
-        payload.amount,
-        payload.currency,
-        payload.reference ?? payload.transferNumber,
-        payload.description,
-        payload.counterpartyName,
-        payload.transferId,
-        payload.idempotencyKey,
-        this.context.userId() ?? null,
-      ],
-    );
-    return requireRow(rows[0], 'Bank transaction');
-  }
-
-  private async createTreasuryTransferInTransaction(
-    client: PoolClient,
-    sourceRegister: 'MAIN_CASH' | 'BANK',
-    payload: {
-      transferType: 'CASH_TO_BANK' | 'BANK_TO_CASH' | 'BANK_TO_BANK';
-      transferDate: string;
-      currency: string;
-      amount: number;
-      paymentMethod: string;
-      sourceBankAccountId: number | null;
-      destinationBankAccountId: number | null;
-      reference: string | null;
-      description: string | null;
-      notes: string | null;
-      idempotencyKey: string;
-    },
-  ) {
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`treasury-transfer:${this.context.organizationId()}:${payload.idempotencyKey}`]);
-    const existing = await client.query(
-      `SELECT id
-       FROM treasury_transfers
-       WHERE organization_id = $1
-         AND idempotency_key = $2
-       LIMIT 1`,
-      [this.context.organizationId(), payload.idempotencyKey],
-    );
-    if (existing.rows[0]?.id) {
-      return this.treasuryTransfer(Number(existing.rows[0].id));
-    }
-
-    const transferNumber = await this.nextTreasuryTransferNumber(client);
-    const description = payload.description
-      || (
-        payload.transferType === 'CASH_TO_BANK'
-          ? 'D√©p√¥t de caisse en banque'
-          : payload.transferType === 'BANK_TO_CASH'
-            ? 'Retrait bancaire vers caisse'
-            : 'Virement entre comptes bancaires'
-      );
-
-    let sourceType: 'MAIN_CASH' | 'BANK' = payload.transferType === 'CASH_TO_BANK' ? 'MAIN_CASH' : 'BANK';
-    let destinationType: 'MAIN_CASH' | 'BANK' = payload.transferType === 'BANK_TO_CASH' ? 'MAIN_CASH' : 'BANK';
-    let sourceCashSession: Record<string, unknown> | null = null;
-    let destinationCashSession: Record<string, unknown> | null = null;
-    let sourceBankAccount: Record<string, unknown> | null = null;
-    let destinationBankAccount: Record<string, unknown> | null = null;
-
-    if (payload.transferType === 'CASH_TO_BANK') {
-      sourceCashSession = await this.openCashSessionForTreasury(client);
-      const sourceCashSessionRow = sourceCashSession as Record<string, unknown>;
-      const cashBalance = await this.treasuryCashBalanceForCurrency(
-        client,
-        Number(sourceCashSessionRow.id),
-        payload.currency,
-        Number(sourceCashSessionRow.opening_balance ?? 0),
-      );
-      if (payload.amount > cashBalance + 0.0001) {
-        throw new ConflictException('Le solde de caisse est insuffisant pour ce d√©p√¥t en banque.');
-      }
-      destinationBankAccount = await this.validateBankAccountForTreasuryTransfer(client, payload.destinationBankAccountId, payload.currency, { role: 'destination' });
-    } else if (payload.transferType === 'BANK_TO_CASH') {
-      sourceBankAccount = await this.validateBankAccountForTreasuryTransfer(client, payload.sourceBankAccountId, payload.currency, { role: 'source', forUpdate: true });
-      const sourceBankAccountRow = sourceBankAccount as Record<string, unknown>;
-      if (payload.amount > Number(sourceBankAccountRow.current_balance ?? 0) + 0.0001) {
-        throw new ConflictException('Le solde bancaire est insuffisant pour ce retrait vers la caisse.');
-      }
-      destinationCashSession = await this.openCashSessionForTreasury(client);
-    } else {
-      sourceBankAccount = await this.validateBankAccountForTreasuryTransfer(client, payload.sourceBankAccountId, payload.currency, { role: 'source', forUpdate: true });
-      destinationBankAccount = await this.validateBankAccountForTreasuryTransfer(client, payload.destinationBankAccountId, payload.currency, { role: 'destination', forUpdate: true });
-      const sourceBankAccountRow = sourceBankAccount as Record<string, unknown>;
-      const destinationBankAccountRow = destinationBankAccount as Record<string, unknown>;
-      if (Number(sourceBankAccountRow.id) === Number(destinationBankAccountRow.id)) {
-        throw new BadRequestException('Le compte source et le compte destination doivent √™tre diff√©rents.');
-      }
-      if (payload.amount > Number(sourceBankAccountRow.current_balance ?? 0) + 0.0001) {
-        throw new ConflictException('Le solde bancaire du compte source est insuffisant pour ce virement.');
-      }
-    }
-
-    const inserted = await client.query(
-      `INSERT INTO treasury_transfers
-        (organization_id, transfer_number, transfer_type, transfer_date, currency, amount,
-         source_type, source_cash_session_id, source_bank_account_id,
-         destination_type, destination_cash_session_id, destination_bank_account_id,
-         payment_method, reference, description, notes, status, idempotency_key,
-         created_by, created_at, updated_at, validated_at)
-       VALUES
-        ($1, $2, $3, $4, $5, $6,
-         $7, $8, $9,
-         $10, $11, $12,
-         $13, $14, $15, $16, 'VALIDATED', $17,
-         $18, NOW(), NOW(), NOW())
-       RETURNING *`,
-      [
-        this.context.organizationId(),
-        transferNumber,
-        payload.transferType,
-        payload.transferDate,
-        payload.currency,
-        payload.amount,
-        sourceType,
-        sourceCashSession ? Number(sourceCashSession.id) : null,
-        sourceBankAccount ? Number(sourceBankAccount.id) : null,
-        destinationType,
-        destinationCashSession ? Number(destinationCashSession.id) : null,
-        destinationBankAccount ? Number(destinationBankAccount.id) : null,
-        payload.paymentMethod,
-        payload.reference,
-        description,
-        payload.notes,
-        payload.idempotencyKey,
-        this.context.userId() ?? null,
-      ],
-    );
-    const transfer = requireRow(inserted.rows[0], 'Treasury transfer');
-
-    let sourceCashMovementId: number | null = null;
-    let sourceBankTransactionId: number | null = null;
-    let destinationCashMovementId: number | null = null;
-    let destinationBankTransactionId: number | null = null;
-
-    if (payload.transferType === 'CASH_TO_BANK') {
-      const sourceLabel = this.treasurySupportLabel({ supportType: 'MAIN_CASH' });
-      const destinationLabel = this.treasurySupportLabel({
-        supportType: 'BANK',
-        bankName: destinationBankAccount?.bank_name,
-        accountName: destinationBankAccount?.account_name,
-      });
-      const cashMovement = await this.createCashMovementInTransaction(client, {
-        type: 'OUT',
-        category: 'BANK_DEPOSIT',
-        label: 'D√©p√¥t en banque',
-        amount: payload.amount,
-        movement_date: payload.transferDate,
-        description,
-        reference: payload.reference ?? transfer.transfer_number,
-        currency: payload.currency,
-        supplier: destinationLabel,
-        treasury_transfer_id: transfer.id,
-      });
-      sourceCashMovementId = Number(cashMovement.id);
-      const bankTransaction = await this.createTreasuryBankTransactionInTransaction(client, {
-        transferId: Number(transfer.id),
-        transferNumber: String(transfer.transfer_number),
-        transferDate: payload.transferDate,
-        direction: 'IN',
-        bankAccount: destinationBankAccount as Record<string, unknown>,
-        amount: payload.amount,
-        currency: payload.currency,
-        reference: payload.reference,
-        description: 'D√©p√¥t de caisse en banque',
-        counterpartyName: sourceLabel,
-        idempotencyKey: `${payload.idempotencyKey}:bank-in`,
-      });
-      destinationBankTransactionId = Number(bankTransaction.id);
-    } else if (payload.transferType === 'BANK_TO_CASH') {
-      const sourceLabel = this.treasurySupportLabel({
-        supportType: 'BANK',
-        bankName: sourceBankAccount?.bank_name,
-        accountName: sourceBankAccount?.account_name,
-      });
-      const destinationLabel = this.treasurySupportLabel({ supportType: 'MAIN_CASH' });
-      const bankTransaction = await this.createTreasuryBankTransactionInTransaction(client, {
-        transferId: Number(transfer.id),
-        transferNumber: String(transfer.transfer_number),
-        transferDate: payload.transferDate,
-        direction: 'OUT',
-        bankAccount: sourceBankAccount as Record<string, unknown>,
-        amount: payload.amount,
-        currency: payload.currency,
-        reference: payload.reference,
-        description: 'Retrait bancaire vers caisse',
-        counterpartyName: destinationLabel,
-        idempotencyKey: `${payload.idempotencyKey}:bank-out`,
-      });
-      sourceBankTransactionId = Number(bankTransaction.id);
-      const cashMovement = await this.createCashMovementInTransaction(client, {
-        type: 'IN',
-        category: 'BANK_WITHDRAWAL',
-        label: 'Retrait bancaire re√ßu',
-        amount: payload.amount,
-        movement_date: payload.transferDate,
-        description,
-        reference: payload.reference ?? transfer.transfer_number,
-        currency: payload.currency,
-        supplier: sourceLabel,
-        treasury_transfer_id: transfer.id,
-      });
-      destinationCashMovementId = Number(cashMovement.id);
-    } else {
-      const sourceLabel = this.treasurySupportLabel({
-        supportType: 'BANK',
-        bankName: sourceBankAccount?.bank_name,
-        accountName: sourceBankAccount?.account_name,
-      });
-      const destinationLabel = this.treasurySupportLabel({
-        supportType: 'BANK',
-        bankName: destinationBankAccount?.bank_name,
-        accountName: destinationBankAccount?.account_name,
-      });
-      const sourceTransaction = await this.createTreasuryBankTransactionInTransaction(client, {
-        transferId: Number(transfer.id),
-        transferNumber: String(transfer.transfer_number),
-        transferDate: payload.transferDate,
-        direction: 'OUT',
-        bankAccount: sourceBankAccount as Record<string, unknown>,
-        amount: payload.amount,
-        currency: payload.currency,
-        reference: payload.reference,
-        description: 'Virement entre comptes bancaires',
-        counterpartyName: destinationLabel,
-        idempotencyKey: `${payload.idempotencyKey}:source`,
-      });
-      sourceBankTransactionId = Number(sourceTransaction.id);
-      const destinationTransaction = await this.createTreasuryBankTransactionInTransaction(client, {
-        transferId: Number(transfer.id),
-        transferNumber: String(transfer.transfer_number),
-        transferDate: payload.transferDate,
-        direction: 'IN',
-        bankAccount: destinationBankAccount as Record<string, unknown>,
-        amount: payload.amount,
-        currency: payload.currency,
-        reference: payload.reference,
-        description: 'Virement entre comptes bancaires',
-        counterpartyName: sourceLabel,
-        idempotencyKey: `${payload.idempotencyKey}:destination`,
-      });
-      destinationBankTransactionId = Number(destinationTransaction.id);
-    }
-
-    await client.query(
-      `UPDATE treasury_transfers
-       SET source_cash_movement_id = $2,
-           source_bank_transaction_id = $3,
-           destination_cash_movement_id = $4,
-           destination_bank_transaction_id = $5,
-           updated_at = NOW()
-       WHERE id = $1
-         AND organization_id = $6`,
-      [
-        transfer.id,
-        sourceCashMovementId,
-        sourceBankTransactionId,
-        destinationCashMovementId,
-        destinationBankTransactionId,
-        this.context.organizationId(),
-      ],
-    );
-
-    await client.query(
-      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
-       VALUES ($1, $2, 'TREASURY_TRANSFER_VALIDATED', 'treasury_transfers', $3, 'POST', $4, 201, $5::JSONB)`,
-      [
-        this.context.organizationId(),
-        this.context.userId() ?? null,
-        String(transfer.id),
-        sourceRegister === 'MAIN_CASH' ? '/api/cash/treasury-transfers' : '/api/bank/treasury-transfers',
-        JSON.stringify({
-          transfer_id: transfer.id,
-          transfer_number: transfer.transfer_number,
-          transfer_type: transfer.transfer_type,
-          transfer_date: transfer.transfer_date,
-          amount: payload.amount,
-          currency: payload.currency,
-          source_type: sourceType,
-          destination_type: destinationType,
-          source_cash_movement_id: sourceCashMovementId,
-          source_bank_transaction_id: sourceBankTransactionId,
-          destination_cash_movement_id: destinationCashMovementId,
-          destination_bank_transaction_id: destinationBankTransactionId,
-        }),
-      ],
-    );
-
-    return this.treasuryTransferByExecutor(client, Number(transfer.id));
-  }
-
-  private treasurySupportLabel(payload: { supportType: string; bankName?: unknown; accountName?: unknown }) {
-    if (String(payload.supportType).toUpperCase() === 'MAIN_CASH') {
-      return 'Caisse principale';
-    }
-    const bankName = String(payload.bankName ?? '').trim();
-    const accountName = String(payload.accountName ?? '').trim();
-    return [bankName, accountName].filter(Boolean).join(' - ') || 'Compte bancaire';
-  }
-
-  private async validateBankAccountForShareholderPayout(client: PoolClient, bankAccountId: number | undefined, currency: string) {
-    const accountId = Number(bankAccountId ?? 0);
-    if (!accountId) {
-      throw new BadRequestException('Un compte bancaire est requis pour un remboursement actionnaire par banque.');
-    }
-    const { rows } = await client.query(
-      `SELECT ba.*,
-              COALESCE(tx.current_balance, 0)::NUMERIC(14,2) AS current_balance
-       FROM bank_accounts ba
-       LEFT JOIN (
-         SELECT bt.bank_account_id,
-                SUM(CASE WHEN bt.status = 'VALIDATED' AND bt.direction = 'IN' THEN bt.amount ELSE -bt.amount END) AS current_balance
-         FROM bank_transactions bt
-         WHERE bt.organization_id = $1
-         GROUP BY bt.bank_account_id
-       ) tx ON tx.bank_account_id = ba.id
-       WHERE ba.id = $2
-         AND ba.organization_id = $1
-         AND ba.deleted_at IS NULL
-       FOR UPDATE`,
-      [this.context.organizationId(), accountId],
-    );
-    const account = rows[0];
-    if (!account) {
-      throw new NotFoundException('Compte bancaire introuvable dans cette organisation.');
-    }
-    if (String(account.status).toUpperCase() !== 'ACTIVE') {
-      throw new ConflictException('Le compte bancaire selectionne doit etre actif.');
-    }
-    if (String(account.currency).toUpperCase() !== String(currency).toUpperCase()) {
-      throw new ConflictException('La devise du compte bancaire doit correspondre a celle du lot actionnaire.');
-    }
-    return account;
-  }
-
-  private normalizeShareholderPayload(body: Record<string, unknown>) {
-    const shareholderType = String(body.shareholder_type ?? 'INDIVIDUAL').toUpperCase();
-    if (!['INDIVIDUAL', 'COMPANY'].includes(shareholderType)) {
-      throw new BadRequestException('Type d actionnaire invalide.');
-    }
-    const status = String(body.status ?? 'ACTIVE').toUpperCase();
-    if (!['ACTIVE', 'INACTIVE', 'ARCHIVED'].includes(status)) {
-      throw new BadRequestException('Statut d actionnaire invalide.');
-    }
-    const firstName = String(body.first_name ?? '').trim() || null;
-    const lastName = String(body.last_name ?? '').trim() || null;
-    const companyName = String(body.company_name ?? '').trim() || null;
-    const displayName = String(
-      body.display_name
-      ?? (shareholderType === 'COMPANY'
-        ? companyName
-        : [firstName, lastName].filter(Boolean).join(' ')),
-    ).trim();
-    if (!displayName) {
-      throw new BadRequestException('Le nom affich√© de l actionnaire est obligatoire.');
-    }
-    const ownershipPercentage = body.ownership_percentage === '' || body.ownership_percentage === undefined || body.ownership_percentage === null
-      ? null
-      : Number(body.ownership_percentage);
-    if (ownershipPercentage !== null && (!Number.isFinite(ownershipPercentage) || ownershipPercentage < 0 || ownershipPercentage > 100)) {
-      throw new BadRequestException('Le pourcentage de d√©tention doit √™tre compris entre 0 et 100.');
-    }
-    return {
-      shareholder_type: shareholderType,
-      display_name: displayName,
-      first_name: firstName,
-      last_name: lastName,
-      company_name: companyName,
-      phone: String(body.phone ?? '').trim() || null,
-      email: String(body.email ?? '').trim() || null,
-      identity_number: String(body.identity_number ?? '').trim() || null,
-      address: String(body.address ?? '').trim() || null,
-      ownership_percentage: ownershipPercentage,
-      notes: String(body.notes ?? '').trim() || null,
-      status,
-    };
-  }
-
-  private async shareholderMainCashBalances() {
-    const session = await this.db.query(
-      `SELECT id, opening_balance
-       FROM cash_sessions
-       WHERE organization_id = $1
-         AND status = 'OPEN'
-         AND deleted_at IS NULL
-       ORDER BY opened_at DESC
-       LIMIT 1`,
-      [this.context.organizationId()],
-    );
-    const openSession = session.rows[0];
-    const balances: Record<string, number> = { USD: 0, CDF: 0 };
-    if (!openSession) return balances;
-    const totals = await this.db.query(
-      `SELECT COALESCE(currency, 'USD') AS currency,
-              COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)::NUMERIC(14,2) AS balance
-       FROM cash_movements
-       WHERE organization_id = $1
-         AND cash_session_id = $2
-         AND deleted_at IS NULL
-         AND category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')
-       GROUP BY COALESCE(currency, 'USD')`,
-      [this.context.organizationId(), openSession.id],
-    );
-    balances.USD = Number(openSession.opening_balance ?? 0);
-    for (const row of totals.rows) {
-      const currency = String(row.currency ?? 'USD').toUpperCase();
-      balances[currency] = Number((balances[currency] ?? 0) + Number(row.balance ?? 0));
-    }
-    return balances;
-  }
-
-  private async shareholderGuaranteeCashBalances() {
-    await this.ensureGuaranteeCashSchema();
-    const totals = await this.db.query(
-      `SELECT currency,
-              COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)::NUMERIC(14,2) AS balance
-       FROM guarantee_cash_movements
-       WHERE organization_id = $1
-         AND deleted_at IS NULL
-       GROUP BY currency`,
-      [this.context.organizationId()],
-    );
-    const balances: Record<string, number> = { USD: 0, CDF: 0 };
-    for (const row of totals.rows) {
-      balances[String(row.currency ?? 'USD').toUpperCase()] = Number(row.balance ?? 0);
-    }
-    return balances;
-  }
-
-  private async nextShareholderPayoutBatchReference(client: PoolClient) {
-    const year = new Date().getFullYear();
-    const { rows } = await client.query(
-      `SELECT COALESCE(MAX((SUBSTRING(reference FROM $1))::INT), 0) + 1 AS value
-       FROM shareholder_payout_batches
-       WHERE organization_id = $2
-         AND reference LIKE $3`,
-      [`SPB-${year}-([0-9]+)`, this.context.organizationId(), `SPB-${year}-%`],
-    );
-    return `SPB-${year}-${String(rows[0]?.value ?? 1).padStart(4, '0')}`;
-  }
-
-  private async nextShareholderPayoutReceiptNumber(client: PoolClient) {
-    const year = new Date().getFullYear();
-    const { rows } = await client.query(
-      `SELECT COALESCE(MAX((SUBSTRING(receipt_number FROM $1))::INT), 0) + 1 AS value
-       FROM shareholder_payout_lines
-       WHERE organization_id = $2
-         AND receipt_number LIKE $3`,
-      [`SHR-${year}-([0-9]+)`, this.context.organizationId(), `SHR-${year}-%`],
-    );
-    return `SHR-${year}-${String(rows[0]?.value ?? 1).padStart(4, '0')}`;
-  }
-
-  private async nextShareholderPayoutLineId(client: PoolClient) {
-    const { rows } = await client.query(
-      `SELECT nextval(pg_get_serial_sequence('shareholder_payout_lines', 'id')) AS value`,
-    );
-    return Number(rows[0]?.value ?? 0);
-  }
-
-  private async createShareholderPayoutInTransaction(
-    client: PoolClient,
-    sourceRegister: 'MAIN_CASH' | 'GUARANTEE_CASH' | 'BANK',
-    body: Record<string, unknown>,
-  ) {
-    const payoutDate = String(body.payout_date ?? new Date().toISOString().slice(0, 10));
-    const currency = String(body.currency ?? 'USD').toUpperCase();
-    if (!['USD', 'CDF'].includes(currency)) {
-      throw new BadRequestException('Devise de lot invalide.');
-    }
-    const operationType = String(body.operation_type ?? '').toUpperCase();
-    if (!['SHAREHOLDER_REPAYMENT', 'SHAREHOLDER_CURRENT_ACCOUNT', 'DISTRIBUTION', 'ADVANCE', 'OTHER'].includes(operationType)) {
-      throw new BadRequestException('Type d op√©ration invalide.');
-    }
-    const reason = String(body.reason ?? '').trim();
-    if (!reason) {
-      throw new BadRequestException('Le motif est obligatoire.');
-    }
-    const defaultPaymentMethod = sourceRegister === 'BANK'
-      ? 'BANK'
-      : String(body.default_payment_method ?? body.payment_method ?? 'CASH').toUpperCase();
-    if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(defaultPaymentMethod)) {
-      throw new BadRequestException('Mode de paiement par d√©faut invalide.');
-    }
-    const linesInput = Array.isArray(body.lines) ? body.lines : [];
-    if (!linesInput.length) {
-      throw new BadRequestException('Au moins une ligne actionnaire est obligatoire.');
-    }
-
-    const normalizedLines = linesInput.map((entry, index) => {
-      const row = typeof entry === 'object' && entry ? entry as Record<string, unknown> : {};
-      const shareholderId = Number(row.shareholder_id ?? 0);
-      const amount = Number(row.amount ?? 0);
-      const paymentMethod = sourceRegister === 'BANK'
-        ? 'BANK'
-        : String(row.payment_method ?? defaultPaymentMethod).toUpperCase();
-      if (!Number.isFinite(shareholderId) || shareholderId <= 0) {
-        throw new BadRequestException(`Actionnaire invalide √† la ligne ${index + 1}.`);
-      }
-      if (!Number.isFinite(amount) || amount <= 0) {
-        throw new BadRequestException(`Montant invalide √† la ligne ${index + 1}.`);
-      }
-      if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethod)) {
-        throw new BadRequestException(`Mode de paiement invalide √† la ligne ${index + 1}.`);
-      }
-      return {
-        shareholder_id: shareholderId,
-        amount: Number(amount.toFixed(2)),
-        payment_method: paymentMethod,
-        reference: String(row.reference ?? '').trim() || null,
-        notes: String(row.notes ?? '').trim() || null,
-      };
-    });
-
-    const duplicate = normalizedLines.find((line, index) => normalizedLines.findIndex((other) => other.shareholder_id === line.shareholder_id) !== index);
-    if (duplicate) {
-      throw new ConflictException('Le m√™me actionnaire ne peut pas appara√Ætre deux fois dans le m√™me lot.');
-    }
-
-    const totalAmount = Number(normalizedLines.reduce((sum, line) => sum + line.amount, 0).toFixed(2));
-    const idempotencyKey = String(
-      body.idempotency_key
-      ?? [
-        'SHAREHOLDER_PAYOUT',
-        sourceRegister,
-        this.context.organizationId(),
-        payoutDate,
-        currency,
-        operationType,
-        totalAmount.toFixed(2),
-        normalizedLines.map((line) => `${line.shareholder_id}:${line.amount.toFixed(2)}`).join('|'),
-      ].join(':'),
-    );
-
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`shareholder-payout:${this.context.organizationId()}:${sourceRegister}:${idempotencyKey}`]);
-    const existingBatch = await client.query(
-      `SELECT id
-       FROM shareholder_payout_batches
-       WHERE organization_id = $1
-         AND idempotency_key = $2
-       LIMIT 1`,
-      [this.context.organizationId(), idempotencyKey],
-    );
-    if (existingBatch.rows[0]) {
-      return this.shareholderPayoutBatch(Number(existingBatch.rows[0].id));
-    }
-
-    const shareholderIds = normalizedLines.map((line) => line.shareholder_id);
-    const shareholderRows = await client.query(
-      `SELECT id, display_name, shareholder_type, status
-       FROM shareholders
-       WHERE organization_id = $1
-         AND deleted_at IS NULL
-         AND id = ANY($2::INT[])`,
-      [this.context.organizationId(), shareholderIds],
-    );
-    if (shareholderRows.rows.length !== shareholderIds.length) {
-      throw new BadRequestException('Un ou plusieurs actionnaires sont introuvables dans cette organisation.');
-    }
-    const shareholderMap = new Map(shareholderRows.rows.map((row) => [Number(row.id), row]));
-    for (const line of normalizedLines) {
-      const shareholder = shareholderMap.get(line.shareholder_id);
-      if (!shareholder) {
-        throw new BadRequestException('Actionnaire introuvable.');
-      }
-      if (String(shareholder.status) !== 'ACTIVE') {
-        throw new ConflictException(`L actionnaire ${shareholder.display_name} n est pas actif.`);
-      }
-    }
-
-    let availableBalance = 0;
-    if (sourceRegister === 'BANK') {
-      await this.ensureBankSchema();
-    }
-    const bankAccount = sourceRegister === 'BANK'
-      ? await this.validateBankAccountForShareholderPayout(client, Number(body.bank_account_id ?? 0), currency)
-      : null;
-    let exchangeRateUsed: number | null = null;
-    let exchangeRateDate: string | null = null;
-    if (currency === 'CDF') {
-      const exchangeRate = await this.exchangeRate();
-      exchangeRateUsed = Number(body.exchange_rate_used ?? exchangeRate?.rate ?? 0) || null;
-      exchangeRateDate = String(body.exchange_rate_date ?? exchangeRate?.effectiveDate ?? '') || null;
-      if (!exchangeRateUsed || exchangeRateUsed <= 0) {
-        throw new BadRequestException('Taux de change requis pour une op√©ration en CDF.');
-      }
-    }
-    if (sourceRegister === 'MAIN_CASH') {
-      const session = await this.openSession(client);
-      const totals = await client.query(
-        `SELECT COALESCE(currency, 'USD') AS currency,
-                COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)::NUMERIC(14,2) AS balance
-         FROM cash_movements
-         WHERE organization_id = $1
-           AND cash_session_id = $2
-           AND deleted_at IS NULL
-           AND category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')
-         GROUP BY COALESCE(currency, 'USD')`,
-        [this.context.organizationId(), session.id],
-      );
-      availableBalance = currency === 'USD' ? Number(session.opening_balance ?? 0) : 0;
-      for (const row of totals.rows) {
-        if (String(row.currency ?? 'USD').toUpperCase() === currency) {
-          availableBalance += Number(row.balance ?? 0);
-        }
-      }
-    } else if (sourceRegister === 'GUARANTEE_CASH') {
-      await this.ensureGuaranteeCashSchema();
-      const totals = await client.query(
-        `SELECT currency,
-                COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)::NUMERIC(14,2) AS balance
-         FROM guarantee_cash_movements
-         WHERE organization_id = $1
-           AND deleted_at IS NULL
-         GROUP BY currency`,
-        [this.context.organizationId()],
-      );
-      for (const row of totals.rows) {
-        if (String(row.currency ?? 'USD').toUpperCase() === currency) {
-          availableBalance = Number(row.balance ?? 0);
-        }
-      }
-    } else {
-      availableBalance = Number(bankAccount?.current_balance ?? 0);
-    }
-
-    if (totalAmount > Number(availableBalance.toFixed(2)) + 0.0001) {
-      throw new ConflictException('Le total du lot d√©passe le solde disponible dans la devise choisie.');
-    }
-
-    const batchReference = String(body.reference ?? '').trim() || await this.nextShareholderPayoutBatchReference(client);
-    const batchInsert = await client.query(
-      `INSERT INTO shareholder_payout_batches
-        (organization_id, source_register, currency, payout_date, operation_type, reason, reference, notes, bank_account_id,
-         total_amount, beneficiary_count, status, idempotency_key, created_by, created_at, validated_at)
-       VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-         $10, $11, 'VALIDATED', $12, $13, NOW(), NOW())
-       RETURNING *`,
-      [
-        this.context.organizationId(),
-        sourceRegister,
-        currency,
-        payoutDate,
-        operationType,
-        reason,
-        batchReference,
-        String(body.notes ?? '').trim() || null,
-        bankAccount ? Number(bankAccount.id) : null,
-        totalAmount,
-        normalizedLines.length,
-        idempotencyKey,
-        this.context.userId() ?? null,
-      ],
-    );
-    const batch = requireRow(batchInsert.rows[0], 'Shareholder payout batch');
-
-    const createdLines: Array<Record<string, unknown>> = [];
-    for (const line of normalizedLines) {
-      const shareholder = shareholderMap.get(line.shareholder_id)!;
-      const receiptNumber = await this.nextShareholderPayoutReceiptNumber(client);
-      let cashMovementId: number | null = null;
-      let guaranteeCashMovementId: number | null = null;
-      let bankTransactionId: number | null = null;
-      if (sourceRegister === 'MAIN_CASH') {
-        const movement = await this.createCashMovementInTransaction(client, {
-          type: 'OUT',
-          category: 'SHAREHOLDER_PAYOUT',
-          label: `Remboursement actionnaire - ${shareholder.display_name}`,
-          amount: line.amount,
-          movement_date: payoutDate,
-          description: reason,
-          reference: line.reference ?? batchReference,
-          currency,
-          exchange_rate_used: exchangeRateUsed,
-          exchange_rate_date: exchangeRateDate,
-          equivalent_usd: currency === 'CDF' && exchangeRateUsed ? Number((line.amount / exchangeRateUsed).toFixed(2)) : line.amount,
-          supplier: shareholder.display_name,
-        });
-        cashMovementId = Number(movement.id);
-      } else if (sourceRegister === 'GUARANTEE_CASH') {
-        const movement = await this.createGuaranteeCashMovementInTransaction(client, {
-          movement_type: 'SHAREHOLDER_PAYOUT',
-          type: 'OUT',
-          amount: line.amount,
-          currency,
-          equivalent_usd: currency === 'CDF' && exchangeRateUsed ? Number((line.amount / exchangeRateUsed).toFixed(2)) : line.amount,
-          movement_date: payoutDate,
-          reference: line.reference ?? batchReference,
-          reason,
-          notes: line.notes,
-          exchange_rate_used: exchangeRateUsed,
-          exchange_rate_date: exchangeRateDate,
-        });
-        guaranteeCashMovementId = Number(movement.id);
-      } else {
-        const lineId = await this.nextShareholderPayoutLineId(client);
-        const transactionType = await this.bankGuaranteeTransactionType(client, 'SHAREHOLDER_PAYOUT');
-        const bankTransaction = await this.createGuaranteeBankTransactionInTransaction(client, {
-          bankAccount: bankAccount as { id: number; bank_name?: string | null; account_name?: string | null; currency: string },
-          amount: line.amount,
-          currency,
-          receiptNumber,
-          reference: line.reference ?? batchReference,
-          createdBy: this.context.userId() ?? null,
-          transactionType,
-          sourceModule: 'SHAREHOLDER_PAYOUTS',
-          direction: 'OUT',
-          sourceEntityType: 'SHAREHOLDER_PAYOUT_LINE',
-          sourceEntityId: lineId,
-          description: 'Remboursement actionnaire',
-          tenantName: shareholder.display_name,
-          leaseNumber: null,
-          unitNumber: null,
-        });
-        bankTransactionId = Number((bankTransaction as Record<string, unknown>).id ?? 0);
-        const insertedLine = await client.query(
-          `INSERT INTO shareholder_payout_lines
-            (id, organization_id, batch_id, shareholder_id, amount, currency, payment_method, reference, notes,
-             cash_movement_id, guarantee_cash_movement_id, bank_transaction_id, receipt_number)
-           VALUES
-            ($1, $2, $3, $4, $5, $6, $7, $8,
-             $9, $10, $11, $12, $13)
-           RETURNING *`,
-          [
-            lineId,
-            this.context.organizationId(),
-            batch.id,
-            line.shareholder_id,
-            line.amount,
-            currency,
-            'BANK',
-            line.reference,
-            line.notes,
-            null,
-            null,
-            bankTransactionId,
-            receiptNumber,
-          ],
-        );
-        createdLines.push({
-          ...insertedLine.rows[0],
-          shareholder_name: shareholder.display_name,
-          shareholder_type: shareholder.shareholder_type,
-          bank_transaction_id: bankTransactionId,
-        });
-        continue;
-      }
-
-      const insertedLine = await client.query(
-        `INSERT INTO shareholder_payout_lines
-          (organization_id, batch_id, shareholder_id, amount, currency, payment_method, reference, notes,
-           cash_movement_id, guarantee_cash_movement_id, bank_transaction_id, receipt_number)
-         VALUES
-          ($1, $2, $3, $4, $5, $6, $7, $8,
-           $9, $10, $11, $12)
-         RETURNING *`,
-        [
-          this.context.organizationId(),
-          batch.id,
-          line.shareholder_id,
-          line.amount,
-          currency,
-          line.payment_method,
-          line.reference,
-          line.notes,
-          cashMovementId,
-          guaranteeCashMovementId,
-          null,
-          receiptNumber,
-        ],
-      );
-      createdLines.push({
-        ...insertedLine.rows[0],
-        shareholder_name: shareholder.display_name,
-        shareholder_type: shareholder.shareholder_type,
-      });
-    }
-
-    await client.query(
-      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
-       VALUES ($1, $2, 'SHAREHOLDER_PAYOUT_VALIDATED', 'shareholder_payout_batches', $3, 'POST', $4, 201, $5::JSONB)`,
-      [
-        this.context.organizationId(),
-        this.context.userId() ?? null,
-        String(batch.id),
-        sourceRegister === 'MAIN_CASH' ? '/api/cash/shareholder-payouts' : '/api/guarantee-cash/shareholder-payouts',
-        JSON.stringify({
-          batch_id: batch.id,
-          source_register: sourceRegister,
-          currency,
-          total_amount: totalAmount,
-          beneficiary_count: normalizedLines.length,
-          operation_type: operationType,
-          reason,
-          lines: createdLines.map((line) => ({
-            shareholder_id: line.shareholder_id,
-            shareholder_name: line.shareholder_name,
-            amount: line.amount,
-            currency: line.currency,
-            receipt_number: line.receipt_number,
-            cash_movement_id: line.cash_movement_id,
-            guarantee_cash_movement_id: line.guarantee_cash_movement_id,
-          })),
-        }),
-      ],
-    );
-
-    return {
-      ...batch,
-      lines: createdLines,
-    };
-  }
-
-  private computeTenantCreditBalanceState(originalAmount: number, allocationsTotal: number, refundsTotal: number) {
-    const remainingAmount = Number(Math.max(originalAmount - allocationsTotal - refundsTotal, 0).toFixed(2));
-    const hasAllocations = allocationsTotal > 0;
-    const hasRefunds = refundsTotal > 0;
-    const nextStatus = hasAllocations
-      ? (remainingAmount <= 0 ? 'USED' : 'PARTIALLY_USED')
-      : hasRefunds
-        ? (remainingAmount <= 0 ? 'REFUNDED' : 'PARTIALLY_USED')
-        : 'AVAILABLE';
-    return { remainingAmount, nextStatus };
-  }
-
-  private async linkedTenantCreditCashMovementInTransaction(client: PoolClient, creditId: number, paymentId: number | null) {
-    const { rows } = await client.query(
-      `SELECT cm.*,
-              (SELECT cs.status FROM cash_sessions cs WHERE cs.id = cm.cash_session_id) AS session_status
-       FROM cash_movements cm
-       WHERE cm.organization_id = $1
-         AND cm.deleted_at IS NULL
-         AND (cm.tenant_credit_id = $2 OR ($3::INT IS NOT NULL AND cm.payment_id = $3::INT))
-       ORDER BY CASE WHEN cm.tenant_credit_id = $2 THEN 0 ELSE 1 END, cm.id DESC
-       LIMIT 1
-       FOR UPDATE`,
-      [this.context.organizationId(), creditId, paymentId],
-    );
-    return rows[0] ?? null;
-  }
-
-  private async updateTenantCreditInTransaction(client: PoolClient, id: number, body: Record<string, unknown>) {
-    const reason = String(body.reason ?? body.correction_reason ?? '').trim();
-    if (!reason) {
-      throw new BadRequestException('Le motif de correction est obligatoire.');
-    }
-
-    const creditResult = await client.query(
-      `SELECT *
-       FROM tenant_credits
-       WHERE id = $1
-         AND organization_id = $2
-         AND deleted_at IS NULL
-       FOR UPDATE`,
-      [id, this.context.organizationId()],
-    );
-    const credit = requireRow(creditResult.rows[0], 'Tenant credit') as Record<string, any>;
-
-    if (body.currency !== undefined && String(body.currency ?? '').trim().toUpperCase() !== String(credit.currency ?? 'USD').toUpperCase()) {
-      throw new BadRequestException('La devise du cr√©dit locataire ne peut pas √™tre modifi√©e.');
-    }
-    if (body.tenant_id !== undefined && Number(body.tenant_id ?? 0) !== Number(credit.tenant_id ?? 0)) {
-      throw new BadRequestException('Le locataire du cr√©dit locataire ne peut pas √™tre modifi√©.');
-    }
-    if (body.organization_id !== undefined && Number(body.organization_id ?? 0) !== this.context.organizationId()) {
-      throw new BadRequestException('L organisation du cr√©dit locataire ne peut pas √™tre modifi√©e.');
-    }
-
-    const paymentId = Number(credit.source_payment_id ?? 0) || null;
-    const paymentResult = await client.query(
-      `SELECT *
-       FROM payments
-       WHERE id = $1
-         AND organization_id = $2
-         AND deleted_at IS NULL
-       FOR UPDATE`,
-      [paymentId, this.context.organizationId()],
-    );
-    const payment = requireRow(paymentResult.rows[0], 'Tenant credit payment') as Record<string, any>;
-
-    const allocationStats = await client.query(
-      `SELECT COUNT(*)::INT AS count,
-              COALESCE(SUM(amount_applied), 0)::NUMERIC(14,2) AS total
-       FROM tenant_credit_allocations
-       WHERE tenant_credit_id = $1
-         AND organization_id = $2
-         AND deleted_at IS NULL`,
-      [id, this.context.organizationId()],
-    );
-    const refundStats = await client.query(
-      `SELECT COUNT(*)::INT AS count,
-              COALESCE(SUM(amount), 0)::NUMERIC(14,2) AS total
-       FROM tenant_credit_refunds
-       WHERE tenant_credit_id = $1
-         AND organization_id = $2
-         AND deleted_at IS NULL`,
-      [id, this.context.organizationId()],
-    );
-
-    const allocationCount = Number(allocationStats.rows[0]?.count ?? 0);
-    const allocationsTotal = Number(allocationStats.rows[0]?.total ?? 0);
-    const refundCount = Number(refundStats.rows[0]?.count ?? 0);
-    const refundsTotal = Number(refundStats.rows[0]?.total ?? 0);
-    const consumedTotal = Number((allocationsTotal + refundsTotal).toFixed(2));
-
-    const currency = String(credit.currency ?? payment.currency ?? 'USD').toUpperCase();
-    const originalAmount = Number(credit.original_amount ?? 0);
-    const currentPaymentDate = String(credit.payment_date ?? payment.payment_date ?? '').slice(0, 10);
-    const currentReference = String(credit.reference ?? payment.reference ?? '').trim();
-    const currentNotes = String(credit.notes ?? payment.notes ?? '').trim();
-    const currentPaymentMethod = String(payment.payment_method ?? 'CASH').toUpperCase();
-
-    const requestedAmount = body.original_amount === undefined && body.amount === undefined
-      ? originalAmount
-      : Number(body.original_amount ?? body.amount ?? 0);
-    if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
-      throw new BadRequestException('Le montant du cr√©dit doit √™tre strictement positif.');
-    }
-    const normalizedAmount = Number(requestedAmount.toFixed(2));
-    if (normalizedAmount < consumedTotal) {
-      throw new BadRequestException('Le montant ne peut pas √™tre inf√©rieur au total d√©j√† utilis√© ou rembours√©.');
-    }
-
-    const nextPaymentDate = body.payment_date === undefined
-      ? currentPaymentDate
-      : String(body.payment_date ?? '').trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(nextPaymentDate)) {
-      throw new BadRequestException('La date du cr√©dit locataire est invalide.');
-    }
-
-    const nextReference = body.reference === undefined
-      ? (currentReference || null)
-      : (String(body.reference ?? '').trim() || null);
-    const nextNotes = body.notes === undefined
-      ? (currentNotes || null)
-      : (String(body.notes ?? '').trim() || null);
-
-    const nextPaymentMethod = body.payment_method === undefined
-      ? currentPaymentMethod
-      : String(body.payment_method ?? '').trim().toUpperCase();
-    if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(nextPaymentMethod)) {
-      throw new BadRequestException('Mode de paiement invalide.');
-    }
-    if (nextPaymentMethod !== currentPaymentMethod && [nextPaymentMethod, currentPaymentMethod].includes('BANK')) {
-      throw new ConflictException('La modification du mode de paiement bancaire n est pas support√©e pour ce cr√©dit.');
-    }
-
-    const amountChanged = normalizedAmount !== Number(originalAmount.toFixed(2));
-    const paymentDateChanged = nextPaymentDate !== currentPaymentDate;
-    const referenceChanged = (nextReference ?? '') !== currentReference;
-
-    const linkedMovement = await this.linkedTenantCreditCashMovementInTransaction(client, id, paymentId);
-    if (amountChanged && !linkedMovement) {
-      throw new ConflictException('La correction mon√©taire directe n est pas disponible pour ce cr√©dit. Utilisez une √©criture de correction ou un remboursement.');
-    }
-    if (amountChanged && linkedMovement && String(linkedMovement.session_status ?? '') !== 'OPEN') {
-      throw new ConflictException('La caisse li√©e est cl√¥tur√©e. Utilisez une √©criture de correction.');
-    }
-    if (paymentDateChanged && linkedMovement && String(linkedMovement.session_status ?? '') !== 'OPEN') {
-      throw new ConflictException('La caisse li√©e est cl√¥tur√©e. Utilisez une √©criture de correction.');
-    }
-
-    const exchangeRateUsed = currency === 'CDF'
-      ? Number(payment.exchange_rate_used ?? linkedMovement?.exchange_rate_used ?? 0)
-      : null;
-    if (currency === 'CDF' && amountChanged && !(Number(exchangeRateUsed) > 0)) {
-      throw new ConflictException('Impossible de corriger ce cr√©dit CDF sans taux de change source valide.');
-    }
-    const exchangeRateDate = currency === 'CDF'
-      ? String(payment.exchange_rate_date ?? linkedMovement?.exchange_rate_date ?? currentPaymentDate)
-      : null;
-    const totalEquivalentUsd = currency === 'CDF'
-      ? Number((normalizedAmount / Number(exchangeRateUsed || 1)).toFixed(2))
-      : normalizedAmount;
-    const nextAmountUsd = currency === 'USD' ? normalizedAmount : 0;
-    const nextAmountCdf = currency === 'CDF' ? normalizedAmount : 0;
-
-    const beforeSnapshot = {
-      original_amount: Number(credit.original_amount ?? 0),
-      remaining_amount: Number(credit.remaining_amount ?? 0),
-      payment_date: currentPaymentDate,
-      reference: credit.reference ?? payment.reference ?? null,
-      notes: credit.notes ?? payment.notes ?? null,
-      payment_method: currentPaymentMethod,
-      allocation_count: allocationCount,
-      allocations_total: allocationsTotal,
-      refund_count: refundCount,
-      refunds_total: refundsTotal,
-      currency,
-      cash_movement_id: Number(linkedMovement?.id ?? 0) || null,
-      cash_session_status: linkedMovement?.session_status ?? null,
-    };
-
-    const { remainingAmount, nextStatus } = this.computeTenantCreditBalanceState(normalizedAmount, allocationsTotal, refundsTotal);
-
-    await client.query(
-      `UPDATE payments
-       SET payment_date = $2,
-           payment_method = $3,
-           reference = $4,
-           notes = $5,
-           amount = $6,
-           amount_usd = $7,
-           amount_cdf = $8,
-           cdf_equivalent_usd = $9,
-           total_equivalent_usd = $10
-       WHERE id = $1
-         AND organization_id = $11
-         AND deleted_at IS NULL`,
-      [
-        paymentId,
-        nextPaymentDate,
-        nextPaymentMethod,
-        nextReference,
-        nextNotes,
-        totalEquivalentUsd,
-        nextAmountUsd,
-        nextAmountCdf,
-        currency === 'CDF' ? totalEquivalentUsd : 0,
-        totalEquivalentUsd,
-        this.context.organizationId(),
-      ],
-    );
-
-    await client.query(
-      `UPDATE tenant_credits
-       SET original_amount = $2,
-           remaining_amount = $3,
-           status = $4,
-           payment_date = $5,
-           reference = $6,
-           notes = $7,
-           updated_at = NOW()
-       WHERE id = $1
-         AND organization_id = $8
-         AND deleted_at IS NULL`,
-      [
-        id,
-        normalizedAmount,
-        remainingAmount,
-        nextStatus,
-        nextPaymentDate,
-        nextReference,
-        nextNotes,
-        this.context.organizationId(),
-      ],
-    );
-
-    if (linkedMovement && (amountChanged || paymentDateChanged || referenceChanged)) {
-      await client.query(
-        `UPDATE cash_movements
-         SET amount = $2,
-             movement_date = $3,
-             reference = $4,
-             exchange_rate_used = $5,
-             exchange_rate_date = $6,
-             equivalent_usd = $7
-         WHERE id = $1
-           AND organization_id = $8
-           AND deleted_at IS NULL`,
-        [
-          Number(linkedMovement.id),
-          normalizedAmount,
-          nextPaymentDate,
-          nextReference,
-          currency === 'CDF' ? Number(exchangeRateUsed) : null,
-          currency === 'CDF' ? exchangeRateDate : null,
-          totalEquivalentUsd,
-          this.context.organizationId(),
-        ],
-      );
-      await client.query(
-        `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
-         VALUES ($1, $2, 'TENANT_CREDIT_SOURCE_MOVEMENT_UPDATED', 'cash', $3, 'PATCH', $4, 200, $5::JSONB)`,
-        [
-          this.context.organizationId(),
-          this.context.userId() ?? null,
-          String(linkedMovement.id),
-          `/api/cash/movements/${Number(linkedMovement.id)}`,
-          JSON.stringify({
-            tenant_credit_id: id,
-            reason,
-            before: {
-              amount: Number(linkedMovement.amount ?? 0),
-              movement_date: String(linkedMovement.movement_date ?? '').slice(0, 10),
-              reference: linkedMovement.reference ?? null,
-              equivalent_usd: Number(linkedMovement.equivalent_usd ?? 0),
-            },
-            after: {
-              amount: normalizedAmount,
-              movement_date: nextPaymentDate,
-              reference: nextReference,
-              equivalent_usd: totalEquivalentUsd,
-            },
-          }),
-        ],
-      );
-    }
-
-    await client.query(
-      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
-       VALUES ($1, $2, 'TENANT_CREDIT_UPDATED', 'tenant_credits', $3, 'PATCH', $4, 200, $5::JSONB)`,
-      [
-        this.context.organizationId(),
-        this.context.userId() ?? null,
-        String(id),
-        `/api/tenant-credits/${id}`,
-        JSON.stringify({
-          reason,
-          before: beforeSnapshot,
-          after: {
-            original_amount: normalizedAmount,
-            remaining_amount: remainingAmount,
-            payment_date: nextPaymentDate,
-            reference: nextReference,
-            notes: nextNotes,
-            payment_method: nextPaymentMethod,
-            status: nextStatus,
-            currency,
-            allocations_total: allocationsTotal,
-            refunds_total: refundsTotal,
-            cash_movement_id: Number(linkedMovement?.id ?? 0) || null,
-            cash_session_status: linkedMovement?.session_status ?? null,
-          },
-        }),
-      ],
-    );
-
-    return id;
-  }
-
-  private async nextTenantCreditRefundReceiptNumber(client: PoolClient) {
-    const year = new Date().getFullYear();
-    const { rows } = await client.query(
-      `SELECT COALESCE(MAX((SUBSTRING(receipt_number FROM $1))::INT), 0) + 1 AS value
-       FROM tenant_credit_refunds
-       WHERE receipt_number LIKE $2
-         AND organization_id = $3`,
-      [`TCRF-${year}-([0-9]+)`, `TCRF-${year}-%`, this.context.organizationId()],
-    );
-    return `TCRF-${year}-${String(rows[0].value).padStart(4, '0')}`;
-  }
-
-  private async refundTenantCreditInTransaction(
-    client: PoolClient,
-    id: number,
-    body: Record<string, unknown>,
-    cancelWholeCredit: boolean,
-  ) {
-    const creditResult = await client.query(
-      `SELECT *
-       FROM tenant_credits
-       WHERE id = $1
-         AND organization_id = $2
-         AND deleted_at IS NULL
-       FOR UPDATE`,
-      [id, this.context.organizationId()],
-    );
-    const credit = requireRow(creditResult.rows[0], 'Tenant credit');
-    const remainingBefore = Number(credit.remaining_amount ?? 0);
-    if (!(remainingBefore > 0)) {
-      throw new ConflictException('Aucun solde disponible √† rembourser pour ce cr√©dit locataire.');
-    }
-
-    const allocationStats = await client.query(
-      `SELECT COUNT(*)::INT AS count,
-              COALESCE(SUM(amount_applied), 0)::NUMERIC(14,2) AS total
-       FROM tenant_credit_allocations
-       WHERE tenant_credit_id = $1
-         AND organization_id = $2
-         AND deleted_at IS NULL`,
-      [id, this.context.organizationId()],
-    );
-    const refundStats = await client.query(
-      `SELECT COUNT(*)::INT AS count,
-              COALESCE(SUM(amount), 0)::NUMERIC(14,2) AS total
-       FROM tenant_credit_refunds
-       WHERE tenant_credit_id = $1
-         AND organization_id = $2
-         AND deleted_at IS NULL`,
-      [id, this.context.organizationId()],
-    );
-    const allocationCount = Number(allocationStats.rows[0]?.count ?? 0);
-    const refundCount = Number(refundStats.rows[0]?.count ?? 0);
-    const sourcePayment = await client.query(
-      `SELECT exchange_rate_used, exchange_rate_date, cdf_equivalent_usd, total_equivalent_usd
-       FROM payments
-       WHERE id = $1
-         AND organization_id = $2
-         AND deleted_at IS NULL`,
-      [credit.source_payment_id, this.context.organizationId()],
-    );
-    const paymentRow = sourcePayment.rows[0];
-    if (String(credit.currency ?? 'USD') === 'CDF' && !(Number(paymentRow?.exchange_rate_used ?? 0) > 0)) {
-      throw new ConflictException('Impossible de rembourser ce cr√©dit CDF sans taux de change source valide.');
-    }
-
-    const refundDate = String(body.refund_date ?? new Date().toISOString().slice(0, 10));
-    const paymentMethod = String(body.payment_method ?? 'CASH').toUpperCase();
-    const reference = String(body.reference ?? `TCR-${id}-${refundDate}`).trim();
-    const reason = String(body.reason ?? '').trim();
-    if (!reason) throw new BadRequestException('Le motif est obligatoire.');
-    if (!['CASH', 'BANK', 'MOBILE_MONEY'].includes(paymentMethod)) {
-      throw new BadRequestException('Mode de remboursement invalide.');
-    }
-
-    if (cancelWholeCredit) {
-      if (allocationCount > 0) {
-        throw new ConflictException('Ce cr√©dit a d√©j√† √©t√© utilis√©. Seul le solde disponible peut √™tre rembours√©.');
-      }
-      if (refundCount > 0) {
-        throw new ConflictException('Ce cr√©dit a d√©j√† fait l objet d un remboursement. L annulation globale n est plus autoris√©e.');
-      }
-      if (Number(credit.original_amount ?? 0) !== remainingBefore) {
-        throw new ConflictException('Seul un cr√©dit totalement inutilis√© peut √™tre annul√©.');
-      }
-    }
-
-    const requestedAmount = cancelWholeCredit ? remainingBefore : Number(body.amount ?? 0);
-    if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
-      throw new BadRequestException('Montant de remboursement invalide.');
-    }
-    const amount = Number(requestedAmount.toFixed(2));
-    if (amount > remainingBefore) {
-      throw new ConflictException('Le montant demand√© d√©passe le solde disponible du cr√©dit.');
-    }
-
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`tenant-credit-refund:${this.context.organizationId()}:${id}`]);
-
-    const idempotencyKey = String(
-      body.idempotency_key
-      ?? [
-        cancelWholeCredit ? 'TENANT_CREDIT_CANCEL' : 'TENANT_CREDIT_REFUND',
-        this.context.organizationId(),
-        id,
-        refundDate,
-        amount.toFixed(2),
-        paymentMethod,
-        reference,
-      ].join(':'),
-    );
-    const existingRefund = await client.query(
-      `SELECT id
-       FROM tenant_credit_refunds
-       WHERE organization_id = $1
-         AND idempotency_key = $2
-         AND deleted_at IS NULL
-       LIMIT 1`,
-      [this.context.organizationId(), idempotencyKey],
-    );
-    if (existingRefund.rows[0]) {
-      throw new ConflictException('Cette op√©ration de remboursement a d√©j√† √©t√© enregistr√©e.');
-    }
-
-    const receiptNumber = await this.nextTenantCreditRefundReceiptNumber(client);
-    const refundInsert = await client.query(
-      `INSERT INTO tenant_credit_refunds
-        (organization_id, tenant_credit_id, tenant_id, lease_id, amount, currency, refund_date, payment_method,
-         reference, reason, cash_movement_id, receipt_number, status, created_by, idempotency_key)
-       VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8,
-         $9, $10, NULL, $11, $12, $13, $14)
-       RETURNING *`,
-      [
-        this.context.organizationId(),
-        id,
-        credit.tenant_id,
-        credit.lease_id ?? null,
-        amount,
-        String(credit.currency ?? 'USD'),
-        refundDate,
-        paymentMethod,
-        reference || null,
-        reason,
-        receiptNumber,
-        cancelWholeCredit ? 'CANCELLED' : 'REFUNDED',
-        this.context.userId() ?? null,
-        idempotencyKey,
-      ],
-    );
-    const refund = requireRow(refundInsert.rows[0], 'Tenant credit refund');
-
-    const movement = await this.createCashMovementInTransaction(client, {
-      type: 'OUT',
-      category: 'TENANT_CREDIT_REFUND',
-      label: cancelWholeCredit ? 'Annulation de cr√©dit locataire' : 'Remboursement de cr√©dit locataire',
-      amount,
-      movement_date: refundDate,
-      tenant_id: credit.tenant_id,
-      description: cancelWholeCredit ? 'Annulation de cr√©dit locataire' : 'Remboursement de cr√©dit locataire',
-      reference: reference || receiptNumber,
-      currency: String(credit.currency ?? 'USD'),
-      exchange_rate_used: paymentRow?.exchange_rate_used ?? null,
-      exchange_rate_date: paymentRow?.exchange_rate_date ?? null,
-      equivalent_usd:
-        String(credit.currency ?? 'USD') === 'CDF'
-          ? Number((amount / Number(paymentRow?.exchange_rate_used ?? 1)).toFixed(2))
-          : amount,
-      tenant_credit_id: credit.id,
-    });
-    if (await this.columnExists('cash_movements', 'tenant_credit_id')) {
-      await client.query(
-        `UPDATE cash_movements
-         SET tenant_credit_id = $1
-         WHERE id = $2 AND organization_id = $3`,
-        [credit.id, movement.id, this.context.organizationId()],
-      );
-    }
-    await client.query(
-      `UPDATE tenant_credit_refunds
-       SET cash_movement_id = $2
-       WHERE id = $1 AND organization_id = $3`,
-      [refund.id, movement.id, this.context.organizationId()],
-    );
-
-    const remainingAfter = Number((remainingBefore - amount).toFixed(2));
-    const nextStatus = cancelWholeCredit
-      ? 'CANCELLED'
-      : remainingAfter <= 0
-        ? 'REFUNDED'
-        : 'PARTIALLY_USED';
-    await client.query(
-      `UPDATE tenant_credits
-       SET remaining_amount = $2,
-           status = $3,
-           updated_at = NOW()
-       WHERE id = $1
-         AND organization_id = $4`,
-      [credit.id, remainingAfter, nextStatus, this.context.organizationId()],
-    );
-    await client.query(
-      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
-       VALUES ($1, $2, $3, 'tenant_credits', $4, 'POST', $5, 200, $6)`,
-      [
-        this.context.organizationId(),
-        this.context.userId() ?? null,
-        cancelWholeCredit ? 'TENANT_CREDIT_CANCELLED' : 'TENANT_CREDIT_REFUNDED',
-        String(credit.id),
-        cancelWholeCredit ? `/api/tenant-credits/${credit.id}/cancel` : `/api/tenant-credits/${credit.id}/refund`,
-        JSON.stringify({
-          tenant_credit_id: credit.id,
-          tenant_id: credit.tenant_id,
-          lease_id: credit.lease_id,
-          previous_remaining_amount: remainingBefore,
-          refunded_amount: amount,
-          new_remaining_amount: remainingAfter,
-          currency: credit.currency,
-          reason,
-          refund_id: refund.id,
-          receipt_number: receiptNumber,
-          cash_movement_id: movement.id,
-        }),
-      ],
-    );
-
-    return {
-      credit: await this.tenantCreditDetailInTransaction(client, credit.id),
-      refund: { ...refund, cash_movement_id: movement.id, receipt_number: receiptNumber },
-      cash_movement: movement,
-    };
-  }
-
-  private async tenantCreditDetailInTransaction(client: PoolClient, id: number) {
-    const { rows } = await client.query(
-      `SELECT tc.*
-       FROM tenant_credits tc
-       WHERE tc.id = $1
-         AND tc.organization_id = $2
-         AND tc.deleted_at IS NULL`,
-      [id, this.context.organizationId()],
-    );
-    return requireRow(rows[0], 'Tenant credit');
-  }
-
-  async refreshInvoiceStatusInTransaction(client: PoolClient, organizationId: number, invoiceId: number) {
-    await client.query(
-      `UPDATE invoices i
-       SET status = CASE
-         WHEN i.status = 'DRAFT' THEN 'DRAFT'
-         WHEN i.status = 'CANCELLED' THEN 'CANCELLED'
-         WHEN s.paid_amount <= 0 THEN 'UNPAID'
-         WHEN s.paid_amount < i.total THEN 'PARTIAL'
-         ELSE 'PAID'
-       END
-       FROM invoice_payment_summary s
-       WHERE s.invoice_id = i.id
-         AND i.id = $1
-         AND i.organization_id = $2`,
-      [invoiceId, organizationId],
-    );
-  }
-
-  async unitOccupationHistory(unitId: number) {
-    const { rows } = await this.db.query(
-      `SELECT l.*, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, g.amount AS guarantee_amount, g.status AS guarantee_status
-       FROM leases l
-       JOIN tenants t ON t.id = l.tenant_id
-       LEFT JOIN lease_guarantees g ON g.lease_id = l.id AND g.deleted_at IS NULL
-       WHERE l.unit_id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL AND l.archived_at IS NULL
-       ORDER BY l.start_date DESC, l.id DESC`,
-      [unitId, this.context.organizationId()],
-    );
-    return rows;
-  }
-
-  async tenantLeases(tenantId: number) {
-    const { rows } = await this.db.query(
-      `SELECT l.*, u.number AS unit_number, b.name AS building_name, g.amount AS guarantee_amount, g.status AS guarantee_status
-       FROM leases l
-       JOIN units u ON u.id = l.unit_id
-       JOIN buildings b ON b.id = u.building_id
-       LEFT JOIN lease_guarantees g ON g.lease_id = l.id AND g.deleted_at IS NULL
-       WHERE l.tenant_id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL AND l.archived_at IS NULL
-       ORDER BY l.start_date DESC, l.id DESC`,
-      [tenantId, this.context.organizationId()],
-    );
-    return rows;
-  }
-
-  async activeLeasesByBuilding(buildingId?: number) {
-    const { rows } = await this.db.query(
-      `SELECT l.*, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, u.number AS unit_number, b.name AS building_name
-       FROM leases l
-       JOIN tenants t ON t.id = l.tenant_id
-       JOIN units u ON u.id = l.unit_id
-       JOIN buildings b ON b.id = u.building_id
-       WHERE l.organization_id = $1 AND l.deleted_at IS NULL AND l.archived_at IS NULL AND l.status = 'ACTIVE'
-         AND ($2::INT IS NULL OR b.id = $2)
-       ORDER BY b.name, u.number`,
-      [this.context.organizationId(), buildingId ?? null],
-    );
-    return rows;
-  }
-
-  async rentalUnitsAvailability() {
-    const { rows } = await this.db.query(
-      `SELECT b.name AS building_name, u.id AS unit_id, u.number, u.status,
-              CASE WHEN l.id IS NULL THEN 'Libre' ELSE 'Occup√©e' END AS occupancy
-       FROM units u
-       JOIN buildings b ON b.id = u.building_id
-       LEFT JOIN leases l ON l.unit_id = u.id AND l.status = 'ACTIVE' AND l.deleted_at IS NULL AND l.archived_at IS NULL
-       WHERE u.organization_id = $1 AND u.deleted_at IS NULL
-       ORDER BY b.name, u.number`,
-      [this.context.organizationId()],
-    );
-    return rows;
-  }
-
-  async createLeaseInvoice(id: number) {
-    const invoice = await this.db.transaction(async (client) => {
-      const lease = await client.query(
-        `SELECT l.*, u.building_id FROM leases l JOIN units u ON u.id = l.unit_id WHERE l.id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL AND l.archived_at IS NULL`,
-        [id, this.context.organizationId()],
-      );
-      const row = requireRow(lease.rows[0], 'Lease');
-      const sequence = await client.query(`SELECT COALESCE(MAX((SUBSTRING(invoice_number FROM $1))::INT), 0) + 1 AS value FROM invoices WHERE invoice_number LIKE $2`, [
-        `INV-${new Date().getFullYear()}-([0-9]+)`,
-        `INV-${new Date().getFullYear()}-%`,
-      ]);
-      const nextId = await client.query(`SELECT nextval('invoices_id_seq')::INT AS value`);
-      const number = `INV-${new Date().getFullYear()}-${String(sequence.rows[0].value).padStart(4, '0')}`;
-      const today = new Date();
-      const due = new Date(today.getFullYear(), today.getMonth(), 10);
-      const rentAmount = Number(row.monthly_rent ?? 0) + Number(row.maintenance_fee_amount ?? 0);
-      const syndicAmount = Number(row.monthly_syndic_amount ?? 0);
-      const totalAmount = rentAmount + syndicAmount;
-      const invoice = await client.query(
-        `INSERT INTO invoices (id, tenant_id, lease_id, unit_id, building_id, invoice_number, month, year, issue_date, due_date, status, total, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_DATE, $9, 'UNPAID', $10, $11) RETURNING *`,
-        [nextId.rows[0].value, row.tenant_id, row.id, row.unit_id, row.building_id, number, today.getMonth() + 1, today.getFullYear(), due.toISOString().slice(0, 10), totalAmount, this.context.organizationId()],
-      );
-      if (rentAmount > 0) {
-        await client.query(
-          'INSERT INTO invoice_items (invoice_id, item_type, description, amount, organization_id) VALUES ($1, $2, $3, $4, $5)',
-          [invoice.rows[0].id, 'Monthly rent', this.invoicePeriodDescription('Loyer', today.getMonth() + 1, today.getFullYear()), rentAmount, this.context.organizationId()],
-        );
-      }
-      if (syndicAmount > 0) {
-        await client.query(
-          'INSERT INTO invoice_items (invoice_id, item_type, description, amount, organization_id) VALUES ($1, $2, $3, $4, $5)',
-          [invoice.rows[0].id, 'Syndic', this.invoicePeriodDescription('Syndic', today.getMonth() + 1, today.getFullYear()), syndicAmount, this.context.organizationId()],
-        );
-      }
-      return invoice.rows[0];
-    });
-    void this.sendLeaseInvoiceEmailIfEnabled(invoice).catch((error) => {
-      this.logger.error(
-        `[INVOICE] async receipt email failed invoiceId=${Number(invoice.id)} organizationId=${this.context.organizationId()} message=${error instanceof Error ? error.message : String(error)}`,
-      );
-    });
-    return invoice;
-  }
-
-  private async appendInvoiceItemSummaries(rows: Record<string, any>[]): Promise<Record<string, any>[]> {
-    const invoiceIds = rows.map((row) => Number(row.id)).filter(Number.isFinite);
-    if (!invoiceIds.length) return rows;
-    const summaries = await this.db.query(
-      `SELECT invoice_id,
-              COALESCE(SUM(CASE WHEN item_type = 'Monthly rent' OR description = 'Monthly rent' OR description ILIKE 'Loyer %' THEN amount ELSE 0 END), 0)::FLOAT AS rent_amount,
-              COALESCE(SUM(CASE WHEN item_type = 'Syndic' OR description = 'Syndic' OR description ILIKE 'Syndic %' THEN amount ELSE 0 END), 0)::FLOAT AS syndic_amount
-       FROM invoice_items
-       WHERE organization_id = $1
-         AND deleted_at IS NULL
-         AND invoice_id = ANY($2::INT[])
-       GROUP BY invoice_id`,
-      [this.context.organizationId(), invoiceIds],
-    );
-    const summaryMap = new Map<number, Record<string, any>>(summaries.rows.map((row) => [Number(row.invoice_id), row as Record<string, any>]));
-    return rows.map((row) => {
-      const summary = summaryMap.get(Number(row.id));
-      return {
-        ...row,
-        rent_amount: Number(summary?.rent_amount ?? 0),
-        syndic_amount: Number(summary?.syndic_amount ?? 0),
-      };
-    });
-  }
-
-  private invoicePeriodDescription(prefix: string, month: number, year: number) {
-    const monthLabel = ['janvier', 'fevrier', 'mars', 'avril', 'mai', 'juin', 'juillet', 'aout', 'septembre', 'octobre', 'novembre', 'decembre'][month - 1] ?? String(month);
-    return `${prefix} ${monthLabel} ${year}`;
-  }
-
-  async reportsDashboard() {
-    const organizationId = this.context.organizationId();
-    const [occupation, revenue, payments, overdue, guarantees, cash] = await Promise.all([
-      this.db.query(
-        `SELECT status AS name, COUNT(*)::INT AS value
-         FROM units
-         WHERE organization_id = $1 AND deleted_at IS NULL
-         GROUP BY status
-         ORDER BY status`,
-        [organizationId],
-      ),
-      this.db.query(
-        `SELECT b.name, COALESCE(SUM(i.total), 0)::FLOAT AS value
-         FROM buildings b
-         LEFT JOIN invoices i ON i.building_id = b.id AND i.deleted_at IS NULL
-         WHERE b.organization_id = $1 AND b.deleted_at IS NULL
-         GROUP BY b.id, b.name
-         ORDER BY b.name`,
-        [organizationId],
-      ),
-      this.db.query(
-        `SELECT TO_CHAR(payment_date, 'YYYY-MM') AS name, COALESCE(SUM(amount), 0)::FLOAT AS value
-         FROM payments
-         WHERE organization_id = $1 AND deleted_at IS NULL
-         GROUP BY TO_CHAR(payment_date, 'YYYY-MM')
-         ORDER BY name`,
-        [organizationId],
-      ),
-      this.db.query(
-        `SELECT COUNT(*)::INT AS count, COALESCE(SUM(COALESCE(s.remaining_amount, i.total)), 0)::FLOAT AS amount
-         FROM invoices i
-         LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
-         WHERE i.organization_id = $1 AND i.deleted_at IS NULL AND i.status <> 'PAID' AND i.due_date < CURRENT_DATE`,
-        [organizationId],
-      ),
-      this.db.query(
-        `SELECT status AS name, COUNT(*)::INT AS value, COALESCE(SUM(amount), 0)::FLOAT AS amount
-         FROM lease_guarantees
-         WHERE organization_id = $1 AND deleted_at IS NULL
-         GROUP BY status
-         ORDER BY status`,
-        [organizationId],
-      ),
-      this.db.query(
-        `SELECT
-           COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE 0 END), 0)::FLOAT AS total_in,
-           COALESCE(SUM(CASE WHEN type = 'OUT' THEN amount ELSE 0 END), 0)::FLOAT AS total_out
-         FROM cash_movements
-         WHERE organization_id = $1
-           AND deleted_at IS NULL
-           AND category NOT IN ('LEASE_GUARANTEE', 'LEASE_GUARANTEE_REFUND')`,
-        [organizationId],
-      ),
-    ]);
-    return {
-      occupation: occupation.rows,
-      revenue_by_building: revenue.rows,
-      monthly_payments: payments.rows,
-      overdue: overdue.rows[0],
-      guarantees: guarantees.rows,
-      cash_summary: {
-        ...cash.rows[0],
-        balance: Number(cash.rows[0]?.total_in ?? 0) - Number(cash.rows[0]?.total_out ?? 0),
-      },
-    };
-  }
-
-  private reportPeriod(filters: { month?: string; year?: string; start?: string; end?: string }) {
-    if (filters.month && filters.year) {
-      const month = Number(filters.month);
-      const year = Number(filters.year);
-      if (month >= 1 && month <= 12 && year > 1900) {
-        const paddedMonth = String(month).padStart(2, '0');
-        const lastDay = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
-        return { start: `${year}-${paddedMonth}-01`, end: lastDay };
-      }
-    }
-    return { start: filters.start ?? '2000-01-01', end: filters.end ?? '2999-12-31' };
-  }
-
-  private invoiceStatusClause(alias: string, parameterIndex: number) {
-    return `($${parameterIndex}::TEXT IS NULL
-      OR ($${parameterIndex} = 'OVERDUE' AND ${alias}.status <> 'PAID' AND ${alias}.due_date < CURRENT_DATE)
-      OR ($${parameterIndex} <> 'OVERDUE' AND ${alias}.status = $${parameterIndex}))`;
-  }
-
-  async buildingReport(
-    id: number,
-    filters: { month?: string; year?: string; start?: string; end?: string; paymentStatus?: string; tenantId?: number; unitId?: number } = {},
-  ) {
-    const organizationId = this.context.organizationId();
-    const period = this.reportPeriod(filters);
-    const params: unknown[] = [
-      id,
-      period.start,
-      period.end,
-      organizationId,
-      filters.tenantId ?? null,
-      filters.unitId ?? null,
-      filters.paymentStatus || null,
-    ];
-    const building = await this.db.query('SELECT * FROM buildings WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL', [id, organizationId]);
-    const units = await this.db.query(
-      `SELECT * FROM units
-       WHERE building_id = $1 AND organization_id = $2 AND deleted_at IS NULL
-         AND ($3::INT IS NULL OR id = $3)
-       ORDER BY number`,
-      [id, organizationId, filters.unitId ?? null],
-    );
-    const tenants = await this.db.query(
-      `SELECT DISTINCT ON (t.id)
-              t.id, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone, t.email,
-              u.number AS unit_number, l.id AS lease_id, l.status AS lease_status,
-              l.monthly_rent, l.maintenance_fee_amount, l.monthly_syndic_amount
-       FROM tenants t
-       JOIN leases l ON l.tenant_id = t.id AND l.deleted_at IS NULL
-       JOIN units u ON u.id = l.unit_id
-       WHERE u.building_id = $1 AND t.organization_id = $2 AND t.deleted_at IS NULL
-         AND ($3::INT IS NULL OR t.id = $3)
-         AND ($4::INT IS NULL OR u.id = $4)
-       ORDER BY t.id, l.status = 'ACTIVE' DESC, l.start_date DESC`,
-      [id, organizationId, filters.tenantId ?? null, filters.unitId ?? null],
-    );
-    const invoices = await this.db.query(
-      `SELECT i.id, i.tenant_id, i.invoice_number, i.month, i.year, i.issue_date, i.due_date, i.status, i.total,
-              i.last_reminder_at, COALESCE(i.reminder_count, 0)::INT AS reminder_count,
-              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone, t.email,
-              u.number AS unit_number,
-              COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
-              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
-       FROM invoices i
-       JOIN tenants t ON t.id = i.tenant_id
-       LEFT JOIN leases l ON l.id = i.lease_id
-       LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
-       LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
-       WHERE COALESCE(i.building_id, u.building_id) = $1
-         AND i.issue_date BETWEEN $2 AND $3
-         AND i.organization_id = $4
-         AND i.deleted_at IS NULL
-         AND ($5::INT IS NULL OR i.tenant_id = $5)
-         AND ($6::INT IS NULL OR COALESCE(i.unit_id, l.unit_id, t.unit_id) = $6)
-         AND ${this.invoiceStatusClause('i', 7)}
-       ORDER BY i.issue_date DESC, i.invoice_number`,
-      params,
-    );
-    const invoiceRows = await this.appendInvoiceItemSummaries(invoices.rows);
-    const payments = await this.db.query(
-      `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference,
-              i.invoice_number, i.tenant_id,
-              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
-              u.number AS unit_number
-       FROM payments p
-       JOIN invoices i ON i.id = p.invoice_id
-       JOIN tenants t ON t.id = i.tenant_id
-       LEFT JOIN leases l ON l.id = i.lease_id
-       LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
-       WHERE COALESCE(i.building_id, u.building_id) = $1
-         AND p.payment_date BETWEEN $2 AND $3
-         AND p.organization_id = $4
-         AND p.deleted_at IS NULL
-         AND ($5::INT IS NULL OR i.tenant_id = $5)
-         AND ($6::INT IS NULL OR COALESCE(i.unit_id, l.unit_id, t.unit_id) = $6)
-         AND ${this.invoiceStatusClause('i', 7)}
-       ORDER BY p.payment_date DESC, p.id DESC`,
-      params,
-    );
-    const paidTenantIds = new Set(payments.rows.map((row) => row.tenant_id).filter(Boolean));
-    const tenantsPaid = Array.from(
-      new Map(
-        payments.rows
-          .filter((row) => row.tenant_id)
-          .map((row) => {
-            const tenant = tenants.rows.find((item) => Number(item.id) === Number(row.tenant_id));
-            return [row.tenant_id, { tenant_id: row.tenant_id, tenant_name: row.tenant_name, unit_number: row.unit_number, phone: tenant?.phone, email: tenant?.email }];
-          }),
-      ).values(),
-    );
-    const tenantsUnpaid = Array.from(
-      new Map(
-        invoiceRows
-          .filter((row) => row.tenant_id && !paidTenantIds.has(row.tenant_id) && row.status !== 'PAID')
-          .map((row) => [
-            row.tenant_id,
-            {
-              tenant_id: row.tenant_id,
-              tenant_name: row.tenant_name,
-              phone: row.phone,
-              email: row.email,
-              unit_number: row.unit_number,
-              invoice_id: row.id,
-              invoice_number: row.invoice_number,
-              remaining_amount: row.remaining_amount,
-              last_reminder_at: row.last_reminder_at,
-              reminder_count: row.reminder_count,
-            },
-          ]),
-      ).values(),
-    );
-    const tenantSituations = tenants.rows.map((tenant) => {
-      const tenantInvoices = invoiceRows.filter((invoice) => Number(invoice.tenant_id) === Number(tenant.id));
-      const totalInvoiced = tenantInvoices.reduce((sum, invoice) => sum + Number(invoice.total), 0);
-      const totalPaid = tenantInvoices.reduce((sum, invoice) => sum + Number(invoice.paid_amount), 0);
-      const remaining = tenantInvoices.reduce((sum, invoice) => sum + Number(invoice.remaining_amount), 0);
-      const totalRentInvoiced = tenantInvoices.reduce((sum, invoice) => sum + Number(invoice.rent_amount ?? 0), 0);
-      const totalSyndicInvoiced = tenantInvoices.reduce((sum, invoice) => sum + Number(invoice.syndic_amount ?? 0), 0);
-      const paidCount = tenantInvoices.filter((invoice) => invoice.status === 'PAID').length;
-      const partialCount = tenantInvoices.filter((invoice) => invoice.status === 'PARTIAL').length;
-      const unpaidCount = tenantInvoices.filter((invoice) => invoice.status === 'UNPAID').length;
-      const overdueCount = tenantInvoices.filter((invoice) => invoice.status !== 'PAID' && new Date(invoice.due_date) < new Date()).length;
-      return {
-        ...tenant,
-        payment_status: tenantInvoices.length === 0 ? 'NOT_INVOICED' : overdueCount > 0 && remaining > 0 ? 'OVERDUE' : remaining <= 0 ? 'PAID' : totalPaid > 0 ? 'PARTIAL' : 'UNPAID',
-        total_invoiced: totalInvoiced,
-        total_rent_invoiced: totalRentInvoiced,
-        total_syndic_invoiced: totalSyndicInvoiced,
-        total_paid: totalPaid,
-        remaining_amount: remaining,
-        paid_invoices: paidCount,
-        partial_invoices: partialCount,
-        unpaid_invoices: unpaidCount,
-        overdue_invoices: overdueCount,
-      };
-    });
-    const buildingRow = requireRow(building.rows[0], 'Building');
-    const realUnitsTotal = units.rows.length;
-    const fallbackUnitsTotal = Number(buildingRow.total_units ?? 0);
-    const displayUnitsTotal = realUnitsTotal > 0 ? realUnitsTotal : fallbackUnitsTotal;
-    const occupied = units.rows.filter((unit) => unit.status === 'OCCUPIED').length;
-    const vacant = realUnitsTotal > 0 ? realUnitsTotal - occupied : fallbackUnitsTotal;
-    const financeSummary = {
-      invoices: invoiceRows.length,
-      paid_invoices: invoiceRows.filter((row) => row.status === 'PAID').length,
-      partial_invoices: invoiceRows.filter((row) => row.status === 'PARTIAL').length,
-      unpaid_invoices: invoiceRows.filter((row) => row.status !== 'PAID' && row.status !== 'CANCELLED').length,
-      overdue_invoices: invoiceRows.filter((row) => row.status !== 'PAID' && new Date(row.due_date) < new Date()).length,
-      total_invoiced: invoiceRows.reduce((sum, row) => sum + Number(row.total ?? 0), 0),
-      total_rent_invoiced: invoiceRows.reduce((sum, row) => sum + Number(row.rent_amount ?? 0), 0),
-      total_syndic_invoiced: invoiceRows.reduce((sum, row) => sum + Number(row.syndic_amount ?? 0), 0),
-      total_paid: invoiceRows.reduce((sum, row) => sum + Number(row.paid_amount ?? 0), 0),
-      remaining: invoiceRows.reduce((sum, row) => sum + Number(row.remaining_amount ?? 0), 0),
-    };
-    return {
-      building: buildingRow,
-      period,
-      filters,
-      units_total: displayUnitsTotal,
-      occupied_units: occupied,
-      vacant_units: vacant,
-      occupancy_rate: displayUnitsTotal ? Math.round((occupied / displayUnitsTotal) * 100) : 0,
-      tenants: tenants.rows,
-      tenant_situations: tenantSituations,
-      finances: financeSummary,
-      units: units.rows,
-      payments: payments.rows,
-      tenants_paid: tenantsPaid,
-      tenants_unpaid: tenantsUnpaid,
-      paid_invoices: invoiceRows.filter((row) => row.status === 'PAID'),
-      partial_invoices: invoiceRows.filter((row) => row.status === 'PARTIAL'),
-      unpaid_invoices: invoiceRows.filter((row) => row.status === 'UNPAID'),
-      overdue_invoices: invoiceRows.filter((row) => row.status !== 'PAID' && new Date(row.due_date) < new Date()),
-    };
-  }
-
-  async paymentsReport(filters: { start?: string; end?: string; buildingId?: number; tenantId?: number; status?: string; paymentMethod?: string } = {}) {
-    const start = filters.start ?? '2000-01-01';
-    const end = filters.end ?? '2999-12-31';
-    const organizationId = this.context.organizationId();
-    const invoices = await this.db.query(
-      `SELECT i.*, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, b.name AS building_name, u.number AS unit_number,
-              COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
-              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
-       FROM invoices i
-       JOIN tenants t ON t.id = i.tenant_id
-       LEFT JOIN units u ON u.id = i.unit_id
-       LEFT JOIN buildings b ON b.id = i.building_id
-       LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
-       WHERE i.issue_date BETWEEN $1 AND $2
-         AND i.organization_id = $6
-         AND i.deleted_at IS NULL
-         AND ($3::INT IS NULL OR b.id = $3)
-         AND ($4::INT IS NULL OR t.id = $4)
-         AND ($5::TEXT IS NULL OR i.status = $5)
-       ORDER BY i.issue_date DESC`,
-      [start, end, filters.buildingId ?? null, filters.tenantId ?? null, filters.status || null, organizationId],
-    );
-    const payments = await this.db.query(
-      `SELECT p.*, i.tenant_id, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, i.invoice_number, i.status AS invoice_status, b.name AS building_name
-       FROM payments p
-       LEFT JOIN invoices i ON i.id = p.invoice_id
-       LEFT JOIN tenants t ON t.id = i.tenant_id
-       LEFT JOIN buildings b ON b.id = i.building_id
-       WHERE p.payment_date BETWEEN $1 AND $2
-         AND p.organization_id = $6
-         AND p.deleted_at IS NULL
-         AND ($3::INT IS NULL OR b.id = $3)
-         AND ($4::INT IS NULL OR t.id = $4)
-         AND ($5::TEXT IS NULL OR p.payment_method = $5)
-       ORDER BY p.payment_date DESC, p.id DESC`,
-      [start, end, filters.buildingId ?? null, filters.tenantId ?? null, filters.paymentMethod || null, organizationId],
-    );
-    const rows = invoices.rows;
-    const paidTenantIds = new Set(payments.rows.map((row) => row.tenant_id).filter(Boolean));
-    return {
-      payments_received: payments.rows,
-      invoices: rows,
-      total_invoiced: rows.reduce((sum, row) => sum + Number(row.total), 0),
-      total_paid: payments.rows.reduce((sum, row) => sum + Number(row.amount), 0),
-      remaining: rows.reduce((sum, row) => sum + Number(row.remaining_amount), 0),
-      tenants_paid: Array.from(new Map(payments.rows.filter((row) => row.tenant_id).map((row) => [row.tenant_id, { tenant_id: row.tenant_id, tenant_name: row.tenant_name }])).values()),
-      tenants_unpaid: rows
-        .filter((row) => row.tenant_id && !paidTenantIds.has(row.tenant_id) && row.status !== 'PAID')
-        .map((row) => ({ tenant_id: row.tenant_id, tenant_name: row.tenant_name, invoice_number: row.invoice_number, remaining_amount: row.remaining_amount })),
-      paid: rows.filter((row) => row.status === 'PAID'),
-      partial: rows.filter((row) => row.status === 'PARTIAL'),
-      unpaid: rows.filter((row) => row.status === 'UNPAID'),
-      overdue: rows.filter((row) => row.status !== 'PAID' && new Date(row.due_date) < new Date()),
-    };
-  }
-
-  async tenantReport(
-    id: number,
-    filters: { month?: string; year?: string; start?: string; end?: string; invoiceStatus?: string; buildingId?: number; unitId?: number; leaseId?: number } = {},
-  ) {
-    const organizationId = this.context.organizationId();
-    const period = this.reportPeriod(filters);
-    const tenant = await this.db.query('SELECT * FROM tenants WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL', [id, organizationId]);
-    const leases = await this.db.query(
-      `SELECT l.*, u.number AS unit_number, b.id AS building_id, b.name AS building_name, g.amount AS guarantee_amount, g.paid_amount AS guarantee_paid, g.status AS guarantee_status
-       FROM leases l
-       JOIN units u ON u.id = l.unit_id
-       JOIN buildings b ON b.id = u.building_id
-       LEFT JOIN lease_guarantees g ON g.lease_id = l.id AND g.deleted_at IS NULL
-       WHERE l.tenant_id = $1 AND l.organization_id = $2 AND l.deleted_at IS NULL
-         AND ($3::INT IS NULL OR b.id = $3)
-         AND ($4::INT IS NULL OR u.id = $4)
-         AND ($5::INT IS NULL OR l.id = $5)
-       ORDER BY l.start_date DESC`,
-      [id, organizationId, filters.buildingId ?? null, filters.unitId ?? null, filters.leaseId ?? null],
-    );
-    const invoices = await this.db.query(
-      `SELECT i.*, b.name AS building_name, u.number AS unit_number,
-              COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
-              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
-       FROM invoices i
-       LEFT JOIN units u ON u.id = i.unit_id
-       LEFT JOIN buildings b ON b.id = i.building_id
-       LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
-       WHERE i.tenant_id = $1
-         AND i.organization_id = $2
-         AND i.issue_date BETWEEN $3 AND $4
-         AND i.deleted_at IS NULL
-         AND ($5::INT IS NULL OR i.building_id = $5)
-         AND ($6::INT IS NULL OR i.unit_id = $6)
-         AND ($7::INT IS NULL OR i.lease_id = $7)
-         AND ${this.invoiceStatusClause('i', 8)}
-       ORDER BY i.issue_date DESC, i.invoice_number`,
-      [id, organizationId, period.start, period.end, filters.buildingId ?? null, filters.unitId ?? null, filters.leaseId ?? null, filters.invoiceStatus || null],
-    );
-    const invoiceRows = await this.appendInvoiceItemSummaries(invoices.rows);
-    const payments = await this.db.query(
-      `SELECT p.*, i.tenant_id, i.invoice_number, i.status AS invoice_status, b.name AS building_name, u.number AS unit_number
-       FROM payments p
-       LEFT JOIN invoices i ON i.id = p.invoice_id
-       LEFT JOIN buildings b ON b.id = i.building_id
-       LEFT JOIN units u ON u.id = i.unit_id
-       WHERE i.tenant_id = $1
-         AND p.organization_id = $2
-         AND p.payment_date BETWEEN $3 AND $4
-         AND p.deleted_at IS NULL
-         AND ($5::INT IS NULL OR i.building_id = $5)
-         AND ($6::INT IS NULL OR i.unit_id = $6)
-         AND ($7::INT IS NULL OR i.lease_id = $7)
-         AND ${this.invoiceStatusClause('i', 8)}
-       ORDER BY p.payment_date DESC`,
-      [id, organizationId, period.start, period.end, filters.buildingId ?? null, filters.unitId ?? null, filters.leaseId ?? null, filters.invoiceStatus || null],
-    );
-    const documents = await this.db.query(
-      `SELECT *
-       FROM (
-         SELECT
-           ld.id,
-           ld.lease_id,
-           ld.document_type,
-           ld.file_name,
-           ld.file_url,
-           ld.uploaded_at AS document_date,
-           l.status AS lease_status,
-           u.number AS unit_number,
-           b.name AS building_name,
-           'LEASE_DOCUMENT'::TEXT AS source_type
-         FROM lease_documents ld
-         JOIN leases l ON l.id = ld.lease_id
-         JOIN units u ON u.id = l.unit_id
-         JOIN buildings b ON b.id = u.building_id
-         WHERE l.tenant_id = $1
-           AND ld.organization_id = $2
-           AND ld.deleted_at IS NULL
-           AND ($3::INT IS NULL OR b.id = $3)
-           AND ($4::INT IS NULL OR u.id = $4)
-           AND ($5::INT IS NULL OR l.id = $5)
-
-         UNION ALL
-
-         SELECT
-           cg.id,
-           cg.lease_id,
-           'LEASE_CONTRACT'::TEXT AS document_type,
-           COALESCE(cg.docx_file_name, cg.pdf_file_name, cg.signed_contract_file_name, 'Contrat') AS file_name,
-           COALESCE(cg.docx_file_url, cg.pdf_file_url, cg.signed_contract_file_url) AS file_url,
-           cg.generated_at AS document_date,
-           l.status AS lease_status,
-           u.number AS unit_number,
-           b.name AS building_name,
-           'LEASE_CONTRACT'::TEXT AS source_type
-         FROM lease_contract_generations cg
-         JOIN leases l ON l.id = cg.lease_id
-         JOIN units u ON u.id = l.unit_id
-         JOIN buildings b ON b.id = u.building_id
-         WHERE l.tenant_id = $1
-           AND cg.organization_id = $2
-           AND cg.deleted_at IS NULL
-           AND ($3::INT IS NULL OR b.id = $3)
-           AND ($4::INT IS NULL OR u.id = $4)
-           AND ($5::INT IS NULL OR l.id = $5)
-       ) docs
-       ORDER BY docs.document_date DESC NULLS LAST, docs.id DESC`,
-      [id, organizationId, filters.buildingId ?? null, filters.unitId ?? null, filters.leaseId ?? null],
-    );
-    const rows = invoiceRows;
-    const totalInvoiced = rows.reduce((sum, row) => sum + Number(row.total), 0);
-    const totalRentInvoiced = rows.reduce((sum, row) => sum + Number(row.rent_amount ?? 0), 0);
-    const totalSyndicInvoiced = rows.reduce((sum, row) => sum + Number(row.syndic_amount ?? 0), 0);
-    const totalPaid = rows.reduce((sum, row) => sum + Number(row.paid_amount), 0);
-    const remaining = rows.reduce((sum, row) => sum + Number(row.remaining_amount), 0);
-    const currentLeases = leases.rows.filter((lease) => this.isActiveLease(lease));
-    const activeLeaseIds = new Set(currentLeases.map((lease) => Number(lease.id)).filter((leaseId) => Number.isFinite(leaseId)));
-    const activeUnitIds = new Set(currentLeases.map((lease) => Number(lease.unit_id)).filter((unitId) => Number.isFinite(unitId)));
-    const totalActiveRentAmount = currentLeases.reduce(
-      (sum, lease) => sum + Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0),
-      0,
-    );
-    const totalActiveGuaranteeAmount = currentLeases.reduce(
-      (sum, lease) => sum + this.tenantLeaseGuaranteeAmount(lease),
-      0,
-    );
-    const paidInvoices: Record<string, unknown>[] = [];
-    const partialInvoices: Record<string, unknown>[] = [];
-    const unpaidInvoices: Record<string, unknown>[] = [];
-    const overdueInvoices: Record<string, unknown>[] = [];
-    rows.forEach((row) => {
-      const category = this.tenantInvoiceCategory(row);
-      if (category === 'PAID') paidInvoices.push(row);
-      else if (category === 'PARTIAL') partialInvoices.push(row);
-      else if (category === 'OVERDUE') overdueInvoices.push(row);
-      else unpaidInvoices.push(row);
-    });
-    return {
-      tenant: requireRow(tenant.rows[0], 'Tenant'),
-      period,
-      filters,
-      leases: leases.rows,
-      total_lease_count: new Set(leases.rows.map((lease) => Number(lease.id)).filter((leaseId) => Number.isFinite(leaseId))).size,
-      active_lease_count: activeLeaseIds.size,
-      active_unit_count: activeUnitIds.size,
-      total_active_rent_amount: totalActiveRentAmount,
-      total_active_guarantee_amount: totalActiveGuaranteeAmount,
-      active_leases: currentLeases,
-      old_leases: leases.rows.filter((lease) => !currentLeases.includes(lease)),
-      guarantees: leases.rows.map((lease) => ({
-        lease_id: lease.id,
-        building_name: lease.building_name,
-        unit_number: lease.unit_number,
-        guarantee_months: lease.guarantee_months,
-        amount: this.tenantLeaseGuaranteeAmount(lease),
-        paid_amount: lease.guarantee_paid ?? lease.rental_guarantee_paid ?? 0,
-        remaining_amount: Math.max(
-          this.tenantLeaseGuaranteeAmount(lease) - Number(lease.guarantee_paid ?? lease.rental_guarantee_paid ?? 0),
-          0,
-        ),
-        payment_date: lease.rental_guarantee_payment_date ?? null,
-        status: lease.guarantee_status ?? lease.rental_guarantee_status,
-      })),
-      payments: payments.rows,
-      documents: documents.rows,
-      payments_received: payments.rows,
-      invoices: rows,
-      total_invoiced: totalInvoiced,
-      total_rent_invoiced: totalRentInvoiced,
-      total_syndic_invoiced: totalSyndicInvoiced,
-      total_paid: totalPaid,
-      remaining,
-      tenants_paid: totalPaid > 0 ? [{ tenant_id: id, tenant_name: `${tenant.rows[0]?.first_name ?? ''} ${tenant.rows[0]?.last_name ?? ''}`.trim() }] : [],
-      tenants_unpaid: remaining > 0 ? [{ tenant_id: id, tenant_name: `${tenant.rows[0]?.first_name ?? ''} ${tenant.rows[0]?.last_name ?? ''}`.trim(), remaining_amount: remaining }] : [],
-      paid: paidInvoices,
-      partial: partialInvoices,
-      unpaid: unpaidInvoices,
-      overdue: overdueInvoices,
-    };
-  }
-
-  async tenantStatement(id: number, filters: { month?: string; year?: string; start?: string; end?: string } = {}) {
-    return this.accountStatement('tenant', id, filters);
-  }
-
-  async unitStatement(id: number, filters: { month?: string; year?: string; start?: string; end?: string } = {}) {
-    return this.accountStatement('unit', id, filters);
-  }
-
-  async buildingStatement(id: number, filters: { month?: string; year?: string; start?: string; end?: string } = {}) {
-    return this.accountStatement('building', id, filters);
-  }
-
-  private statementPeriod(filters: { month?: string; year?: string; start?: string; end?: string }) {
-    return this.reportPeriod(filters);
-  }
-
-  private isActiveLease(lease: Record<string, any>) {
-    const startDate = this.normalizeLeaseDate(lease.start_date);
-    const endDate = this.normalizeLeaseDate(lease.end_date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const status = String(lease.status ?? '').toUpperCase();
-    return Boolean(
-      startDate &&
-        startDate.getTime() <= today.getTime() &&
-        (!endDate || endDate.getTime() >= today.getTime()) &&
-        !['DRAFT', 'CANCELLED', 'TERMINATED', 'EXPIRED'].includes(status),
-    );
-  }
-
-  private normalizeLeaseDate(value: unknown) {
-    if (!value) return null;
-    if (value instanceof Date && !Number.isNaN(value.getTime())) {
-      return new Date(value.getFullYear(), value.getMonth(), value.getDate());
-    }
-    const raw = String(value).trim();
-    if (!raw) return null;
-    const isoDate = /^\d{4}-\d{2}-\d{2}/.exec(raw)?.[0];
-    if (isoDate) {
-      const [year, month, day] = isoDate.split('-').map((part) => Number(part));
-      if ([year, month, day].every((part) => Number.isFinite(part))) {
-        return new Date(year, month - 1, day);
-      }
-    }
-    const parsed = new Date(raw);
-    if (Number.isNaN(parsed.getTime())) return null;
-    return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
-  }
-
-  private tenantLeaseGuaranteeAmount(lease: Record<string, any>) {
-    const persistentAmount = lease.rental_guarantee_amount ?? lease.guarantee_amount ?? lease.amount;
-    if (persistentAmount != null && persistentAmount !== '') {
-      return Number(persistentAmount ?? 0);
-    }
-    const guaranteeMonths = Number(lease.guarantee_months ?? 0);
-    const rentAmount = Number(lease.monthly_rent ?? 0) + Number(lease.maintenance_fee_amount ?? 0);
-    return rentAmount * Math.max(guaranteeMonths, 0);
-  }
-
-  private tenantInvoiceCategory(row: Record<string, any>) {
-    const status = String(row.status ?? '').toUpperCase();
-    const paidAmount = Number(row.paid_amount ?? 0);
-    const remainingAmount = Number(row.remaining_amount ?? row.total ?? 0);
-    const dueDate = row.due_date ? new Date(`${String(row.due_date).slice(0, 10)}T23:59:59`) : null;
-    const now = new Date();
-
-    if (status === 'PAID' || remainingAmount <= 0) return 'PAID';
-    if (paidAmount > 0 && remainingAmount > 0) return 'PARTIAL';
-    if (dueDate && dueDate.getTime() < now.getTime()) return 'OVERDUE';
-    return 'UNPAID';
-  }
-
-  private statementMovementOrder(type: string) {
-    if (type === 'INVOICE') return 1;
-    if (type === 'TENANT_CREDIT') return 2;
-    if (type === 'PAYMENT') return 3;
-    return 0;
-  }
-
-  private statementEntityLabel(scope: 'tenant' | 'unit' | 'building', row: Record<string, any>) {
-    if (scope === 'tenant') {
-      return row.tenant_type === 'COMPANY'
-        ? row.company_name
-        : [row.first_name, row.last_name, row.post_name].filter(Boolean).join(' ').trim();
-    }
-    if (scope === 'unit') {
-      return `${row.building_name ?? ''}${row.building_name && row.number ? ' - ' : ''}${row.number ?? ''}`.trim();
-    }
-    return row.name ?? row.building_name ?? `#${row.id}`;
-  }
-
-  private statementEntitySubtitle(scope: 'tenant' | 'unit' | 'building', row: Record<string, any>) {
-    if (scope === 'tenant') {
-      if (row.tenant_type === 'COMPANY') {
-        return [row.rccm, row.legal_representative_name].filter(Boolean).join(' ¬∑ ') || null;
-      }
-      return [row.phone, row.email].filter(Boolean).join(' ¬∑ ') || null;
-    }
-    if (scope === 'unit') {
-      return [row.building_address, row.active_lease_end_date ? `Fin bail ${row.active_lease_end_date}` : null].filter(Boolean).join(' ¬∑ ') || null;
-    }
-    return [row.city, row.address].filter(Boolean).join(' ¬∑ ') || null;
-  }
-
-  private async accountStatement(scope: 'tenant' | 'unit' | 'building', id: number, filters: { month?: string; year?: string; start?: string; end?: string } = {}) {
-    const organizationId = this.context.organizationId();
-    const period = this.statementPeriod(filters);
-    const currency = 'USD';
-    const source = await this.statementSource(scope, id, organizationId);
-    const openingBalance = await this.statementOpeningBalance(scope, id, organizationId, period.start);
-    const invoiceRows = await this.statementInvoices(scope, id, organizationId, period.start, period.end);
-    const paymentRows = await this.statementPayments(scope, id, organizationId, period.start, period.end);
-    const tenantCreditRows = scope === 'tenant'
-      ? await this.statementTenantCredits(id, organizationId, period.start, period.end)
-      : [];
-    const movements = this.statementMovements(openingBalance, invoiceRows, paymentRows, tenantCreditRows, currency, period.start);
-    const debits = invoiceRows.reduce((sum, row) => sum + Number(row.total ?? 0), 0);
-    const credits = paymentRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0)
-      + tenantCreditRows.reduce((sum, row) => sum + Number(row.amount ?? row.original_amount ?? 0), 0);
-    const closingBalance = Number(openingBalance ?? 0) + debits - credits;
-    return {
-      kind: scope.toUpperCase(),
-      entity: source.entity,
-      period,
-      currency,
-      opening_balance: Number(openingBalance ?? 0),
-      totals: {
-        debits,
-        credits,
-        closing_balance: Number(closingBalance.toFixed(2)),
-        invoices_count: invoiceRows.length,
-        payments_count: paymentRows.length + tenantCreditRows.length,
-      },
-      movements,
-      invoices: invoiceRows,
-      payments: paymentRows,
-    };
-  }
-
-  private async statementSource(scope: 'tenant' | 'unit' | 'building', id: number, organizationId: number) {
-    if (scope === 'tenant') {
-      const { rows } = await this.db.query(
-        `SELECT t.*, u.number AS unit_number, b.name AS building_name, b.address AS building_address
-         FROM tenants t
-         LEFT JOIN units u ON u.id = t.unit_id
-         LEFT JOIN buildings b ON b.id = u.building_id
-         WHERE t.id = $1 AND t.organization_id = $2 AND t.deleted_at IS NULL`,
-        [id, organizationId],
-      );
-      const row = requireRow(rows[0], 'Tenant');
-      return {
-        entity: {
-          id: row.id,
-          entity_type: 'TENANT',
-          title: this.statementEntityLabel('tenant', row),
-          subtitle: this.statementEntitySubtitle('tenant', row),
-          tenant: row,
-        },
-      };
-    }
-    if (scope === 'unit') {
-      const { rows } = await this.db.query(
-        `SELECT u.*, b.name AS building_name, b.address AS building_address,
-                t.id AS tenant_id, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
-                t.phone AS tenant_phone, t.email AS tenant_email,
-                l.end_date AS active_lease_end_date
-         FROM units u
-         JOIN buildings b ON b.id = u.building_id
-         LEFT JOIN tenants t ON t.unit_id = u.id AND t.status = 'ACTIVE' AND t.deleted_at IS NULL
-         LEFT JOIN leases l ON l.unit_id = u.id AND l.status = 'ACTIVE' AND l.deleted_at IS NULL
-         WHERE u.id = $1 AND u.organization_id = $2 AND u.deleted_at IS NULL`,
-        [id, organizationId],
-      );
-      const row = requireRow(rows[0], 'Unit');
-      return {
-        entity: {
-          id: row.id,
-          entity_type: 'UNIT',
-          title: this.statementEntityLabel('unit', row),
-          subtitle: this.statementEntitySubtitle('unit', row),
-          unit: row,
-        },
-      };
-    }
-    const { rows } = await this.db.query(
-      `SELECT b.*
-       FROM buildings b
-       WHERE b.id = $1 AND b.organization_id = $2 AND b.deleted_at IS NULL`,
-      [id, organizationId],
-    );
-    const row = requireRow(rows[0], 'Building');
-    return {
-      entity: {
-        id: row.id,
-        entity_type: 'BUILDING',
-        title: this.statementEntityLabel('building', row),
-        subtitle: this.statementEntitySubtitle('building', row),
-        building: row,
-      },
-    };
-  }
-
-  private statementInvoiceScope(scope: 'tenant' | 'unit' | 'building') {
-    if (scope === 'tenant') return 'i.tenant_id = $1';
-    if (scope === 'unit') return 'COALESCE(i.unit_id, l.unit_id, t.unit_id) = $1';
-    return 'COALESCE(i.building_id, u.building_id) = $1';
-  }
-
-  private statementPaymentScope(scope: 'tenant' | 'unit' | 'building') {
-    if (scope === 'tenant') return 'i.tenant_id = $1';
-    if (scope === 'unit') return 'COALESCE(i.unit_id, l.unit_id, t.unit_id) = $1';
-    return 'COALESCE(i.building_id, u.building_id) = $1';
-  }
-
-  private async statementOpeningBalance(scope: 'tenant' | 'unit' | 'building', id: number, organizationId: number, start: string) {
-    const invoiceCondition = this.statementInvoiceScope(scope);
-    const paymentCondition = this.statementPaymentScope(scope);
-    const invoiceSql = scope === 'tenant'
-      ? `SELECT COALESCE(SUM(i.total), 0)::FLOAT AS total
-         FROM invoices i
-         WHERE ${invoiceCondition}
-           AND i.issue_date < $3
-           AND i.organization_id = $2
-           AND i.deleted_at IS NULL`
-      : scope === 'unit'
-        ? `SELECT COALESCE(SUM(i.total), 0)::FLOAT AS total
-           FROM invoices i
-           LEFT JOIN leases l ON l.id = i.lease_id
-           LEFT JOIN tenants t ON t.id = i.tenant_id
-           WHERE ${invoiceCondition}
-             AND i.issue_date < $3
-             AND i.organization_id = $2
-             AND i.deleted_at IS NULL`
-        : `SELECT COALESCE(SUM(i.total), 0)::FLOAT AS total
-           FROM invoices i
-           LEFT JOIN leases l ON l.id = i.lease_id
-           LEFT JOIN tenants t ON t.id = i.tenant_id
-           LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
-           WHERE ${invoiceCondition}
-             AND i.issue_date < $3
-             AND i.organization_id = $2
-             AND i.deleted_at IS NULL`;
-    const paymentSql = scope === 'tenant'
-      ? `SELECT COALESCE(SUM(p.amount), 0)::FLOAT AS total
-         FROM payments p
-         JOIN invoices i ON i.id = p.invoice_id
-         WHERE ${paymentCondition}
-           AND p.payment_date < $3
-           AND p.organization_id = $2
-           AND p.deleted_at IS NULL`
-      : scope === 'unit'
-        ? `SELECT COALESCE(SUM(p.amount), 0)::FLOAT AS total
-           FROM payments p
-           JOIN invoices i ON i.id = p.invoice_id
-           LEFT JOIN leases l ON l.id = i.lease_id
-           LEFT JOIN tenants t ON t.id = i.tenant_id
-           WHERE ${paymentCondition}
-           AND p.payment_date < $3
-           AND p.organization_id = $2
-           AND p.deleted_at IS NULL`
-        : `SELECT COALESCE(SUM(p.amount), 0)::FLOAT AS total
-           FROM payments p
-           JOIN invoices i ON i.id = p.invoice_id
-           LEFT JOIN leases l ON l.id = i.lease_id
-           LEFT JOIN tenants t ON t.id = i.tenant_id
-           LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
-           WHERE ${paymentCondition}
-             AND p.payment_date < $3
-             AND p.organization_id = $2
-             AND p.deleted_at IS NULL`;
-    const tenantCreditSql = scope === 'tenant'
-      ? `SELECT COALESCE(SUM(GREATEST(tc.original_amount - COALESCE(alloc.amount_used, 0) - COALESCE(refund.amount_refunded, 0), 0)), 0)::FLOAT AS total
-         FROM tenant_credits tc
-         LEFT JOIN LATERAL (
-           SELECT COALESCE(SUM(tca.amount_applied), 0)::FLOAT AS amount_used
-           FROM tenant_credit_allocations tca
-           WHERE tca.tenant_credit_id = tc.id
-             AND tca.organization_id = tc.organization_id
-             AND tca.deleted_at IS NULL
-             AND tca.created_at::DATE < $3::DATE
-         ) alloc ON TRUE
-         LEFT JOIN LATERAL (
-           SELECT COALESCE(SUM(tcr.amount), 0)::FLOAT AS amount_refunded
-           FROM tenant_credit_refunds tcr
-           WHERE tcr.tenant_credit_id = tc.id
-             AND tcr.organization_id = tc.organization_id
-             AND tcr.deleted_at IS NULL
-             AND tcr.refund_date < $3::DATE
-         ) refund ON TRUE
-         WHERE tc.tenant_id = $1
-           AND tc.organization_id = $2
-           AND tc.deleted_at IS NULL
-           AND tc.payment_date < $3::DATE`
-      : null;
-    const [invoiceBalance, paymentBalance, tenantCreditBalance] = await Promise.all([
-      this.db.query(invoiceSql, [id, organizationId, start]),
-      this.db.query(paymentSql, [id, organizationId, start]),
-      tenantCreditSql ? this.db.query(tenantCreditSql, [id, organizationId, start]) : Promise.resolve({ rows: [{ total: 0 }] }) as Promise<{ rows: Array<{ total: number }> }>,
-    ]);
-    return Number(invoiceBalance.rows[0]?.total ?? 0)
-      - Number(paymentBalance.rows[0]?.total ?? 0)
-      - Number(tenantCreditBalance.rows[0]?.total ?? 0);
-  }
-
-  private async statementTenantCredits(id: number, organizationId: number, start: string, end: string) {
-    const { rows } = await this.db.query(
-      `SELECT tc.id, tc.payment_date, tc.reference, tc.currency, tc.original_amount, tc.remaining_amount, tc.status,
-              p.receipt_number, p.payment_method, p.amount_usd, p.amount_cdf, p.total_equivalent_usd,
-              tc.tenant_id,
-              CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
-                   ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
-              END AS tenant_name,
-              l.lease_number,
-              u.number AS unit_number,
-              b.name AS building_name
-       FROM tenant_credits tc
-       JOIN payments p ON p.id = tc.source_payment_id
-         AND p.organization_id = tc.organization_id
-         AND p.deleted_at IS NULL
-       JOIN tenants t ON t.id = tc.tenant_id
-         AND t.organization_id = tc.organization_id
-         AND t.deleted_at IS NULL
-       LEFT JOIN leases l ON l.id = tc.lease_id
-         AND l.organization_id = tc.organization_id
-         AND l.deleted_at IS NULL
-       LEFT JOIN units u ON u.id = l.unit_id
-         AND u.organization_id = tc.organization_id
-         AND u.deleted_at IS NULL
-       LEFT JOIN buildings b ON b.id = u.building_id
-         AND b.organization_id = tc.organization_id
-         AND b.deleted_at IS NULL
-       WHERE tc.tenant_id = $1
-         AND tc.organization_id = $2
-         AND tc.deleted_at IS NULL
-         AND tc.payment_date BETWEEN $3 AND $4
-       ORDER BY tc.payment_date ASC, tc.id ASC`,
-      [id, organizationId, start, end],
-    );
-    return rows;
-  }
-
-  private async statementInvoices(scope: 'tenant' | 'unit' | 'building', id: number, organizationId: number, start: string, end: string) {
-    const condition = this.statementInvoiceScope(scope);
-    const sql = scope === 'tenant'
-      ? `SELECT i.id, i.invoice_number, i.month, i.year, i.issue_date, i.due_date, i.status, i.total,
-              i.last_reminder_at, COALESCE(i.reminder_count, 0)::INT AS reminder_count,
-              i.tenant_id, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone, t.email,
-              u.number AS unit_number,
-              COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
-              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
-         FROM invoices i
-         JOIN tenants t ON t.id = i.tenant_id
-         LEFT JOIN leases l ON l.id = i.lease_id
-         LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
-         LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
-         WHERE ${condition}
-           AND i.organization_id = $2
-           AND i.deleted_at IS NULL
-           AND i.issue_date BETWEEN $3 AND $4
-         ORDER BY i.issue_date ASC, i.id ASC`
-      : scope === 'unit'
-        ? `SELECT i.id, i.invoice_number, i.month, i.year, i.issue_date, i.due_date, i.status, i.total,
-              i.last_reminder_at, COALESCE(i.reminder_count, 0)::INT AS reminder_count,
-              i.tenant_id, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone, t.email,
-              u.number AS unit_number, b.name AS building_name,
-              COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
-              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
-         FROM invoices i
-         JOIN tenants t ON t.id = i.tenant_id
-         LEFT JOIN leases l ON l.id = i.lease_id
-         LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
-         LEFT JOIN buildings b ON b.id = u.building_id
-         LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
-         WHERE ${condition}
-           AND i.organization_id = $2
-           AND i.deleted_at IS NULL
-           AND i.issue_date BETWEEN $3 AND $4
-         ORDER BY i.issue_date ASC, i.id ASC`
-        : `SELECT i.id, i.invoice_number, i.month, i.year, i.issue_date, i.due_date, i.status, i.total,
-              i.last_reminder_at, COALESCE(i.reminder_count, 0)::INT AS reminder_count,
-              i.tenant_id, CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.phone, t.email,
-              u.number AS unit_number, b.name AS building_name,
-              COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
-              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
-         FROM invoices i
-         JOIN tenants t ON t.id = i.tenant_id
-         LEFT JOIN leases l ON l.id = i.lease_id
-         LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
-         LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
-         LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
-         WHERE ${condition}
-           AND i.organization_id = $2
-           AND i.deleted_at IS NULL
-           AND i.issue_date BETWEEN $3 AND $4
-         ORDER BY i.issue_date ASC, i.id ASC`;
-    const { rows } = await this.db.query(sql, [id, organizationId, start, end]);
-    return this.appendInvoiceItemSummaries(rows);
-  }
-
-  private async statementPayments(scope: 'tenant' | 'unit' | 'building', id: number, organizationId: number, start: string, end: string) {
-    const condition = this.statementPaymentScope(scope);
-    const sql = scope === 'tenant'
-      ? `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference, p.receipt_number,
-              i.invoice_number, i.status AS invoice_status, i.id AS invoice_id, i.tenant_id,
-              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
-              u.number AS unit_number
-         FROM payments p
-         JOIN invoices i ON i.id = p.invoice_id
-         JOIN tenants t ON t.id = i.tenant_id
-         LEFT JOIN leases l ON l.id = i.lease_id
-         LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
-         WHERE ${condition}
-           AND p.payment_date BETWEEN $3 AND $4
-           AND p.organization_id = $2
-           AND p.deleted_at IS NULL
-         ORDER BY p.payment_date ASC, p.id ASC`
-      : scope === 'unit'
-        ? `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference, p.receipt_number,
-              i.invoice_number, i.status AS invoice_status, i.id AS invoice_id, i.tenant_id,
-              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
-              u.number AS unit_number, b.name AS building_name
-         FROM payments p
-         JOIN invoices i ON i.id = p.invoice_id
-         JOIN tenants t ON t.id = i.tenant_id
-         LEFT JOIN leases l ON l.id = i.lease_id
-         LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
-         LEFT JOIN buildings b ON b.id = u.building_id
-         WHERE ${condition}
-           AND p.payment_date BETWEEN $3 AND $4
-           AND p.organization_id = $2
-           AND p.deleted_at IS NULL
-         ORDER BY p.payment_date ASC, p.id ASC`
-        : `SELECT p.id, p.payment_date, p.amount, p.payment_method, p.reference, p.receipt_number,
-              i.invoice_number, i.status AS invoice_status, i.id AS invoice_id, i.tenant_id,
-              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name,
-              u.number AS unit_number, b.name AS building_name
-         FROM payments p
-         JOIN invoices i ON i.id = p.invoice_id
-         JOIN tenants t ON t.id = i.tenant_id
-         LEFT JOIN leases l ON l.id = i.lease_id
-         LEFT JOIN units u ON u.id = COALESCE(i.unit_id, l.unit_id, t.unit_id)
-         LEFT JOIN buildings b ON b.id = COALESCE(i.building_id, u.building_id)
-         WHERE ${condition}
-           AND p.payment_date BETWEEN $3 AND $4
-           AND p.organization_id = $2
-           AND p.deleted_at IS NULL
-         ORDER BY p.payment_date ASC, p.id ASC`;
-    const { rows } = await this.db.query(sql, [id, organizationId, start, end]);
-    return rows;
-  }
-
-  private statementMovements(openingBalance: number, invoices: Record<string, any>[], payments: Record<string, any>[], tenantCredits: Record<string, any>[], currency: string, openingDate: string) {
-    const rows = [
-      {
-        date: openingDate,
-        reference: 'OUVERTURE',
-        movement_type: 'OPENING',
-        label: 'Solde initial',
-        debit: 0,
-        credit: 0,
-        currency,
-        running_balance: Number(openingBalance.toFixed(2)),
-      },
-      ...invoices.map((invoice) => ({
-        date: invoice.issue_date,
-        reference: invoice.invoice_number,
-        movement_type: 'INVOICE',
-        label: `Facture ${invoice.invoice_number}${invoice.rent_amount || invoice.syndic_amount ? ` - Loyer ${Number(invoice.rent_amount ?? 0).toFixed(2)} / Syndic ${Number(invoice.syndic_amount ?? 0).toFixed(2)}` : ''}`,
-        debit: Number(invoice.total ?? 0),
-        credit: 0,
-        currency,
-        source_id: invoice.id,
-      })),
-      ...payments.map((payment) => ({
-        date: payment.payment_date,
-        reference: payment.receipt_number ?? payment.reference ?? payment.invoice_number,
-        movement_type: 'PAYMENT',
-        label: `Paiement ${payment.invoice_number ?? payment.receipt_number ?? payment.reference ?? `#${payment.id}`}`,
-        debit: 0,
-        credit: Number(payment.amount ?? 0),
-        currency,
-        source_id: payment.id,
-      })),
-      ...tenantCredits.map((credit) => ({
-        date: credit.payment_date,
-        reference: credit.receipt_number ?? credit.reference ?? `#${credit.id}`,
-        movement_type: 'TENANT_CREDIT',
-        label: `Cr√©dit locataire ${credit.receipt_number ?? credit.reference ?? `#${credit.id}`}`,
-        debit: 0,
-        credit: Number(credit.original_amount ?? credit.amount ?? 0),
-        currency: String(credit.currency ?? currency),
-        source_id: credit.id,
-      })),
-    ].sort((a, b) => {
-      const dateDiff = new Date(String(a.date)).getTime() - new Date(String(b.date)).getTime();
-      if (dateDiff !== 0) return dateDiff;
-      return this.statementMovementOrder(String(a.movement_type)) - this.statementMovementOrder(String(b.movement_type));
-    });
-    let running = Number(openingBalance ?? 0);
-    return rows.map((row, index) => {
-      if (index === 0 && row.movement_type === 'OPENING') return row;
-      running += Number(row.debit ?? 0) - Number(row.credit ?? 0);
-      return { ...row, running_balance: Number(running.toFixed(2)) };
-    });
-  }
-
-  async availabilityReport() {
-    const { rows } = await this.db.query(
-      `SELECT b.id AS building_id, b.name AS building_name,
-             COUNT(u.id)::INT AS total_units,
-             COUNT(*) FILTER (WHERE u.status = 'OCCUPIED')::INT AS occupied_units,
-             COUNT(*) FILTER (WHERE u.status = 'VACANT')::INT AS vacant_units,
-             COUNT(*) FILTER (WHERE u.status = 'MAINTENANCE')::INT AS maintenance_units,
-             COUNT(*) FILTER (WHERE u.status = 'BLOCKED')::INT AS blocked_units,
-             COALESCE(SUM(CASE WHEN u.status = 'VACANT' THEN u.monthly_rent ELSE 0 END), 0)::FLOAT AS vacant_potential_rent,
-             CASE WHEN COUNT(u.id) > 0 THEN ROUND((COUNT(*) FILTER (WHERE u.status = 'OCCUPIED')::NUMERIC / COUNT(u.id)::NUMERIC) * 100, 2)::FLOAT ELSE 0 END AS occupancy_rate
-      FROM buildings b
-      JOIN units u ON u.building_id = b.id
-      WHERE b.organization_id = $1 AND b.deleted_at IS NULL AND u.deleted_at IS NULL
-      GROUP BY b.id, b.name
-      ORDER BY b.name
-    `,
-      [this.context.organizationId()],
-    );
-    return {
-      buildings: rows,
-      totals: {
-        total_units: rows.reduce((sum, row) => sum + Number(row.total_units), 0),
-        occupied_units: rows.reduce((sum, row) => sum + Number(row.occupied_units), 0),
-        vacant_units: rows.reduce((sum, row) => sum + Number(row.vacant_units), 0),
-        maintenance_units: rows.reduce((sum, row) => sum + Number(row.maintenance_units), 0),
-        blocked_units: rows.reduce((sum, row) => sum + Number(row.blocked_units), 0),
-        vacant_potential_rent: rows.reduce((sum, row) => sum + Number(row.vacant_potential_rent), 0),
-      },
-    };
-  }
-
-  async overdueReport(buildingId?: number, tenantId?: number) {
-    const { rows } = await this.db.query(
-      `SELECT i.invoice_number, i.due_date, i.status, i.total,
-              COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
-              COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount,
-              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, b.name AS building_name, u.number AS unit_number
-       FROM invoices i
-       JOIN tenants t ON t.id = i.tenant_id
-       LEFT JOIN units u ON u.id = i.unit_id
-       LEFT JOIN buildings b ON b.id = i.building_id
-       LEFT JOIN invoice_payment_summary s ON s.invoice_id = i.id
-       WHERE i.organization_id = $1
-         AND i.deleted_at IS NULL
-         AND i.status <> 'PAID'
-         AND i.due_date < CURRENT_DATE
-         AND ($2::INT IS NULL OR b.id = $2)
-         AND ($3::INT IS NULL OR t.id = $3)
-       ORDER BY i.due_date, i.invoice_number`,
-      [this.context.organizationId(), buildingId ?? null, tenantId ?? null],
-    );
-    return {
-      invoices: rows,
-      count: rows.length,
-      total_remaining: rows.reduce((sum, row) => sum + Number(row.remaining_amount), 0),
-    };
-  }
-
-  async exportReport(type: string, id?: number, start?: string, end?: string) {
-    if (type === 'building' && id) {
-      const report = await this.buildingReport(id, { start, end });
-      return { filename: 'rapport-immeuble.csv', rows: [...report.units, ...report.tenants] };
-    }
-    if (type === 'tenant' && id) {
-      const report = await this.tenantReport(id, { start, end });
-      return { filename: 'rapport-locataire.csv', rows: [...report.leases, ...report.invoices, ...report.payments] };
-    }
-    if (type === 'payments') {
-      const report = await this.paymentsReport({ start, end });
-      return { filename: 'rapport-paiements.csv', rows: report.payments_received };
-    }
-    if (type === 'overdue') {
-      const report = await this.overdueReport();
-      return { filename: 'rapport-impayes.csv', rows: report.invoices };
-    }
-    const report = await this.availabilityReport();
-    return { filename: 'rapport-disponibilite.csv', rows: report.buildings };
-  }
-
-  async cashReport() {
-    const sessions = await this.findAll('cash_sessions', 'opened_at DESC');
-    const movements = await this.cashMovements();
-    const byCurrency = Object.values(
-      movements.reduce<Record<string, { currency: string; amount_in: number; amount_out: number; balance: number }>>((acc, movement) => {
-        const currency = String(movement.currency ?? 'USD').toUpperCase();
-        acc[currency] ??= { currency, amount_in: 0, amount_out: 0, balance: 0 };
-        const amount = Number(movement.amount ?? 0);
-        if (movement.type === 'IN') acc[currency].amount_in += amount;
-        if (movement.type === 'OUT') acc[currency].amount_out += amount;
-        acc[currency].balance = acc[currency].amount_in - acc[currency].amount_out;
-        return acc;
-      }, {}),
-    );
-    return {
-      sessions,
-      movements,
-      total_in: movements.filter((m) => m.type === 'IN').reduce((sum, m) => sum + Number(m.amount), 0),
-      total_out: movements.filter((m) => m.type === 'OUT').reduce((sum, m) => sum + Number(m.amount), 0),
-      by_currency: byCurrency,
-      by_category: Object.values(
-        movements.reduce<Record<string, { category: string; amount: number }>>((acc, movement) => {
-          acc[movement.category] ??= { category: movement.category, amount: 0 };
-          acc[movement.category].amount += Number(movement.amount);
-          return acc;
-        }, {}),
-      ),
-    };
-  }
-
-  async stockReport() {
-    const items = await this.stockItems();
-    const movements = await this.stockMovements();
-    const inventories = await this.stockInventories();
-    const alerts = await this.stockAlerts();
-    const purchases = await this.stockPurchases();
-    const byCategory = Object.values(items.reduce((acc: Record<string, { category: string; quantity: number; value: number }>, item) => {
-      const key = String(item.category ?? 'Sans cat√©gorie');
-      acc[key] ??= { category: key, quantity: 0, value: 0 };
-      acc[key].quantity += Number(item.current_quantity ?? 0);
-      acc[key].value += Number(item.current_quantity ?? 0) * Number(item.average_purchase_price ?? item.purchase_price ?? 0);
-      return acc;
-    }, {}));
-    const byStore = Object.values(items.reduce((acc: Record<string, { store: string; quantity: number; value: number }>, item) => {
-      const key = String(item.store ?? 'Non renseign√©');
-      acc[key] ??= { store: key, quantity: 0, value: 0 };
-      acc[key].quantity += Number(item.current_quantity ?? 0);
-      acc[key].value += Number(item.current_quantity ?? 0) * Number(item.average_purchase_price ?? item.purchase_price ?? 0);
-      return acc;
-    }, {}));
-    return {
-      items,
-      movements,
-      inventories,
-      alerts,
-      purchases,
-      by_category: byCategory,
-      by_store: byStore,
-      purchases_by_supplier: Object.values(
-        purchases.reduce((acc: Record<string, { supplier: string; count: number; amount: number; paid: number; outstanding: number }>, purchase) => {
-          const key = String(purchase.supplier_name ?? 'Non renseigne');
-          acc[key] ??= { supplier: key, count: 0, amount: 0, paid: 0, outstanding: 0 };
-          acc[key].count += 1;
-          acc[key].amount += Number(purchase.total_amount ?? 0);
-          acc[key].paid += Number(purchase.paid_amount ?? 0);
-          acc[key].outstanding += Number(purchase.outstanding_amount ?? 0);
-          return acc;
-        }, {}),
-      ),
-      purchases_by_month: Object.values(
-        purchases.reduce((acc: Record<string, { period: string; amount: number; paid: number; count: number }>, purchase) => {
-          const key = String(purchase.purchase_date).slice(0, 7);
-          acc[key] ??= { period: key, amount: 0, paid: 0, count: 0 };
-          acc[key].amount += Number(purchase.total_amount ?? 0);
-          acc[key].paid += Number(purchase.paid_amount ?? 0);
-          acc[key].count += 1;
-          return acc;
-        }, {}),
-      ).sort((a, b) => String(a.period).localeCompare(String(b.period))),
-      maintenance_consumption: movements.filter((movement) => movement.source === 'MAINTENANCE'),
-      under_minimum: items.filter((item) => item.status === 'ACTIVE' && Number(item.current_quantity) <= Number(item.minimum_quantity) && Number(item.current_quantity) > 0),
-      out_of_stock: items.filter((item) => item.status === 'ACTIVE' && Number(item.current_quantity) <= 0),
-      inactive: items.filter((item) => item.status !== 'ACTIVE'),
-      valuation: items.reduce((sum, item) => sum + Number(item.current_quantity) * Number(item.average_purchase_price ?? item.purchase_price ?? 0), 0),
-      supplier_debt: purchases.reduce((sum, purchase) => sum + Number(purchase.outstanding_amount ?? 0), 0),
-      pending_receptions: purchases.filter((purchase) => purchase.reception_status !== 'RECEIVED'),
-      unpaid_purchases: purchases.filter((purchase) => purchase.payment_status !== 'PAID'),
-    };
-  }
-
-  async staffReport(start = '2000-01-01', end = '2999-12-31', month?: number, year?: number) {
-    const employees = await this.findAll('employees', 'last_name, first_name');
-    const advances = await this.salaryAdvances();
-    const leaves = await this.leaves(start, end);
-    const payrolls = await this.payrolls({ month, year });
-    return {
-      employees,
-      advances: advances.filter((advance) => String(advance.advance_date).slice(0, 10) >= start && String(advance.advance_date).slice(0, 10) <= end),
-      leaves,
-      payrolls,
-      summary: {
-        active_employees: employees.filter((employee) => employee.status === 'ACTIVE').length,
-        inactive_employees: employees.filter((employee) => employee.status === 'INACTIVE').length,
-        advances_total: advances.reduce((sum, advance) => sum + Number(advance.amount), 0),
-        payroll_net_total: payrolls.reduce((sum, payroll) => sum + Number(payroll.net_salary), 0),
-      },
-    };
-  }
-
-  async maintenanceReport(filters: { start?: string; end?: string; buildingId?: number; employeeId?: number } = {}) {
-    const start = filters.start ?? '2000-01-01';
-    const end = filters.end ?? '2999-12-31';
-    const { rows } = await this.db.query(
-      `SELECT mr.*, b.name AS building_name, u.number AS unit_number,
-              CONCAT(e.first_name, ' ', e.last_name) AS technician_name,
-              COALESCE(exp.total_expenses, 0)::FLOAT AS expenses_total,
-              COALESCE(stock.total_stock_cost, 0)::FLOAT AS stock_cost_total,
-              CASE WHEN mr.due_date IS NOT NULL AND mr.status NOT IN ('RESOLVED', 'VALIDATED', 'CLOSED', 'CANCELLED') AND mr.due_date < NOW() THEN TRUE ELSE FALSE END AS is_overdue,
-              CASE WHEN mr.resolved_at IS NOT NULL THEN EXTRACT(EPOCH FROM (mr.resolved_at - mr.reported_at)) / 3600 ELSE NULL END AS resolution_hours
-       FROM maintenance_requests mr
-       LEFT JOIN buildings b ON b.id = mr.building_id
-       LEFT JOIN units u ON u.id = mr.unit_id
-       LEFT JOIN employees e ON e.id = mr.assigned_employee_id
-       LEFT JOIN (
-         SELECT maintenance_request_id, SUM(amount) AS total_expenses
-         FROM maintenance_expenses
-         WHERE organization_id = $5 AND deleted_at IS NULL AND status <> 'REJECTED'
-         GROUP BY maintenance_request_id
-       ) exp ON exp.maintenance_request_id = mr.id
-       LEFT JOIN (
-         SELECT maintenance_request_id, SUM(quantity * unit_price) AS total_stock_cost
-         FROM stock_movements
-         WHERE organization_id = $5 AND deleted_at IS NULL AND maintenance_request_id IS NOT NULL
-         GROUP BY maintenance_request_id
-       ) stock ON stock.maintenance_request_id = mr.id
-       WHERE mr.organization_id = $5 AND mr.deleted_at IS NULL
-         AND mr.reported_at::DATE BETWEEN $1::DATE AND $2::DATE
-         AND ($3::INT IS NULL OR mr.building_id = $3)
-         AND ($4::INT IS NULL OR mr.assigned_employee_id = $4)
-       ORDER BY mr.reported_at DESC`,
-      [start, end, filters.buildingId ?? null, filters.employeeId ?? null, this.context.organizationId()],
-    );
-    const [stockConsumed, monthlyExpenses] = await Promise.all([
-      this.db.query(
-        `SELECT si.code, si.name, SUM(sm.quantity)::FLOAT AS quantity,
-                SUM(sm.quantity * sm.unit_price)::FLOAT AS total_cost
-         FROM stock_movements sm
-         JOIN stock_items si ON si.id = sm.stock_item_id
-         JOIN maintenance_requests mr ON mr.id = sm.maintenance_request_id
-         WHERE sm.organization_id = $3 AND sm.deleted_at IS NULL
-           AND mr.reported_at::DATE BETWEEN $1::DATE AND $2::DATE
-         GROUP BY si.id, si.code, si.name
-         ORDER BY quantity DESC`,
-        [start, end, this.context.organizationId()],
-      ),
-      this.db.query(
-        `SELECT TO_CHAR(me.expense_date, 'YYYY-MM') AS month, SUM(me.amount)::FLOAT AS amount
-         FROM maintenance_expenses me
-         WHERE me.organization_id = $3 AND me.deleted_at IS NULL AND me.status <> 'REJECTED'
-           AND me.expense_date BETWEEN $1::DATE AND $2::DATE
-         GROUP BY TO_CHAR(me.expense_date, 'YYYY-MM')
-         ORDER BY month`,
-        [start, end, this.context.organizationId()],
-      ),
-    ]);
-    const summary = {
-      open: rows.filter((row) => !['CLOSED', 'CANCELLED'].includes(row.status)).length,
-      in_progress: rows.filter((row) => ['ASSIGNED', 'IN_PROGRESS', 'ON_HOLD'].includes(row.status)).length,
-      resolved: rows.filter((row) => ['RESOLVED', 'VALIDATED'].includes(row.status)).length,
-      closed: rows.filter((row) => row.status === 'CLOSED').length,
-      urgent: rows.filter((row) => row.priority === 'URGENT').length,
-      overdue: rows.filter((row) => row.is_overdue).length,
-      completed: rows.filter((row) => ['RESOLVED', 'VALIDATED', 'CLOSED'].includes(row.status)).length,
-      average_resolution_hours: rows.filter((row) => row.resolution_hours !== null).reduce((sum, row) => sum + Number(row.resolution_hours), 0) / Math.max(rows.filter((row) => row.resolution_hours !== null).length, 1),
-      total_cost: rows.reduce((sum, row) => sum + Number(row.expenses_total) + Number(row.stock_cost_total), 0),
-      resolution_rate: rows.length ? Math.round((rows.filter((row) => ['RESOLVED', 'VALIDATED', 'CLOSED'].includes(row.status)).length / rows.length) * 100) : 0,
-    };
-    return {
-      requests: rows,
-      by_building: Object.values(rows.reduce<Record<string, { building_name: string; count: number; cost: number }>>((acc, row) => {
-        const key = row.building_name ?? 'Non li√©';
-        acc[key] ??= { building_name: key, count: 0, cost: 0 };
-        acc[key].count += 1;
-        acc[key].cost += Number(row.expenses_total) + Number(row.stock_cost_total);
-        return acc;
-      }, {})),
-      by_unit: Object.values(rows.reduce<Record<string, { building_name: string; unit_number: string; count: number; cost: number }>>((acc, row) => {
-        const key = `${row.building_name ?? 'Non li√©'} / ${row.unit_number ?? 'Sans unit√©'}`;
-        acc[key] ??= { building_name: row.building_name ?? 'Non li√©', unit_number: row.unit_number ?? 'Sans unit√©', count: 0, cost: 0 };
-        acc[key].count += 1;
-        acc[key].cost += Number(row.expenses_total) + Number(row.stock_cost_total);
-        return acc;
-      }, {})),
-      by_technician: Object.values(rows.reduce<Record<string, { technician_name: string; count: number; avg_hours: number }>>((acc, row) => {
-        const key = row.technician_name ?? row.external_provider ?? 'Non affect√©';
-        acc[key] ??= { technician_name: key, count: 0, avg_hours: 0 };
-        acc[key].count += 1;
-        acc[key].avg_hours += Number(row.resolution_hours ?? 0);
-        return acc;
-      }, {})).map((row) => ({
-        ...row,
-        avg_hours: row.count ? row.avg_hours / row.count : 0,
-        total_cost: rows.filter((current) => (current.technician_name ?? current.external_provider ?? 'Non affect√©') === row.technician_name).reduce((sum, current) => sum + Number(current.expenses_total) + Number(current.stock_cost_total), 0),
-      })),
-      by_category: Object.values(rows.reduce<Record<string, { category: string; count: number; cost: number }>>((acc, row) => {
-        acc[row.category] ??= { category: row.category, count: 0, cost: 0 };
-        acc[row.category].count += 1;
-        acc[row.category].cost += Number(row.expenses_total) + Number(row.stock_cost_total);
-        return acc;
-      }, {})),
-      urgent_requests: rows.filter((row) => row.priority === 'URGENT'),
-      overdue_requests: rows.filter((row) => row.is_overdue),
-      stock_consumed: stockConsumed.rows,
-      monthly_expenses: monthlyExpenses.rows,
-      resolution_times: rows.filter((row) => row.resolution_hours !== null).map((row) => ({ request_number: row.request_number, title: row.title, technician: row.technician_name ?? row.external_provider ?? 'Non affect√©', resolution_hours: Number(row.resolution_hours ?? 0) })),
-      summary,
-    };
-  }
-
-  private async createStockMovementInTransaction(client: PoolClient, body: Record<string, unknown>) {
-    if (body.maintenance_request_id) {
-      await this.assertMaintenanceStatus(client, Number(body.maintenance_request_id), ['IN_PROGRESS']);
-    }
-    const item = await client.query(
-      `SELECT * FROM stock_items WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL FOR UPDATE`,
-      [body.stock_item_id, this.context.organizationId()],
-    );
-    const itemRow = requireRow(item.rows[0], 'Stock item');
-    if (itemRow.status !== 'ACTIVE') throw new BadRequestException('Article stock inactif');
-    const type = String(body.type ?? 'OUT');
-    const quantity = Number(body.quantity ?? 0);
-    if (quantity <= 0) throw new BadRequestException('La quantit√© doit √™tre positive');
-    const before = Number(itemRow.current_quantity);
-    const sign = ['IN', 'INVENTORY_GAIN', 'INVENTORY'].includes(type) ? 1 : -1;
-    const after = before + sign * quantity;
-    if (after < 0) throw new BadRequestException('Stock insuffisant');
-    const unitPrice = Number(body.unit_price ?? body.purchase_price ?? itemRow.average_purchase_price ?? itemRow.purchase_price ?? 0);
-    const sequencePrefix = sign > 0 ? 'ENT' : type === 'INVENTORY_LOSS' ? 'INV-LOSS' : 'SOR';
-    const movementNumber = body.movement_number ?? `${sequencePrefix}-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
-    const { rows } = await client.query(
-      `INSERT INTO stock_movements
-       (movement_number, stock_item_id, type, quantity, movement_date, source, reference, notes, created_by, organization_id,
-        unit_price, supplier, destination, quantity_before, quantity_after, maintenance_reference, inventory_count_id,
-        maintenance_request_id, stock_document_id, reason, attachment_file_name, stock_purchase_id, stock_purchase_receipt_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
-       RETURNING *`,
-      [
-        movementNumber,
-        body.stock_item_id,
-        type,
-        quantity,
-        body.movement_date ?? new Date().toISOString().slice(0, 10),
-        body.source ?? null,
-        body.reference ?? movementNumber,
-        body.comment ?? body.notes ?? null,
-        this.context.userId() ?? body.created_by ?? 1,
-        this.context.organizationId(),
-        unitPrice,
-        body.supplier ?? null,
-        body.destination ?? null,
-        before,
-        after,
-        body.maintenance_reference ?? null,
-        body.inventory_count_id ?? null,
-        body.maintenance_request_id ?? null,
-        body.stock_document_id ?? null,
-        body.reason ?? null,
-        body.attachment_file_name ?? null,
-        body.stock_purchase_id ?? null,
-        body.stock_purchase_receipt_id ?? null,
-      ],
-    );
-    await client.query(
-      `INSERT INTO stock_movement_history
-       (stock_movement_id, action, description, performed_by, organization_id)
-       VALUES ($1, 'CREATED', $2, $3, $4)`,
-      [rows[0].id, `Mouvement cr√©√© depuis ${body.reference ?? movementNumber}`, this.context.userId() ?? 1, this.context.organizationId()],
-    );
-    const averagePrice =
-      sign > 0 && unitPrice > 0 && after > 0
-        ? ((before * Number(itemRow.average_purchase_price ?? itemRow.purchase_price ?? 0)) + (quantity * unitPrice)) / after
-        : Number(itemRow.average_purchase_price ?? itemRow.purchase_price ?? 0);
-    await client.query(
-      `UPDATE stock_items
-       SET current_quantity = $2,
-           average_purchase_price = $3,
-           purchase_price = CASE WHEN $4::NUMERIC > 0 THEN $4 ELSE purchase_price END,
-           updated_at = NOW()
-       WHERE id = $1 AND organization_id = $5`,
-      [body.stock_item_id, after, averagePrice, unitPrice, this.context.organizationId()],
-    );
-    await this.syncStockAlerts(client, itemRow, after);
-    return rows[0];
-  }
-
-  private async syncStockAlerts(client: PoolClient, item: Record<string, unknown>, quantity: number) {
-    const organizationId = this.context.organizationId();
-    const minimum = Number(item.minimum_quantity ?? 0);
-    const level = quantity <= 0 ? 'OUT_OF_STOCK' : quantity <= minimum ? 'LOW_STOCK' : null;
-    if (!level) {
-      await client.query(
-        `UPDATE stock_alerts SET resolved_at = NOW()
-         WHERE stock_item_id = $1 AND organization_id = $2 AND resolved_at IS NULL AND deleted_at IS NULL`,
-        [item.id, organizationId],
-      );
-      return;
-    }
-    await client.query(
-      `UPDATE stock_alerts SET resolved_at = NOW()
-       WHERE stock_item_id = $1 AND organization_id = $2 AND level <> $3
-         AND resolved_at IS NULL AND deleted_at IS NULL`,
-      [item.id, organizationId, level],
-    );
-    const message = level === 'OUT_OF_STOCK'
-      ? `L'article ${item.name} est en rupture de stock.`
-      : `L'article ${item.name} est sous le seuil de s√©curit√©. Stock actuel : ${quantity} ${item.unit}. Seuil : ${minimum}.`;
-    const responsible = await client.query(
-      `SELECT id, email FROM app_users
-       WHERE organization_id = $1 AND deleted_at IS NULL AND status = 'ACTIVE'
-         AND role IN ('ADMIN', 'ACCOUNTANT')
-       ORDER BY CASE WHEN role = 'ADMIN' THEN 0 ELSE 1 END, id LIMIT 1`,
-      [organizationId],
-    );
-    const recipient = responsible.rows[0]?.email ?? 'Responsable stock';
-    const created = [];
-    for (const channel of ['INTERNAL', 'EMAIL', 'WHATSAPP']) {
-      const inserted = await client.query(
-        `INSERT INTO stock_alerts
-         (stock_item_id, level, quantity, minimum_quantity, channel, recipient, message, status, created_by, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'SIMULATED', $8, $9)
-         ON CONFLICT DO NOTHING RETURNING id`,
-        [item.id, level, quantity, minimum, channel, channel === 'INTERNAL' ? null : recipient, message,
-          this.context.userId() ?? 1, organizationId],
-      );
-      if (inserted.rows[0]) created.push(channel);
-    }
-    if (created.includes('INTERNAL')) {
-      await client.query(
-        `INSERT INTO notifications
-         (user_id, title, message, priority, source, related_entity_type, related_entity_id,
-          link_path, created_by, organization_id)
-         SELECT au.id, $1, $2, $3, 'STOCK', 'STOCK_ITEM', $4, $5, $6, $7
-         FROM app_users au
-         WHERE au.organization_id = $7 AND au.deleted_at IS NULL
-           AND au.role IN ('ADMIN', 'ACCOUNTANT')
-         LIMIT 5`,
-        [level === 'OUT_OF_STOCK' ? 'Rupture de stock' : 'Stock sous seuil', message,
-          level === 'OUT_OF_STOCK' ? 'CRITICAL' : 'HIGH', item.id, `/stock/${item.id}`,
-          this.context.userId() ?? 1, organizationId],
-      );
-    }
-    if (created.includes('EMAIL')) {
-      await client.query(
-        `INSERT INTO email_logs
-         (recipient, subject, message, status, related_entity_type, related_entity_id, sent_at, created_by, organization_id)
-         VALUES ($1, $2, $3, 'SIMULATED', 'STOCK_ITEM', $4, NOW(), $5, $6)`,
-        [recipient, level === 'OUT_OF_STOCK' ? 'Rupture de stock' : 'Stock sous seuil', message,
-          item.id, this.context.userId() ?? 1, organizationId],
-      );
-    }
-    if (created.includes('WHATSAPP')) {
-      await client.query(
-        `INSERT INTO whatsapp_logs
-         (recipient, message, status, related_entity_type, related_entity_id, sent_at, created_by, organization_id)
-         VALUES ($1, $2, 'SIMULATED', 'STOCK_ITEM', $3, NOW(), $4, $5)`,
-        [recipient, message, item.id, this.context.userId() ?? 1, organizationId],
-      );
-    }
-  }
-
-  private async createMaintenanceAssignmentCommunications(client: PoolClient, request: Record<string, unknown>, body: Record<string, unknown>) {
-    if (!body.employee_id) return;
-    const contact = await client.query(
-      `SELECT e.email, e.phone, b.name AS building_name, u.number AS unit_number,
-              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name
-       FROM employees e
-       LEFT JOIN maintenance_requests mr ON mr.id = $1 AND mr.organization_id = $3
-       LEFT JOIN buildings b ON b.id = mr.building_id
-       LEFT JOIN units u ON u.id = mr.unit_id
-       LEFT JOIN tenants t ON t.id = mr.tenant_id
-       WHERE e.id = $2 AND e.organization_id = $3 AND e.deleted_at IS NULL`,
-      [request.id, body.employee_id, this.context.organizationId()],
-    );
-    const technician = contact.rows[0];
-    if (!technician) return;
-    const message = [
-      `${request.request_number} - ${request.title}`,
-      technician.building_name ? `Immeuble: ${technician.building_name}` : null,
-      technician.unit_number ? `Unit√©: ${technician.unit_number}` : null,
-      technician.tenant_name ? `Locataire: ${technician.tenant_name}` : null,
-      `Priorit√©: ${request.priority}`,
-      body.planned_date ? `Pr√©vue: ${body.planned_date} ${body.planned_time ?? ''}` : null,
-      body.notes ? `Commentaire: ${body.notes}` : null,
-    ].filter(Boolean).join('\n');
-    const organizationId = this.context.organizationId();
-    const createdBy = this.context.userId() ?? 1;
-    if (technician.email) {
-      await client.query(
-        `INSERT INTO notifications
-         (user_id, title, message, priority, source, related_entity_type, related_entity_id, link_path, created_by, organization_id)
-         VALUES (
-           (SELECT au.id FROM app_users au WHERE au.organization_id = $7 AND au.deleted_at IS NULL AND LOWER(au.email) = LOWER($8) LIMIT 1),
-           $2, $3, $4, 'MAINTENANCE', 'maintenance_request', $1, $5, $6, $7
-         )`,
-        [request.id, `Affectation ${request.request_number}`, message, request.priority === 'URGENT' ? 'CRITICAL' : 'NORMAL', `/maintenance/${request.id}`, createdBy, organizationId, technician.email],
-      );
-      await client.query(
-        `INSERT INTO email_logs
-         (recipient, subject, message, status, provider_response, related_entity_type, related_entity_id, sent_at, created_by, organization_id)
-         VALUES ($1, $2, $3, 'SIMULATED', $4, 'maintenance_request', $5, NOW(), $6, $7)`,
-        [technician.email, `Affectation ${request.request_number}`, message, JSON.stringify({ provider: 'LOCAL_SIMULATOR' }), request.id, createdBy, organizationId],
-      );
-    }
-    if (technician.phone) {
-      for (const table of ['sms_logs', 'whatsapp_logs']) {
-        await client.query(
-          `INSERT INTO ${table}
-           (recipient, message, status, provider_response, related_entity_type, related_entity_id, sent_at, created_by, organization_id)
-           VALUES ($1, $2, 'SIMULATED', $3, 'maintenance_request', $4, NOW(), $5, $6)`,
-          [technician.phone, message, JSON.stringify({ provider: 'LOCAL_SIMULATOR' }), request.id, createdBy, organizationId],
-        );
-      }
-    }
-  }
-
-  async sendMaintenanceCommunication(id: number, channel: string, body: Record<string, unknown>) {
-    return this.db.transaction(async (client) => {
-      const request = await this.getMaintenanceCommunicationContext(client, id);
-      const communicationChannel = String(channel ?? '').toUpperCase();
-      const target = String(body.target ?? 'TENANT').toUpperCase();
-      if (!['EMAIL', 'SMS', 'WHATSAPP'].includes(communicationChannel)) throw new BadRequestException('Canal de communication invalide');
-      const recipient =
-        target === 'TECHNICIAN'
-          ? communicationChannel === 'EMAIL'
-            ? request.technician_email
-            : request.technician_phone
-          : communicationChannel === 'EMAIL'
-            ? request.tenant_email
-            : request.tenant_phone;
-      if (!recipient) throw new BadRequestException(target === 'TECHNICIAN' ? 'Coordonn√©e technicien absente' : 'Coordonn√©e locataire absente');
-      const message = body.message ? String(body.message) : this.defaultMaintenanceMessage(communicationChannel, request, String(body.event ?? 'UPDATE'));
-      const result = await this.sendCommunication(communicationChannel, {
-        recipient,
-        subject: communicationChannel === 'EMAIL' ? `${request.request_number} - ${request.title}` : undefined,
-        message,
-        related_entity_type: 'maintenance_request',
-        related_entity_id: id,
-      });
-      await this.addMaintenanceTimeline(client, id, 'COMMUNICATION', `Communication ${communicationChannel}`, `${target === 'TECHNICIAN' ? 'Technicien' : 'Locataire'} contact√©`);
-      return result;
-    });
-  }
-
-  private async assertMaintenanceStatus(client: PoolClient, id: number, allowed: string[]) {
-    const current = await client.query(
-      `SELECT status FROM maintenance_requests
-       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL FOR UPDATE`,
-      [id, this.context.organizationId()],
-    );
-    const request = requireRow(current.rows[0], 'Maintenance request');
-    if (!allowed.includes(String(request.status))) {
-      throw new BadRequestException(`Action impossible pour une maintenance au statut ${request.status}`);
-    }
-    return request;
-  }
-
-  private async notifyMaintenanceResolution(client: PoolClient, id: number, event: 'RESOLVED' | 'CLOSED', comment?: string) {
-    const request = await this.getMaintenanceCommunicationContext(client, id);
-    const jobs: Array<Promise<unknown>> = [];
-    if (request.tenant_email) {
-      jobs.push(this.sendCommunication('EMAIL', {
-        recipient: request.tenant_email,
-        subject: `${request.request_number} - ${event === 'RESOLVED' ? 'Intervention resolue' : 'Intervention cloturee'}`,
-        message: this.defaultMaintenanceMessage('EMAIL', request, event, comment),
-        related_entity_type: 'maintenance_request',
-        related_entity_id: id,
-      }));
-    }
-    if (request.tenant_phone) {
-      for (const channel of ['SMS', 'WHATSAPP']) {
-        jobs.push(this.sendCommunication(channel, {
-          recipient: request.tenant_phone,
-          message: this.defaultMaintenanceMessage(channel, request, event, comment),
-          related_entity_type: 'maintenance_request',
-          related_entity_id: id,
-        }));
-      }
-    }
-    await Promise.all(jobs);
-  }
-
-  private async getMaintenanceCommunicationContext(client: PoolClient, id: number) {
-    const { rows } = await client.query(
-      `SELECT mr.id, mr.request_number, mr.title, mr.priority, mr.status, mr.due_date, mr.resolved_at,
-              b.name AS building_name, u.number AS unit_number,
-              CONCAT(t.first_name, ' ', t.last_name) AS tenant_name, t.email AS tenant_email, t.phone AS tenant_phone,
-              CONCAT(e.first_name, ' ', e.last_name) AS technician_name, e.email AS technician_email, e.phone AS technician_phone
-       FROM maintenance_requests mr
-       LEFT JOIN buildings b ON b.id = mr.building_id
-       LEFT JOIN units u ON u.id = mr.unit_id
-       LEFT JOIN tenants t ON t.id = mr.tenant_id
-       LEFT JOIN employees e ON e.id = mr.assigned_employee_id
-       WHERE mr.id = $1 AND mr.organization_id = $2 AND mr.deleted_at IS NULL`,
-      [id, this.context.organizationId()],
-    );
-    return requireRow(rows[0], 'Maintenance request');
-  }
-
-  private defaultMaintenanceMessage(channel: string, request: Record<string, unknown>, event: string, comment?: string) {
-    const fragments = [
-      `${request.request_number} - ${request.title}`,
-      request.building_name ? `Immeuble: ${request.building_name}` : null,
-      request.unit_number ? `Unit√©: ${request.unit_number}` : null,
-      `Priorit√©: ${request.priority}`,
-      `Statut: ${request.status}`,
-      request.technician_name ? `Technicien: ${request.technician_name}` : null,
-      event === 'RESOLVED'
-        ? `Date r√©solution: ${request.resolved_at ? String(request.resolved_at).slice(0, 10) : new Date().toISOString().slice(0, 10)}`
-        : request.due_date
-          ? `Date pr√©vue: ${String(request.due_date).slice(0, 10)}`
-          : null,
-      comment ? `Commentaire: ${comment}` : null,
-    ].filter(Boolean);
-    return channel === 'EMAIL' ? `Bonjour,\n${fragments.join('\n')}` : fragments.join(' | ');
-  }
-
-  private async createWorkflowInstanceInTransaction(client: PoolClient, body: Record<string, unknown>) {
-    const type = String(body.type ?? 'CUSTOM');
-    const definition = await client.query(
-      `SELECT * FROM workflow_definitions
-       WHERE type = $1 AND organization_id = $2 AND deleted_at IS NULL
-       ORDER BY id LIMIT 1`,
-      [type, this.context.organizationId()],
-    );
-    const definitionId = definition.rows[0]?.id ?? null;
-    const { rows } = await client.query(
-      `INSERT INTO workflow_instances
-       (workflow_definition_id, type, entity_type, entity_id, title, requester_id, status, comment, organization_id)
-       VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', $7, $8)
-       RETURNING *`,
-      [
-        definitionId,
-        type,
-        body.entity_type ?? type,
-        body.entity_id ?? null,
-        body.title ?? `${type} #${body.entity_id ?? ''}`,
-        this.context.userId() ?? body.requester_id ?? null,
-        body.comment ?? null,
-        this.context.organizationId(),
-      ],
-    );
-    const steps = await client.query(
-      `SELECT * FROM workflow_step_definitions
-       WHERE workflow_definition_id = $1 AND organization_id = $2 AND deleted_at IS NULL
-       ORDER BY step_order`,
-      [definitionId, this.context.organizationId()],
-    );
-    const stepRows = steps.rows.length ? steps.rows : [{ step_order: 1, name: 'Validation', approver_role: 'DIRECTOR', approver_user_id: null }];
-    for (const step of stepRows) {
-      await client.query(
-        `INSERT INTO workflow_steps
-         (workflow_instance_id, step_order, name, approver_role, approver_user_id, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [rows[0].id, step.step_order, step.name, step.approver_role, step.approver_user_id, this.context.organizationId()],
-      );
-    }
-    await this.addWorkflowAction(client, rows[0].id, 'CREATED', body.comment ? String(body.comment) : 'Workflow cr√©√©');
-    return rows[0];
-  }
-
-  private async addWorkflowAction(client: PoolClient, workflowInstanceId: number, action: string, comment?: string) {
-    await client.query(
-      `INSERT INTO workflow_actions (workflow_instance_id, action, comment, acted_by, organization_id)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [workflowInstanceId, action, comment ?? null, this.context.userId() ?? 1, this.context.organizationId()],
-    );
-  }
-
-  private async ensureWorkflowStepCanAct(client: PoolClient, workflowInstanceId: number) {
-    const { rows } = await client.query(
-      `SELECT ws.*
-       FROM workflow_steps ws
-       JOIN workflow_instances wi ON wi.id = ws.workflow_instance_id
-       WHERE ws.workflow_instance_id = $1 AND ws.organization_id = $2 AND wi.status = 'PENDING' AND ws.status = 'PENDING'
-       LIMIT 1`,
-      [workflowInstanceId, this.context.organizationId()],
-    );
-    const step = requireRow(rows[0], 'Workflow step');
-    if (step.approver_user_id && Number(step.approver_user_id) !== this.context.userId()) throw new BadRequestException('Vous ne pouvez pas valider cette √©tape');
-    if (step.approver_role && step.approver_role !== this.context.user()?.role) throw new BadRequestException('R√¥le approbateur requis');
-  }
-
-  private async ensureWorkflowApproved(client: PoolClient, workflowInstanceId?: unknown) {
-    if (!workflowInstanceId) return;
-    const { rows } = await client.query(
-      `SELECT status FROM workflow_instances WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
-      [workflowInstanceId, this.context.organizationId()],
-    );
-    const workflow = requireRow(rows[0], 'Workflow');
-    if (workflow.status === 'REJECTED') throw new BadRequestException('Workflow rejet√©: action bloqu√©e');
-    if (workflow.status !== 'APPROVED') throw new BadRequestException('Workflow en attente: action bloqu√©e');
-  }
-
-  private async addMaintenanceTimeline(client: PoolClient, maintenanceRequestId: number, eventType: string, title: string, details?: string) {
-    await client.query(
-      `INSERT INTO maintenance_timeline (maintenance_request_id, event_type, title, details, created_by, organization_id)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [maintenanceRequestId, eventType, title, details ?? null, this.context.userId() ?? 1, this.context.organizationId()],
-    );
-  }
-
-  private async openSession(client: PoolClient) {
-    const { rows } = await client.query(`SELECT * FROM cash_sessions WHERE status = 'OPEN' AND organization_id = $1 AND deleted_at IS NULL ORDER BY opened_at DESC LIMIT 1`, [
-      this.context.organizationId(),
-    ]);
-    if (!rows[0]) throw new BadRequestException('Aucune caisse ouverte');
-    return rows[0];
-  }
-
-  private async ensureNoLeaseConflict(client: PoolClient, unitId: number, startDate: string, endDate: string | null, ignoredLeaseId?: number) {
-    const { rows } = await client.query(
-      `SELECT id FROM leases
-       WHERE unit_id = $1
-         AND organization_id = $2
-         AND deleted_at IS NULL
-         AND archived_at IS NULL
-         AND status = 'ACTIVE'
-         AND ($5::INT IS NULL OR id <> $5)
-         AND daterange(start_date, COALESCE(end_date, '2999-12-31'::DATE), '[]')
-             && daterange($3::DATE, COALESCE($4::DATE, '2999-12-31'::DATE), '[]')
-       LIMIT 1`,
-      [unitId, this.context.organizationId(), startDate, endDate, ignoredLeaseId ?? null],
-    );
-    if (rows[0]) throw new BadRequestException('Un bail actif existe d√©j√† sur cette unit√© pour cette p√©riode');
-  }
-
-  private async activateLeaseInTransaction(client: PoolClient, id: number) {
-    const lease = await client.query(
-      `SELECT * FROM leases WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL AND archived_at IS NULL`,
-      [id, this.context.organizationId()],
-    );
-    const row = requireRow(lease.rows[0], 'Lease');
-    await this.ensureNoLeaseConflict(client, Number(row.unit_id), row.start_date, row.end_date, id);
-    const { rows } = await client.query(
-      `UPDATE leases
-       SET status = 'ACTIVE', activated_at = COALESCE(activated_at, NOW()), updated_at = NOW()
-       WHERE id = $1 AND organization_id = $2 RETURNING *`,
-      [id, this.context.organizationId()],
-    );
-    await client.query('UPDATE units SET status = $1 WHERE id = $2 AND organization_id = $3 AND deleted_at IS NULL', [
-      'OCCUPIED',
-      row.unit_id,
-      this.context.organizationId(),
-    ]);
-    return rows[0];
-  }
-
-  private async generateImmediateInitialRentInvoiceIfNeeded(leaseId: number) {
-    try {
-      const result = await this.automationsService.generateImmediateInitialRentInvoiceForLease(leaseId);
-      if (result.status === 'SUCCESS') {
-        this.logger.log(`Immediate initial rent invoice generated for lease ${leaseId}: ${result.invoice_number}`);
-      }
-    } catch (error) {
-      this.logger.error(
-        `Immediate initial rent invoice failed for lease ${leaseId}: ${error instanceof Error ? error.message : String(error)}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-    }
-  }
-
-  private shouldGenerateImmediateInitialRentInvoiceAfterLeaseUpdate(
-    current: Record<string, unknown>,
-    normalized: { status: string; startDate: string },
-    body: Record<string, unknown>,
-  ) {
-    if (String(normalized.status ?? '').toUpperCase() !== 'ACTIVE') {
-      return false;
-    }
-    const previousStatus = String(current.status ?? '').toUpperCase();
-    if (previousStatus !== 'ACTIVE') {
-      return true;
-    }
-    if (!Object.prototype.hasOwnProperty.call(body, 'start_date')) {
-      return false;
-    }
-    return String(current.start_date ?? '').slice(0, 10) !== normalized.startDate;
-  }
-
-  private async upsertLeaseGuarantee(client: PoolClient, leaseId: number, guarantee: Record<string, unknown>) {
-    const amount = Number(guarantee.amount ?? 0);
-    const paidAmount = Number(guarantee.paid_amount ?? 0);
-    const status = String(guarantee.status ?? (paidAmount >= amount && amount > 0 ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'NOT_PAID'));
-    if (await this.tableExists('lease_guarantees')) {
-      await client.query(
-        `INSERT INTO lease_guarantees (lease_id, amount, paid_amount, payment_date, status, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (lease_id) DO UPDATE SET
-           amount = EXCLUDED.amount,
-           paid_amount = EXCLUDED.paid_amount,
-           payment_date = EXCLUDED.payment_date,
-           status = EXCLUDED.status,
-           updated_at = NOW()`,
-        [leaseId, amount, paidAmount, guarantee.payment_date ?? null, status, this.context.organizationId()],
-      );
-    }
-    await client.query(
-      `UPDATE leases
-       SET rental_guarantee_amount = $2,
-           rental_guarantee_paid = $3,
-           rental_guarantee_payment_date = $4,
-           rental_guarantee_status = $5,
-           updated_at = NOW()
-       WHERE id = $1 AND organization_id = $6`,
-      [leaseId, amount, paidAmount, guarantee.payment_date ?? null, status, this.context.organizationId()],
-    );
-  }
-
-  private async leaseGuaranteeInTransaction(client: PoolClient, leaseId: number) {
-    const { rows } = await client.query(
-      `SELECT * FROM lease_guarantees WHERE lease_id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
-      [leaseId, this.context.organizationId()],
-    );
-    return rows[0] ?? null;
-  }
-
-  private async nextStockPurchaseNumber(client: PoolClient) {
-    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`stock-purchase-${this.context.organizationId()}`]);
-    const { rows } = await client.query(
-      `SELECT COALESCE(MAX(NULLIF(regexp_replace(purchase_number, '[^0-9]', '', 'g'), '')::INT), 0) + 1 AS value
-       FROM stock_purchases
-       WHERE organization_id = $1`,
-      [this.context.organizationId()],
-    );
-    return `PO-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
-  }
-
-  private async nextStockReceiptNumber(client: PoolClient) {
-    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`stock-receipt-${this.context.organizationId()}`]);
-    const { rows } = await client.query(
-      `SELECT COALESCE(MAX(NULLIF(regexp_replace(receipt_number, '[^0-9]', '', 'g'), '')::INT), 0) + 1 AS value
-       FROM stock_purchase_receipts
-       WHERE organization_id = $1`,
-      [this.context.organizationId()],
-    );
-    return `BR-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
-  }
-
-  private async normalizeStockPurchaseLines(client: PoolClient, lines: Array<Record<string, unknown>>) {
-    const normalized: Array<Record<string, unknown>> = [];
-    const firstLineByItemId = new Map<number, number>();
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index];
-      const stockItemId = Number(line.stock_item_id ?? 0);
-      const quantity = Number(line.quantity ?? 0);
-      const unitPrice = Number(line.unit_price ?? 0);
-      if (!stockItemId || quantity <= 0) throw new BadRequestException(`Ligne ${index + 1}: article ou quantite invalide`);
-      const firstLine = firstLineByItemId.get(stockItemId);
-      if (firstLine) {
-        throw new BadRequestException({
-          code: 'PURCHASE_ITEM_DUPLICATE',
-          message: `Cet article est deja present a la ligne ${firstLine}. Veuillez modifier la quantite sur cette ligne au lieu de l'ajouter une seconde fois.`,
-          stock_item_id: stockItemId,
-          first_line: firstLine,
-          duplicate_line: index + 1,
-        });
-      }
-      firstLineByItemId.set(stockItemId, index + 1);
-      const item = await client.query(
-        `SELECT id, name, status FROM stock_items WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
-        [stockItemId, this.context.organizationId()],
-      );
-      const itemRow = requireRow(item.rows[0], `Article ligne ${index + 1}`);
-      if (itemRow.status !== 'ACTIVE') throw new BadRequestException(`Ligne ${index + 1}: article inactif`);
-      normalized.push({
-        stock_item_id: stockItemId,
-        quantity,
-        unit_price: unitPrice,
-        line_total: quantity * unitPrice,
-      });
-    }
-    return normalized;
-  }
-
-  private async refreshStockPurchaseStatus(client: PoolClient, purchaseId: number) {
-    const lines = await client.query(
-      `SELECT quantity, received_quantity FROM stock_purchase_lines
-       WHERE stock_purchase_id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
-      [purchaseId, this.context.organizationId()],
-    );
-    const purchase = await client.query(
-      `SELECT total_amount, paid_amount, received_at, received_by FROM stock_purchases
-       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
-      [purchaseId, this.context.organizationId()],
-    );
-    const purchaseRow = requireRow(purchase.rows[0], 'Stock purchase');
-    const totalOrdered = lines.rows.reduce((sum, line) => sum + Number(line.quantity ?? 0), 0);
-    const totalReceived = lines.rows.reduce((sum, line) => sum + Number(line.received_quantity ?? 0), 0);
-    const receptionStatus = totalReceived <= 0 ? 'PENDING' : totalReceived >= totalOrdered ? 'RECEIVED' : 'PARTIAL';
-    const outstandingAmount = Math.max(Number(purchaseRow.total_amount ?? 0) - Number(purchaseRow.paid_amount ?? 0), 0);
-    const paymentStatus = outstandingAmount <= 0 && Number(purchaseRow.total_amount ?? 0) > 0 ? 'PAID' : Number(purchaseRow.paid_amount ?? 0) > 0 ? 'PARTIAL' : 'UNPAID';
-    const purchaseStatus = receptionStatus === 'RECEIVED' && paymentStatus === 'PAID' ? 'CLOSED' : 'OPEN';
-    const receivedAtValue =
-      receptionStatus === 'RECEIVED'
-        ? purchaseRow.received_at ?? new Date().toISOString()
-        : null;
-    const receivedByValue =
-      receptionStatus === 'RECEIVED'
-        ? purchaseRow.received_by ?? (this.context.userId() ?? 1)
-        : null;
-    const { rows } = await client.query(
-      `UPDATE stock_purchases
-       SET reception_status = $2,
-           payment_status = $3,
-           outstanding_amount = $4,
-           purchase_status = $5,
-           received_at = $6,
-           received_by = $7,
-           updated_at = NOW()
-       WHERE id = $1 AND organization_id = $8
-       RETURNING *`,
-      [
-        purchaseId,
-        receptionStatus,
-        paymentStatus,
-        outstandingAmount,
-        purchaseStatus,
-        receivedAtValue,
-        receivedByValue,
-        this.context.organizationId(),
-      ],
-    );
-    return rows[0];
-  }
-
-  private async nextSupplierCode(client: PoolClient) {
-    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`supplier-${this.context.organizationId()}`]);
-    const { rows } = await client.query(
-      `SELECT COALESCE(MAX(NULLIF(regexp_replace(supplier_code, '[^0-9]', '', 'g'), '')::INT), 0) + 1 AS value
-       FROM suppliers
-       WHERE organization_id = $1`,
-      [this.context.organizationId()],
-    );
-    return `SUP-${String(rows[0]?.value ?? 1).padStart(5, '0')}`;
-  }
-
-  private async requireSupplier(client: PoolClient, supplierId: number) {
-    if (!supplierId) {
-      throw new BadRequestException('Selectionnez un fournisseur.');
-    }
-    const { rows } = await client.query(
-      `SELECT *
-       FROM suppliers
-       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL AND status = 'ACTIVE'`,
-      [supplierId, this.context.organizationId()],
-    );
-    return requireRow(rows[0], 'Supplier');
-  }
-
-  private async receiveStockPurchaseInTransaction(
-    client: PoolClient,
-    purchaseRow: Record<string, any>,
-    body: Record<string, unknown>,
-    lockedLines?: Array<Record<string, any>>,
-  ) {
-    if (String(purchaseRow.reception_status ?? '').toUpperCase() === 'RECEIVED') {
-      throw new ConflictException('Cet achat a deja ete receptionne');
-    }
-    const purchaseLines = lockedLines
-      ? { rows: lockedLines }
-      : await client.query(
-          `SELECT spl.*, si.name AS item_name
-           FROM stock_purchase_lines spl
-           JOIN stock_items si ON si.id = spl.stock_item_id
-           WHERE spl.stock_purchase_id = $1 AND spl.organization_id = $2 AND spl.deleted_at IS NULL
-           ORDER BY spl.id
-           FOR UPDATE`,
-          [purchaseRow.id, this.context.organizationId()],
-        );
-    const lines = Array.isArray(body.lines) ? (body.lines as Array<Record<string, unknown>>) : [];
-    const linesById = new Map<number, Record<string, unknown>>(purchaseLines.rows.map((line) => [Number(line.id), line]));
-    const receiptNumber = await this.nextStockReceiptNumber(client);
-    const receipt = await client.query(
-      `INSERT INTO stock_purchase_receipts
-       (stock_purchase_id, receipt_number, receipt_date, receiver_name, store, notes, created_by, organization_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING *`,
-      [
-        purchaseRow.id,
-        receiptNumber,
-        body.receipt_date ?? new Date().toISOString().slice(0, 10),
-        body.receiver_name ?? null,
-        body.store ?? purchaseRow.store ?? null,
-        body.notes ?? null,
-        this.context.userId() ?? 1,
-        this.context.organizationId(),
-      ],
-    );
-
-    for (let index = 0; index < lines.length; index += 1) {
-      const entry = lines[index];
-      const purchaseLineId = Number(entry.stock_purchase_line_id ?? 0);
-      const quantityReceived = Number(entry.quantity_received ?? 0);
-      if (!purchaseLineId || quantityReceived <= 0) {
-        throw new BadRequestException(`Ligne ${index + 1}: quantite recue invalide`);
-      }
-      const purchaseLine = linesById.get(purchaseLineId);
-      if (!purchaseLine) throw new BadRequestException(`Ligne ${index + 1}: article achat introuvable`);
-      const remaining = Number(purchaseLine.quantity) - Number(purchaseLine.received_quantity ?? 0);
-      if (quantityReceived > remaining) {
-        throw new BadRequestException(`Ligne ${index + 1}: quantite recue superieure au reste a recevoir (${remaining})`);
-      }
-      await client.query(
-        `INSERT INTO stock_purchase_receipt_lines
-         (stock_purchase_receipt_id, stock_purchase_line_id, stock_item_id, quantity_received, unit_price, line_total, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [
-          receipt.rows[0].id,
-          purchaseLineId,
-          purchaseLine.stock_item_id,
-          quantityReceived,
-          purchaseLine.unit_price,
-          quantityReceived * Number(purchaseLine.unit_price ?? 0),
-          this.context.organizationId(),
-        ],
-      );
-      await client.query(
-        `UPDATE stock_purchase_lines
-         SET received_quantity = received_quantity + $3, updated_at = NOW()
-         WHERE id = $1 AND stock_purchase_id = $2 AND organization_id = $4`,
-        [purchaseLineId, purchaseRow.id, quantityReceived, this.context.organizationId()],
-      );
-      await this.createStockMovementInTransaction(client, {
-        stock_item_id: purchaseLine.stock_item_id,
-        type: 'IN',
-        quantity: quantityReceived,
-        movement_date: receipt.rows[0].receipt_date,
-        source: 'PURCHASE_RECEIPT',
-        reference: receiptNumber,
-        notes: body.notes ?? `Reception achat ${purchaseRow.purchase_number}`,
-        unit_price: Number(purchaseLine.unit_price ?? 0),
-        stock_purchase_id: purchaseRow.id,
-        stock_purchase_receipt_id: receipt.rows[0].id,
-      });
-    }
-
-    await this.refreshStockPurchaseStatus(client, Number(purchaseRow.id));
-    await this.addStockPurchaseTimeline(client, Number(purchaseRow.id), 'RECEIPT', 'Reception de marchandises', `Bon ${receiptNumber} enregistre`);
-    return receipt.rows[0];
-  }
-
-  private validatePurchaseAttachmentFile(file: { mimetype: string; size: number }) {
-    if (Number(file.size ?? 0) > 10 * 1024 * 1024) {
-      throw new BadRequestException('Le fichier ne peut pas depasser 10 Mo');
-    }
-    const mimeType = String(file.mimetype ?? '').toLowerCase();
-    if (!this.allowedPurchaseAttachmentMimeTypes.has(mimeType)) {
-      throw new BadRequestException('Format de fichier non autorise');
-    }
-  }
-
-  private purchaseAttachmentStoragePath(purchaseId: number, fileName: string) {
-    const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-    return `purchases/${this.context.organizationId()}/${purchaseId}/${timestamp}-${this.sanitizeStorageFileName(fileName)}`;
-  }
-
-  private async uploadPurchaseAttachmentToStorage(storagePath: string, file: { mimetype: string; buffer: Buffer }) {
-    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
-    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.purchaseAttachmentStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-        'x-upsert': 'false',
-        'content-type': file.mimetype,
-      },
-      body: file.buffer.buffer.slice(file.buffer.byteOffset, file.buffer.byteOffset + file.buffer.byteLength) as ArrayBuffer,
-    });
-    if (!response.ok) {
-      const details = await response.text();
-      throw new BadRequestException(details || `Impossible de televerser la piece jointe (${response.status})`);
-    }
-  }
-
-  private async deletePurchaseAttachmentStorage(storagePath: string) {
-    if (!this.hasStorageConfig()) return;
-    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
-    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.purchaseAttachmentStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-      },
-    });
-    if (!response.ok && response.status !== 404) {
-      const details = await response.text();
-      throw new BadRequestException(details || `Impossible de supprimer la piece jointe (${response.status})`);
-    }
-  }
-
-  private async downloadPurchaseAttachmentStorage(storagePath: string, fileName: string, mimeType: string) {
-    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
-    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.purchaseAttachmentStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-      },
-    });
-    if (!response.ok) {
-      throw new BadRequestException(`Piece jointe introuvable (${response.status})`);
-    }
-    return {
-      buffer: Buffer.from(await response.arrayBuffer()),
-      mimeType: response.headers.get('content-type') ?? mimeType ?? 'application/octet-stream',
-      downloadName: fileName,
-    };
-  }
-
-  private async addStockPurchaseTimeline(client: PoolClient, purchaseId: number, eventType: string, title: string, details?: string) {
-    await client.query(
-      `INSERT INTO stock_purchase_timeline
-       (stock_purchase_id, event_type, title, details, created_by, organization_id)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [purchaseId, eventType, title, details ?? null, this.context.userId() ?? 1, this.context.organizationId()],
-    );
-  }
-
-  private async recordStockPurchasePaymentInTransaction(
-    client: PoolClient,
-    purchaseId: number,
-    body: Record<string, unknown>,
-    refreshStatus = true,
-  ) {
-    const purchase = await client.query(
-      `SELECT * FROM stock_purchases
-       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
-       FOR UPDATE`,
-      [purchaseId, this.context.organizationId()],
-    );
-    const purchaseRow = requireRow(purchase.rows[0], 'Stock purchase');
-    const amount = Number(body.amount ?? 0);
-    if (amount <= 0) throw new BadRequestException('Le montant du paiement fournisseur doit etre positif');
-    const outstanding = Math.max(Number(purchaseRow.total_amount ?? 0) - Number(purchaseRow.paid_amount ?? 0), 0);
-    if (amount > outstanding) throw new BadRequestException(`Le paiement depasse le solde restant (${outstanding.toFixed(2)} USD)`);
-    const cashMovement = await this.createCashMovementInTransaction(client, {
-      type: 'OUT',
-      category: 'STOCK_PURCHASE',
-      amount,
-      movement_date: body.payment_date ?? new Date().toISOString().slice(0, 10),
-      supplier: purchaseRow.supplier_name,
-      description: body.notes ?? `Paiement fournisseur ${purchaseRow.purchase_number}`,
-      label: `Achat stock ${purchaseRow.purchase_number}`,
-      reference: body.reference ?? purchaseRow.purchase_number,
-      stock_purchase_id: purchaseId,
-    });
-    const { rows } = await client.query(
-      `INSERT INTO stock_purchase_payments
-       (stock_purchase_id, payment_date, amount, payment_method, reference, notes, cash_movement_id, created_by, organization_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING *`,
-      [
-        purchaseId,
-        body.payment_date ?? new Date().toISOString().slice(0, 10),
-        amount,
-        body.payment_method ?? purchaseRow.payment_method ?? null,
-        body.reference ?? purchaseRow.purchase_number,
-        body.notes ?? null,
-        cashMovement.id,
-        this.context.userId() ?? 1,
-        this.context.organizationId(),
-      ],
-    );
-    await client.query(
-      `UPDATE stock_purchases
-       SET paid_amount = paid_amount + $2,
-           updated_at = NOW()
-       WHERE id = $1 AND organization_id = $3`,
-      [purchaseId, amount, this.context.organizationId()],
-    );
-    if (refreshStatus) {
-      await this.refreshStockPurchaseStatus(client, purchaseId);
-    } else {
-      const paidAmount = Number(purchaseRow.paid_amount ?? 0) + amount;
-      const outstandingAmount = Math.max(Number(purchaseRow.total_amount ?? 0) - paidAmount, 0);
-      const paymentStatus = outstandingAmount <= 0 && Number(purchaseRow.total_amount ?? 0) > 0 ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'UNPAID';
-      await client.query(
-        `UPDATE stock_purchases
-         SET payment_status = $2, outstanding_amount = $3, updated_at = NOW()
-         WHERE id = $1 AND organization_id = $4`,
-        [purchaseId, paymentStatus, outstandingAmount, this.context.organizationId()],
-      );
-    }
-    return { ...rows[0], cash_movement_id: cashMovement.id };
-  }
-
-  private normalizeVariables(value: unknown) {
-    if (Array.isArray(value)) return JSON.stringify(value);
-    if (typeof value === 'string') {
-      try {
-        const parsed = JSON.parse(value);
-        return JSON.stringify(Array.isArray(parsed) ? parsed : []);
-      } catch {
-        return JSON.stringify(value.split(',').map((item) => item.trim()).filter(Boolean));
-      }
-    }
-    return JSON.stringify([]);
-  }
-
-  private objectValue(value: unknown) {
-    if (!value) return {};
-    if (typeof value === 'string') {
-      try {
-        return JSON.parse(value) as Record<string, unknown>;
-      } catch {
-        return {};
-      }
-    }
-    if (typeof value === 'object') return value as Record<string, unknown>;
-    return {};
-  }
-
-  private logTableFor(channel: string) {
-    const key = channel.toUpperCase();
-    if (key === 'EMAIL') return 'email_logs';
-    if (key === 'SMS') return 'sms_logs';
-    if (key === 'WHATSAPP') return 'whatsapp_logs';
-    throw new BadRequestException('Canal non supporte');
-  }
-
-  private async activeTemplate(code: string, channel: string) {
-    const { rows } = await this.db.query(
-      `SELECT * FROM message_templates
-       WHERE organization_id = $1 AND deleted_at IS NULL AND status = 'ACTIVE' AND code = $2 AND channel = $3`,
-      [this.context.organizationId(), code, channel.toUpperCase()],
-    );
-    return requireRow(rows[0], 'Message template');
-  }
-
-  private renderTemplate(template: string, variables: Record<string, unknown>) {
-    return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => String(variables[key] ?? ''));
-  }
-
-  private normalizeLeasePayload(body: Record<string, unknown>, options?: { requireBusinessActivity?: boolean; forceInitialGuaranteeUnpaid?: boolean }) {
-    const tenantId = Number(body.tenant_id ?? body.tenantId ?? 0);
-    const unitId = Number(body.unit_id ?? body.unitId ?? 0);
-    const startDate = this.normalizeLeasePayloadDate(body.start_date, 'start_date', true);
-    const endDateValue = this.normalizeLeasePayloadDate(body.end_date, 'end_date');
-    if (!tenantId) throw new BadRequestException('Locataire requis');
-    if (!unitId) throw new BadRequestException('Unite requise');
-    if (!startDate) throw new BadRequestException('Date de debut requise');
-
-    const monthlyRent = Number(body.monthly_rent ?? 0);
-    const maintenanceFeeAmount = Number(body.maintenance_fee_amount ?? 0);
-    const monthlySyndicAmount = Number(body.monthly_syndic_amount ?? 0);
-    const otherChargesAmount = Number(body.other_charges_amount ?? 0);
-    const guaranteeMonths = Number(body.guarantee_months ?? 0);
-    const rentGuaranteeBaseAmount = monthlyRent + maintenanceFeeAmount;
-    const leaseTotalAmount = monthlyRent + maintenanceFeeAmount + monthlySyndicAmount + otherChargesAmount;
-    const guaranteeAmount = rentGuaranteeBaseAmount * guaranteeMonths;
-    const forceInitialGuaranteeUnpaid = options?.forceInitialGuaranteeUnpaid === true;
-    const guaranteePaid = forceInitialGuaranteeUnpaid ? 0 : Number(body.rental_guarantee_paid ?? body.guarantee_paid ?? 0);
-    const leaseUsage = this.normalizeLeaseUsageCode(body.lease_usage);
-    const leaseActivityDescription = body.lease_activity_description ? String(body.lease_activity_description).trim() : null;
-    const contractNote = this.normalizeOptionalMultilineText(body.contract_note);
-    const billingFrequencyMonths = this.normalizeLeaseBillingFrequency(body.billing_frequency_months);
-    const guaranteePaymentDateValue = forceInitialGuaranteeUnpaid
-      ? null
-      : this.normalizeLeasePayloadDate(body.rental_guarantee_payment_date ?? body.guarantee_payment_date, 'rental_guarantee_payment_date');
-    const rawGuaranteeStatus = forceInitialGuaranteeUnpaid ? 'NOT_PAID' : String(body.rental_guarantee_status ?? body.guarantee_status ?? '').trim().toUpperCase();
-    const guaranteeMarkedPaid = rawGuaranteeStatus === 'PAID' || guaranteePaid > 0;
-
-    const requireBusinessActivity = options?.requireBusinessActivity ?? true;
-    if (requireBusinessActivity && (leaseUsage === 'COMMERCIAL' || leaseUsage === 'PROFESSIONAL' || leaseUsage === 'MIXED') && !leaseActivityDescription) {
-      throw new BadRequestException("Activite ou destination des lieux requise");
-    }
-
-    if (guaranteeMarkedPaid && !guaranteePaymentDateValue) {
-      throw new BadRequestException('Date de paiement de la garantie requise');
-    }
-
-    const guaranteePaymentDate = guaranteeMarkedPaid ? guaranteePaymentDateValue : null;
-    const guaranteeStatus = guaranteeMarkedPaid
-      ? (guaranteePaid >= guaranteeAmount ? 'PAID' : 'PARTIAL')
-      : 'NOT_PAID';
-
-    return {
-      tenantId,
-      unitId,
-      startDate,
-      endDate: endDateValue,
-      monthlyRent,
-      maintenanceFeeAmount,
-      monthlySyndicAmount,
-      otherChargesAmount,
-      leaseTotalAmount,
-      guaranteeMonths,
-      guaranteeAmount,
-      guaranteePaid: guaranteeMarkedPaid ? guaranteePaid : 0,
-      guaranteePaymentDate,
-      guaranteeStatus,
-      noticeMonths: Number(body.notice_months ?? 0),
-      signaturePlace: body.signature_place ? String(body.signature_place).trim() : null,
-      signatureDate: this.normalizeLeasePayloadDate(body.signature_date, 'signature_date'),
-      leaseUsage,
-      leaseActivityDescription,
-      contractTemplateCode: this.resolveLeaseTemplateCodeForPersistence(leaseUsage, body.contract_template_code),
-      contractFileName: body.contract_file_name ? String(body.contract_file_name).trim() : null,
-      contractFileUrl: body.contract_file_url ? String(body.contract_file_url).trim() : null,
-      notes: body.notes ? String(body.notes) : null,
-      contractNote,
-      billingFrequencyMonths,
-      status: String(body.status ?? 'DRAFT'),
-    };
-  }
-
-  private normalizeLeaseBillingFrequency(value: unknown) {
-    const raw = value === undefined || value === null || value === '' ? 1 : Number(value);
-    if (!Number.isInteger(raw) || raw < 1 || raw > 12) {
-      throw new BadRequestException('Periodicite de paiement du loyer invalide');
-    }
-    return raw;
-  }
-
-  private normalizeOptionalMultilineText(value: unknown) {
-    if (value === undefined || value === null) return null;
-    const normalized = String(value).replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-    return normalized ? normalized : null;
-  }
-
-  private normalizeLeasePayloadDate(value: unknown, fieldName: string, required = false) {
-    if (value === undefined || value === null || value === '') {
-      if (required) throw new BadRequestException(`Date requise pour ${fieldName}`);
-      return null;
-    }
-
-    if (value instanceof Date) {
-      if (Number.isNaN(value.getTime())) {
-        throw new BadRequestException(`Date invalide pour ${fieldName}`);
-      }
-      return value.toISOString().slice(0, 10);
-    }
-
-    const raw = String(value).trim();
-    if (!raw) {
-      if (required) throw new BadRequestException(`Date requise pour ${fieldName}`);
-      return null;
-    }
-
-    const isoDate = /^\d{4}-\d{2}-\d{2}/.exec(raw)?.[0];
-    if (isoDate) return isoDate;
-
-    const parsed = new Date(raw);
-    if (Number.isNaN(parsed.getTime())) {
-      throw new BadRequestException(`Date invalide pour ${fieldName}`);
-    }
-
-    return parsed.toISOString().slice(0, 10);
-  }
-
-  private async activeLeaseContractTemplate(client: PoolClient, code: string) {
-    const { rows } = await client.query(
-      `SELECT *
-       FROM lease_contract_templates
-       WHERE organization_id = $1
-         AND code = $2
-         AND is_active = TRUE
-         AND deleted_at IS NULL
-       ORDER BY version DESC, id DESC
-       LIMIT 1`,
-      [this.context.organizationId(), code],
-    );
-    if (!rows[0]) {
-    switch (String(code).trim().toUpperCase()) {
-        case 'LEASE_COMMERCIAL':
-          throw new BadRequestException("Le mod√®le de contrat commercial n'est pas configur√© pour cette organisation.");
-        case 'LEASE_PROFESSIONAL':
-          throw new BadRequestException("Le mod√®le de contrat professionnel n'est pas configur√© pour cette organisation.");
-        case 'LEASE_MIXED':
-          throw new BadRequestException("Le mod√®le de contrat mixte n'est pas configur√© pour cette organisation.");
-        case 'LEASE_RESIDENTIAL':
-          throw new BadRequestException("Le mod√®le de contrat r√©sidentiel n'est pas configur√© pour cette organisation.");
-        default:
-          throw new BadRequestException(`Aucun modele de contrat actif ${code} n'est configure pour l'organisation ${this.context.organizationId()}.`);
-      }
-    }
-    return rows[0];
-  }
-
-  private async activeLeaseContractTemplateVersion(code: string) {
-    const { rows } = await this.db.query(
-      `SELECT version
-       FROM lease_contract_templates
-       WHERE organization_id = $1
-         AND code = $2
-         AND is_active = TRUE
-         AND deleted_at IS NULL
-       ORDER BY version DESC, id DESC
-       LIMIT 1`,
-      [this.context.organizationId(), code],
-    );
-    return rows[0]?.version ?? null;
-  }
-
-  private async tableHasColumn(client: PoolClient, tableName: string, columnName: string) {
-    const { rows } = await client.query(
-      `SELECT 1
-       FROM information_schema.columns
-       WHERE table_schema = 'public'
-         AND table_name = $1
-         AND column_name = $2
-       LIMIT 1`,
-      [tableName, columnName],
-    );
-    return Boolean(rows[0]);
-  }
-
-  private async tableExists(tableName: string) {
-    const { rows } = await this.db.query(
-      `SELECT 1
-       FROM information_schema.tables
-       WHERE table_schema = 'public'
-         AND table_name = $1
-       LIMIT 1`,
-      [tableName],
-    );
-    return Boolean(rows[0]);
-  }
-
-  private async columnExists(tableName: string, columnName: string) {
-    const { rows } = await this.db.query(
-      `SELECT 1
-       FROM information_schema.columns
-       WHERE table_schema = 'public'
-         AND table_name = $1
-         AND column_name = $2
-       LIMIT 1`,
-      [tableName, columnName],
-    );
-    return Boolean(rows[0]);
-  }
-
-  private async optionalColumnExpression(tableName: string, columnName: string, alias: string) {
-    return (await this.columnExists(tableName, columnName)) ? `${alias}.${columnName}` : 'NULL';
-  }
-
-  private async optionalColumnSelects(tableName: string, columnNames: string[], alias: string) {
-    const entries = await Promise.all(columnNames.map(async (columnName) => [
-      columnName,
-      (await this.columnExists(tableName, columnName)) ? `${alias}.${columnName} AS ${columnName}` : `NULL AS ${columnName}`,
-    ] as const));
-    return Object.fromEntries(entries) as Record<string, string>;
-  }
-
-  private resolveLeaseTemplateCodeForUsage(value: unknown) {
-    switch (this.normalizeLeaseUsageCode(value)) {
-      case 'COMMERCIAL':
-        return 'LEASE_COMMERCIAL';
-      case 'PROFESSIONAL':
-        return 'LEASE_PROFESSIONAL';
-      case 'MIXED':
-        return 'LEASE_MIXED';
-      case 'RESIDENTIAL':
-      default:
-        return 'LEASE_RESIDENTIAL';
-    }
-  }
-
-  private resolveLeaseTemplateCodeForPersistence(usage: string, explicitValue: unknown) {
-    const mappedCode = this.resolveLeaseTemplateCodeForUsage(usage);
-    if (mappedCode) return mappedCode;
-    const explicitCode = explicitValue ? String(explicitValue).trim() : '';
-    return explicitCode || null;
-  }
-
-  private missingLeaseTemplateMessage(usage: unknown) {
-    switch (this.normalizeLeaseUsageCode(usage)) {
-      case 'COMMERCIAL':
-        return "Le mod√®le de contrat commercial n'est pas configur√© pour cette organisation.";
-      case 'PROFESSIONAL':
-        return "Le mod√®le de contrat professionnel n'est pas configur√© pour cette organisation.";
-      case 'MIXED':
-        return "Aucun mod√®le de contrat mixte n'est encore configur√© pour cette organisation.";
-      case 'RESIDENTIAL':
-      default:
-        return "Le mod√®le de contrat r√©sidentiel n'est pas configur√© pour cette organisation.";
-    }
-  }
-
-  private leasePdfV9Enabled() {
-    return String(process.env.LEASE_PDF_V9_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
-  }
-
-  private logLeasePdfV9(step: string, payload: Record<string, unknown>) {
-    this.logger.log(`[LEASE_PDF_V9] ${step} ${JSON.stringify(payload)}`);
-  }
-
-  private mapLeasePdfV9Error(error: any) {
-    if (error instanceof HttpException) {
-      return error;
-    }
-    const persistError = new InternalServerErrorException({
-      code: 'PDF_GENERATION_PERSIST_FAILED',
-      message: error?.message || 'Lease PDF generation failed',
-    });
-    (persistError as any).cause = error;
-    return persistError;
-  }
-
-  private buildLeaseContractSnapshot(lease: Record<string, any>, company: Record<string, any>, generatedAt = new Date()) {
-    const totalMonthly = Number(lease.lease_total_amount ?? 0);
-    const guaranteeMonths = Number(lease.guarantee_months ?? company.default_guarantee_months ?? 0);
-    const guaranteeAmount = Number(lease.rental_guarantee_amount ?? lease.guarantee?.amount ?? 0);
-    const rentAmount = Number(lease.monthly_rent ?? 0);
-    const maintenanceFeeAmount = Number(lease.maintenance_fee_amount ?? 0);
-    const contractNote = this.normalizeOptionalMultilineText(lease.contract_note);
-    const guaranteeBaseAmount = rentAmount + maintenanceFeeAmount;
-    const durationMonths = this.leaseDurationMonths(lease.start_date, lease.end_date) || Number(company.default_lease_duration_months ?? 0);
-    const usageCode = this.normalizeLeaseUsageCode(lease.lease_usage ?? company.default_lease_usage ?? lease.usage_type);
-    const usageLabel = this.leaseUsageLabel(usageCode);
-    const activityDescription = String(lease.lease_activity_description ?? '').trim();
-    const destinationPhrase = activityDescription
-      ? `Les lieux lou√©s sont exclusivement destin√©s √† l'exercice de ${usageCode === 'COMMERCIAL' ? "l'activit√© commerciale" : usageCode === 'PROFESSIONAL' ? "l'activit√© professionnelle" : usageCode === 'MIXED' ? "l'activit√© mixte" : "l'usage"} d√©clar√©e par le Preneur : ${activityDescription}.`
-      : `Les lieux lou√©s sont destin√©s √† un usage ${usageLabel.toLowerCase()}.`;
-    const isCompanyTenant = String(lease.tenant_type ?? 'PHYSICAL') === 'COMPANY';
-    const bedroomCount = Number(lease.bedrooms_count ?? 0);
-    const parkingCount = Number(lease.parking_spaces_count ?? (lease.has_parking ? 1 : 0));
-    const lessorName = company.company_legal_name ?? company.legal_name ?? company.company_name ?? 'NG Property ERP';
-    const representativeFullName = [company.legal_representative_name].filter(Boolean).join(' ').trim();
-    const tenantRepresentative = [
-      lease.legal_representative_name,
-      lease.representative_post_name,
-      lease.representative_first_name,
-    ].filter(Boolean).join(' ').trim();
-    const tenantFullName = [lease.first_name, lease.last_name, lease.post_name].filter(Boolean).join(' ').trim();
-    const buildingAddressParts = [lease.building_address, lease.building_commune, lease.building_neighborhood, lease.building_city].filter(Boolean);
-    const companyAddressParts = [company.company_address ?? company.address ?? '', company.company_commune ?? '', company.company_city ?? '', company.company_country ?? ''].filter(Boolean);
-    const tenantAddressParts = [lease.tenant_address ?? '', lease.tenant_commune ?? '', lease.tenant_city ?? '', lease.tenant_country ?? ''].filter(Boolean);
-    const physicalPresentation = [
-      `Monsieur/Madame ${tenantFullName || lease.tenant_name}`,
-      lease.id_document_type ? `titulaire de la piece d'identite ${lease.id_document_type}` : null,
-      lease.id_number ? `numero ${lease.id_number}` : null,
-      lease.tenant_address ? `domicilie(e) a ${lease.tenant_address}` : null,
-      lease.tenant_commune ? `commune ${lease.tenant_commune}` : null,
-      lease.tenant_city ? `ville ${lease.tenant_city}` : null,
-      lease.tenant_country ? `pays ${lease.tenant_country}` : null,
-    ].filter(Boolean).join(', ');
-    const companyPresentation = [
-      `${lease.company_name || lease.tenant_name || ''}, ${lease.legal_form || ''} / inscrite au Registre du Commerce et du Cr√©dit Mobilier de la Ville de Kinshasa sous le num√©ro RCCM : ${lease.rccm || ''}, ainsi qu‚Äôau Registre du Minist√®re de l‚ÄôEconomie Nationale sous le num√©ro Id. Nat. : ${lease.national_id_number || ''}, dont le Si√®ge social est sis, ${lease.tenant_address || ''} dans la Commune de ${lease.tenant_commune || ''}, √† ${lease.tenant_city || ''} en R√©publique D√©mocratique du Congo ici repr√©sent√©e par Monsieur ${tenantRepresentative || ''} son ${lease.legal_representative_role || ''};`,
-    ].filter(Boolean).join(' ');
-    const apartmentLabel = lease.is_furnished ? 'Meubl√©' : 'Non Meubl√©';
-    const tenantPhysicalNote = '';
-    const signatureDate = lease.signature_date
-      ? this.formatDate(lease.signature_date)
-      : formatDateInTimeZone(generatedAt, 'Africa/Kinshasa');
-    const leaseStartDate = this.formatDate(lease.start_date);
-    const leaseEndDate = this.formatDate(lease.end_date) || this.formatDate(new Date().toISOString().slice(0, 10));
-    const otherChargesAmount = Number(lease.other_charges_amount ?? 0);
-    const rentBreakdown = [
-      rentAmount > 0 ? `‚Ä¢ ${this.formatMoney(rentAmount)} USD loyer de base` : null,
-      maintenanceFeeAmount > 0 ? `‚Ä¢ ${this.formatMoney(maintenanceFeeAmount)} USD frais d'entretien` : null,
-      Number(lease.monthly_syndic_amount ?? 0) > 0 ? `‚Ä¢ ${this.formatMoney(lease.monthly_syndic_amount)} USD syndic` : null,
-      otherChargesAmount > 0 ? `‚Ä¢ ${this.formatMoney(otherChargesAmount)} USD autres charges` : null,
-    ].filter(Boolean).join('\n');
-    const leaseDurationText = durationMonths > 0 ? `${durationMonths} mois` : 'duree en cours';
-    const bedroomCountText = this.frenchNumberWord(bedroomCount);
-    const monthlySectionLines = [
-      `Le loyer mensuel du local est constitu√© de ${this.formatMoney(totalMonthly)} USD le mois dont :`,
-      rentAmount > 0 ? `${this.formatMoney(rentAmount)} USD loyer de base` : null,
-      maintenanceFeeAmount > 0 ? `${this.formatMoney(maintenanceFeeAmount)} USD frais d'entretien` : null,
-      Number(lease.monthly_syndic_amount ?? 0) > 0 ? `${this.formatMoney(lease.monthly_syndic_amount)} USD syndic` : null,
-      otherChargesAmount > 0 ? `${this.formatMoney(otherChargesAmount)} USD autres charges` : null,
-    ].filter(Boolean).join('\n');
-    const guaranteeSection = `La garantie locative √©quivaut √† ${guaranteeMonths} mois (= (${this.formatMoney(rentAmount)} + ${this.formatMoney(maintenanceFeeAmount)}) x ${guaranteeMonths})`;
-    const autresChargesLigne = otherChargesAmount > 0 ? `- Autres charges : ${this.formatMoney(otherChargesAmount)} USD` : '';
-    const landlordSigle = String(company.company_acronym ?? '').trim();
-    const landlordLegalForm = String(company.company_legal_form ?? '').trim();
-    const tenantLegalForm = String(lease.legal_form ?? '').trim();
-    const tenantCompanyName = String(lease.company_name ?? lease.tenant_name ?? '').trim();
-    const nombreParkingsPhrase = parkingCount > 0
-      ? `Un total de ${parkingCount} emplacement(s) de parking est r√©serv√© au Preneur.`
-      : 'Aucun emplacement de parking n‚Äôest r√©serv√© au titre du pr√©sent bail, sauf accord contraire √©crit des Parties.';
-    const tenantIdentificationParagraph = isCompanyTenant
-      ? `¬´ ${tenantCompanyName}${tenantLegalForm ? `, ${tenantLegalForm}` : ''}${lease.rccm ? `, immatricul√©e au Registre du Commerce et du Cr√©dit Mobilier sous le num√©ro ${lease.rccm}` : ''}${lease.national_id_number ? `, enregistr√©e √† l‚ÄôIdentification Nationale sous le num√©ro ${lease.national_id_number}` : ''}${tenantAddressParts.length ? `, dont le si√®ge social est √©tabli √† ${tenantAddressParts.join(', ')}` : ''}${tenantRepresentative ? `, repr√©sent√©e par ${tenantRepresentative}` : ''}${lease.legal_representative_role ? `, agissant en qualit√© de ${lease.legal_representative_role}` : ''} ¬ª`
-      : `¬´ Monsieur/Madame ${tenantFullName || lease.tenant_name}${lease.id_document_type ? `, titulaire de ${lease.id_document_type}` : ''}${lease.id_number ? ` num√©ro ${lease.id_number}` : ''}${tenantAddressParts.length ? `, domicili√©(e) √† ${tenantAddressParts.join(', ')}` : ''} ¬ª`;
-
-    return {
-      LANDLORD_NAME: lessorName,
-      LANDLORD_ACRONYM: company.company_acronym ?? '',
-      LANDLORD_LEGAL_FORM: company.company_legal_form ?? '',
-      LANDLORD_RCCM: company.company_rccm ?? '',
-      LANDLORD_NATIONAL_ID: company.company_national_id ?? '',
-      LANDLORD_TAX_ID: company.company_tax_id ?? '',
-      LANDLORD_ADDRESS: company.company_address ?? company.address ?? '',
-      LANDLORD_COMMUNE: company.company_commune ?? '',
-      LANDLORD_CITY: company.company_city ?? '',
-      LANDLORD_COUNTRY: company.company_country ?? '',
-      LANDLORD_REPRESENTATIVE_NAME: representativeFullName,
-      LANDLORD_REPRESENTATIVE: representativeFullName,
-      LANDLORD_REPRESENTATIVE_CIVILITY: company.legal_representative_civility ?? '',
-      LANDLORD_REPRESENTATIVE_TITLE: company.legal_representative_title ?? '',
-      LANDLORD_PRESENTATION: [
-        lessorName,
-        company.company_legal_form ? `${company.company_legal_form}` : null,
-        company.company_rccm ? `RCCM ${company.company_rccm}` : null,
-        company.company_national_id ? `ID Nat ${company.company_national_id}` : null,
-        (company.company_address ?? company.address) ? `adresse ${company.company_address ?? company.address}` : null,
-        representativeFullName ? `representee par ${representativeFullName}` : null,
-        company.legal_representative_title ? `en qualite de ${company.legal_representative_title}` : null,
-      ].filter(Boolean).join(', '),
-      TENANT_NAME: isCompanyTenant ? (lease.company_name ?? lease.tenant_name) : (tenantFullName || lease.tenant_name),
-      TENANT_CIVILITY: lease.civility ?? '',
-      TENANT_LEGAL_FORM: lease.legal_form ?? '',
-      TENANT_RCCM: lease.rccm ?? '',
-      TENANT_ID: lease.national_id_number ?? lease.id_number ?? '',
-      TENANT_ADDRESS: lease.tenant_address ?? '',
-      TENANT_COMMUNE: lease.tenant_commune ?? '',
-      TENANT_CITY: lease.tenant_city ?? '',
-      TENANT_COUNTRY: lease.tenant_country ?? '',
-      TENANT_REPRESENTATIVE_NAME: tenantRepresentative,
-      TENANT_REPRESENTATIVE_CIVILITY: lease.legal_representative_civility ?? '',
-      TENANT_REPRESENTATIVE_TITLE: lease.legal_representative_role ?? '',
-      TENANT_PRESENTATION: isCompanyTenant ? companyPresentation : physicalPresentation,
-      TENANT_PHYSICAL_NOTE: tenantPhysicalNote,
-      BUILDING_NAME: lease.building_name ?? '',
-      BUILDING_ADDRESS: lease.building_address ?? '',
-      BUILDING_COMMUNE: lease.building_commune ?? '',
-      BUILDING_NEIGHBORHOOD: lease.building_neighborhood ?? '',
-      BUILDING_CITY: lease.building_city ?? '',
-      UNIT_NUMBER: lease.unit_number ?? '',
-      UNIT_FURNISHING: apartmentLabel,
-      APARTMENT_LABEL: apartmentLabel,
-      BEDROOM_COUNT: String(bedroomCount),
-      PARKING_COUNT: String(parkingCount),
-      BEDROOM_COUNT_TEXT: bedroomCountText,
-      START_DATE: leaseStartDate,
-      END_DATE: leaseEndDate,
-      LEASE_DURATION_TEXT: leaseDurationText,
-      NOTICE_MONTHS: String(lease.notice_months ?? company.default_notice_months ?? 0),
-      MONTHLY_RENT: this.formatMoney(lease.monthly_rent),
-      MAINTENANCE_AMOUNT: this.formatMoney(lease.maintenance_fee_amount),
-      SYNDIC_AMOUNT: this.formatMoney(lease.monthly_syndic_amount),
-      OTHER_CHARGES_AMOUNT: this.formatMoney(lease.other_charges_amount),
-      OTHER_CHARGES_LINE: otherChargesAmount > 0 ? `${this.formatMoney(otherChargesAmount)} USD autres charges` : '',
-      CONTRACT_NOTE: contractNote ?? '',
-      MONTHLY_SECTION: monthlySectionLines,
-      RENT_BREAKDOWN: rentBreakdown,
-      MONTHLY_TOTAL: this.formatMoney(totalMonthly),
-      MONTHLY_TOTAL_RAW: this.formatMoney(totalMonthly),
-      CURRENCY: 'USD',
-      GUARANTEE_MONTHS: String(guaranteeMonths),
-      GUARANTEE_TOTAL: this.formatMoney(guaranteeAmount),
-      GUARANTEE_SECTION: guaranteeSection,
-      GENERATED_AT: generatedAt.toISOString(),
-      SIGNATURE_PLACE: lease.signature_place ?? company.default_signature_place ?? company.company_city ?? 'Kinshasa',
-      SIGNATURE_DATE: signatureDate,
-      LEASE_REFERENCE: this.leaseReferenceCode(lease.id),
-      company_phone: company.phone ?? company.primary_phone ?? '',
-      company_email: company.email ?? company.primary_email ?? '',
-      company_logo_file_url: company.logo_file_url ?? company.logo_url ?? null,
-      company_signature_file_url: company.signature_file_url ?? company.signature_url ?? null,
-      company_stamp_file_url: company.stamp_file_url ?? company.stamp_url ?? null,
-      bailleur: {
-        raison_sociale: lessorName,
-        sigle: company.company_acronym ?? '',
-        sigle_phrase: landlordSigle ? ` (${landlordSigle})` : '',
-        forme_juridique: landlordLegalForm,
-        forme_juridique_phrase: landlordLegalForm ? `${landlordLegalForm} ` : '',
-        rccm: company.company_rccm ?? '',
-        identification_nationale: company.company_national_id ?? '',
-        numero_fiscal: company.company_tax_id ?? '',
-        adresse: company.company_address ?? company.address ?? '',
-        adresse_complete: companyAddressParts.join(', '),
-        commune: company.company_commune ?? '',
-        ville: company.company_city ?? '',
-        pays: company.company_country ?? '',
-        representant_nom: representativeFullName,
-        representant_civilite: company.legal_representative_civility ?? '',
-        representant_fonction: company.legal_representative_title ?? '',
-        signature_nom: representativeFullName || lessorName,
-        presentation: [
-          lessorName,
-          company.company_legal_form ? `${company.company_legal_form}` : null,
-          company.company_rccm ? `RCCM ${company.company_rccm}` : null,
-          company.company_national_id ? `ID Nat ${company.company_national_id}` : null,
-          (company.company_address ?? company.address) ? `adresse ${company.company_address ?? company.address}` : null,
-          representativeFullName ? `representee par ${representativeFullName}` : null,
-          company.legal_representative_title ? `en qualite de ${company.legal_representative_title}` : null,
-        ].filter(Boolean).join(', '),
-      },
-      locataire: {
-        type: isCompanyTenant ? 'PERSONNE_MORALE' : 'PERSONNE_PHYSIQUE',
-        civilite: lease.civility ?? '',
-        nom_complet: tenantFullName || lease.tenant_name,
-        raison_sociale: lease.company_name ?? '',
-        forme_juridique: lease.legal_form ?? '',
-        rccm: lease.rccm ?? '',
-        identification_nationale: lease.national_id_number ?? '',
-        type_piece_identite: lease.id_document_type ?? '',
-        numero_piece_identite: lease.id_number ?? '',
-        adresse: lease.tenant_address ?? '',
-        adresse_complete: tenantAddressParts.join(', '),
-        commune: lease.tenant_commune ?? '',
-        ville: lease.tenant_city ?? '',
-        pays: lease.tenant_country ?? '',
-        representant_nom: tenantRepresentative,
-        representant_nom_complet: tenantRepresentative,
-        representant_civilite: lease.legal_representative_civility ?? '',
-        representant_fonction: lease.legal_representative_role ?? '',
-        signature_nom: isCompanyTenant ? (lease.company_name ?? lease.tenant_name) : (tenantFullName || lease.tenant_name),
-        paragraphe_identification: tenantIdentificationParagraph,
-        presentation: isCompanyTenant ? companyPresentation : physicalPresentation,
-      },
-      bien: {
-        numero_unite: lease.unit_number ?? '',
-        immeuble: lease.building_name ?? '',
-        adresse: lease.building_address ?? '',
-        commune: lease.building_commune ?? '',
-        quartier: lease.building_neighborhood ?? '',
-        ville: lease.building_city ?? '',
-        nombre_chambres: String(bedroomCount),
-        nombre_parkings: String(parkingCount),
-        nombre_parkings_phrase: nombreParkingsPhrase,
-        meuble_label: lease.is_furnished ? 'Meuble' : 'Non meuble',
-        appartement_label: apartmentLabel,
-        usage: usageLabel,
-        adresse_complete: buildingAddressParts.join(', '),
-        description_detail: [
-          `l'unite ${lease.unit_number ?? ''}`.trim(),
-          lease.surface_area ? `${lease.surface_area} m2` : null,
-          bedroomCount ? `${bedroomCount} chambre(s)` : null,
-          String(parkingCount) !== '0'
-            ? `${parkingCount} parking(s)`
-            : null,
-          lease.is_furnished ? 'meublee' : 'non meublee',
-        ].filter(Boolean).join(', '),
-      },
-      bail: {
-        date_debut: leaseStartDate,
-        date_fin: leaseEndDate,
-        duree_texte: leaseDurationText,
-        preavis_mois: String(lease.notice_months ?? company.default_notice_months ?? 0),
-        loyer_base: this.formatMoney(lease.monthly_rent),
-        loyer_base_formate: `${this.formatMoney(lease.monthly_rent)} USD`,
-        frais_entretien: this.formatMoney(lease.maintenance_fee_amount),
-        frais_entretien_formate: `${this.formatMoney(lease.maintenance_fee_amount)} USD`,
-        frais_syndic: this.formatMoney(lease.monthly_syndic_amount),
-        frais_syndic_formate: `${this.formatMoney(lease.monthly_syndic_amount)} USD`,
-        autres_charges: this.formatMoney(lease.other_charges_amount),
-        autres_charges_formate: `${this.formatMoney(lease.other_charges_amount)} USD`,
-        autres_charges_ligne: autresChargesLigne,
-        loyer_total: this.formatMoney(totalMonthly),
-        loyer_total_formate: `${this.formatMoney(totalMonthly)} USD`,
-        garantie_nombre_mois: String(guaranteeMonths),
-        garantie_montant: this.formatMoney(guaranteeAmount),
-        garantie_montant_formate: `${this.formatMoney(guaranteeAmount)} USD`,
-        garantie_base_montant: this.formatMoney(guaranteeBaseAmount),
-        devise: 'USD',
-        lieu_signature: lease.signature_place ?? company.default_signature_place ?? company.company_city ?? 'Kinshasa',
-        date_signature: signatureDate,
-        usage_label: usageLabel,
-        usage_label_upper: usageLabel.toUpperCase(),
-        usage_label_lower: usageLabel.toLowerCase(),
-        activite_destination: activityDescription,
-        destination_phrase: destinationPhrase,
-        note_contrat: contractNote,
-        type_contrat: lease.contract_template_code ?? company.default_contract_template_code ?? 'LEASE_RESIDENTIAL',
-      },
-    };
-  }
-
-  private normalizeLeaseUsageCode(value: unknown) {
-    const normalized = String(value ?? '').trim().toUpperCase();
-    if (normalized === 'COMMERCIAL') return 'COMMERCIAL';
-    if (normalized === 'PROFESSIONAL' || normalized === 'PROFESSIONNEL') return 'PROFESSIONAL';
-    if (normalized === 'MIXED' || normalized === 'MIXTE') return 'MIXED';
-    return 'RESIDENTIAL';
-  }
-
-  private leaseUsageLabel(value: unknown) {
-    switch (this.normalizeLeaseUsageCode(value)) {
-      case 'COMMERCIAL':
-        return 'Commercial';
-      case 'PROFESSIONAL':
-        return 'Professionnel';
-      case 'MIXED':
-        return 'Mixte';
-      case 'RESIDENTIAL':
-      default:
-        return 'R√©sidentiel';
-    }
-  }
-
-  private leaseDurationMonths(startValue?: string, endValue?: string | null) {
-    if (!startValue) return 0;
-    const start = new Date(startValue);
-    const end = new Date(endValue ?? new Date().toISOString().slice(0, 10));
-    const months = (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth();
-    return Math.max(months, 0);
-  }
-
-  private formatMoney(value: unknown) {
-    return Number(value ?? 0).toLocaleString('fr-FR', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  }
-
-  private frenchNumberWord(value: number) {
-    const normalized = Math.max(0, Math.floor(Number(value ?? 0)));
-    const dictionary: Record<number, string> = {
-      0: 'Zero',
-      1: 'Un',
-      2: 'Deux',
-      3: 'Trois',
-      4: 'Quatre',
-      5: 'Cinq',
-      6: 'Six',
-      7: 'Sept',
-      8: 'Huit',
-      9: 'Neuf',
-      10: 'Dix',
-    };
-    return dictionary[normalized] ?? String(normalized);
-  }
-
-  private formatDate(value?: string | null) {
-    if (!value) return '';
-    const isoDate = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value));
-    if (isoDate) {
-      return `${isoDate[3]}/${isoDate[2]}/${isoDate[1]}`;
-    }
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return String(value);
-    return date.toLocaleDateString('fr-FR', { timeZone: 'Africa/Kinshasa' });
-  }
-
-  private slugify(value: string) {
-    return value
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-zA-Z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      .slice(0, 80) || 'document';
-  }
-
-  private leaseReferenceCode(id: number) {
-    return `B-${String(id).padStart(6, '0')}`;
-  }
-
-  private leaseReferenceCodeFromNumber(value: unknown) {
-    const numeric = Number(value);
-    if (Number.isInteger(numeric) && numeric > 0) {
-      return `B-${String(numeric).padStart(6, '0')}`;
-    }
-    return 'Bail_sans_reference';
-  }
-
-  private async nextLeaseNumber(client: PoolClient, organizationId: number) {
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`lease-number-${organizationId}`]);
-    const { rows } = await client.query(
-      `SELECT GREATEST(
-         COALESCE(MAX(lease_number), 0),
-         COUNT(*) FILTER (WHERE lease_number IS NULL)
-       ) + 1 AS value
-       FROM leases
-       WHERE organization_id = $1`,
-      [organizationId],
-    );
-    return Number(rows[0]?.value ?? 1);
-  }
-
-  private async archiveLeaseInTransaction(client: PoolClient, id: number, reason?: string) {
-    const organizationId = this.context.organizationId();
-    const archiveReason = String(reason ?? '').trim() || 'Archivage definitif';
-    const leaseResult = await client.query(
-      `SELECT id
-       FROM leases
-       WHERE id = $1
-         AND organization_id = $2
-         AND deleted_at IS NOT NULL
-         AND archived_at IS NULL`,
-      [id, organizationId],
-    );
-    requireRow(leaseResult.rows[0], 'Lease');
-    await client.query(
-      `UPDATE leases
-       SET deleted_at = NULL,
-           deleted_by = NULL,
-           deletion_reason = NULL,
-           archived_at = NOW(),
-           archived_by = $2,
-           archive_reason = $3,
-           updated_at = NOW()
-       WHERE id = $1 AND organization_id = $4`,
-      [id, this.context.userId() ?? null, archiveReason, organizationId],
-    );
-    await this.writeLeaseAudit(client, 'LEASE_ARCHIVED', id, { archive_reason: archiveReason });
-  }
-
-  private async leaseDeletionImpactInTransaction(client: PoolClient, id: number) {
-    const organizationId = this.context.organizationId();
-    const leaseResult = await client.query(
-      `SELECT id, status, deleted_at, archived_at
-       FROM leases
-       WHERE id = $1 AND organization_id = $2`,
-      [id, organizationId],
-    );
-    const lease = requireRow(leaseResult.rows[0], 'Lease') as Record<string, unknown>;
-    const { rows } = await client.query(
-      `
-        WITH invoice_ids AS (
-          SELECT id
-          FROM invoices
-          WHERE lease_id = $1
-            AND organization_id = $2
-            AND deleted_at IS NULL
-        ),
-        payment_ids AS (
-          SELECT DISTINCT p.id
-          FROM payments p
-          LEFT JOIN payment_allocations pa
-            ON pa.payment_id = p.id
-           AND pa.organization_id = $2
-           AND pa.deleted_at IS NULL
-          WHERE p.organization_id = $2
-            AND p.deleted_at IS NULL
-            AND (
-              p.invoice_id IN (SELECT id FROM invoice_ids)
-              OR pa.invoice_id IN (SELECT id FROM invoice_ids)
-            )
-        )
-        SELECT
-          (SELECT COUNT(*)::INT FROM invoice_ids) AS invoices_count,
-          (SELECT COUNT(*)::INT FROM payment_ids) AS payments_count,
-          (
-            SELECT COUNT(*)::INT
-            FROM cash_movements cm
-            WHERE cm.organization_id = $2
-              AND cm.deleted_at IS NULL
-              AND (
-                cm.invoice_id IN (SELECT id FROM invoice_ids)
-                OR cm.payment_id IN (SELECT id FROM payment_ids)
-              )
-          ) AS cash_movements_count,
-          (
-            SELECT COUNT(*)::INT
-            FROM lease_guarantees g
-            WHERE g.lease_id = $1
-              AND g.organization_id = $2
-              AND g.deleted_at IS NULL
-          ) AS guarantees_count,
-          (
-            SELECT COUNT(*)::INT
-            FROM lease_documents d
-            WHERE d.lease_id = $1
-              AND d.organization_id = $2
-              AND d.deleted_at IS NULL
-          ) AS documents_count,
-          (
-            SELECT COUNT(*)::INT
-            FROM lease_contract_generations cg
-            WHERE cg.lease_id = $1
-              AND cg.organization_id = $2
-              AND cg.deleted_at IS NULL
-          ) AS contract_generations_count
-      `,
-      [id, organizationId],
-    );
-    const counts = rows[0] ?? {};
-    const dependencies = [
-      { type: 'invoices', count: Number(counts.invoices_count ?? 0) },
-      { type: 'payments', count: Number(counts.payments_count ?? 0) },
-      { type: 'cash_movements', count: Number(counts.cash_movements_count ?? 0) },
-      { type: 'lease_guarantees', count: Number(counts.guarantees_count ?? 0) },
-      { type: 'lease_documents', count: Number(counts.documents_count ?? 0) },
-      { type: 'lease_contract_generations', count: Number(counts.contract_generations_count ?? 0) },
-    ].filter((entry) => entry.count > 0);
-    const hasFinancialHistory = dependencies.some((entry) =>
-      entry.type === 'invoices'
-      || entry.type === 'payments'
-      || entry.type === 'cash_movements'
-      || entry.type === 'lease_guarantees',
-    );
-    return {
-      lease_id: id,
-      lease_status: String(lease.status ?? ''),
-      deleted_at: lease.deleted_at ?? null,
-      archived_at: lease.archived_at ?? null,
-      canHardDelete: dependencies.length === 0,
-      hasFinancialHistory,
-      dependencies,
-    };
-  }
-
-  private async writeLeaseAudit(client: PoolClient, action: string, leaseId: number, metadata: Record<string, unknown>) {
-    await client.query(
-      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
-       VALUES ($1, $2, $3, 'leases', $4, 'PATCH', $5, 200, $6)`,
-      [
-        this.context.organizationId(),
-        this.context.userId() ?? null,
-        action,
-        String(leaseId),
-        `/api/leases/${leaseId}`,
-        JSON.stringify(metadata),
-      ],
-    );
-  }
-
-  private buildLeasePdfFileName(leaseId: number, contractId: number, templateVersion: number) {
-    const leaseReference = this.leaseReferenceCode(leaseId);
-    const fileName = `${leaseReference}-C${contractId}-V${templateVersion}.pdf`;
-    return fileName.length <= 50 ? fileName : `lease-${leaseId}-C${contractId}-V${templateVersion}.pdf`;
-  }
-
-  private async createDefaultCompanySettings() {
-    const { rows } = await this.db.query(
-      `INSERT INTO company_settings (
-         organization_id, company_name, legal_name, company_legal_name, address, company_address, company_city, company_country,
-         currency, language, timezone, invoice_footer, invoice_bottom_text,
-         default_lease_duration_months, default_notice_months, default_guarantee_months,
-         default_signature_place, default_lease_usage, default_contract_template_code, created_by
-       )
-       VALUES (
-         $1, 'Demo Property ERP', 'Demo Property ERP', 'Demo Property ERP', '22 Avenue des √âcuries', '22 Avenue des √âcuries', 'Kinshasa', 'RDC',
-         'USD', 'fr', 'Africa/Kinshasa', 'Merci pour votre confiance.', 'Facture generee par Property ERP.',
-         12, 1, 3, 'Kinshasa', 'RESIDENTIAL', 'LEASE_RESIDENTIAL', $2
-       )
-       ON CONFLICT (organization_id) DO UPDATE SET organization_id = EXCLUDED.organization_id
-       RETURNING *`,
-      [this.context.organizationId(), this.context.userId() ?? 1],
-    );
-    return rows[0];
-  }
-
-  private async companySettingsRaw() {
-    const { rows } = await this.db.query(
-      `SELECT *
-       FROM company_settings
-       WHERE organization_id = $1 AND deleted_at IS NULL`,
-      [this.context.organizationId()],
-    );
-    return rows[0] ?? null;
-  }
-
-  private companySettingsRow(row: Record<string, any>) {
-    return {
-      ...row,
-      logo_file_name: row.logo_file_name ?? this.legacyFileName(row.logo_url),
-      logo_file_url: row.logo_file_url ?? row.logo_url ?? (row.logo_file_name ? this.companyFileRoute('logo') : null),
-      signature_file_name: row.signature_file_name ?? this.legacyFileName(row.signature_url),
-      signature_file_url:
-        row.signature_file_url ?? row.signature_url ?? (row.signature_file_name ? this.companyFileRoute('signature') : null),
-      stamp_file_name: row.stamp_file_name ?? this.legacyFileName(row.stamp_url),
-      stamp_file_url: row.stamp_file_url ?? row.stamp_url ?? (row.stamp_file_name ? this.companyFileRoute('stamp') : null),
-      logo_url: row.logo_url ?? row.logo_file_url ?? null,
-      signature_url: row.signature_url ?? row.signature_file_url ?? null,
-      stamp_url: row.stamp_url ?? row.stamp_file_url ?? null,
-      company_legal_name_resolved: row.company_legal_name ?? row.legal_name ?? row.company_name ?? '',
-      company_address_resolved: row.company_address ?? row.address ?? '',
-    };
-  }
-
-  private normalizeCompanyFileKind(kind: string) {
-    const normalized = String(kind ?? '').trim().toLowerCase();
-    if (!this.allowedCompanyFileKinds.has(normalized)) {
-      throw new BadRequestException('Type de fichier invalide');
-    }
-    return normalized;
-  }
-
-  private companyFileRoute(kind: string) {
-    return `/api/settings/company-files/${kind}`;
-  }
-
-  private companyStoragePath(kind: string, fileName: string) {
-    return `company/${this.context.organizationId()}/${kind}/${this.sanitizeStorageFileName(fileName)}`;
-  }
-
-  private sanitizeStorageFileName(fileName: string) {
-    const base = String(fileName ?? '').replace(/[\\/]/g, '_').trim();
-    return base.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_.-]/g, '_') || 'file';
-  }
-
-  private originalFileName(fileName: string) {
-    const trimmed = String(fileName ?? '').trim();
-    return trimmed || 'file';
-  }
-
-  private legacyFileName(value: unknown) {
-    if (!value) return null;
-    const text = String(value).trim();
-    if (!text) return null;
-    const last = text.split('?')[0].split('/').pop()?.trim();
-    return last || null;
-  }
-
-  private storageConfig() {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !serviceRoleKey) {
-      throw new BadRequestException('Configuration Supabase manquante');
-    }
-    return {
-      supabaseUrl: supabaseUrl.replace(/\/$/, ''),
-      serviceRoleKey,
-    };
-  }
-
-  private hasStorageConfig() {
-    return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
-  }
-
-  private validateCompanyFile(file: { mimetype: string; size: number }) {
-    if (file.size > 5 * 1024 * 1024) {
-      throw new BadRequestException('Le fichier ne peut pas depasser 5 Mo');
-    }
-    const mimeType = String(file.mimetype ?? '').toLowerCase();
-    if (!this.allowedCompanyFileMimeTypes.has(mimeType)) {
-      throw new BadRequestException('Format de fichier non autorise');
-    }
-  }
-
-  private async uploadToCompanyStorage(kind: string, fileName: string, file: { mimetype: string; buffer: Buffer }) {
-    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
-    const storagePath = this.companyStoragePath(kind, fileName);
-    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.companyStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-        'x-upsert': 'true',
-        'content-type': file.mimetype,
-      },
-      body: file.buffer.buffer.slice(file.buffer.byteOffset, file.buffer.byteOffset + file.buffer.byteLength) as ArrayBuffer,
-    });
-    if (!response.ok) {
-      const details = await response.text();
-      throw new BadRequestException(details || `Impossible de televerser le fichier (${response.status})`);
-    }
-  }
-
-  private async deleteFromCompanyStorage(kind: string, fileName: string) {
-    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
-    const storagePath = this.companyStoragePath(kind, fileName);
-    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.companyStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: `${serviceRoleKey}`,
-      },
-    });
-    if (!response.ok && response.status !== 404) {
-      const details = await response.text();
-      throw new BadRequestException(details || `Impossible de supprimer le fichier (${response.status})`);
-    }
-  }
-
-  private async downloadCompanyStorage(kind: string, fileName: string) {
-    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
-    const storagePath = this.companyStoragePath(kind, fileName);
-    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.companyStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-      },
-    });
-    if (!response.ok) {
-      throw new BadRequestException(`Fichier introuvable (${response.status})`);
-    }
-    const buffer = Buffer.from(await response.arrayBuffer());
-    return {
-      buffer,
-      mimeType: response.headers.get('content-type') ?? 'application/octet-stream',
-      downloadName: fileName,
-    };
-  }
-
-  private leaseContractDownloadRoute(leaseId: number, contractId: number) {
-    return `/api/leases/${leaseId}/contracts/${contractId}/download`;
-  }
-
-  private leaseContractStoragePath(leaseId: number, contractId: number, templateVersion: number, generatedAt: Date, fileName: string) {
-    const timestamp = generatedAt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-    return `contracts/${this.context.organizationId()}/leases/${leaseId}/contract-${contractId}-v${templateVersion}-${timestamp}-${this.sanitizeStorageFileName(fileName)}`;
-  }
-
-  private legacyLeaseContractStoragePath(leaseId: number, contractId: number, fileName: string) {
-    return `leases/${this.context.organizationId()}/contracts/${leaseId}/${contractId}/${this.sanitizeStorageFileName(fileName)}`;
-  }
-
-  private async findLeaseContractStoragePathByPrefix(
-    leaseId: number,
-    contractId: number,
-    templateVersion: number,
-    fileName: string,
-  ) {
-    if (!this.hasStorageConfig()) return null;
-    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
-    const folder = `contracts/${this.context.organizationId()}/leases/${leaseId}`;
-    const response = await fetch(`${supabaseUrl}/storage/v1/object/list/${this.leaseContractStorageBucket}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        prefix: folder,
-        limit: 100,
-        offset: 0,
-        sortBy: { column: 'name', order: 'desc' },
-      }),
-    });
-    if (!response.ok) {
-      return null;
-    }
-    const objects = (await response.json()) as Array<{ name?: string; updated_at?: string; created_at?: string }> | null;
-    const prefix = `contract-${contractId}-v${templateVersion}-`;
-    const sanitizedFileName = this.sanitizeStorageFileName(fileName);
-    const candidates = (objects ?? [])
-      .filter((entry) => {
-        const name = String(entry?.name ?? '');
-        return name.startsWith(prefix) && name.toLowerCase().endsWith('.pdf');
-      })
-      .sort((left, right) => {
-        const leftDate = new Date(String(left.updated_at ?? left.created_at ?? '')).getTime();
-        const rightDate = new Date(String(right.updated_at ?? right.created_at ?? '')).getTime();
-        return rightDate - leftDate;
-      });
-    const exactMatch = candidates.find((entry) => String(entry.name).endsWith(`-${sanitizedFileName}`));
-    const selected = exactMatch ?? candidates[0];
-    return selected ? `${folder}/${String(selected.name)}` : null;
-  }
-
-  private async uploadLeaseContractDocxToStorage(storagePath: string, buffer: Buffer) {
-    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
-    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.leaseContractStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-        'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      },
-      body: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer,
-    });
-    if (!response.ok) {
-      const details = await response.text();
-      throw new BadRequestException(details || `Impossible de televerser le contrat Word (${response.status})`);
-    }
-  }
-
-  private async uploadLeaseContractPdfToStorage(storagePath: string, buffer: Buffer) {
-    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
-    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.leaseContractStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-        'content-type': LEASE_PDF_MIME_TYPE,
-      },
-      body: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer,
-    });
-    if (!response.ok) {
-      const details = await response.text();
-      throw new BadRequestException({
-        code: 'PDF_STORAGE_UPLOAD_FAILED',
-        message: details || `Impossible de televerser le contrat PDF (${response.status})`,
-      });
-    }
-  }
-
-  private async deleteUploadedLeaseContractStorage(storagePath: string) {
-    if (!this.hasStorageConfig()) return;
-    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
-    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.leaseContractStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-      },
-    });
-    if (!response.ok && response.status !== 404) {
-      const details = await response.text();
-      throw new BadRequestException({
-        code: 'PDF_STORAGE_ORPHAN_CLEANUP_FAILED',
-        message: details || `Impossible de supprimer le contrat PDF orphelin (${response.status})`,
-      });
-    }
-  }
-
-  private async downloadLeaseContractStorage(storagePath: string, fileName: string, fallbackMimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-    const { supabaseUrl, serviceRoleKey } = this.storageConfig();
-    const response = await fetch(`${supabaseUrl}/storage/v1/object/${this.leaseContractStorageBucket}/${this.encodeStoragePath(storagePath)}`, {
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-      },
-    });
-    if (!response.ok) {
-      throw new BadRequestException(`Contrat Word introuvable (${response.status})`);
-    }
-    const buffer = Buffer.from(await response.arrayBuffer());
-    return {
-      buffer,
-      mimeType: response.headers.get('content-type') ?? fallbackMimeType,
-      downloadName: fileName,
-    };
-  }
-
-  private async persistLeaseContractDocx(
-    leaseId: number,
-    contractId: number,
-    templateVersion: number,
-    generatedAt: Date,
-    fileName: string,
-    buffer: Buffer,
-  ) {
-    const storagePath = this.leaseContractStoragePath(leaseId, contractId, templateVersion, generatedAt, fileName);
-    if (!this.hasStorageConfig()) {
-      return {
-        fileName,
-        storagePath,
-        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        fileUrl: `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${buffer.toString('base64')}`,
-      };
-    }
-    await this.uploadLeaseContractDocxToStorage(storagePath, buffer);
-    return {
-      fileName,
-      storagePath,
-      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      fileUrl: this.leaseContractDownloadRoute(leaseId, contractId),
-    };
-  }
-
-  private async persistLeaseContractPdf(
-    leaseId: number,
-    contractId: number,
-    templateVersion: number,
-    generatedAt: Date,
-    fileName: string,
-    buffer: Buffer,
-  ) {
-    const storagePath = this.leaseContractStoragePath(leaseId, contractId, templateVersion, generatedAt, fileName);
-    if (!this.hasStorageConfig()) {
-      return {
-        fileName,
-        storagePath,
-        mimeType: LEASE_PDF_MIME_TYPE,
-        fileUrl: `data:${LEASE_PDF_MIME_TYPE};base64,${buffer.toString('base64')}`,
-      };
-    }
-    await this.uploadLeaseContractPdfToStorage(storagePath, buffer);
-    return {
-      fileName,
-      storagePath,
-      mimeType: LEASE_PDF_MIME_TYPE,
-      fileUrl: this.leaseContractDownloadRoute(leaseId, contractId),
-    };
-  }
-
-  private dataUrlFile(fileUrl: string, fileName: string) {
-    const match = fileUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (!match) {
-      throw new BadRequestException('Document invalide');
-    }
-    return {
-      buffer: Buffer.from(match[2], 'base64'),
-      mimeType: match[1],
-      downloadName: fileName,
-    };
-  }
-
-  private encodeStoragePath(path: string) {
-    return path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
-  }
-
-  private async auditRead(action: string, resource: string, resourceId: string) {
-    await this.db.query(
-      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
-       VALUES ($1, $2, $3, $4, $5, 'GET', $6, 200, $7)`,
-      [
-        this.context.organizationId(),
-        this.context.userId() ?? null,
-        action,
-        resource,
-        resourceId,
-        `/api/${resource}/${resourceId}`,
-        JSON.stringify({ reserved: true }),
-      ],
-    );
-  }
-
-  private async createCashMovementInTransaction(client: PoolClient, body: Record<string, unknown>) {
-    const session = await this.openSession(client);
-    const type = String(body.type ?? 'OUT');
-    const category = String(body.category ?? (type === 'IN' ? 'OTHER_INCOME' : 'OTHER_EXPENSE'));
-    const pieceNumber = body.piece_number ?? await this.nextCashPieceNumber(client, type);
-    const currency = String(body.currency ?? 'USD').toUpperCase();
-    const exchangeRateUsed = Number(body.exchange_rate_used ?? 0) || null;
-    const amount = Number(body.amount ?? 0);
-    const equivalentUsd = Number(body.equivalent_usd ?? (currency === 'CDF' && exchangeRateUsed ? amount / exchangeRateUsed : amount));
-    const supportsPieceNumber = await this.columnExists('cash_movements', 'piece_number');
-    const supportsStockPurchaseId = await this.columnExists('cash_movements', 'stock_purchase_id');
-    const supportsCurrencyFields = await this.columnExists('cash_movements', 'currency')
-      || await this.columnExists('cash_movements', 'exchange_rate_used')
-      || await this.columnExists('cash_movements', 'exchange_rate_date')
-      || await this.columnExists('cash_movements', 'equivalent_usd');
-    const insertColumns = [
-      'cash_session_id',
-      'type',
-      'label',
-      'category',
-      'amount',
-      'movement_date',
-      'payment_id',
-      'invoice_id',
-      'tenant_id',
-      'employee_id',
-      'supplier',
-      'description',
-      'reference',
-      'attachment_file_name',
-      'attachment_file_url',
-      'created_by',
-      'organization_id',
-    ];
-    if (supportsPieceNumber) {
-      insertColumns.splice(1, 0, 'piece_number');
-    }
-    if (supportsStockPurchaseId) {
-      insertColumns.splice(insertColumns.indexOf('created_by'), 0, 'stock_purchase_id');
-    }
-    const insertValues: unknown[] = [
-      session.id,
-      type,
-      String(body.label ?? body.description ?? body.category ?? 'Mouvement de caisse'),
-      category,
-      Number(body.amount ?? 0),
-      body.movement_date ?? new Date().toISOString().slice(0, 10),
-      body.payment_id ?? null,
-      body.invoice_id ?? null,
-      body.tenant_id ?? null,
-      body.employee_id ?? null,
-      body.supplier ?? null,
-      body.description ?? null,
-      body.reference ?? null,
-      body.attachment_file_name ?? null,
-      body.attachment_file_url ?? null,
-      this.context.userId() ?? body.created_by ?? 1,
-      this.context.organizationId(),
-    ];
-    if (supportsPieceNumber) {
-      insertValues.splice(1, 0, pieceNumber);
-    }
-    if (supportsStockPurchaseId) {
-      insertValues.splice(insertValues.length - 2, 0, body.stock_purchase_id ?? null);
-    }
-    if ((body.treasury_transfer_id ?? null) !== null && await this.columnExists('cash_movements', 'treasury_transfer_id')) {
-      insertColumns.push('treasury_transfer_id');
-      insertValues.push(Number(body.treasury_transfer_id ?? 0) || null);
-    }
-    const placeholders = insertValues.map((_, index) => `$${index + 1}`);
-    const { rows } = await client.query(
-      `INSERT INTO cash_movements
-       (${insertColumns.join(', ')})
-       VALUES (${placeholders.join(', ')})
-       RETURNING *`,
-      insertValues,
-    );
-    if (supportsCurrencyFields) {
-      const updateSets: string[] = [];
-      const updateValues: unknown[] = [rows[0].id];
-      if (await this.columnExists('cash_movements', 'currency')) {
-        updateValues.push(currency);
-        updateSets.push(`currency = $${updateValues.length}`);
-      }
-      if (await this.columnExists('cash_movements', 'exchange_rate_used')) {
-        updateValues.push(exchangeRateUsed);
-        updateSets.push(`exchange_rate_used = $${updateValues.length}`);
-      }
-      if (await this.columnExists('cash_movements', 'exchange_rate_date')) {
-        updateValues.push(body.exchange_rate_date ?? null);
-        updateSets.push(`exchange_rate_date = $${updateValues.length}`);
-      }
-      if (await this.columnExists('cash_movements', 'equivalent_usd')) {
-        updateValues.push(equivalentUsd);
-        updateSets.push(`equivalent_usd = $${updateValues.length}`);
-      }
-      if (updateSets.length > 0) {
-        updateValues.push(this.context.organizationId());
-        await client.query(
-          `UPDATE cash_movements
-           SET ${updateSets.join(', ')}
-           WHERE id = $1 AND organization_id = $${updateValues.length}`,
-          updateValues,
-        );
-      }
-    }
-    const refreshed = await client.query(
-      `SELECT *
-       FROM cash_movements
-       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
-      [rows[0].id, this.context.organizationId()],
-    );
-    return refreshed.rows[0] ?? rows[0];
-  }
-
-  private async createGuaranteeCashMovementInTransaction(client: PoolClient, body: Record<string, unknown>) {
-    const currency = String(body.currency ?? 'USD').toUpperCase();
-    const exchangeRateUsed = Number(body.exchange_rate_used ?? 0) || null;
-    const amount = Number(body.amount ?? 0);
-    const equivalentUsd = Number(body.equivalent_usd ?? (currency === 'CDF' && exchangeRateUsed ? amount / exchangeRateUsed : amount));
-    const { rows } = await client.query(
-      `INSERT INTO guarantee_cash_movements
-       (organization_id, movement_type, type, amount, currency, exchange_rate_used, exchange_rate_date, equivalent_usd,
-        movement_date, lease_id, lease_guarantee_id, payment_id, tenant_id, reference, reason, notes, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-               $9, $10, $11, $12, $13, $14, $15, $16, $17)
-       RETURNING *`,
-      [
-        this.context.organizationId(),
-        String(body.movement_type ?? 'GARANTY_EXPENSE'),
-        String(body.type ?? 'OUT'),
-        amount,
-        currency,
-        exchangeRateUsed,
-        body.exchange_rate_date ?? null,
-        Number.isFinite(equivalentUsd) ? Number(equivalentUsd.toFixed(2)) : amount,
-        body.movement_date ?? new Date().toISOString().slice(0, 10),
-        body.lease_id ?? null,
-        body.lease_guarantee_id ?? null,
-        body.payment_id ?? null,
-        body.tenant_id ?? null,
-        body.reference ?? null,
-        body.reason ?? null,
-        body.notes ?? null,
-        this.context.userId() ?? 1,
-      ],
-    );
-    return rows[0];
-  }
-
-  private guaranteeCashWhere(filters: Record<string, unknown> = {}) {
-    const values: unknown[] = [this.context.organizationId()];
-    const clauses = ['gcm.organization_id = $1', 'gcm.deleted_at IS NULL'];
-    const add = (sql: string, value: unknown) => {
-      values.push(value);
-      clauses.push(sql.replace('?', `$${values.length}`));
-    };
-    if (filters.date_from) add('gcm.movement_date >= ?::DATE', String(filters.date_from));
-    if (filters.date_to) add('gcm.movement_date <= ?::DATE', String(filters.date_to));
-    if (filters.currency) add('gcm.currency = ?', String(filters.currency).toUpperCase());
-    if (filters.type) add('gcm.movement_type = ?', String(filters.type).toUpperCase());
-    if (filters.lease_id) add('gcm.lease_id = ?::INT', Number(filters.lease_id));
-    if (filters.tenant_id) add('gcm.tenant_id = ?::INT', Number(filters.tenant_id));
-    if (filters.user_id) add('gcm.created_by = ?::INT', Number(filters.user_id));
-    if (filters.payment_id) add('gcm.payment_id = ?::INT', Number(filters.payment_id));
-    return { where: `WHERE ${clauses.join(' AND ')}`, values };
-  }
-
-  private async ensureGuaranteeCashSchema() {
-    if (!(await this.tableExists('guarantee_cash_movements')) || !(await this.columnExists('payments', 'guarantee_cash_movement_id'))) {
-      throw new BadRequestException('La caisse des garanties locatives n est pas encore configuree.');
-    }
-  }
-
-  private syndicCashWhere(filters: Record<string, unknown> = {}) {
-    const values: unknown[] = [this.context.organizationId()];
-    const clauses = ['scm.organization_id = $1', 'scm.deleted_at IS NULL'];
-    const add = (sql: string, value: unknown) => {
-      values.push(value);
-      clauses.push(sql.replace('?', `$${values.length}`));
-    };
-    if (filters.date_from) add('scm.movement_date >= ?::DATE', String(filters.date_from));
-    if (filters.date_to) add('scm.movement_date <= ?::DATE', String(filters.date_to));
-    if (filters.currency) add('scm.currency = ?', String(filters.currency).toUpperCase());
-    if (filters.payment_method) add('scm.payment_method = ?', String(filters.payment_method).toUpperCase());
-    if (filters.treasury_location) add('scm.treasury_location = ?', String(filters.treasury_location).toUpperCase());
-    if (filters.payment_id) add('scm.payment_id = ?::INT', Number(filters.payment_id));
-    if (filters.invoice_id) add('scm.invoice_id = ?::INT', Number(filters.invoice_id));
-    if (filters.tenant_id) add('scm.tenant_id = ?::INT', Number(filters.tenant_id));
-    return { where: `WHERE ${clauses.join(' AND ')}`, values };
-  }
-
-  private async ensureSyndicCashSchema(client?: PoolClient) {
-    const query = `SELECT 1
-       FROM information_schema.tables
-       WHERE table_schema = 'public'
-         AND table_name = 'syndic_cash_movements'
-       LIMIT 1`;
-    const result = client
-      ? await client.query(query)
-      : await this.db.query(query);
-    const { rows } = result;
-    if (!rows[0]) {
-      throw new BadRequestException('La caisse syndic n est pas encore configuree.');
-    }
-  }
-
-  private async auditGuaranteeCash(client: PoolClient, action: string, movementId: number, metadata: Record<string, unknown>) {
-    await client.query(
-      `INSERT INTO audit_logs (organization_id, user_id, action, resource, resource_id, method, path, status_code, metadata)
-       VALUES ($1, $2, $3, 'guarantee_cash', $4, 'POST', $5, 201, $6::JSONB)`,
-      [
-        this.context.organizationId(),
-        this.context.userId() ?? null,
-        action,
-        String(movementId),
-        `/api/guarantee-cash/movements/${movementId}`,
-        JSON.stringify(metadata),
-      ],
-    );
-  }
-
-  private async nextCashPieceNumber(client: PoolClient, type: string) {
-    const prefix = type === 'IN' ? 'E' : 'D';
-    const { rows } = await client.query(
-      `SELECT COALESCE(MAX(NULLIF(SUBSTRING(piece_number FROM '([0-9]+)$'), '')::INT), 0) + 1 AS value
-       FROM cash_movements
-       WHERE organization_id = $1 AND deleted_at IS NULL AND piece_number LIKE $2`,
-      [this.context.organizationId(), `${prefix}-%`],
-    );
-    return `${prefix}-${String(rows[0]?.value ?? 1).padStart(4, '0')}`;
-  }
-
-  private async insertInTransaction(client: PoolClient, table: string, body: Record<string, unknown>, allowed: string[]) {
-    const payload: Record<string, unknown> = { ...body, organization_id: this.context.organizationId() };
-    const keys = [...allowed, 'organization_id'].filter((key, index, arr) => arr.indexOf(key) === index && payload[key] !== undefined);
-    if (!keys.length) throw new BadRequestException('No data provided');
-    const values = keys.map((key) => payload[key]);
-    const placeholders = keys.map((_, index) => `$${index + 1}`);
-    const { rows } = await client.query(
-      `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`,
-      values,
-    );
-    return rows[0];
-  }
-
-  private async nextEmployeeNumber(client: PoolClient) {
-    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`employee-number-${this.context.organizationId()}`]);
-    const { rows } = await client.query(
-      `SELECT COALESCE(MAX(NULLIF(regexp_replace(employee_number, '[^0-9]', '', 'g'), '')::INT), 0) + 1 AS value
-       FROM employees
-       WHERE organization_id = $1`,
-      [this.context.organizationId()],
-    );
-    return `EMP-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
-  }
-
-  private normalizeOptionalPositiveInt(value: unknown) {
-    if (value === undefined || value === null || value === '') return null;
-    const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-      throw new BadRequestException('Identifiant de r√©f√©rentiel RH invalide.');
-    }
-    return parsed;
-  }
-
-  private async resolveHrCatalogName(
-    client: Pick<DatabaseService, 'query'> | PoolClient,
-    table: 'hr_services' | 'hr_positions',
-    id: number | null,
-    fallbackValue: unknown,
-  ) {
-    if (id) {
-      const { rows } = await (client as any).query(
-        `SELECT name
-         FROM ${table}
-         WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
-        [id, this.context.organizationId()],
-      );
-      if (!rows[0]?.name) {
-        throw new BadRequestException(table === 'hr_services' ? 'Service introuvable.' : 'Fonction introuvable.');
-      }
-      return String(rows[0].name);
-    }
-    const fallback = String(fallbackValue ?? '').trim();
-    return fallback || null;
-  }
-
-  private normalizeHrCatalogPayload(body: Record<string, unknown>) {
-    const name = String(body.name ?? '').trim();
-    if (!name) {
-      throw new BadRequestException('Le nom est obligatoire.');
-    }
-    const status = String(body.status ?? 'ACTIVE').trim().toUpperCase() || 'ACTIVE';
-    if (!['ACTIVE', 'INACTIVE'].includes(status)) {
-      throw new BadRequestException('Statut RH invalide.');
-    }
-    const code = String(body.code ?? '').trim().toUpperCase();
-    return {
-      code: code || null,
-      name,
-      description: String(body.description ?? '').trim() || null,
-      status,
-    };
-  }
-
-  private normalizeInitialEmployeeContractPayload(body: Record<string, unknown>, values: {
-    contractType: unknown;
-    startDate: unknown;
-    endDate: unknown;
-    salaryAmount: unknown;
-    currency: unknown;
-    jobTitle: unknown;
-    department: unknown;
-    observations: unknown;
-    status: unknown;
-  }) {
-    const contractType = String(values.contractType ?? '').trim();
-    if (!contractType) {
-      throw new BadRequestException('Type de contrat requis.');
-    }
-    const startDate = this.normalizeHrDate(values.startDate, 'date de d√©but du contrat', true);
-    const endDate = this.normalizeHrDate(values.endDate, 'date de fin du contrat');
-    if (contractType.toUpperCase() === 'CDD' && !endDate) {
-      throw new BadRequestException('Date de fin obligatoire pour un CDD.');
-    }
-    if (endDate && startDate && endDate <= startDate) {
-      throw new BadRequestException('La date de fin du contrat doit √™tre post√©rieure √† la date de d√©but.');
-    }
-    const salaryAmount = Number(values.salaryAmount ?? 0);
-    if (!Number.isFinite(salaryAmount) || salaryAmount < 0) {
-      throw new BadRequestException('Salaire de contrat invalide.');
-    }
-    const currency = String(values.currency ?? 'USD').trim().toUpperCase();
-    if (salaryAmount > 0 && !currency) {
-      throw new BadRequestException('Devise obligatoire pour le contrat.');
-    }
-    const status = String(values.status ?? 'ACTIVE').trim().toUpperCase() || 'ACTIVE';
-    if (!['ACTIVE', 'DRAFT', 'PENDING', 'FUTURE', 'TERMINATED'].includes(status)) {
-      throw new BadRequestException('Statut de contrat invalide.');
-    }
-    return {
-      contract_type: contractType,
-      start_date: startDate,
-      end_date: contractType.toUpperCase() === 'CDI' ? null : endDate,
-      salary_amount: salaryAmount,
-      currency: currency || 'USD',
-      job_title: String(values.jobTitle ?? '').trim() || null,
-      department: String(values.department ?? '').trim() || null,
-      observations: String(values.observations ?? '').trim() || null,
-      status,
-    };
-  }
-
-  private normalizeHrDate(value: unknown, fieldName: string, required = false) {
-    if (value === undefined || value === null || value === '') {
-      if (required) throw new BadRequestException(`Date requise pour ${fieldName}.`);
-      return null;
-    }
-    const raw = String(value).trim();
-    if (!raw) {
-      if (required) throw new BadRequestException(`Date requise pour ${fieldName}.`);
-      return null;
-    }
-    const isoDate = /^\d{4}-\d{2}-\d{2}/.exec(raw)?.[0];
-    if (isoDate) return isoDate;
-    const parsed = new Date(raw);
-    if (Number.isNaN(parsed.getTime())) {
-      throw new BadRequestException(`Date invalide pour ${fieldName}.`);
-    }
-    return parsed.toISOString().slice(0, 10);
-  }
-
-  private normalizeCashExpenseCategoryPayload(body: Record<string, unknown>) {
-    const name = String(body.name ?? '').trim();
-    if (!name) {
-      throw new BadRequestException('Le nom de la cat√©gorie est obligatoire.');
-    }
-    const status = String(body.status ?? 'ACTIVE').trim().toUpperCase() || 'ACTIVE';
-    if (!['ACTIVE', 'INACTIVE'].includes(status)) {
-      throw new BadRequestException('Statut de cat√©gorie de d√©pense invalide.');
-    }
-    return {
-      code: this.buildCashExpenseCategoryCode(body.code, name),
-      name,
-      description: String(body.description ?? '').trim() || null,
-      status,
-    };
-  }
-
-  private buildCashExpenseCategoryCode(value: unknown, fallbackName: string) {
-    const raw = String(value ?? '').trim() || fallbackName;
-    const normalized = raw
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toUpperCase()
-      .replace(/[^A-Z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      .slice(0, 40);
-    if (!normalized) {
-      throw new BadRequestException('Code de cat√©gorie de d√©pense invalide.');
-    }
-    return normalized;
-  }
-
-  private handleCashExpenseCategorySchemaError(error: any) {
-    if (error?.code === '42P01' || error?.code === '42703') {
-      throw new ServiceUnavailableException(
-        'Le r√©f√©rentiel des cat√©gories de d√©pense n‚Äôest pas disponible. Appliquez la migration 20260717_cash_expense_categories.sql.',
-      );
-    }
-  }
-
-  private async findCashExpenseCategoryForTrash(code: string) {
-    const normalizedCode = String(code ?? '').trim().toUpperCase();
-    const supportsIsActive = await this.columnExists('cash_expense_categories', 'is_active');
-    const supportsStatus = await this.columnExists('cash_expense_categories', 'status');
-    const activeExpression = supportsIsActive
-      ? 'COALESCE(is_active, TRUE) = TRUE'
-      : supportsStatus
-        ? `COALESCE(UPPER(status), 'ACTIVE') = 'ACTIVE'`
-        : 'TRUE';
-    const selectedColumns = [
-      'id',
-      'code',
-      supportsIsActive
-        ? 'COALESCE(is_active, TRUE) AS is_active'
-        : supportsStatus
-          ? `CASE WHEN COALESCE(UPPER(status), 'ACTIVE') = 'ACTIVE' THEN TRUE ELSE FALSE END AS is_active`
-          : 'TRUE AS is_active',
-    ].join(', ');
-    const { rows } = await this.db.query(
-      `SELECT ${selectedColumns}
-       FROM cash_expense_categories
-       WHERE organization_id = $1
-         AND deleted_at IS NULL
-         AND UPPER(TRIM(code)) = $2
-         AND ${activeExpression}
-       LIMIT 1`,
-      [this.context.organizationId(), normalizedCode],
-    );
-    return {
-      matchedCategory: rows[0] ?? null,
-      normalizedCode,
-      exists: Boolean(rows[0]),
-    };
-  }
-
-  private async createHrCatalogRow(table: 'hr_services' | 'hr_positions', body: Record<string, unknown>) {
-    const payload = this.normalizeHrCatalogPayload(body);
-    try {
-      return await this.db.transaction(async (client) => {
-        payload.code = await this.nextHrCatalogCode(client, table);
-        return this.insertInTransaction(client, table, payload, ['code', 'name', 'description', 'status']);
-      });
-    } catch (error: any) {
-      if (error?.code === '23505') {
-        throw new ConflictException('Cette valeur existe d√©j√† dans le r√©f√©rentiel RH.');
-      }
-      throw error;
-    }
-  }
-
-  private async updateHrCatalogRow(table: 'hr_services' | 'hr_positions', id: number, body: Record<string, unknown>) {
-    const payload = this.normalizeHrCatalogPayload(body);
-    delete (payload as Record<string, unknown>).code;
-    try {
-      return await this.updateById(table, id, payload, ['name', 'description', 'status']);
-    } catch (error: any) {
-      if (error?.code === '23505') {
-        throw new ConflictException('Cette valeur existe d√©j√† dans le r√©f√©rentiel RH.');
-      }
-      throw error;
-    }
-  }
-
-  private async deactivateHrCatalogRow(table: 'hr_services' | 'hr_positions', id: number) {
-    const { rows } = await this.db.query(
-      `UPDATE ${table}
-       SET status = 'INACTIVE',
-           updated_at = NOW()
-       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
-       RETURNING *`,
-      [id, this.context.organizationId()],
-    );
-    return requireRow(rows[0], table);
-  }
-
-  private async nextEmployeeContractNumber(client: PoolClient) {
-    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`employee-contract-${this.context.organizationId()}`]);
-    const { rows } = await client.query(
-      `SELECT COALESCE(MAX(NULLIF(regexp_replace(contract_number, '[^0-9]', '', 'g'), '')::INT), 0) + 1 AS value
-       FROM employee_contracts
-       WHERE organization_id = $1`,
-      [this.context.organizationId()],
-    );
-    return `CTR-${String(rows[0]?.value ?? 1).padStart(6, '0')}`;
-  }
-
-  private async nextHrCatalogCode(client: PoolClient, table: 'hr_services' | 'hr_positions') {
-    const prefix = table === 'hr_services' ? 'SRV' : 'FCT';
-    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`${table}-code-${this.context.organizationId()}`]);
-    const { rows } = await client.query(
-      `SELECT COALESCE(MAX(NULLIF(SUBSTRING(code FROM '([0-9]+)$'), '')::INT), 0) + 1 AS value
-       FROM ${table}
-       WHERE organization_id = $1
-         AND code LIKE $2`,
-      [this.context.organizationId(), `${prefix}-%`],
-    );
-    return `${prefix}-${String(rows[0]?.value ?? 1).padStart(4, '0')}`;
-  }
-}
+       €^∑Èº≠z &ä€^u10(ÄÄÄÄÄÄÅ1PÅ)=%8Å—ïπÖπ—ÃÅ—ï∏Å=8Å—ï∏π•êÄÙÅ=1M°â§π—ïπÖπ—}•ê∞Åâ∞π—ïπÖπ—}•ê§Å9Å—ï∏πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å—ï∏πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ…â∞Å=8Å…â∞π•êÄÙÅâ–πÕΩ’…çï}ïπ—•—Â}•ê(ÄÄÄÄÄÄÄÄÅ9Åâ–πÕΩ’…çï}µΩë’±îÄÙÄùUI9QLú(ÄÄÄÄÄÄÄÄÅ9Åâ–πÕΩ’…çï}ïπ—•—Â}—Â¡îÄÙÄùUI9Q}IU9ú(ÄÄÄÄÄÄÄÄÅ9Å…â∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ9Å…â∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ…â‘Å=8Å…â‘π•êÄÙÅ…â∞π’π•—}•êÅ9Å…â‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å…â‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å—ïπÖπ—ÃÅ…—ï∏Å=8Å…—ï∏π•êÄÙÅ…â∞π—ïπÖπ—}•êÅ9Å…—ï∏πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å…—ï∏πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ—ç∞Å=8Å—ç∞π•êÄÙÅ—ç…ïêπ±ïÖÕï}•êÅ9Å—ç∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å—ç∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ—ç‘Å=8Å—ç‘π•êÄÙÅ—ç∞π’π•—}•êÅ9Å—ç‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å—ç‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å—ïπÖπ—ÃÅ——ï∏Å=8Å——ï∏π•êÄÙÅ—ç…ïêπ—ïπÖπ—}•êÅ9Å——ï∏πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å——ï∏πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄëÌ—…ïÖÕ’…Â)Ω•πÙ(ÄÄÄÄÄÄÅ]!IÅâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Åâ–π•êÄÙÄê…Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å•ët∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞Äù	Öπ¨Å—…ÖπÕÖç—•Ω∏ú§Ï(ÄÅÙ((ÄÅÖÕÂπåÅ—…ïÖÕ’…ÂQ…ÖπÕôï…Ω…µÖ—Ñ°ÕΩ’…çïIïù•Õ—ï»ËÄù5%9}M úÅÄù	9,ú§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ï	Öπ≠Mç°ïµÑ†§Ï(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïQ…ïÖÕ’…ÂQ…ÖπÕôï…Mç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–ÅmâÖπ≠ççΩ’π—Ã∞ÅçÖÕ°	Ö±ÖπçïÃ∞ÅçÖÕ°MïÕÕ•ΩπIïÕ’±—tÄÙÅÖ›Ö•–ÅA…Ωµ•ÕîπÖ±∞°l(ÄÄÄÄÄÅ—°•ÃπÕ°Ö…ï°Ω±ëï…	Öπ≠ççΩ’π—Ã†§∞(ÄÄÄÄÄÅ—°•Ãπ—…ïÖÕ’…ÂÖÕ°	Ö±ÖπçïÃ†§∞(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ•ê∞ÅÕ—Ö—’Ã∞ÅΩ¡ïπïë}Ö–∞ÅΩ¡ïπ•πù}âÖ±Öπçî(ÄÄÄÄÄÄÄÄÅI=4ÅçÖÕ°}ÕïÕÕ•ΩπÃ(ÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9ÅÕ—Ö—’ÃÄÙÄù=A8ú(ÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅΩ¡ïπïë}Ö–ÅM(ÄÄÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§∞(ÄÄÄÅt§Ï(ÄÄÄÅçΩπÕ–Å—…ÖπÕôï…QÂ¡ïÃËÅ……Ö‰ÒÏÅŸÖ±’îËÅÕ—…•πúÏÅ±Öâï∞ËÅÕ—…•πúÅÙ¯ÄÙÅmtÏ(ÄÄÄÅ•òÄ°—°•Ãπ°ÖÕAï…µ•ÕÕ•Ω∏†ù—…ïÖÕ’…Â}—…ÖπÕôï…Ãπô…Ωµ}çÖÕ†ú§§ÅÏ(ÄÄÄÄÄÅ—…ÖπÕôï…QÂ¡ïÃπ¡’Õ†°ÏÅŸÖ±’îËÄùM!}Q=}	9,ú∞Å±Öâï∞ËÄù•√—–Åï∏ÅâÖπ≈’îúÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°—°•Ãπ°ÖÕAï…µ•ÕÕ•Ω∏†ù—…ïÖÕ’…Â}—…ÖπÕôï…Ãπô…Ωµ}âÖπ¨ú§§ÅÏ(ÄÄÄÄÄÅ—…ÖπÕôï…QÂ¡ïÃπ¡’Õ†°ÏÅŸÖ±’îËÄù	9-}Q=}M ú∞Å±Öâï∞ËÄùIï—…Ö•–ÅâÖπçÖ•…îÅŸï…ÃÅçÖ•ÕÕîúÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄù	9,úÄòòÅ—°•Ãπ°ÖÕAï…µ•ÕÕ•Ω∏†ù—…ïÖÕ’…Â}—…ÖπÕôï…ÃπâÖπ≠}—Ω}âÖπ¨ú§§ÅÏ(ÄÄÄÄÄÅ—…ÖπÕôï…QÂ¡ïÃπ¡’Õ†°ÏÅŸÖ±’îËÄù	9-}Q=}	9,ú∞Å±Öâï∞ËÄùY•…ïµïπ–Åïπ—…îÅçΩµ¡—ïÃúÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅÕΩ’…çï}…ïù•Õ—ï»ËÅÕΩ’…çïIïù•Õ—ï»∞(ÄÄÄÄÄÅ—…ÖπÕôï…}—Â¡ïÃËÅ—…ÖπÕôï…QÂ¡ïÃ∞(ÄÄÄÄÄÅ¡ÖÂµïπ—}µï—°ΩëÃËÅl(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄù	9-}QI9MHú∞Å±Öâï∞ËÄùY•…ïµïπ–ÅâÖπçÖ•…îúÅÙ∞(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄùM ú∞Å±Öâï∞ËÄùÕ√°çïÃúÅÙ∞(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄù!EUú∞Å±Öâï∞ËÄù£°≈’îúÅÙ∞(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄù=Q!Hú∞Å±Öâï∞ËÄù’—…îúÅÙ∞(ÄÄÄÄÄÅt∞(ÄÄÄÄÄÅçÖÕ°}ÕïÕÕ•Ω∏ËÅçÖÕ°MïÕÕ•ΩπIïÕ’±–π…Ω›Õl¡tÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅçÖÕ°}âÖ±ÖπçïÃËÅçÖÕ°	Ö±ÖπçïÃ∞(ÄÄÄÄÄÅâÖπ≠}ÖççΩ’π—ÃËÅâÖπ≠ççΩ’π—Ã∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅç…ïÖ—ïQ…ïÖÕ’…ÂQ…ÖπÕôï»°ÕΩ’…çïIïù•Õ—ï»ËÄù5%9}M úÅÄù	9,ú∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ï	Öπ≠Mç°ïµÑ†§Ï(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïQ…ïÖÕ’…ÂQ…ÖπÕôï…Mç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂ±ΩÖêÄÙÅ—°•ÃππΩ…µÖ±•ÈïQ…ïÖÕ’…ÂQ…ÖπÕôï…AÖÂ±ΩÖê°ÕΩ’…çïIïù•Õ—ï»∞ÅâΩë‰§Ï(ÄÄÄÅ—°•ÃπÖÕÕï…—Q…ïÖÕ’…ÂQ…ÖπÕôï…Aï…µ•ÕÕ•Ω∏°¡ÖÂ±ΩÖêπ—…ÖπÕôï…QÂ¡î§Ï(ÄÄÄÅ…ï—’…∏Å—°•Ãπëàπ—…ÖπÕÖç—•Ω∏°ÖÕÂπåÄ°ç±•ïπ–§ÄÙ¯Å—°•Ãπç…ïÖ—ïQ…ïÖÕ’…ÂQ…ÖπÕôï…%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÕΩ’…çïIïù•Õ—ï»∞Å¡ÖÂ±ΩÖê§§Ï(ÄÅÙ((ÄÅÖÕÂπåÅ—…ïÖÕ’…ÂQ…ÖπÕôï»°•êËÅπ’µâï»§ÅÏ(ÄÄÄÅ…ï—’…∏Å—°•Ãπ—…ïÖÕ’…ÂQ…ÖπÕôï…	Â·ïç’—Ω»°—°•Ãπëà∞Å•ê§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ—…ïÖÕ’…ÂQ…ÖπÕôï…	Â·ïç’—Ω»†(ÄÄÄÅï·ïç’—Ω»ËÅA•ç¨ÒÖ—ÖâÖÕïMï…Ÿ•çî∞Äù≈’ï…‰ú¯ÅÅAΩΩ±±•ïπ–∞(ÄÄÄÅ•êËÅπ’µâï»∞(ÄÄ§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïQ…ïÖÕ’…ÂQ…ÖπÕôï…Mç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–Å…’ππï»ÄÙÅï·ïç’—Ω»ÅÖÃÅÏÅ≈’ï…‰ËÄÒPÄÙÅÖπ‰¯°—ï·–ËÅÕ—…•πú∞Å¡Ö…ÖµÃ¸ËÅ’π≠πΩ›πmt§ÄÙ¯ÅA…Ωµ•ÕîÒÏÅ…Ω›ÃËÅQmtÅÙ¯ÅÙÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å…’ππï»π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ—–∏®∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°9U11%°QI%4°=9P°=1M°‘πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°‘π±ÖÕ—}πÖµî∞Äúú§§§∞Äúú§∞Å‘πïµÖ•∞§ÅLÅç…ïÖ—ïë}âÂ}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ…ç}âÑπâÖπ≠}πÖµîÅLÅÕΩ’…çï}âÖπ≠}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ…ç}âÑπÖççΩ’π—}πÖµîÅLÅÕΩ’…çï}âÖπ≠}ÖççΩ’π—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ…ç}âÑπÖççΩ’π—}π’µâï»ÅLÅÕΩ’…çï}âÖπ≠}ÖççΩ’π—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅëÕ—}âÑπâÖπ≠}πÖµîÅLÅëïÕ—•πÖ—•Ωπ}âÖπ≠}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅëÕ—}âÑπÖççΩ’π—}πÖµîÅLÅëïÕ—•πÖ—•Ωπ}âÖπ≠}ÖççΩ’π—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅëÕ—}âÑπÖççΩ’π—}π’µâï»ÅLÅëïÕ—•πÖ—•Ωπ}âÖπ≠}ÖççΩ’π—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ…ç}ç¥π¡•ïçï}π’µâï»ÅLÅÕΩ’…çï}çÖÕ°}¡•ïçï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ…ç}ç¥πµΩŸïµïπ—}ëÖ—îÅLÅÕΩ’…çï}çÖÕ°}µΩŸïµïπ—}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅëÕ—}ç¥π¡•ïçï}π’µâï»ÅLÅëïÕ—•πÖ—•Ωπ}çÖÕ°}¡•ïçï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅëÕ—}ç¥πµΩŸïµïπ—}ëÖ—îÅLÅëïÕ—•πÖ—•Ωπ}çÖÕ°}µΩŸïµïπ—}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ…ç}â–π—…ÖπÕÖç—•Ωπ}π’µâï»ÅLÅÕΩ’…çï}âÖπ≠}—…ÖπÕÖç—•Ωπ}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ…ç}â–π—…ÖπÕÖç—•Ωπ}ëÖ—îÅLÅÕΩ’…çï}âÖπ≠}—…ÖπÕÖç—•Ωπ}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅëÕ—}â–π—…ÖπÕÖç—•Ωπ}π’µâï»ÅLÅëïÕ—•πÖ—•Ωπ}âÖπ≠}—…ÖπÕÖç—•Ωπ}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅëÕ—}â–π—…ÖπÕÖç—•Ωπ}ëÖ—îÅLÅëïÕ—•πÖ—•Ωπ}âÖπ≠}—…ÖπÕÖç—•Ωπ}ëÖ—î(ÄÄÄÄÄÄÅI=4Å—…ïÖÕ’…Â}—…ÖπÕôï…ÃÅ—–(ÄÄÄÄÄÄÅ1PÅ)=%8ÅÖ¡¡}’Õï…ÃÅ‘Å=8Å‘π•êÄÙÅ—–πç…ïÖ—ïë}â‰(ÄÄÄÄÄÄÅ1PÅ)=%8ÅâÖπ≠}ÖççΩ’π—ÃÅÕ…ç}âÑÅ=8ÅÕ…ç}âÑπ•êÄÙÅ—–πÕΩ’…çï}âÖπ≠}ÖççΩ’π—}•êÅ9ÅÕ…ç}âÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—–πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8ÅâÖπ≠}ÖççΩ’π—ÃÅëÕ—}âÑÅ=8ÅëÕ—}âÑπ•êÄÙÅ—–πëïÕ—•πÖ—•Ωπ}âÖπ≠}ÖççΩ’π—}•êÅ9ÅëÕ—}âÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—–πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8ÅçÖÕ°}µΩŸïµïπ—ÃÅÕ…ç}ç¥Å=8ÅÕ…ç}ç¥π•êÄÙÅ—–πÕΩ’…çï}çÖÕ°}µΩŸïµïπ—}•êÅ9ÅÕ…ç}ç¥πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9ÅÕ…ç}ç¥πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8ÅçÖÕ°}µΩŸïµïπ—ÃÅëÕ—}ç¥Å=8ÅëÕ—}ç¥π•êÄÙÅ—–πëïÕ—•πÖ—•Ωπ}çÖÕ°}µΩŸïµïπ—}•êÅ9ÅëÕ—}ç¥πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9ÅëÕ—}ç¥πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8ÅâÖπ≠}—…ÖπÕÖç—•ΩπÃÅÕ…ç}â–Å=8ÅÕ…ç}â–π•êÄÙÅ—–πÕΩ’…çï}âÖπ≠}—…ÖπÕÖç—•Ωπ}•êÅ9ÅÕ…ç}â–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—–πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8ÅâÖπ≠}—…ÖπÕÖç—•ΩπÃÅëÕ—}â–Å=8ÅëÕ—}â–π•êÄÙÅ—–πëïÕ—•πÖ—•Ωπ}âÖπ≠}—…ÖπÕÖç—•Ωπ}•êÅ9ÅëÕ—}â–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—–πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ]!IÅ—–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å—–π•êÄÙÄê…Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å•ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å—…ÖπÕôï»ÄÙÅ…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞ÄùQ…ïÖÕ’…‰Å—…ÖπÕôï»ú§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄ∏∏π—…ÖπÕôï»∞(ÄÄÄÄÄÅÕΩ’…çï}±Öâï∞ËÅ—°•Ãπ—…ïÖÕ’…ÂM’¡¡Ω…—1Öâï∞°Ï(ÄÄÄÄÄÄÄÅÕ’¡¡Ω…—QÂ¡îËÅM—…•πú°—…ÖπÕôï»πÕΩ’…çï}—Â¡î§∞(ÄÄÄÄÄÄÄÅâÖπ≠9ÖµîËÅ—…ÖπÕôï»πÕΩ’…çï}âÖπ≠}πÖµî∞(ÄÄÄÄÄÄÄÅÖççΩ’π—9ÖµîËÅ—…ÖπÕôï»πÕΩ’…çï}âÖπ≠}ÖççΩ’π—}πÖµî∞(ÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ}±Öâï∞ËÅ—°•Ãπ—…ïÖÕ’…ÂM’¡¡Ω…—1Öâï∞°Ï(ÄÄÄÄÄÄÄÅÕ’¡¡Ω…—QÂ¡îËÅM—…•πú°—…ÖπÕôï»πëïÕ—•πÖ—•Ωπ}—Â¡î§∞(ÄÄÄÄÄÄÄÅâÖπ≠9ÖµîËÅ—…ÖπÕôï»πëïÕ—•πÖ—•Ωπ}âÖπ≠}πÖµî∞(ÄÄÄÄÄÄÄÅÖççΩ’π—9ÖµîËÅ—…ÖπÕôï»πëïÕ—•πÖ—•Ωπ}âÖπ≠}ÖççΩ’π—}πÖµî∞(ÄÄÄÄÄÅÙ§∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅïπÕ’…ï	Öπ≠Mç°ïµÑ†§ÅÏ(ÄÄÄÅ•òÄ†Ñ°Ö›Ö•–Å—°•Ãπ—Öâ±ï·•Õ—Ã†ùâÖπ≠}ÖççΩ’π—Ãú§§ÅÒÄÑ°Ö›Ö•–Å—°•Ãπ—Öâ±ï·•Õ—Ã†ùâÖπ≠}—…ÖπÕÖç—•ΩπÃú§§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅµΩë’±îÅ	Öπ≈’îÅªäeïÕ–Å¡ÖÃÅïπçΩ…îÅçΩπô•ù’À§∏ú§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅïπÕ’…ïQ…ïÖÕ’…ÂQ…ÖπÕôï…Mç°ïµÑ†§ÅÏ(ÄÄÄÅ•òÄ†Ñ°Ö›Ö•–Å—°•Ãπ—Öâ±ï·•Õ—Ã†ù—…ïÖÕ’…Â}—…ÖπÕôï…Ãú§§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅMï…Ÿ•çïUπÖŸÖ•±Öâ±ï·çï¡—•Ω∏†(ÄÄÄÄÄÄÄÄù1îÅµΩë’±îÅëïÃÅ—…ÖπÕôï…—ÃÅ•π—ï…πïÃÅªäeïÕ–Å¡ÖÃÅë•Õ¡Ωπ•â±î∏Å¡¡±•≈’ïËÅ±ÑÅµ•ù…Ö—•Ω∏Ä»¿»ÿ¿‹»Õ}âÖπ≠}—…ïÖÕ’…Â}—…ÖπÕôï…ÃπÕ≈∞∏ú∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•Èï	Öπ≠Aï…•Ωê°ô•±—ï…ÃËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–ÅπΩ‹ÄÙÅπï‹ÅÖ—î†§Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ö…–ÄÙÅô•±—ï…ÃπÕ—Ö…–(ÄÄÄÄÄÄ¸Ä°—°•ÃππΩ…µÖ±•Èï1ïÖÕïAÖÂ±ΩÖëÖ—î°ô•±—ï…ÃπÕ—Ö…–∞ÄùÕ—Ö…–ú∞Å—…’î§Ä¸¸Å—°•Ãπ±ΩçÖ±Ö—ïM—…•πú°πï‹ÅÖ—î°πΩ‹πùï—’±±eïÖ»†§∞ÅπΩ‹πùï—5Ωπ—††§∞Äƒ§§§(ÄÄÄÄÄÄËÅ—°•Ãπ±ΩçÖ±Ö—ïM—…•πú°πï‹ÅÖ—î°πΩ‹πùï—’±±eïÖ»†§∞ÅπΩ‹πùï—5Ωπ—††§∞Äƒ§§Ï(ÄÄÄÅçΩπÕ–ÅïπêÄÙÅô•±—ï…Ãπïπê(ÄÄÄÄÄÄ¸Ä°—°•ÃππΩ…µÖ±•Èï1ïÖÕïAÖÂ±ΩÖëÖ—î°ô•±—ï…Ãπïπê∞Äùïπêú∞Å—…’î§Ä¸¸Å—°•Ãπ±ΩçÖ±Ö—ïM—…•πú°πï‹ÅÖ—î°πΩ‹πùï—’±±eïÖ»†§∞ÅπΩ‹πùï—5Ωπ—††§Ä¨Äƒ∞Ä¿§§§(ÄÄÄÄÄÄËÅ—°•Ãπ±ΩçÖ±Ö—ïM—…•πú°πï‹ÅÖ—î°πΩ‹πùï—’±±eïÖ»†§∞ÅπΩ‹πùï—5Ωπ—††§Ä¨Äƒ∞Ä¿§§Ï(ÄÄÄÅ•òÄ°Õ—Ö…–Ä¯Åïπê§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1ÑÅ√•…•ΩëîÅâÖπçÖ•…îÅïÕ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÏÅÕ—Ö…–∞ÅïπêÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•Èï	Öπ≠ççΩ’π—…ïÖ—ïAÖÂ±ΩÖê°âΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–ÅâÖπ≠9ÖµîÄÙÅM—…•πú°âΩë‰πâÖπ≠}πÖµîÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅçΩπÕ–ÅÖççΩ’π—9ÖµîÄÙÅM—…•πú°âΩë‰πÖççΩ’π—}πÖµîÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅçΩπÕ–ÅÖççΩ’π—9’µâï»ÄÙÅM—…•πú°âΩë‰πÖççΩ’π—}π’µâï»Ä¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅÖççΩ’π—QÂ¡îÄÙÅM—…•πú°âΩë‰πÖççΩ’π—}—Â¡îÄ¸¸ÄùUII9Pú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅçΩπÕ–Åç’……ïπç‰ÄÙÅM—…•πú°âΩë‰πç’……ïπç‰Ä¸¸Äúú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ö—’ÃÄÙÅM—…•πú°âΩë‰πÕ—Ö—’ÃÄ¸¸ÄùQ%Yú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅçΩπÕ–ÅΩ¡ïπ•πù	Ö±ÖπçîÄÙÅâΩë‰πΩ¡ïπ•πù}âÖ±ÖπçîÄÙÙÙÄúúÅÒÅâΩë‰πΩ¡ïπ•πù}âÖ±ÖπçîÄÙÙÅπ’±∞Ä¸Ä¿ÄËÅ9’µâï»°âΩë‰πΩ¡ïπ•πù}âÖ±Öπçî§Ï(ÄÄÄÅçΩπÕ–ÅΩ¡ïπ•πùÖ—îÄÙÅ—°•ÃππΩ…µÖ±•Èï1ïÖÕïAÖÂ±ΩÖëÖ—î°âΩë‰πΩ¡ïπ•πù}ëÖ—îÄ¸¸Å—°•Ãπ±ΩçÖ±Ö—ïM—…•πú°πï‹ÅÖ—î†§§∞ÄùΩ¡ïπ•πù}ëÖ—îú∞Å—…’î§Ï(ÄÄÄÅ•òÄ†ÖâÖπ≠9Öµî§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅπΩ¥ÅëîÅ±ÑÅâÖπ≈’îÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†ÖÖççΩ’π—9Öµî§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅπΩ¥Åë‘ÅçΩµ¡—îÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†ÖlùUII9Pú∞ÄùMY%9Lú∞ÄùMI=\ú∞Äù=Q!Hùtπ•πç±’ëïÃ°ÖççΩ’π—QÂ¡î§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùQÂ¡îÅëîÅçΩµ¡—îÅâÖπçÖ•…îÅ•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†ÖlùUMú∞Äùùtπ•πç±’ëïÃ°ç’……ïπç‰§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùïŸ•ÕîÅâÖπçÖ•…îÅ•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†ÖlùQ%Yú∞Äù%9Q%Yú∞ÄùI!%Yùtπ•πç±’ëïÃ°Õ—Ö—’Ã§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùM—Ö—’–ÅëîÅçΩµ¡—îÅâÖπçÖ•…îÅ•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†Ö9’µâï»π•Õ•π•—î°Ω¡ïπ•πù	Ö±Öπçî§ÅÒÅΩ¡ïπ•πù	Ö±ÖπçîÄÄ¿§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅÕΩ±ëîÅ•π•—•Ö∞ÅëΩ•–É©—…îÅÕ’√•…•ï’»ÅΩ‘É•ùÖ∞ÉÄÅÎ•…º∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅâÖπ≠}πÖµîËÅâÖπ≠9Öµî∞(ÄÄÄÄÄÅÖççΩ’π—}πÖµîËÅÖççΩ’π—9Öµî∞(ÄÄÄÄÄÅÖççΩ’π—}π’µâï»ËÅÖççΩ’π—9’µâï»∞(ÄÄÄÄÄÅÖççΩ’π—}—Â¡îËÅÖççΩ’π—QÂ¡î∞(ÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÅΩ¡ïπ•πù}âÖ±ÖπçîËÅ9’µâï»°Ω¡ïπ•πù	Ö±Öπçîπ—Ω•·ïê†»§§∞(ÄÄÄÄÄÅΩ¡ïπ•πù}ëÖ—îËÅΩ¡ïπ•πùÖ—î∞(ÄÄÄÄÄÅÕ—Ö—’Ã∞(ÄÄÄÄÄÅπΩ—ïÃËÅM—…•πú°âΩë‰ππΩ—ïÃÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•Èï	Öπ≠ççΩ’π—U¡ëÖ—ïAÖÂ±ΩÖê°âΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–Å¡ÖÂ±ΩÖêËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÄÙÅÌÙÏ(ÄÄÄÅ•òÄ°âΩë‰πâÖπ≠}πÖµîÄÑÙÙÅ’πëïô•πïê§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅâÖπ≠9ÖµîÄÙÅM—…•πú°âΩë‰πâÖπ≠}πÖµîÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÄÄÅ•òÄ†ÖâÖπ≠9Öµî§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅπΩ¥ÅëîÅ±ÑÅâÖπ≈’îÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÄÄÅ¡ÖÂ±ΩÖêπâÖπ≠}πÖµîÄÙÅâÖπ≠9ÖµîÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°âΩë‰πÖççΩ’π—}πÖµîÄÑÙÙÅ’πëïô•πïê§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÖççΩ’π—9ÖµîÄÙÅM—…•πú°âΩë‰πÖççΩ’π—}πÖµîÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÄÄÅ•òÄ†ÖÖççΩ’π—9Öµî§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅπΩ¥Åë‘ÅçΩµ¡—îÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÖççΩ’π—}πÖµîÄÙÅÖççΩ’π—9ÖµîÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°âΩë‰πÖççΩ’π—}π’µâï»ÄÑÙÙÅ’πëïô•πïê§ÅÏ(ÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÖççΩ’π—}π’µâï»ÄÙÅM—…•πú°âΩë‰πÖççΩ’π—}π’µâï»Ä¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°âΩë‰πÖççΩ’π—}—Â¡îÄÑÙÙÅ’πëïô•πïê§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÖççΩ’π—QÂ¡îÄÙÅM—…•πú°âΩë‰πÖççΩ’π—}—Â¡îÄ¸¸Äúú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅ•òÄ†ÖlùUII9Pú∞ÄùMY%9Lú∞ÄùMI=\ú∞Äù=Q!Hùtπ•πç±’ëïÃ°ÖççΩ’π—QÂ¡î§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùQÂ¡îÅëîÅçΩµ¡—îÅâÖπçÖ•…îÅ•πŸÖ±•ëî∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÖççΩ’π—}—Â¡îÄÙÅÖççΩ’π—QÂ¡îÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°âΩë‰πÕ—Ö—’ÃÄÑÙÙÅ’πëïô•πïê§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕ—Ö—’ÃÄÙÅM—…•πú°âΩë‰πÕ—Ö—’ÃÄ¸¸Äúú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅ•òÄ†ÖlùQ%Yú∞Äù%9Q%Yú∞ÄùI!%Yùtπ•πç±’ëïÃ°Õ—Ö—’Ã§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùM—Ö—’–ÅëîÅçΩµ¡—îÅâÖπçÖ•…îÅ•πŸÖ±•ëî∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÕ—Ö—’ÃÄÙÅÕ—Ö—’ÃÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°âΩë‰ππΩ—ïÃÄÑÙÙÅ’πëïô•πïê§ÅÏ(ÄÄÄÄÄÅ¡ÖÂ±ΩÖêππΩ—ïÃÄÙÅM—…•πú°âΩë‰ππΩ—ïÃÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å¡ÖÂ±ΩÖêÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•ÈïQ…ïÖÕ’…ÂQ…ÖπÕôï…AÖÂ±ΩÖê°ÕΩ’…çïIïù•Õ—ï»ËÄù5%9}M úÅÄù	9,ú∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–Å—…ÖπÕôï…QÂ¡îÄÙÅM—…•πú°âΩë‰π—…ÖπÕôï…}—Â¡îÄ¸¸Äúú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ†ÖlùM!}Q=}	9,ú∞Äù	9-}Q=}M ú∞Äù	9-}Q=}	9,ùtπ•πç±’ëïÃ°—…ÖπÕôï…QÂ¡î§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùQÂ¡îÅëîÅ—…ÖπÕôï…–Å•π—ï…πîÅ•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄù5%9}M úÄòòÅ—…ÖπÕôï…QÂ¡îÄÙÙÙÄù	9-}Q=}	9,ú§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùîÅ—Â¡îÅëîÅ—…ÖπÕôï…–ÅëΩ•–É©—…îÅ•π•—ß§Åëï¡’•ÃÅ±ÑÅ¡ÖùîÅ	Öπ≈’î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å—…ÖπÕôï…Ö—îÄÙÅ—°•ÃππΩ…µÖ±•Èï1ïÖÕïAÖÂ±ΩÖëÖ—î°âΩë‰π—…ÖπÕôï…}ëÖ—îÄ¸¸Å—°•Ãπ±ΩçÖ±Ö—ïM—…•πú°πï‹ÅÖ—î†§§∞Äù—…ÖπÕôï…}ëÖ—îú∞Å—…’î§Ï(ÄÄÄÅ•òÄ†Ö—…ÖπÕôï…Ö—î§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1ÑÅëÖ—îÅë‘Å—…ÖπÕôï…–ÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Åç’……ïπç‰ÄÙÅM—…•πú°âΩë‰πç’……ïπç‰Ä¸¸Äúú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ†ÖlùUMú∞Äùùtπ•πç±’ëïÃ°ç’……ïπç‰§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùïŸ•ÕîÅëîÅ—…ÖπÕôï…–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÖµΩ’π–ÄÙÅ9’µâï»°âΩë‰πÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅ•òÄ†Ö9’µâï»π•Õ•π•—î°ÖµΩ’π–§ÅÒÅÖµΩ’π–ÄÙÄ¿§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅµΩπ—Öπ–Åë‘Å—…ÖπÕôï…–ÅïÕ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—5ï—°ΩêÄÙÅM—…•πú†(ÄÄÄÄÄÅâΩë‰π¡ÖÂµïπ—}µï—°Ωê(ÄÄÄÄÄÄ¸¸Ä°—…ÖπÕôï…QÂ¡îÄÙÙÙÄù	9-}Q=}M úÄ¸ÄùM úÄËÄù	9-}QI9MHú§∞(ÄÄÄÄ§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ†Ölù	9-}QI9MHú∞ÄùM ú∞Äù!EUú∞Äù=Q!Hùtπ•πç±’ëïÃ°¡ÖÂµïπ—5ï—°Ωê§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù5ΩëîÅëîÅ—…ÖπÕôï…–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÕΩ’…çï	Öπ≠ççΩ’π—%êÄÙÅ—°•ÃππΩ…µÖ±•Èï9’±±Öâ±ïAΩÕ•—•Ÿï%π–°âΩë‰πÕΩ’…çï}âÖπ≠}ÖççΩ’π—}•ê§Ï(ÄÄÄÅçΩπÕ–ÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π—%êÄÙÅ—°•ÃππΩ…µÖ±•Èï9’±±Öâ±ïAΩÕ•—•Ÿï%π–°âΩë‰πëïÕ—•πÖ—•Ωπ}âÖπ≠}ÖççΩ’π—}•ê§Ï(ÄÄÄÅ•òÄ°—…ÖπÕôï…QÂ¡îÄÙÙÙÄùM!}Q=}	9,úÄòòÄÖëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π—%ê§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅçΩµ¡—îÅâÖπçÖ•…îÅëîÅëïÕ—•πÖ—•Ω∏ÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°—…ÖπÕôï…QÂ¡îÄÙÙÙÄù	9-}Q=}M úÄòòÄÖÕΩ’…çï	Öπ≠ççΩ’π—%ê§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅçΩµ¡—îÅâÖπçÖ•…îÅÕΩ’…çîÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°—…ÖπÕôï…QÂ¡îÄÙÙÙÄù	9-}Q=}	9,ú§ÅÏ(ÄÄÄÄÄÅ•òÄ†ÖÕΩ’…çï	Öπ≠ççΩ’π—%êÅÒÄÖëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π—%ê§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1ïÃÅçΩµ¡—ïÃÅâÖπçÖ•…ïÃÅÕΩ’…çîÅï–ÅëïÕ—•πÖ—•Ω∏ÅÕΩπ–ÅΩâ±•ùÖ—Ω•…ïÃ∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°ÕΩ’…çï	Öπ≠ççΩ’π—%êÄÙÙÙÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π—%ê§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅçΩµ¡—îÅÕΩ’…çîÅï–Å±îÅçΩµ¡—îÅëïÕ—•πÖ—•Ω∏ÅëΩ•Ÿïπ–É©—…îÅë•ôõ•…ïπ—Ã∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ—…ÖπÕôï…QÂ¡îËÅ—…ÖπÕôï…QÂ¡îÅÖÃÄùM!}Q=}	9,úÅÄù	9-}Q=}M úÅÄù	9-}Q=}	9,ú∞(ÄÄÄÄÄÅ—…ÖπÕôï…Ö—î∞(ÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÅÖµΩ’π–ËÅ9’µâï»°ÖµΩ’π–π—Ω•·ïê†»§§∞(ÄÄÄÄÄÅ¡ÖÂµïπ—5ï—°Ωê∞(ÄÄÄÄÄÅÕΩ’…çï	Öπ≠ççΩ’π—%ê∞(ÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π—%ê∞(ÄÄÄÄÄÅ…ïôï…ïπçîËÅM—…•πú°âΩë‰π…ïôï…ïπçîÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÅM—…•πú°âΩë‰πëïÕç…•¡—•Ω∏Ä¸¸ÅâΩë‰π…ïÖÕΩ∏Ä¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅπΩ—ïÃËÅM—…•πú°âΩë‰ππΩ—ïÃÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ-ï‰ËÅM—…•πú†(ÄÄÄÄÄÄÄÅâΩë‰π•ëïµ¡Ω—ïπçÂ}≠ï‰(ÄÄÄÄÄÄÄÄ¸¸ÅâΩë‰πç±•ïπ—}…ï≈’ïÕ—}•ê(ÄÄÄÄÄÄÄÄ¸¸Ål(ÄÄÄÄÄÄÄÄÄÄùQIMUIe}QI9MHú∞(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸ÄùÖπΩ∏ú∞(ÄÄÄÄÄÄÄÄÄÅ—…ÖπÕôï…QÂ¡î∞(ÄÄÄÄÄÄÄÄÄÅÖ—îππΩ‹†§∞(ÄÄÄÄÄÄÄÅtπ©Ω•∏†úËú§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—	Öπ≠Q…ÖπÕÖç—•Ωπ9’µâï»°ç±•ïπ–ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅçΩπÕ–ÅÂïÖ»ÄÙÅπï‹ÅÖ—î†§πùï—’±±eïÖ»†§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°5`†°MU	MQI%9°—…ÖπÕÖç—•Ωπ}π’µâï»ÅI=4Äêƒ§§ËÈ%9P§∞Ä¿§Ä¨ÄƒÅLÅŸÖ±’î(ÄÄÄÄÄÄÅI=4ÅâÖπ≠}—…ÖπÕÖç—•ΩπÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å—…ÖπÕÖç—•Ωπ}π’µâï»Å1%-ÄêÕÄ∞(ÄÄÄÄÄÅmÅ	QH¥ëÌÂïÖ…Ù¥°l¿¥Ât¨•Ä∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅÅ	QH¥ëÌÂïÖ…Ù¥ïÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÅ	QH¥ëÌÂïÖ…Ù¥ëÌM—…•πú°…Ω›Õl¡t¸πŸÖ±’îÄ¸¸Äƒ§π¡ÖëM—Ö…–†ÿ∞Äú¿ú•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—Q…ïÖÕ’…ÂQ…ÖπÕôï…9’µâï»°ç±•ïπ–ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅçΩπÕ–ÅÂïÖ»ÄÙÅπï‹ÅÖ—î†§πùï—’±±eïÖ»†§Ï(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰°ÅM1PÅ¡ù}ÖëŸ•ÕΩ…Â}·Öç—}±Ωç¨°°ÖÕ°—ï·–†êƒ§•Ä∞ÅmÅ—…ïÖÕ’…‰µ—…ÖπÕôï»µπ’µâï»¥ëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ıÅt§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°5`†°MU	MQI%9°—…ÖπÕôï…}π’µâï»ÅI=4Äêƒ§§ËÈ%9P§∞Ä¿§Ä¨ÄƒÅLÅŸÖ±’î(ÄÄÄÄÄÄÅI=4Å—…ïÖÕ’…Â}—…ÖπÕôï…Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å—…ÖπÕôï…}π’µâï»Å1%-ÄêÕÄ∞(ÄÄÄÄÄÅmÅQI¥ëÌÂïÖ…Ù¥°l¿¥Ât¨•Ä∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅÅQI¥ëÌÂïÖ…Ù¥ïÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÅQI¥ëÌÂïÖ…Ù¥ëÌM—…•πú°…Ω›Õl¡t¸πŸÖ±’îÄ¸¸Äƒ§π¡ÖëM—Ö…–†ÿ∞Äú¿ú•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ±ΩçÖ±Ö—ïM—…•πú°ŸÖ±’îËÅÖ—î§ÅÏ(ÄÄÄÅçΩπÕ–ÅÂïÖ»ÄÙÅŸÖ±’îπùï—’±±eïÖ»†§Ï(ÄÄÄÅçΩπÕ–ÅµΩπ—†ÄÙÅM—…•πú°ŸÖ±’îπùï—5Ωπ—††§Ä¨Äƒ§π¡ÖëM—Ö…–†»∞Äú¿ú§Ï(ÄÄÄÅçΩπÕ–ÅëÖ‰ÄÙÅM—…•πú°ŸÖ±’îπùï—Ö—î†§§π¡ÖëM—Ö…–†»∞Äú¿ú§Ï(ÄÄÄÅ…ï—’…∏ÅÄëÌÂïÖ…Ù¥ëÌµΩπ—°Ù¥ëÌëÖÂıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•Èï9’±±Öâ±ïAΩÕ•—•Ÿï%π–°ŸÖ±’îËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅ•òÄ°ŸÖ±’îÄÙÙÙÅ’πëïô•πïêÅÒÅŸÖ±’îÄÙÙÙÅπ’±∞ÅÒÅŸÖ±’îÄÙÙÙÄúú§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅçΩπÕ–Å¡Ö…ÕïêÄÙÅ9’µâï»°ŸÖ±’î§Ï(ÄÄÄÅ•òÄ†Ö9’µâï»π•Õ%π—ïùï»°¡Ö…Õïê§ÅÒÅ¡Ö…ÕïêÄÙÄ¿§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù%ëïπ—•ô•Öπ–ÅëîÅ—…ÖπÕôï…–Å•π—ï…πîÅ•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å¡Ö…ÕïêÏ(ÄÅÙ((ÄÅÖÕÂπåÅÕ°Ö…ï°Ω±ëï…Ã°ô•±—ï…ÃËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÄÙÅÌÙ§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïM°Ö…ï°Ω±ëï…Mç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–ÅŸÖ±’ïÃËÅ’π≠πΩ›πmtÄÙÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•tÏ(ÄÄÄÅçΩπÕ–Åç±Ö’ÕïÃÄÙÅlùÃπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒú∞ÄùÃπëï±ï—ïë}Ö–Å%LÅ9U10ùtÏ(ÄÄÄÅ•òÄ°ô•±—ï…ÃπÕ—Ö—’Ã§ÅÏ(ÄÄÄÄÄÅŸÖ±’ïÃπ¡’Õ†°M—…•πú°ô•±—ï…ÃπÕ—Ö—’Ã§π—ΩU¡¡ï…ÖÕî†§§Ï(ÄÄÄÄÄÅç±Ö’ÕïÃπ¡’Õ†°ÅÃπÕ—Ö—’ÃÄÙÄêëÌŸÖ±’ïÃπ±ïπù—°ıÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ô•±—ï…ÃπÕïÖ…ç†§ÅÏ(ÄÄÄÄÄÅŸÖ±’ïÃπ¡’Õ†°ÄîëÌM—…•πú°ô•±—ï…ÃπÕïÖ…ç†§π—…•¥†§π—Ω1Ω›ï…ÖÕî†•ÙïÄ§Ï(ÄÄÄÄÄÅç±Ö’ÕïÃπ¡’Õ†°Ä†(ÄÄÄÄÄÄÄÅ1=]H°=1M°Ãπë•Õ¡±ÖÂ}πÖµî∞Äúú§§Å1%-ÄêëÌŸÖ±’ïÃπ±ïπù—°Ù(ÄÄÄÄÄÄÄÅ=HÅ1=]H°=1M°ÃπïµÖ•∞∞Äúú§§Å1%-ÄêëÌŸÖ±’ïÃπ±ïπù—°Ù(ÄÄÄÄÄÄÄÅ=HÅ1=]H°=1M°Ãπ¡°Ωπî∞Äúú§§Å1%-ÄêëÌŸÖ±’ïÃπ±ïπù—°Ù(ÄÄÄÄÄÄ•Ä§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅÃ∏®∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°µÖ•∏π—Ω—Ö±}’Õê∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅ—Ω—Ö±}…ïçï•Ÿïë}’Õê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°µÖ•∏π—Ω—Ö±}çëò∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅ—Ω—Ö±}…ïçï•Ÿïë}çëò∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°µÖ•∏π¡ÖÂΩ’—}çΩ’π–∞Ä¿§ËÈ%9PÅLÅ¡ÖÂΩ’—}çΩ’π–(ÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…ÃÅÃ(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Ä†(ÄÄÄÄÄÄÄÄÄÄÅM1PÅÕ¡∞πÕ°Ö…ï°Ω±ëï…}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMU4°MÅ]!8ÅÕ¡àπÕ—Ö—’ÃÄÙÄùY1%QúÅ9ÅÕ¡∞πç’……ïπç‰ÄÙÄùUMúÅQ!8ÅÕ¡∞πÖµΩ’π–Å1MÄ¿Å9§ÅLÅ—Ω—Ö±}’Õê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMU4°MÅ]!8ÅÕ¡àπÕ—Ö—’ÃÄÙÄùY1%QúÅ9ÅÕ¡∞πç’……ïπç‰ÄÙÄùúÅQ!8ÅÕ¡∞πÖµΩ’π–Å1MÄ¿Å9§ÅLÅ—Ω—Ö±}çëò∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=U9P†®§Å%1QHÄ°]!IÅÕ¡àπÕ—Ö—’ÃÄÙÄùY1%Qú§ÅLÅ¡ÖÂΩ’—}çΩ’π–(ÄÄÄÄÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃÅÕ¡∞(ÄÄÄÄÄÄÄÄÄÄÅ)=%8ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃÅÕ¡àÅ=8ÅÕ¡àπ•êÄÙÅÕ¡∞πâÖ—ç°}•êÅ9ÅÕ¡àπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÄÄÅ]!IÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅÕ¡∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅÕ¡àπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅI=U@Å	dÅÕ¡∞πÕ°Ö…ï°Ω±ëï…}•ê(ÄÄÄÄÄÄÄÄÄ§ÅµÖ•∏Å=8ÅµÖ•∏πÕ°Ö…ï°Ω±ëï…}•êÄÙÅÃπ•ê(ÄÄÄÄÄÄÅ]!IÄëÌç±Ö’ÕïÃπ©Ω•∏†úÅ9Äú•Ù(ÄÄÄÄÄÄÅ=IHÅ	dÅÃπë•Õ¡±ÖÂ}πÖµîÅMÄ∞(ÄÄÄÄÄÅŸÖ±’ïÃ∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅÖÕÂπåÅÕ°Ö…ï°Ω±ëï»°•êËÅπ’µâï»§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïM°Ö…ï°Ω±ëï…Mç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅÃ∏®∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°µÖ•∏π—Ω—Ö±}’Õê∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅ—Ω—Ö±}…ïçï•Ÿïë}’Õê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°µÖ•∏π—Ω—Ö±}çëò∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅ—Ω—Ö±}…ïçï•Ÿïë}çëò∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°µÖ•∏π¡ÖÂΩ’—}çΩ’π–∞Ä¿§ËÈ%9PÅLÅ¡ÖÂΩ’—}çΩ’π–(ÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…ÃÅÃ(ÄÄÄÄÄÄÅ1PÅ)=%8Ä†(ÄÄÄÄÄÄÄÄÅM1PÅÕ¡∞πÕ°Ö…ï°Ω±ëï…}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMU4°MÅ]!8ÅÕ¡àπÕ—Ö—’ÃÄÙÄùY1%QúÅ9ÅÕ¡∞πç’……ïπç‰ÄÙÄùUMúÅQ!8ÅÕ¡∞πÖµΩ’π–Å1MÄ¿Å9§ÅLÅ—Ω—Ö±}’Õê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMU4°MÅ]!8ÅÕ¡àπÕ—Ö—’ÃÄÙÄùY1%QúÅ9ÅÕ¡∞πç’……ïπç‰ÄÙÄùúÅQ!8ÅÕ¡∞πÖµΩ’π–Å1MÄ¿Å9§ÅLÅ—Ω—Ö±}çëò∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=U9P†®§Å%1QHÄ°]!IÅÕ¡àπÕ—Ö—’ÃÄÙÄùY1%Qú§ÅLÅ¡ÖÂΩ’—}çΩ’π–(ÄÄÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃÅÕ¡∞(ÄÄÄÄÄÄÄÄÅ)=%8ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃÅÕ¡àÅ=8ÅÕ¡àπ•êÄÙÅÕ¡∞πâÖ—ç°}•êÅ9ÅÕ¡àπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ]!IÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9ÅÕ¡∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ9ÅÕ¡àπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅÕ¡∞πÕ°Ö…ï°Ω±ëï…}•ê(ÄÄÄÄÄÄÄ§ÅµÖ•∏Å=8ÅµÖ•∏πÕ°Ö…ï°Ω±ëï…}•êÄÙÅÃπ•ê(ÄÄÄÄÄÄÅ]!IÅÃπ•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9ÅÃπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅÃπëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å•ët∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞ÄùM°Ö…ï°Ω±ëï»ú§Ï(ÄÅÙ((ÄÅÖÕÂπåÅÕ°Ö…ï°Ω±ëï…!•Õ—Ω…‰°•êËÅπ’µâï»§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïM°Ö…ï°Ω±ëï…Mç°ïµÑ†§Ï(ÄÄÄÅÖ›Ö•–Å—°•ÃπÕ°Ö…ï°Ω±ëï»°•ê§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅÕ¡∞π•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞π¡ÖÂµïπ—}µï—°Ωê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞π…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞ππΩ—ïÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞π…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πçÖÕ°}µΩŸïµïπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πç…ïÖ—ïë}Ö–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπ•êÅLÅâÖ—ç°}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπ…ïôï…ïπçîÅLÅâÖ—ç°}…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπ¡ÖÂΩ’—}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπÕΩ’…çï}…ïù•Õ—ï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπΩ¡ï…Ö—•Ωπ}—Â¡î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπ…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°9U11%°QI%4°=9P°=1M°‘πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°‘π±ÖÕ—}πÖµî∞Äúú§§§∞Äúú§∞Å‘πïµÖ•∞§ÅLÅç…ïÖ—ïë}âÂ}πÖµî(ÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃÅÕ¡∞(ÄÄÄÄÄÄÅ)=%8ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃÅÕ¡àÅ=8ÅÕ¡àπ•êÄÙÅÕ¡∞πâÖ—ç°}•êÅ9ÅÕ¡àπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8ÅÖ¡¡}’Õï…ÃÅ‘Å=8Å‘π•êÄÙÅÕ¡àπç…ïÖ—ïë}â‰(ÄÄÄÄÄÄÅ]!IÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅÕ¡∞πÕ°Ö…ï°Ω±ëï…}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9ÅÕ¡∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9ÅÕ¡àπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÅ=IHÅ	dÅÕ¡àπ¡ÖÂΩ’—}ëÖ—îÅM∞ÅÕ¡∞π•êÅMÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å•ët∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅÖÕÂπåÅç…ïÖ—ïM°Ö…ï°Ω±ëï»°âΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïM°Ö…ï°Ω±ëï…Mç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂ±ΩÖêÄÙÅ—°•ÃππΩ…µÖ±•ÈïM°Ö…ï°Ω±ëï…AÖÂ±ΩÖê°âΩë‰§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÕ°Ö…ï°Ω±ëï…Ã(ÄÄÄÄÄÄÄÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞ÅÕ°Ö…ï°Ω±ëï…}—Â¡î∞Åë•Õ¡±ÖÂ}πÖµî∞Åô•…Õ—}πÖµî∞Å±ÖÕ—}πÖµî∞ÅçΩµ¡ÖπÂ}πÖµî∞Å¡°Ωπî∞ÅïµÖ•∞∞(ÄÄÄÄÄÄÄÄÅ•ëïπ—•—Â}π’µâï»∞ÅÖëë…ïÕÃ∞ÅΩ›πï…Õ°•¡}¡ï…çïπ—Öùî∞ÅπΩ—ïÃ∞ÅÕ—Ö—’Ã∞Åç…ïÖ—ïë}â‰§(ÄÄÄÄÄÄÅY1UL(ÄÄÄÄÄÄÄÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞Äê‡∞(ÄÄÄÄÄÄÄÄÄê‰∞Äêƒ¿∞Äêƒƒ∞Äêƒ»∞ÄêƒÃ∞Äêƒ–§(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÕ°Ö…ï°Ω±ëï…}—Â¡î∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπë•Õ¡±ÖÂ}πÖµî∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπô•…Õ—}πÖµî∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ±ÖÕ—}πÖµî∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπçΩµ¡ÖπÂ}πÖµî∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ¡°Ωπî∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπïµÖ•∞∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ•ëïπ—•—Â}π’µâï»∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÖëë…ïÕÃ∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπΩ›πï…Õ°•¡}¡ï…çïπ—Öùî∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêππΩ—ïÃ∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÕ—Ö—’Ã∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÕ°Ö…ï°Ω±ëï»ÄÙÅ…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞ÄùM°Ö…ï°Ω±ëï»ú§Ï(ÄÄÄÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÖ’ë•—}±ΩùÃÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å’Õï…}•ê∞ÅÖç—•Ω∏∞Å…ïÕΩ’…çî∞Å…ïÕΩ’…çï}•ê∞Åµï—°Ωê∞Å¡Ö—†∞ÅÕ—Ö—’Õ}çΩëî∞Åµï—ÖëÖ—Ñ§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄùM!I!=1I}IQú∞ÄùÕ°Ö…ï°Ω±ëï…Ãú∞ÄêÃ∞ÄùA=MPú∞ÄúΩÖ¡§ΩÕ°Ö…ï°Ω±ëï…Ãú∞Ä»¿ƒ∞Äê–ËÈ)M=9•Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅM—…•πú°Õ°Ö…ï°Ω±ëï»π•ê§∞(ÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°Ï(ÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}•êËÅÕ°Ö…ï°Ω±ëï»π•ê∞(ÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}—Â¡îËÅÕ°Ö…ï°Ω±ëï»πÕ°Ö…ï°Ω±ëï…}—Â¡î∞(ÄÄÄÄÄÄÄÄÄÅë•Õ¡±ÖÂ}πÖµîËÅÕ°Ö…ï°Ω±ëï»πë•Õ¡±ÖÂ}πÖµî∞(ÄÄÄÄÄÄÄÄÄÅÕ—Ö—’ÃËÅÕ°Ö…ï°Ω±ëï»πÕ—Ö—’Ã∞(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÕ°Ö…ï°Ω±ëï»Ï(ÄÅÙ((ÄÅÖÕÂπåÅ’¡ëÖ—ïM°Ö…ï°Ω±ëï»°•êËÅπ’µâï»∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïM°Ö…ï°Ω±ëï…Mç°ïµÑ†§Ï(ÄÄÄÅÖ›Ö•–Å—°•ÃπÕ°Ö…ï°Ω±ëï»°•ê§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂ±ΩÖêÄÙÅ—°•ÃππΩ…µÖ±•ÈïM°Ö…ï°Ω±ëï…AÖÂ±ΩÖê°âΩë‰§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅÕ°Ö…ï°Ω±ëï…Ã(ÄÄÄÄÄÄÅMPÅÕ°Ö…ï°Ω±ëï…}—Â¡îÄÙÄêÃ∞(ÄÄÄÄÄÄÄÄÄÄÅë•Õ¡±ÖÂ}πÖµîÄÙÄê–∞(ÄÄÄÄÄÄÄÄÄÄÅô•…Õ—}πÖµîÄÙÄê‘∞(ÄÄÄÄÄÄÄÄÄÄÅ±ÖÕ—}πÖµîÄÙÄêÿ∞(ÄÄÄÄÄÄÄÄÄÄÅçΩµ¡ÖπÂ}πÖµîÄÙÄê‹∞(ÄÄÄÄÄÄÄÄÄÄÅ¡°ΩπîÄÙÄê‡∞(ÄÄÄÄÄÄÄÄÄÄÅïµÖ•∞ÄÙÄê‰∞(ÄÄÄÄÄÄÄÄÄÄÅ•ëïπ—•—Â}π’µâï»ÄÙÄêƒ¿∞(ÄÄÄÄÄÄÄÄÄÄÅÖëë…ïÕÃÄÙÄêƒƒ∞(ÄÄÄÄÄÄÄÄÄÄÅΩ›πï…Õ°•¡}¡ï…çïπ—ÖùîÄÙÄêƒ»∞(ÄÄÄÄÄÄÄÄÄÄÅπΩ—ïÃÄÙÄêƒÃ∞(ÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—’ÃÄÙÄêƒ–∞(ÄÄÄÄÄÄÄÄÄÄÅÖ…ç°•Ÿïë}Ö–ÄÙÅMÅ]!8Äêƒ–ËÈYI!H†»¿§ÄÙÄùI!%YúÅQ!8Å=1M°Ö…ç°•Ÿïë}Ö–∞Å9=\†§§Å1MÅ9U10Å9∞(ÄÄÄÄÄÄÄÄÄÄÅ’¡ëÖ—ïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ•ê∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÕ°Ö…ï°Ω±ëï…}—Â¡î∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπë•Õ¡±ÖÂ}πÖµî∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπô•…Õ—}πÖµî∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ±ÖÕ—}πÖµî∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπçΩµ¡ÖπÂ}πÖµî∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ¡°Ωπî∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπïµÖ•∞∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ•ëïπ—•—Â}π’µâï»∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÖëë…ïÕÃ∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπΩ›πï…Õ°•¡}¡ï…çïπ—Öùî∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêππΩ—ïÃ∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÕ—Ö—’Ã∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÕ°Ö…ï°Ω±ëï»ÄÙÅ…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞ÄùM°Ö…ï°Ω±ëï»ú§Ï(ÄÄÄÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÖ’ë•—}±ΩùÃÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å’Õï…}•ê∞ÅÖç—•Ω∏∞Å…ïÕΩ’…çî∞Å…ïÕΩ’…çï}•ê∞Åµï—°Ωê∞Å¡Ö—†∞ÅÕ—Ö—’Õ}çΩëî∞Åµï—ÖëÖ—Ñ§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄùM!I!=1I}UAQú∞ÄùÕ°Ö…ï°Ω±ëï…Ãú∞ÄêÃ∞ÄùAQ ú∞Äê–∞Ä»¿¿∞Äê‘ËÈ)M=9•Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅM—…•πú°Õ°Ö…ï°Ω±ëï»π•ê§∞(ÄÄÄÄÄÄÄÅÄΩÖ¡§ΩÕ°Ö…ï°Ω±ëï…ÃºëÌÕ°Ö…ï°Ω±ëï»π•ëıÄ∞(ÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°Ï(ÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}•êËÅÕ°Ö…ï°Ω±ëï»π•ê∞(ÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}—Â¡îËÅÕ°Ö…ï°Ω±ëï»πÕ°Ö…ï°Ω±ëï…}—Â¡î∞(ÄÄÄÄÄÄÄÄÄÅë•Õ¡±ÖÂ}πÖµîËÅÕ°Ö…ï°Ω±ëï»πë•Õ¡±ÖÂ}πÖµî∞(ÄÄÄÄÄÄÄÄÄÅÕ—Ö—’ÃËÅÕ°Ö…ï°Ω±ëï»πÕ—Ö—’Ã∞(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÕ°Ö…ï°Ω±ëï»Ï(ÄÅÙ((ÄÅÖÕÂπåÅÕ°Ö…ï°Ω±ëï…AÖÂΩ’—Ω…µÖ—Ñ°ÕΩ’…çïIïù•Õ—ï»ËÄù5%9}M úÅÄùUI9Q}M úÅÄù	9,ú§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïM°Ö…ï°Ω±ëï…Mç°ïµÑ†§Ï(ÄÄÄÅ—°•ÃπÖÕÕï…—M°Ö…ï°Ω±ëï…AÖÂΩ’—Aï…µ•ÕÕ•Ω∏°ÕΩ’…çïIïù•Õ—ï»§Ï(ÄÄÄÅ•òÄ°ÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄù	9,ú§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ï	Öπ≠Mç°ïµÑ†§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÕ°Ö…ï°Ω±ëï…ÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê∞Åë•Õ¡±ÖÂ}πÖµî∞ÅÕ°Ö…ï°Ω±ëï…}—Â¡î∞Å¡°Ωπî∞ÅïµÖ•∞(ÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9ÅÕ—Ö—’ÃÄÙÄùQ%Yú(ÄÄÄÄÄÅ=IHÅ	dÅë•Õ¡±ÖÂ}πÖµïÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅâÖπ≠ççΩ’π—ÃÄÙÅÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄù	9,ú(ÄÄÄÄÄÄ¸ÅÖ›Ö•–Å—°•ÃπÕ°Ö…ï°Ω±ëï…	Öπ≠ççΩ’π—Ã†§(ÄÄÄÄÄÄËÅmtÏ(ÄÄÄÅçΩπÕ–ÅâÖ±ÖπçïÃÄÙÅÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄù5%9}M ú(ÄÄÄÄÄÄ¸ÅÖ›Ö•–Å—°•ÃπÕ°Ö…ï°Ω±ëï…5Ö•πÖÕ°	Ö±ÖπçïÃ†§(ÄÄÄÄÄÄËÅÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄùUI9Q}M ú(ÄÄÄÄÄÄÄÄ¸ÅÖ›Ö•–Å—°•ÃπÕ°Ö…ï°Ω±ëï…’Ö…Öπ—ïïÖÕ°	Ö±ÖπçïÃ†§(ÄÄÄÄÄÄÄÄËÅ—°•ÃπÕ°Ö…ï°Ω±ëï…	Öπ≠	Ö±ÖπçïÃ°âÖπ≠ççΩ’π—Ã§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅÕΩ’…çï}…ïù•Õ—ï»ËÅÕΩ’…çïIïù•Õ—ï»∞(ÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…ÃËÅÕ°Ö…ï°Ω±ëï…Ãπ…Ω›Ã∞(ÄÄÄÄÄÅâÖ±ÖπçïÃ∞(ÄÄÄÄÄÅâÖπ≠}ÖççΩ’π—ÃËÅâÖπ≠ççΩ’π—Ã∞(ÄÄÄÄÄÅ¡ÖÂµïπ—}µï—°ΩëÃËÅl(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄùM ú∞Å±Öâï∞ËÄùÕ√°çïÃúÅÙ∞(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄù	9,ú∞Å±Öâï∞ËÄù	Öπ≈’îúÅÙ∞(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄù5=	%1}5=9dú∞Å±Öâï∞ËÄù5Ωâ•±îÅ5Ωπï‰úÅÙ∞(ÄÄÄÄÄÅt∞(ÄÄÄÄÄÅΩ¡ï…Ö—•Ωπ}—Â¡ïÃËÅl(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄùM!I!=1I}IAe59Pú∞Å±Öâï∞ËÄùIïµâΩ’…Õïµïπ–ÅÖç—•ΩππÖ•…îúÅÙ∞(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄùM!I!=1I}UII9Q}=U9Pú∞Å±Öâï∞ËÄùΩµ¡—îÅçΩ’…Öπ–ÅÖç—•ΩππÖ•…îúÅÙ∞(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄù%MQI%	UQ%=8ú∞Å±Öâï∞ËÄù•Õ—…•â’—•Ω∏úÅÙ∞(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄùY9ú∞Å±Öâï∞ËÄùŸÖπçîúÅÙ∞(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄù=Q!Hú∞Å±Öâï∞ËÄù’—…îúÅÙ∞(ÄÄÄÄÄÅt∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅç…ïÖ—ïM°Ö…ï°Ω±ëï…AÖÂΩ’–°ÕΩ’…çïIïù•Õ—ï»ËÄù5%9}M úÅÄùUI9Q}M úÅÄù	9,ú∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïM°Ö…ï°Ω±ëï…Mç°ïµÑ†§Ï(ÄÄÄÅ—°•ÃπÖÕÕï…—M°Ö…ï°Ω±ëï…AÖÂΩ’—Aï…µ•ÕÕ•Ω∏°ÕΩ’…çïIïù•Õ—ï»§Ï(ÄÄÄÅ…ï—’…∏Å—°•Ãπëàπ—…ÖπÕÖç—•Ω∏°ÖÕÂπåÄ°ç±•ïπ–§ÄÙ¯Å—°•Ãπç…ïÖ—ïM°Ö…ï°Ω±ëï…AÖÂΩ’—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÕΩ’…çïIïù•Õ—ï»∞ÅâΩë‰§§Ï(ÄÅÙ((ÄÅÖÕÂπåÅÕ°Ö…ï°Ω±ëï…AÖÂΩ’—	Ö—ç†°•êËÅπ’µâï»§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïM°Ö…ï°Ω±ëï…Mç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅÕ¡à∏®∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅºππÖµîÅLÅΩ…ùÖπ•ÈÖ—•Ωπ}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâÑπâÖπ≠}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâÑπÖççΩ’π—}πÖµîÅLÅâÖπ≠}ÖççΩ’π—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâÑπÖççΩ’π—}π’µâï»ÅLÅâÖπ≠}ÖççΩ’π—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâÑπç’……ïπç‰ÅLÅâÖπ≠}ÖççΩ’π—}ç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°9U11%°QI%4°=9P°=1M°‘πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°‘π±ÖÕ—}πÖµî∞Äúú§§§∞Äúú§∞Å‘πïµÖ•∞§ÅLÅç…ïÖ—ïë}âÂ}πÖµî(ÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃÅÕ¡à(ÄÄÄÄÄÄÅ)=%8ÅΩ…ùÖπ•ÈÖ—•ΩπÃÅºÅ=8Åºπ•êÄÙÅÕ¡àπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8ÅÖ¡¡}’Õï…ÃÅ‘Å=8Å‘π•êÄÙÅÕ¡àπç…ïÖ—ïë}â‰(ÄÄÄÄÄÄÅ1PÅ)=%8ÅâÖπ≠}ÖççΩ’π—ÃÅâÑÅ=8ÅâÑπ•êÄÙÅÕ¡àπâÖπ≠}ÖççΩ’π—}•êÅ9ÅâÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡àπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9ÅâÑπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ]!IÅÕ¡àπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅÕ¡àπ•êÄÙÄê…Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å•ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅâÖ—ç†ÄÙÅ…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞ÄùM°Ö…ï°Ω±ëï»Å¡ÖÂΩ’–ÅâÖ—ç†ú§Ï(ÄÄÄÅçΩπÕ–Å±•πïÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅÕ¡∞∏®∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÃπë•Õ¡±ÖÂ}πÖµîÅLÅÕ°Ö…ï°Ω±ëï…}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÃπÕ°Ö…ï°Ω±ëï…}—Â¡î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅç¥π¡•ïçï}π’µâï»ÅLÅçÖÕ°}¡•ïçï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâ–π•êÅLÅâÖπ≠}—…ÖπÕÖç—•Ωπ}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâ–π—…ÖπÕÖç—•Ωπ}π’µâï»ÅLÅâÖπ≠}—…ÖπÕÖç—•Ωπ}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâ–π…ïôï…ïπçîÅLÅâÖπ≠}…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâ–πâÖπ≠}ÖççΩ’π—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâÑπâÖπ≠}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâÑπÖççΩ’π—}πÖµîÅLÅâÖπ≠}ÖççΩ’π—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâÑπÖççΩ’π—}π’µâï»ÅLÅâÖπ≠}ÖççΩ’π—}π’µâï»(ÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃÅÕ¡∞(ÄÄÄÄÄÄÅ)=%8ÅÕ°Ö…ï°Ω±ëï…ÃÅÃÅ=8ÅÃπ•êÄÙÅÕ¡∞πÕ°Ö…ï°Ω±ëï…}•êÅ9ÅÃπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8ÅçÖÕ°}µΩŸïµïπ—ÃÅç¥Å=8Åç¥π•êÄÙÅÕ¡∞πçÖÕ°}µΩŸïµïπ—}•êÅ9Åç¥πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8ÅâÖπ≠}—…ÖπÕÖç—•ΩπÃÅâ–Å=8Åâ–π•êÄÙÅÕ¡∞πâÖπ≠}—…ÖπÕÖç—•Ωπ}•êÅ9Åâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8ÅâÖπ≠}ÖççΩ’π—ÃÅâÑÅ=8ÅâÑπ•êÄÙÅâ–πâÖπ≠}ÖççΩ’π—}•êÅ9ÅâÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ]!IÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅÕ¡∞πâÖ—ç°}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9ÅÕ¡∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÅ=IHÅ	dÅÃπë•Õ¡±ÖÂ}πÖµî∞ÅÕ¡∞π•ëÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å•ët∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÏÄ∏∏πâÖ—ç†∞Å±•πïÃËÅ±•πïÃπ…Ω›ÃÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅÕ°Ö…ï°Ω±ëï…AÖÂΩ’—1•πïIïçï•¡–°•êËÅπ’µâï»§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïM°Ö…ï°Ω±ëï…Mç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅÕ¡∞∏®∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπ…ïôï…ïπçîÅLÅâÖ—ç°}…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπÕΩ’…çï}…ïù•Õ—ï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπΩ¡ï…Ö—•Ωπ}—Â¡î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπ…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àππΩ—ïÃÅLÅâÖ—ç°}πΩ—ïÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπ¡ÖÂΩ’—}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπâÖπ≠}ÖççΩ’π—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅºππÖµîÅLÅΩ…ùÖπ•ÈÖ—•Ωπ}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâÑπâÖπ≠}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâÑπÖççΩ’π—}πÖµîÅLÅâÖπ≠}ÖççΩ’π—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâÑπÖççΩ’π—}π’µâï»ÅLÅâÖπ≠}ÖççΩ’π—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâÑπç’……ïπç‰ÅLÅâÖπ≠}ÖççΩ’π—}ç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÃπë•Õ¡±ÖÂ}πÖµîÅLÅÕ°Ö…ï°Ω±ëï…}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÃπÕ°Ö…ï°Ω±ëï…}—Â¡î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°9U11%°QI%4°=9P°=1M°‘πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°‘π±ÖÕ—}πÖµî∞Äúú§§§∞Äúú§∞Å‘πïµÖ•∞§ÅLÅç…ïÖ—ïë}âÂ}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅç¥π¡•ïçï}π’µâï»ÅLÅçÖÕ°}¡•ïçï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâ–π•êÅLÅâÖπ≠}—…ÖπÕÖç—•Ωπ}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâ–π—…ÖπÕÖç—•Ωπ}π’µâï»ÅLÅâÖπ≠}—…ÖπÕÖç—•Ωπ}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâ–π…ïôï…ïπçîÅLÅâÖπ≠}…ïôï…ïπçî(ÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃÅÕ¡∞(ÄÄÄÄÄÄÅ)=%8ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃÅÕ¡àÅ=8ÅÕ¡àπ•êÄÙÅÕ¡∞πâÖ—ç°}•êÅ9ÅÕ¡àπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ)=%8ÅΩ…ùÖπ•ÈÖ—•ΩπÃÅºÅ=8Åºπ•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ)=%8ÅÕ°Ö…ï°Ω±ëï…ÃÅÃÅ=8ÅÃπ•êÄÙÅÕ¡∞πÕ°Ö…ï°Ω±ëï…}•êÅ9ÅÃπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8ÅÖ¡¡}’Õï…ÃÅ‘Å=8Å‘π•êÄÙÅÕ¡àπç…ïÖ—ïë}â‰(ÄÄÄÄÄÄÅ1PÅ)=%8ÅçÖÕ°}µΩŸïµïπ—ÃÅç¥Å=8Åç¥π•êÄÙÅÕ¡∞πçÖÕ°}µΩŸïµïπ—}•êÅ9Åç¥πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8ÅâÖπ≠}—…ÖπÕÖç—•ΩπÃÅâ–Å=8Åâ–π•êÄÙÅÕ¡∞πâÖπ≠}—…ÖπÕÖç—•Ωπ}•êÅ9Åâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8ÅâÖπ≠}ÖççΩ’π—ÃÅâÑÅ=8ÅâÑπ•êÄÙÅâ–πâÖπ≠}ÖççΩ’π—}•êÅ9ÅâÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ]!IÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅÕ¡∞π•êÄÙÄê…Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å•ët∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞ÄùM°Ö…ï°Ω±ëï»Å¡ÖÂΩ’–Å…ïçï•¡–ú§Ï(ÄÅÙ((ÄÅÖÕÂπåÅ¡ÖÂ1ïÖÕï’Ö…Öπ—ïî°•êËÅπ’µâï»∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅ…ï—’…∏Å—°•Ãπëàπ—…ÖπÕÖç—•Ω∏°ÖÕÂπåÄ°ç±•ïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†ùM1PÅ¡ù}ÖëŸ•ÕΩ…Â}·Öç—}±Ωç¨°°ÖÕ°—ï·–†êƒ§§ú∞ÅmÅ±ïÖÕîµù’Ö…Öπ—ïîµ¡ÖÂµïπ–¥ëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•Ù¥ëÌ•ëıÅt§Ï(ÄÄÄÄÄÅçΩπÕ–Å±ïÖÕîÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ∞∏®∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Äúú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ1MÅQI%4°=9P°=1M°–πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π±ÖÕ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π¡ΩÕ—}πÖµî∞Äúú§§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅLÅ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ∞π±ïÖÕï}π’µâï»(ÄÄÄÄÄÄÄÄÅI=4Å±ïÖÕïÃÅ∞(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ∞π—ïπÖπ—}•êÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•êÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ]!IÅ∞π•êÄÙÄêƒÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Å∞πëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅçΩπÕ–Å…Ω‹ÄÙÅ…ï≈’•…ïIΩ‹°±ïÖÕîπ…Ω›Õl¡t∞Äù1ïÖÕîú§Ï(ÄÄÄÄÄÅçΩπÕ–Åï·ç°ÖπùïIÖ—îÄÙÅÖ›Ö•–Å—°•Ãπï·ç°ÖπùïIÖ—î†§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—’……ïπç‰ÄÙÅM—…•πú°âΩë‰π¡ÖÂµïπ—}ç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÖµΩ’π—UÕêÄÙÅ9’µâï»°âΩë‰πÖµΩ’π—}’ÕêÄ¸¸Ä°¡ÖÂµïπ—’……ïπç‰ÄÙÙÙÄùUMúÄ¸ÅâΩë‰πÖµΩ’π–ÄËÄ¿§§ÅÒÄ¿Ï(ÄÄÄÄÄÅçΩπÕ–ÅÖµΩ’π—ëòÄÙÅ9’µâï»°âΩë‰πÖµΩ’π—}çëòÄ¸¸Ä¿§ÅÒÄ¿Ï(ÄÄÄÄÄÅçΩπÕ–Åï·ç°ÖπùïIÖ—ïUÕïêÄÙÅ9’µâï»°âΩë‰πï·ç°Öπùï}…Ö—ï}’ÕïêÄ¸¸Åï·ç°ÖπùïIÖ—î¸π…Ö—îÄ¸¸Ä¿§ÅÒÅπ’±∞Ï(ÄÄÄÄÄÅçΩπÕ–Åï·ç°ÖπùïIÖ—ïÖ—îÄÙÅâΩë‰πï·ç°Öπùï}…Ö—ï}ëÖ—îÄ¸¸Åï·ç°ÖπùïIÖ—î¸πïôôïç—•ŸïÖ—îÄ¸¸Åπ’±∞Ï(ÄÄÄÄÄÅ•òÄ†ÖlùUMú∞Äùú∞Äù5%aùtπ•πç±’ëïÃ°¡ÖÂµïπ—’……ïπç‰§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùïŸ•ÕîÅëîÅ¡Ö•ïµïπ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ†Ö9’µâï»π•Õ•π•—î°ÖµΩ’π—UÕê§ÅÒÅÖµΩ’π—UÕêÄÄ¿ÅÒÄÖ9’µâï»π•Õ•π•—î°ÖµΩ’π—ëò§ÅÒÅÖµΩ’π—ëòÄÄ¿§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù5Ωπ—Öπ–ÅëîÅ¡Ö•ïµïπ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°ÖµΩ’π—UÕêÄÙÄ¿ÄòòÅÖµΩ’π—ëòÄÙÄ¿§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅµΩπ—Öπ–ÅëîÅ±ÑÅùÖ…Öπ—•îÅëΩ•–Åï—…îÅÕ’¡ï…•ï’»ÅÑÄ¿∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ†°¡ÖÂµïπ—’……ïπç‰ÄÙÙÙÄùúÅÒÅ¡ÖÂµïπ—’……ïπç‰ÄÙÙÙÄù5%aúÅÒÅÖµΩ’π—ëòÄ¯Ä¿§ÄòòÄ†Öï·ç°ÖπùïIÖ—ïUÕïêÅÒÅï·ç°ÖπùïIÖ—ïUÕïêÄÙÄ¿§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùU∏Å—Ö’‡ÅëîÅç°ÖπùîÅïÕ–Å…ï≈’•ÃÅ¡Ω’»Å’∏Å¡Ö•ïµïπ–ÅëîÅùÖ…Öπ—•îÅï∏Å∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—5ï—°ΩëUÕêÄÙÅM—…•πú°âΩë‰π¡ÖÂµïπ—}µï—°Ωë}’ÕêÄ¸¸ÅâΩë‰π¡ÖÂµïπ—}µï—°ΩêÄ¸¸ÄùM ú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—5ï—°ΩëëòÄÙÅM—…•πú°âΩë‰π¡ÖÂµïπ—}µï—°Ωë}çëòÄ¸¸ÅâΩë‰π¡ÖÂµïπ—}µï—°ΩêÄ¸¸ÄùM ú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅ•òÄ†ÖlùM ú∞Äù	9,ú∞Äù5=	%1}5=9dùtπ•πç±’ëïÃ°¡ÖÂµïπ—5ï—°ΩëUÕê§ÅÒÄÖlùM ú∞Äù	9,ú∞Äù5=	%1}5=9dùtπ•πç±’ëïÃ°¡ÖÂµïπ—5ï—°Ωëëò§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù5ΩëîÅëîÅ¡Ö•ïµïπ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°¡ÖÂµïπ—’……ïπç‰ÄÙÙÙÄù5%aúÄòòÄ°¡ÖÂµïπ—5ï—°ΩëUÕêÄÙÙÙÄù	9,úÅÒÅ¡ÖÂµïπ—5ï—°ΩëëòÄÙÙÙÄù	9,ú§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅ¡Ö•ïµïπ–Åµ•·—îÅëîÅùÖ…Öπ—•îÅâÖπçÖ•…îÅ∏ÅïÕ–Å¡ÖÃÅïπçΩ…îÅ¡…•ÃÅï∏Åç°Ö…ùî∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—5ï—°ΩêÄÙÅÖµΩ’π—UÕêÄ¯Ä¿Ä¸Å¡ÖÂµïπ—5ï—°ΩëUÕêÄËÅ¡ÖÂµïπ—5ï—°ΩëëòÏ(ÄÄÄÄÄÅçΩπÕ–Å•Õ	Öπ≠AÖÂµïπ–ÄÙÅ¡ÖÂµïπ—5ï—°ΩêÄÙÙÙÄù	9,úÏ(ÄÄÄÄÄÅçΩπÕ–ÅâÖπ≠ççΩ’π–ÄÙÅ•Õ	Öπ≠AÖÂµïπ–(ÄÄÄÄÄÄÄÄ¸ÅÖ›Ö•–Å—°•ÃπŸÖ±•ëÖ—ï	Öπ≠ççΩ’π—Ω…’Ö…Öπ—ïî°ç±•ïπ–∞Å9’µâï»°âΩë‰πâÖπ≠}ÖççΩ’π—}•êÄ¸¸Ä¿§∞Å¡ÖÂµïπ—’……ïπç‰§(ÄÄÄÄÄÄÄÄËÅπ’±∞Ï(ÄÄÄÄÄÅçΩπÕ–ÅâÖπ≠’Ö…Öπ—ïïQ…ÖπÕÖç—•ΩπQÂ¡îÄÙÅ•Õ	Öπ≠AÖÂµïπ–(ÄÄÄÄÄÄÄÄ¸ÅÖ›Ö•–Å—°•ÃπâÖπ≠’Ö…Öπ—ïïQ…ÖπÕÖç—•ΩπQÂ¡î°ç±•ïπ–∞ÄùUI9Q}Ae59Pú§(ÄÄÄÄÄÄÄÄËÄù59U1})UMQ59PúÏ(ÄÄÄÄÄÅ•òÄ†Ö•Õ	Öπ≠AÖÂµïπ–§ÅÏ(ÄÄÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ï’Ö…Öπ—ïïÖÕ°Mç°ïµÑ†§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅçΩπÕ–Åçëô≈’•ŸÖ±ïπ—UÕêÄÙÅÖµΩ’π—ëòÄ¯Ä¿ÄòòÅï·ç°ÖπùïIÖ—ïUÕïêÄ¸Å9’µâï»†°ÖµΩ’π—ëòÄºÅï·ç°ÖπùïIÖ—ïUÕïê§π—Ω•·ïê†»§§ÄËÄ¿Ï(ÄÄÄÄÄÅçΩπÕ–ÅÖµΩ’π–ÄÙÅ9’µâï»†°ÖµΩ’π—UÕêÄ¨Åçëô≈’•ŸÖ±ïπ—UÕê§π—Ω•·ïê†»§§Ï(ÄÄÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïîÄÙÅÖ›Ö•–Å—°•Ãπ±ïÖÕï’Ö…Öπ—ïî°•ê§Ï(ÄÄÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïïµΩ’π–ÄÙÅ9’µâï»°ù’Ö…Öπ—ïî¸πÖµΩ’π–Ä¸¸Å…Ω‹π…ïπ—Ö±}ù’Ö…Öπ—ïï}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡Ö•ëµΩ’π–ÄÙÅ9’µâï»°ù’Ö…Öπ—ïî¸π¡Ö•ë}ÖµΩ’π–Ä¸¸Å…Ω‹π…ïπ—Ö±}ù’Ö…Öπ—ïï}¡Ö•êÄ¸¸Ä¿§Ä¨ÅÖµΩ’π–Ï(ÄÄÄÄÄÅ•òÄ°ù’Ö…Öπ—ïïµΩ’π–Ä¯Ä¿ÄòòÅ¡Ö•ëµΩ’π–Ä¯Åù’Ö…Öπ—ïïµΩ’π–Ä¨Ä¿∏¿ƒ§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅ¡Ö•ïµïπ–Åëï¡ÖÕÕîÅ±îÅµΩπ—Öπ–Å…ïÕ—Öπ–ÅëîÅ±ÑÅùÖ…Öπ—•î∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅçΩπÕ–ÅÕ—Ö—’ÃÄÙÅ¡Ö•ëµΩ’π–Ä¯ÙÅù’Ö…Öπ—ïïµΩ’π–Ä¸ÄùA%úÄËÅ¡Ö•ëµΩ’π–Ä¯Ä¿Ä¸ÄùAIQ%0úÄËÄù9=Q}A%úÏ(ÄÄÄÄÄÅÖ›Ö•–Å—°•Ãπ’¡Õï…—1ïÖÕï’Ö…Öπ—ïî°ç±•ïπ–∞Å•ê∞ÅÏ(ÄÄÄÄÄÄÄÅÖµΩ’π–ËÅù’Ö…Öπ—ïïµΩ’π–∞(ÄÄÄÄÄÄÄÅ¡Ö•ë}ÖµΩ’π–ËÅ¡Ö•ëµΩ’π–∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}ëÖ—îËÅM—…•πú°âΩë‰π¡ÖÂµïπ—}ëÖ—îÄ¸¸Åπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§§∞(ÄÄÄÄÄÄÄÅÕ—Ö—’Ã∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡ï…Õ•Õ—ïë’Ö…Öπ—ïîÄÙÅÖ›Ö•–Å—°•Ãπ±ïÖÕï’Ö…Öπ—ïï%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞Å•ê§Ï(ÄÄÄÄÄÅçΩπÕ–Å…ïçï•¡—9’µâï»ÄÙÅÖ›Ö•–Å—°•Ãππï·—AÖÂµïπ—Iïçï•¡—9’µâï»°ç±•ïπ–§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—Ö—îÄÙÅM—…•πú°âΩë‰π¡ÖÂµïπ—}ëÖ—îÄ¸¸Åπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§§Ï(ÄÄÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•ÈïëIïôï…ïπçîÄÙÅâΩë‰π…ïôï…ïπçîÄ¸ÅM—…•πú°âΩë‰π…ïôï…ïπçî§ÄËÅÅH¥ëÌ•ëıÄÏ(ÄÄÄÄÄÅçΩπÕ–Å•ëïµ¡Ω—ïπçÂ-ï‰ÄÙÅl(ÄÄÄÄÄÄÄÄùUI9Qú∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ•ê∞(ÄÄÄÄÄÄÄÅ¡ï…Õ•Õ—ïë’Ö…Öπ—ïîπ•ê∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—Ö—î∞(ÄÄÄÄÄÄÄÅÖµΩ’π–π—Ω•·ïê†»§∞(ÄÄÄÄÄÄÄÅÖµΩ’π—UÕêπ—Ω•·ïê†»§∞(ÄÄÄÄÄÄÄÅÖµΩ’π—ëòπ—Ω•·ïê†»§∞(ÄÄÄÄÄÄÄÅπΩ…µÖ±•ÈïëIïôï…ïπçî∞(ÄÄÄÄÄÅtπ©Ω•∏†úËú§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—IïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<Å¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÄÄÄÄ°•πŸΩ•çï}•ê∞Å¡ÖÂµïπ—}ëÖ—î∞ÅÖµΩ’π–∞Å¡ÖÂµïπ—}µï—°Ωê∞Å…ïôï…ïπçî∞ÅπΩ—ïÃ∞Å¡ÖÂï…}πÖµî∞Å…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÅç’……ïπç‰∞ÅÖµΩ’π—}’Õê∞ÅÖµΩ’π—}çëò∞Åï·ç°Öπùï}…Ö—ï}’Õïê∞Åï·ç°Öπùï}…Ö—ï}ëÖ—î∞Åçëô}ï≈’•ŸÖ±ïπ—}’Õê∞Å—Ω—Ö±}ï≈’•ŸÖ±ïπ—}’Õê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê∞(ÄÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}—Â¡î∞Å±ïÖÕï}ù’Ö…Öπ—ïï}•ê∞Å•ëïµ¡Ω—ïπçÂ}≠ï‰§(ÄÄÄÄÄÄÄÄÅY1UL(ÄÄÄÄÄÄÄÄÄÄ°9U10∞Äêƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞(ÄÄÄÄÄÄÄÄÄÄÄê‡∞Äê‰∞Äêƒ¿∞Äêƒƒ∞Äêƒ»∞ÄêƒÃ∞Äê»∞Äêƒ–∞(ÄÄÄÄÄÄÄÄÄÄÄùUI9Qú∞Äêƒ‘∞Äêƒÿ§(ÄÄÄÄÄÄÄÄÅ=8Å=91%PÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å•ëïµ¡Ω—ïπçÂ}≠ï‰§(ÄÄÄÄÄÄÄÄÅ]!IÅëï±ï—ïë}Ö–Å%LÅ9U10Å9Å•ëïµ¡Ω—ïπçÂ}≠ï‰Å%LÅ9=PÅ9U10(ÄÄÄÄÄÄÄÄÅ<Å9=Q!%9(ÄÄÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—Ö—î∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—5ï—°Ωê∞(ÄÄÄÄÄÄÄÄÄÅπΩ…µÖ±•ÈïëIïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅâΩë‰ππΩ—ïÃÄ¸ÅM—…•πú°âΩë‰ππΩ—ïÃ§ÄËÄùAÖ•ïµïπ–ÅùÖ…Öπ—•îÅ±ΩçÖ—•Ÿîú∞(ÄÄÄÄÄÄÄÄÄÅ…Ω‹π—ïπÖπ—}πÖµîÄ¸¸Ä°…Ω‹π—ïπÖπ—}•êÄ¸ÅÅ1ΩçÖ—Ö•…îÄåëÌ…Ω‹π—ïπÖπ—}•ëıÄÄËÅπ’±∞§∞(ÄÄÄÄÄÄÄÄÄÅ…ïçï•¡—9’µâï»∞(ÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π—UÕê∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π—ëò∞(ÄÄÄÄÄÄÄÄÄÅï·ç°ÖπùïIÖ—ïUÕïê∞(ÄÄÄÄÄÄÄÄÄÅï·ç°ÖπùïIÖ—ïÖ—î∞(ÄÄÄÄÄÄÄÄÄÅçëô≈’•ŸÖ±ïπ—UÕê∞(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÄÄÅ¡ï…Õ•Õ—ïë’Ö…Öπ—ïîπ•ê∞(ÄÄÄÄÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ-ï‰∞(ÄÄÄÄÄÄÄÅt∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ•òÄ†Ö¡ÖÂµïπ—IïÕ’±–π…Ω›Õl¡t§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ùîÅ¡Ö•ïµïπ–ÅëîÅùÖ…Öπ—•îÅïÕ–Åëï©ÑÅï∏ÅçΩ’…ÃÅëîÅ—…Ö•—ïµïπ–ÅΩ‘Åëï©ÑÅïπ…ïù•Õ—…î∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅçΩπÕ–ÅµΩŸïµïπ—ÃÄÙÅmtÏ(ÄÄÄÄÄÅ•òÄ°ÖµΩ’π—UÕêÄ¯Ä¿ÄòòÄÖ•Õ	Öπ≠AÖÂµïπ–§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅµΩŸïµïπ–ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ï’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ—}—Â¡îËÄùI9Qe}Ae59Q}%8ú∞(ÄÄÄÄÄÄÄÄÄÅ—Â¡îËÄù%8ú∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ËÅÖµΩ’π—UÕê∞(ÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—îËÅ¡ÖÂµïπ—Ö—î∞(ÄÄÄÄÄÄÄÄÄÅ±ïÖÕï}•êËÅ•ê∞(ÄÄÄÄÄÄÄÄÄÅ±ïÖÕï}ù’Ö…Öπ—ïï}•êËÅ¡ï…Õ•Õ—ïë’Ö…Öπ—ïîπ•ê∞(ÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}•êËÅ¡ÖÂµïπ—IïÕ’±–π…Ω›Õl¡tπ•ê∞(ÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—}•êËÅ…Ω‹π—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅπΩ…µÖ±•ÈïëIïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅ…ïÖÕΩ∏ËÄùAÖ•ïµïπ–ÅùÖ…Öπ—•îÅ±ΩçÖ—•Ÿîú∞(ÄÄÄÄÄÄÄÄÄÅπΩ—ïÃËÅâΩë‰ππΩ—ïÃÄ¸ÅM—…•πú°âΩë‰ππΩ—ïÃ§ÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰ËÄùUMú∞(ÄÄÄÄÄÄÄÄÄÅï≈’•ŸÖ±ïπ—}’ÕêËÅÖµΩ’π—UÕê∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπÖ’ë•—’Ö…Öπ—ïïÖÕ†°ç±•ïπ–∞ÄùI9Qe}Ae59Q}%8ú∞ÅµΩŸïµïπ–π•ê∞ÅÏÅ¡ÖÂµïπ—}•êËÅ¡ÖÂµïπ—IïÕ’±–π…Ω›Õl¡tπ•ê∞ÅÖµΩ’π–ËÅÖµΩ’π—UÕê∞Åç’……ïπç‰ËÄùUMúÅÙ§Ï(ÄÄÄÄÄÄÄÅµΩŸïµïπ—Ãπ¡’Õ†°µΩŸïµïπ–§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°ÖµΩ’π—ëòÄ¯Ä¿ÄòòÄÖ•Õ	Öπ≠AÖÂµïπ–§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅµΩŸïµïπ–ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ï’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ—}—Â¡îËÄùI9Qe}Ae59Q}%8ú∞(ÄÄÄÄÄÄÄÄÄÅ—Â¡îËÄù%8ú∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ËÅÖµΩ’π—ëò∞(ÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—îËÅ¡ÖÂµïπ—Ö—î∞(ÄÄÄÄÄÄÄÄÄÅ±ïÖÕï}•êËÅ•ê∞(ÄÄÄÄÄÄÄÄÄÅ±ïÖÕï}ù’Ö…Öπ—ïï}•êËÅ¡ï…Õ•Õ—ïë’Ö…Öπ—ïîπ•ê∞(ÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}•êËÅ¡ÖÂµïπ—IïÕ’±–π…Ω›Õl¡tπ•ê∞(ÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—}•êËÅ…Ω‹π—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅπΩ…µÖ±•ÈïëIïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅ…ïÖÕΩ∏ËÄùAÖ•ïµïπ–ÅùÖ…Öπ—•îÅ±ΩçÖ—•Ÿîú∞(ÄÄÄÄÄÄÄÄÄÅπΩ—ïÃËÅâΩë‰ππΩ—ïÃÄ¸ÅM—…•πú°âΩë‰ππΩ—ïÃ§ÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰ËÄùú∞(ÄÄÄÄÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}’ÕïêËÅï·ç°ÖπùïIÖ—ïUÕïê∞(ÄÄÄÄÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}ëÖ—îËÅï·ç°ÖπùïIÖ—ïÖ—î∞(ÄÄÄÄÄÄÄÄÄÅï≈’•ŸÖ±ïπ—}’ÕêËÅçëô≈’•ŸÖ±ïπ—UÕê∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπÖ’ë•—’Ö…Öπ—ïïÖÕ†°ç±•ïπ–∞ÄùI9Qe}Ae59Q}%8ú∞ÅµΩŸïµïπ–π•ê∞ÅÏÅ¡ÖÂµïπ—}•êËÅ¡ÖÂµïπ—IïÕ’±–π…Ω›Õl¡tπ•ê∞ÅÖµΩ’π–ËÅÖµΩ’π—ëò∞Åç’……ïπç‰ËÄùúÅÙ§Ï(ÄÄÄÄÄÄÄÅµΩŸïµïπ—Ãπ¡’Õ†°µΩŸïµïπ–§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ±ï–ÅâÖπ≠Q…ÖπÕÖç—•Ω∏ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅ•òÄ°•Õ	Öπ≠AÖÂµïπ–ÄòòÅâÖπ≠ççΩ’π–§ÅÏ(ÄÄÄÄÄÄÄÅâÖπ≠Q…ÖπÕÖç—•Ω∏ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ï’Ö…Öπ—ïï	Öπ≠Q…ÖπÕÖç—•Ωπ%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅâÖπ≠ççΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ¡ÖÂµïπ—’……ïπç‰ÄÙÙÙÄùúÄ¸ÅÖµΩ’π—ëòÄËÅÖµΩ’π—UÕê∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰ËÅ¡ÖÂµïπ—’……ïπç‰ÄÙÙÙÄùúÄ¸ÄùúÄËÄùUMú∞(ÄÄÄÄÄÄÄÄÄÅ…ïçï•¡—9’µâï»ËÅ¡ÖÂµïπ—IïÕ’±–π…Ω›Õl¡tπ…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅπΩ…µÖ±•ÈïëIïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅç…ïÖ—ïë	‰ËÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ—…ÖπÕÖç—•ΩπQÂ¡îËÅâÖπ≠’Ö…Öπ—ïïQ…ÖπÕÖç—•ΩπQÂ¡î∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çï5Ωë’±îËÄùUI9QLú∞(ÄÄÄÄÄÄÄÄÄÅë•…ïç—•Ω∏ËÄù%8ú∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çïπ—•—ÂQÂ¡îËÄùUI9Qú∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çïπ—•—Â%êËÅ9’µâï»°¡ÖÂµïπ—IïÕ’±–π…Ω›Õl¡tπ•ê§∞(ÄÄÄÄÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÄùAÖ•ïµïπ–ÅëîÅùÖ…Öπ—•îÅ±ΩçÖ—•Ÿîú∞(ÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—9ÖµîËÅ…Ω‹π—ïπÖπ—}πÖµîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ±ïÖÕï9’µâï»ËÅ…Ω‹π±ïÖÕï}π’µâï»Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ’π•—9’µâï»ËÅ…Ω‹π’π•—}π’µâï»Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅUAQÅ¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÄÄÅMPÅù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÕÄ∞(ÄÄÄÄÄÄÄÅm¡ÖÂµïπ—IïÕ’±–π…Ω›Õl¡tπ•ê∞ÅµΩŸïµïπ—Õl¡t¸π•êÄ¸¸Åπ’±∞∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅù’Ö…Öπ—ïîËÅÖ›Ö•–Å—°•Ãπ±ïÖÕï’Ö…Öπ—ïï%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞Å•ê§∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}•êËÅ¡ÖÂµïπ—IïÕ’±–π…Ω›Õl¡tπ•ê∞(ÄÄÄÄÄÄÄÅ…ïçï•¡—}π’µâï»ËÅ¡ÖÂµïπ—IïÕ’±–π…Ω›Õl¡tπ…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÅçÖÕ°}µΩŸïµïπ—}•êËÅµΩŸïµïπ—Õl¡t¸π•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâÖπ≠}—…ÖπÕÖç—•Ω∏ËÅâÖπ≠Q…ÖπÕÖç—•Ω∏∞(ÄÄÄÄÄÄÄÅµΩŸïµïπ–ËÅµΩŸïµïπ—Õl¡tÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅµΩŸïµïπ—Ã∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÅÙ((ÄÅÖÕÂπåÅ…ïô’πë1ïÖÕï’Ö…Öπ—ïî°•êËÅπ’µâï»∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅ…ï—’…∏Å—°•Ãπëàπ—…ÖπÕÖç—•Ω∏°ÖÕÂπåÄ°ç±•ïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†ùM1PÅ¡ù}ÖëŸ•ÕΩ…Â}·Öç—}±Ωç¨°°ÖÕ°—ï·–†êƒ§§ú∞ÅmÅ±ïÖÕîµù’Ö…Öπ—ïîµ…ïô’πê¥ëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•Ù¥ëÌ•ëıÅt§Ï(ÄÄÄÄÄÅçΩπÕ–Å±ïÖÕîÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ∞∏®∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Äúú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ1MÅQI%4°=9P°=1M°–πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π±ÖÕ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π¡ΩÕ—}πÖµî∞Äúú§§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅLÅ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ∞π±ïÖÕï}π’µâï»(ÄÄÄÄÄÄÄÄÅI=4Å±ïÖÕïÃÅ∞(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ∞π—ïπÖπ—}•êÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•êÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ]!IÅ∞π•êÄÙÄêƒÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Å∞πëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅçΩπÕ–Å…Ω‹ÄÙÅ…ï≈’•…ïIΩ‹°±ïÖÕîπ…Ω›Õl¡t∞Äù1ïÖÕîú§Ï(ÄÄÄÄÄÅçΩπÕ–Åï·ç°ÖπùïIÖ—îÄÙÅÖ›Ö•–Å—°•Ãπï·ç°ÖπùïIÖ—î†§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—’……ïπç‰ÄÙÅM—…•πú°âΩë‰π¡ÖÂµïπ—}ç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÖµΩ’π—UÕêÄÙÅ9’µâï»°âΩë‰πÖµΩ’π—}’ÕêÄ¸¸Ä°¡ÖÂµïπ—’……ïπç‰ÄÙÙÙÄùUMúÄ¸ÅâΩë‰πÖµΩ’π–ÄËÄ¿§§ÅÒÄ¿Ï(ÄÄÄÄÄÅçΩπÕ–ÅÖµΩ’π—ëòÄÙÅ9’µâï»°âΩë‰πÖµΩ’π—}çëòÄ¸¸Ä¿§ÅÒÄ¿Ï(ÄÄÄÄÄÅçΩπÕ–Åï·ç°ÖπùïIÖ—ïUÕïêÄÙÅ9’µâï»°âΩë‰πï·ç°Öπùï}…Ö—ï}’ÕïêÄ¸¸Åï·ç°ÖπùïIÖ—î¸π…Ö—îÄ¸¸Ä¿§ÅÒÅπ’±∞Ï(ÄÄÄÄÄÅçΩπÕ–Åï·ç°ÖπùïIÖ—ïÖ—îÄÙÅâΩë‰πï·ç°Öπùï}…Ö—ï}ëÖ—îÄ¸¸Åï·ç°ÖπùïIÖ—î¸πïôôïç—•ŸïÖ—îÄ¸¸Åπ’±∞Ï(ÄÄÄÄÄÅ•òÄ†ÖlùUMú∞Äùùtπ•πç±’ëïÃ°¡ÖÂµïπ—’……ïπç‰§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùïŸ•ÕîÅëîÅ…ïµâΩ’…Õïµïπ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ†Ö9’µâï»π•Õ•π•—î°ÖµΩ’π—UÕê§ÅÒÅÖµΩ’π—UÕêÄÄ¿ÅÒÄÖ9’µâï»π•Õ•π•—î°ÖµΩ’π—ëò§ÅÒÅÖµΩ’π—ëòÄÄ¿§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù5Ωπ—Öπ–ÅëîÅ…ïµâΩ’…Õïµïπ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°ÖµΩ’π—UÕêÄÙÄ¿ÄòòÅÖµΩ’π—ëòÄÙÄ¿§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅ…ïµâΩ’…Õïµïπ–ÅëîÅ±ÑÅùÖ…Öπ—•îÅëΩ•–Åï—…îÅÕ’¡ï…•ï’»ÅÑÄ¿∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ†°¡ÖÂµïπ—’……ïπç‰ÄÙÙÙÄùúÅÒÅÖµΩ’π—ëòÄ¯Ä¿§ÄòòÄ†Öï·ç°ÖπùïIÖ—ïUÕïêÅÒÅï·ç°ÖπùïIÖ—ïUÕïêÄÙÄ¿§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùU∏Å—Ö’‡ÅëîÅç°ÖπùîÅïÕ–Å…ï≈’•ÃÅ¡Ω’»Å’∏Å…ïµâΩ’…Õïµïπ–ÅëîÅùÖ…Öπ—•îÅï∏Å∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—5ï—°ΩêÄÙÅM—…•πú°âΩë‰π¡ÖÂµïπ—}µï—°ΩêÄ¸¸ÄùM ú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅ•òÄ†ÖlùM ú∞Äù	9,ú∞Äù5=	%1}5=9dùtπ•πç±’ëïÃ°¡ÖÂµïπ—5ï—°Ωê§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù5ΩëîÅëîÅ…ïµâΩ’…Õïµïπ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°¡ÖÂµïπ—’……ïπç‰ÄÙÙÙÄùúÄòòÅ¡ÖÂµïπ—5ï—°ΩêÄÙÙÙÄù	9,úÄòòÄ†Öï·ç°ÖπùïIÖ—ïUÕïêÅÒÅï·ç°ÖπùïIÖ—ïUÕïêÄÙÄ¿§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùU∏Å—Ö’‡ÅëîÅç°ÖπùîÅïÕ–Å…ï≈’•ÃÅ¡Ω’»Å’∏Å…ïµâΩ’…Õïµïπ–ÅëîÅùÖ…Öπ—•îÅâÖπçÖ•…îÅï∏Å∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅçΩπÕ–Å•Õ	Öπ≠AÖÂµïπ–ÄÙÅ¡ÖÂµïπ—5ï—°ΩêÄÙÙÙÄù	9,úÏ(ÄÄÄÄÄÅçΩπÕ–ÅâÖπ≠ççΩ’π–ÄÙÅ•Õ	Öπ≠AÖÂµïπ–(ÄÄÄÄÄÄÄÄ¸ÅÖ›Ö•–Å—°•ÃπŸÖ±•ëÖ—ï	Öπ≠ççΩ’π—Ω…’Ö…Öπ—ïî°ç±•ïπ–∞Å9’µâï»°âΩë‰πâÖπ≠}ÖççΩ’π—}•êÄ¸¸Ä¿§∞Å¡ÖÂµïπ—’……ïπç‰§(ÄÄÄÄÄÄÄÄËÅπ’±∞Ï(ÄÄÄÄÄÅçΩπÕ–ÅâÖπ≠’Ö…Öπ—ïïQ…ÖπÕÖç—•ΩπQÂ¡îÄÙÅ•Õ	Öπ≠AÖÂµïπ–(ÄÄÄÄÄÄÄÄ¸ÅÖ›Ö•–Å—°•ÃπâÖπ≠’Ö…Öπ—ïïQ…ÖπÕÖç—•ΩπQÂ¡î°ç±•ïπ–∞ÄùUI9Q}IU9ú§(ÄÄÄÄÄÄÄÄËÄù59U1})UMQ59PúÏ(ÄÄÄÄÄÅ•òÄ†Ö•Õ	Öπ≠AÖÂµïπ–§ÅÏ(ÄÄÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ï’Ö…Öπ—ïïÖÕ°Mç°ïµÑ†§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅçΩπÕ–Åçëô≈’•ŸÖ±ïπ—UÕêÄÙÅÖµΩ’π—ëòÄ¯Ä¿ÄòòÅï·ç°ÖπùïIÖ—ïUÕïêÄ¸Å9’µâï»†°ÖµΩ’π—ëòÄºÅï·ç°ÖπùïIÖ—ïUÕïê§π—Ω•·ïê†»§§ÄËÄ¿Ï(ÄÄÄÄÄÅçΩπÕ–ÅÖµΩ’π–ÄÙÅ9’µâï»†°ÖµΩ’π—UÕêÄ¨Åçëô≈’•ŸÖ±ïπ—UÕê§π—Ω•·ïê†»§§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—Ö—îÄÙÅM—…•πú°âΩë‰π¡ÖÂµïπ—}ëÖ—îÄ¸¸Åπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§§Ï(ÄÄÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•ÈïëIïôï…ïπçîÄÙÅâΩë‰π…ïôï…ïπçîÄ¸ÅM—…•πú°âΩë‰π…ïôï…ïπçî§ÄËÅÅHµI¥ëÌ•ëıÄÏ(ÄÄÄÄÄÅçΩπÕ–Å…ïô’πë5ΩŸïµïπ—µΩ’π–ÄÙÅ¡ÖÂµïπ—’……ïπç‰ÄÙÙÙÄùúÄ¸ÅÖµΩ’π—ëòÄËÅÖµΩ’π—UÕêÏ(ÄÄÄÄÄÅçΩπÕ–Å…ïô’πë5ΩŸïµïπ—≈’•ŸÖ±ïπ—UÕêÄÙÅ¡ÖÂµïπ—’……ïπç‰ÄÙÙÙÄùúÄ¸Åçëô≈’•ŸÖ±ïπ—UÕêÄËÅÖµΩ’π—UÕêÏ(ÄÄÄÄÄÅ•òÄ†Ö•Õ	Öπ≠AÖÂµïπ–§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Åë’¡±•çÖ—îÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÄÄÅÅM1PÅ•ê(ÄÄÄÄÄÄÄÄÄÄÅI=4Åù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Å±ïÖÕï}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅµΩŸïµïπ—}—Â¡îÄÙÄùI9Qe}IU9ú(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Å—Â¡îÄÙÄù=UPú(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅÖµΩ’π–ÄÙÄêÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Åç’……ïπç‰ÄÙÄê–(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅµΩŸïµïπ—}ëÖ—îÄÙÄê‘ËÈQ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Å=1M°…ïôï…ïπçî∞Äúú§ÄÙÄêÿ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å•ê∞Å…ïô’πë5ΩŸïµïπ—µΩ’π–∞Å¡ÖÂµïπ—’……ïπç‰∞Å¡ÖÂµïπ—Ö—î∞ÅπΩ…µÖ±•ÈïëIïôï…ïπçït∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅ•òÄ°ë’¡±•çÖ—îπ…Ω›Õl¡t§ÅÏ(ÄÄÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ùîÅ…ïµâΩ’…Õïµïπ–ÅëîÅùÖ…Öπ—•îÅïÕ–Åëï©ÑÅïπ…ïù•Õ—…î∏ú§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïîÄÙÅÖ›Ö•–Å—°•Ãπ±ïÖÕï’Ö…Öπ—ïî°•ê§Ï(ÄÄÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïïµΩ’π–ÄÙÅ9’µâï»°ù’Ö…Öπ—ïî¸πÖµΩ’π–Ä¸¸Å…Ω‹π…ïπ—Ö±}ù’Ö…Öπ—ïï}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡Ö•ëµΩ’π–ÄÙÅ9’µâï»°ù’Ö…Öπ—ïî¸π¡Ö•ë}ÖµΩ’π–Ä¸¸Å…Ω‹π…ïπ—Ö±}ù’Ö…Öπ—ïï}¡Ö•êÄ¸¸Ä¿§Ï(ÄÄÄÄÄÅ•òÄ°ÖµΩ’π–Ä¯Å¡Ö•ëµΩ’π–Ä¨Ä¿∏¿ƒ§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅ…ïµâΩ’…Õïµïπ–Åëï¡ÖÕÕîÅ±îÅµΩπ—Öπ–Åëï©ÑÅ¡ÖÂî∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅçΩπÕ–Åπï·—AÖ•ëµΩ’π–ÄÙÅ5Ö—†πµÖ‡°9’µâï»†°¡Ö•ëµΩ’π–Ä¥ÅÖµΩ’π–§π—Ω•·ïê†»§§∞Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕ—Ö—’ÃÄÙÅπï·—AÖ•ëµΩ’π–Ä¯ÙÅù’Ö…Öπ—ïïµΩ’π–Ä¸ÄùA%úÄËÅπï·—AÖ•ëµΩ’π–Ä¯Ä¿Ä¸ÄùAIQ%0úÄËÄùIU9úÏ(ÄÄÄÄÄÅÖ›Ö•–Å—°•Ãπ’¡Õï…—1ïÖÕï’Ö…Öπ—ïî°ç±•ïπ–∞Å•ê∞ÅÏ(ÄÄÄÄÄÄÄÅÖµΩ’π–ËÅù’Ö…Öπ—ïïµΩ’π–∞(ÄÄÄÄÄÄÄÅ¡Ö•ë}ÖµΩ’π–ËÅπï·—AÖ•ëµΩ’π–∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}ëÖ—îËÅù’Ö…Öπ—ïî¸π¡ÖÂµïπ—}ëÖ—îÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅÕ—Ö—’Ã∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅçΩπÕ–ÅµΩŸïµïπ—ÃÄÙÅmtÏ(ÄÄÄÄÄÅ±ï–ÅâÖπ≠Q…ÖπÕÖç—•Ω∏ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅ•òÄ°•Õ	Öπ≠AÖÂµïπ–ÄòòÅâÖπ≠ççΩ’π–§ÅÏ(ÄÄÄÄÄÄÄÅâÖπ≠Q…ÖπÕÖç—•Ω∏ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ï’Ö…Öπ—ïï	Öπ≠Q…ÖπÕÖç—•Ωπ%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅâÖπ≠ççΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ…ïô’πë5ΩŸïµïπ—µΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰ËÅ¡ÖÂµïπ—’……ïπç‰ÄÙÙÙÄùúÄ¸ÄùúÄËÄùUMú∞(ÄÄÄÄÄÄÄÄÄÅ…ïçï•¡—9’µâï»ËÅπΩ…µÖ±•ÈïëIïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅπΩ…µÖ±•ÈïëIïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅç…ïÖ—ïë	‰ËÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ—…ÖπÕÖç—•ΩπQÂ¡îËÅâÖπ≠’Ö…Öπ—ïïQ…ÖπÕÖç—•ΩπQÂ¡î∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çï5Ωë’±îËÄùUI9QLú∞(ÄÄÄÄÄÄÄÄÄÅë•…ïç—•Ω∏ËÄù=UPú∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çïπ—•—ÂQÂ¡îËÄùUI9Q}IU9ú∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çïπ—•—Â%êËÅ•ê∞(ÄÄÄÄÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÄùIïµâΩ’…Õïµïπ–ÅëîÅùÖ…Öπ—•îÅ±ΩçÖ—•Ÿîú∞(ÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—9ÖµîËÅ…Ω‹π—ïπÖπ—}πÖµîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ±ïÖÕï9’µâï»ËÅ…Ω‹π±ïÖÕï}π’µâï»Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ’π•—9’µâï»ËÅ…Ω‹π’π•—}π’µâï»Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅµΩŸïµïπ–ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ï’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ—}—Â¡îËÄùI9Qe}IU9ú∞(ÄÄÄÄÄÄÄÄÄÅ—Â¡îËÄù=UPú∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ…ïô’πë5ΩŸïµïπ—µΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—îËÅ¡ÖÂµïπ—Ö—î∞(ÄÄÄÄÄÄÄÄÄÅ±ïÖÕï}•êËÅ•ê∞(ÄÄÄÄÄÄÄÄÄÅ±ïÖÕï}ù’Ö…Öπ—ïï}•êËÅù’Ö…Öπ—ïî¸π•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—}•êËÅ…Ω‹π—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅπΩ…µÖ±•ÈïëIïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅ…ïÖÕΩ∏ËÄùIïµâΩ’…Õïµïπ–ÅùÖ…Öπ—•îÅ±ΩçÖ—•Ÿîú∞(ÄÄÄÄÄÄÄÄÄÅπΩ—ïÃËÅâΩë‰ππΩ—ïÃÄ¸ÅM—…•πú°âΩë‰ππΩ—ïÃ§ÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰ËÅ¡ÖÂµïπ—’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}’ÕïêËÅï·ç°ÖπùïIÖ—ïUÕïê∞(ÄÄÄÄÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}ëÖ—îËÅï·ç°ÖπùïIÖ—ïÖ—î∞(ÄÄÄÄÄÄÄÄÄÅï≈’•ŸÖ±ïπ—}’ÕêËÅ…ïô’πë5ΩŸïµïπ—≈’•ŸÖ±ïπ—UÕê∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπÖ’ë•—’Ö…Öπ—ïïÖÕ†°ç±•ïπ–∞ÄùI9Qe}IU9ú∞ÅµΩŸïµïπ–π•ê∞ÅÏÅÖµΩ’π–ËÅ…ïô’πë5ΩŸïµïπ—µΩ’π–∞Å±ïÖÕï}•êËÅ•êÅÙ§Ï(ÄÄÄÄÄÄÄÅµΩŸïµïπ—Ãπ¡’Õ†°µΩŸïµïπ–§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅù’Ö…Öπ—ïîËÅÖ›Ö•–Å—°•Ãπ±ïÖÕï’Ö…Öπ—ïï%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞Å•ê§∞(ÄÄÄÄÄÄÄÅâÖπ≠}—…ÖπÕÖç—•Ω∏ËÅâÖπ≠Q…ÖπÕÖç—•Ω∏∞(ÄÄÄÄÄÄÄÅµΩŸïµïπ–ËÅµΩŸïµïπ—Õl¡tÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅµΩŸïµïπ—Ã∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—AÖÂµïπ—Iïçï•¡—9’µâï»°ç±•ïπ–ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅçΩπÕ–ÅÂïÖ»ÄÙÅπï‹ÅÖ—î†§πùï—’±±eïÖ»†§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°5`†°MU	MQI%9°…ïçï•¡—}π’µâï»ÅI=4Äêƒ§§ËÈ%9P§∞Ä¿§Ä¨ÄƒÅLÅŸÖ±’î(ÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÅ]!IÅ…ïçï•¡—}π’µâï»Å1%-Äê»Å9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÕÄ∞(ÄÄÄÄÄÅmÅIAP¥ëÌÂïÖ…Ù¥°l¿¥Ât¨•Ä∞ÅÅIAP¥ëÌÂïÖ…Ù¥ïÄ∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÅIAP¥ëÌÂïÖ…Ù¥ëÌM—…•πú°…Ω›Õl¡tπŸÖ±’î§π¡ÖëM—Ö…–†–∞Äú¿ú•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅŸÖ±•ëÖ—ï	Öπ≠ççΩ’π—Ω…’Ö…Öπ—ïî°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅâÖπ≠ççΩ’π—%êËÅπ’µâï»ÅÅ’πëïô•πïê∞Å¡ÖÂµïπ—’……ïπç‰ËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÖççΩ’π—%êÄÙÅ9’µâï»°âÖπ≠ççΩ’π—%êÄ¸¸Ä¿§Ï(ÄÄÄÅ•òÄ†ÖÖççΩ’π—%ê§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùU∏ÅçΩµ¡—îÅâÖπçÖ•…îÅÖç—•òÅïÕ–Å…ï≈’•ÃÅ¡Ω’»Å’∏Å¡Ö•ïµïπ–ÅëîÅùÖ…Öπ—•îÅ¡Ö»ÅâÖπ≈’î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê∞ÅâÖπ≠}πÖµî∞ÅÖççΩ’π—}πÖµî∞Åç’……ïπç‰∞ÅÕ—Ö—’Ã(ÄÄÄÄÄÄÅI=4ÅâÖπ≠}ÖççΩ’π—Ã(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅmÖççΩ’π—%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÖççΩ’π–ÄÙÅ…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞Äù	Öπ¨ÅÖççΩ’π–ú§Ï(ÄÄÄÅ•òÄ°M—…•πú°ÖççΩ’π–πÕ—Ö—’Ã§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÄùQ%Yú§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅçΩµ¡—îÅâÖπçÖ•…îÅÕï±ïç—•ΩππîÅëΩ•–Åï—…îÅÖç—•ò∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°M—…•πú°ÖççΩ’π–πç’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÅM—…•πú°¡ÖÂµïπ—’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1ÑÅëïŸ•ÕîÅë‘ÅçΩµ¡—îÅâÖπçÖ•…îÅëΩ•–ÅçΩ……ïÕ¡Ωπë…îÅÑÅçï±±îÅëîÅ±ÑÅùÖ…Öπ—•î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÖççΩ’π–Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅŸÖ±•ëÖ—ï	Öπ≠ççΩ’π—Ω…QïπÖπ—…ïë•–°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅâÖπ≠ççΩ’π—%êËÅπ’µâï»ÅÅ’πëïô•πïê∞Å¡ÖÂµïπ—’……ïπç‰ËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÖççΩ’π—%êÄÙÅ9’µâï»°âÖπ≠ççΩ’π—%êÄ¸¸Ä¿§Ï(ÄÄÄÅ•òÄ†ÖÖççΩ’π—%ê§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùU∏ÅçΩµ¡—îÅâÖπçÖ•…îÅÖç—•òÅïÕ–Å…ï≈’•ÃÅ¡Ω’»Å’∏ÅçÀ•ë•–Å±ΩçÖ—Ö•…îÅ¡Ö»ÅâÖπ≈’î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê∞ÅâÖπ≠}πÖµî∞ÅÖççΩ’π—}πÖµî∞Åç’……ïπç‰∞ÅÕ—Ö—’Ã(ÄÄÄÄÄÄÅI=4ÅâÖπ≠}ÖççΩ’π—Ã(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅmÖççΩ’π—%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÖççΩ’π–ÄÙÅ…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞Äù	Öπ¨ÅÖççΩ’π–ú§Ï(ÄÄÄÅ•òÄ°M—…•πú°ÖççΩ’π–πÕ—Ö—’Ã§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÄùQ%Yú§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1îÅçΩµ¡—îÅâÖπçÖ•…îÅÕï±ïç—•ΩππîÅëΩ•–Åï—…îÅÖç—•ò∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°M—…•πú°ÖççΩ’π–πç’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÅM—…•πú°¡ÖÂµïπ—’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1ÑÅëïŸ•ÕîÅë‘ÅçΩµ¡—îÅâÖπçÖ•…îÅëΩ•–ÅçΩ……ïÕ¡Ωπë…îÅÑÅçï±±îÅë‘ÅçÀ•ë•–Å±ΩçÖ—Ö•…î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÖççΩ’π–Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅŸÖ±•ëÖ—ï·¡ïπÕïÖ—ïùΩ…‰°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅçÖ—ïùΩ…ÂΩëîËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅçΩπÕ–ÅçΩëîÄÙÅM—…•πú°çÖ—ïùΩ…ÂΩëîÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅ•òÄ†ÖçΩëî§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1ÑÅçÖ”•ùΩ…•îÅëîÅì•¡ïπÕîÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê∞ÅçΩëî∞ÅπÖµî∞ÅÕ—Ö—’Ã(ÄÄÄÄÄÄÅI=4ÅçÖÕ°}ï·¡ïπÕï}çÖ—ïùΩ…•ïÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅçΩëîÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅçΩëït∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅçÖ—ïùΩ…‰ÄÙÅ…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞ÄùÖÕ†Åï·¡ïπÕîÅçÖ—ïùΩ…‰ú§Ï(ÄÄÄÅ•òÄ°M—…•πú°çÖ—ïùΩ…‰πÕ—Ö—’Ã§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÄùQ%Yú§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1ÑÅçÖ”•ùΩ…•îÅëîÅì•¡ïπÕîÅœ•±ïç—•Ωπª•îÅëΩ•–Åï—…îÅÖç—•Ÿî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅçÖ—ïùΩ…‰Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅŸÖ±•ëÖ—ï	Öπ≠ççΩ’π—Ω…·¡ïπÕî°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅâÖπ≠ççΩ’π—%êËÅπ’µâï»ÅÅ’πëïô•πïê∞Åç’……ïπç‰ËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÖççΩ’π—%êÄÙÅ9’µâï»°âÖπ≠ççΩ’π—%êÄ¸¸Ä¿§Ï(ÄÄÄÅ•òÄ†ÖÖççΩ’π—%ê§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùU∏ÅçΩµ¡—îÅâÖπçÖ•…îÅÖç—•òÅïÕ–Å…ï≈’•ÃÅ¡Ω’»Å’πîÅì•¡ïπÕîÅâÖπçÖ•…î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅâÑ∏®∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°—‡πç’……ïπ—}âÖ±Öπçî∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅç’……ïπ—}âÖ±Öπçî(ÄÄÄÄÄÄÅI=4ÅâÖπ≠}ÖççΩ’π—ÃÅâÑ(ÄÄÄÄÄÄÅ1PÅ)=%8Ä†(ÄÄÄÄÄÄÄÄÅM1PÅâ–πâÖπ≠}ÖççΩ’π—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMU4°MÅ]!8Åâ–πÕ—Ö—’ÃÄÙÄùY1%QúÅ9Åâ–πë•…ïç—•Ω∏ÄÙÄù%8úÅQ!8Åâ–πÖµΩ’π–Å1MÄµâ–πÖµΩ’π–Å9§ÅLÅç’……ïπ—}âÖ±Öπçî(ÄÄÄÄÄÄÄÄÅI=4ÅâÖπ≠}—…ÖπÕÖç—•ΩπÃÅâ–(ÄÄÄÄÄÄÄÄÅ]!IÅâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅâ–πâÖπ≠}ÖççΩ’π—}•ê(ÄÄÄÄÄÄÄ§Å—‡Å=8Å—‡πâÖπ≠}ÖççΩ’π—}•êÄÙÅâÑπ•ê(ÄÄÄÄÄÄÅ]!IÅâÑπ•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9ÅâÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅâÑπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅÖççΩ’π—%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÖççΩ’π–ÄÙÅ…Ω›Õl¡tÏ(ÄÄÄÅ•òÄ†ÖÖççΩ’π–§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å9Ω—Ω’πë·çï¡—•Ω∏†ùΩµ¡—îÅâÖπçÖ•…îÅ•π—…Ω’ŸÖâ±îÅëÖπÃÅçï——îÅΩ…ùÖπ•ÕÖ—•Ω∏∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°M—…•πú°ÖççΩ’π–πÕ—Ö—’Ã§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÄùQ%Yú§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1îÅçΩµ¡—îÅâÖπçÖ•…îÅÕï±ïç—•ΩππîÅëΩ•–Åï—…îÅÖç—•ò∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°M—…•πú°ÖççΩ’π–πç’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÅM—…•πú°ç’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1ÑÅëïŸ•ÕîÅë‘ÅçΩµ¡—îÅâÖπçÖ•…îÅëΩ•–ÅçΩ……ïÕ¡Ωπë…îÅÑÅçï±±îÅëîÅ±ÑÅì•¡ïπÕî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÖççΩ’π–Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅç…ïÖ—ï	Öπ≠·¡ïπÕï%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–ÅçÖ—ïùΩ…‰ÄÙÅÖ›Ö•–Å—°•ÃπŸÖ±•ëÖ—ï·¡ïπÕïÖ—ïùΩ…‰°ç±•ïπ–∞ÅâΩë‰πçÖ—ïùΩ…‰§Ï(ÄÄÄÅçΩπÕ–Åç’……ïπç‰ÄÙÅM—…•πú°âΩë‰πç’……ïπç‰Ä¸¸Äúú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅçΩπÕ–ÅÖµΩ’π–ÄÙÅ9’µâï»°âΩë‰πÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅµΩŸïµïπ—Ö—îÄÙÅ—°•ÃππΩ…µÖ±•Èï1ïÖÕïAÖÂ±ΩÖëÖ—î°âΩë‰πµΩŸïµïπ—}ëÖ—îÄ¸¸Å—°•Ãπ±ΩçÖ±Ö—ïM—…•πú°πï‹ÅÖ—î†§§∞ÄùµΩŸïµïπ—}ëÖ—îú∞Å—…’î§Ï(ÄÄÄÅçΩπÕ–Å—…ÖπÕÖç—•ΩπQÂ¡îÄÙÅÖ›Ö•–Å—°•ÃπâÖπ≠’Ö…Öπ—ïïQ…ÖπÕÖç—•ΩπQÂ¡î°ç±•ïπ–∞Äù	9-}aA9Mú§Ï(ÄÄÄÅçΩπÕ–ÅÕ’¡¡Ω…—ÕÖ—ïùΩ…‰ÄÙÅÖ›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùâÖπ≠}—…ÖπÕÖç—•ΩπÃú∞ÄùçÖ—ïùΩ…‰ú§Ï(ÄÄÄÅçΩπÕ–ÅÕ’¡¡Ω…—Õ——Öç°µïπ—9ÖµîÄÙÅÖ›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùâÖπ≠}—…ÖπÕÖç—•ΩπÃú∞ÄùÖ——Öç°µïπ—}ô•±ï}πÖµîú§Ï(ÄÄÄÅçΩπÕ–ÅÕ’¡¡Ω…—Õ——Öç°µïπ—U…∞ÄÙÅÖ›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùâÖπ≠}—…ÖπÕÖç—•ΩπÃú∞ÄùÖ——Öç°µïπ—}ô•±ï}’…∞ú§Ï(ÄÄÄÅ•òÄ†ÖlùUMú∞Äùùtπ•πç±’ëïÃ°ç’……ïπç‰§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùïŸ•ÕîÅâÖπçÖ•…îÅ•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†Ö9’µâï»π•Õ•π•—î°ÖµΩ’π–§ÅÒÅÖµΩ’π–ÄÙÄ¿§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅµΩπ—Öπ–ÅëîÅ±ÑÅì•¡ïπÕîÅâÖπçÖ•…îÅïÕ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅâÖπ≠ççΩ’π–ÄÙÅÖ›Ö•–Å—°•ÃπŸÖ±•ëÖ—ï	Öπ≠ççΩ’π—Ω…·¡ïπÕî°ç±•ïπ–∞Å9’µâï»°âΩë‰πâÖπ≠}ÖççΩ’π—}•êÄ¸¸Ä¿§∞Åç’……ïπç‰§Ï(ÄÄÄÅçΩπÕ–Å—…ÖπÕÖç—•Ωπ9’µâï»ÄÙÅÖ›Ö•–Å—°•Ãππï·—	Öπ≠Q…ÖπÕÖç—•Ωπ9’µâï»°ç±•ïπ–§Ï(ÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•ÈïëIïôï…ïπçîÄÙÅM—…•πú°âΩë‰π…ïôï…ïπçîÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅÕ’¡¡±•ï…9ÖµîÄÙÅM—…•πú°âΩë‰πÕ’¡¡±•ï»Ä¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅëïÕç…•¡—•Ω∏ÄÙÅM—…•πú°âΩë‰πëïÕç…•¡—•Ω∏Ä¸¸Äúú§π—…•¥†§ÅÒÅM—…•πú°âΩë‰π±Öâï∞Ä¸¸Äúú§π—…•¥†§ÅÒÅçÖ—ïùΩ…‰ππÖµîÏ(ÄÄÄÅçΩπÕ–Å•ëïµ¡Ω—ïπçÂ-ï‰ÄÙÅM—…•πú°âΩë‰π•ëïµ¡Ω—ïπçÂ}≠ï‰Ä¸¸Ål(ÄÄÄÄÄÄù	9-}aA9Mú∞(ÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÅâÖπ≠ççΩ’π–π•ê∞(ÄÄÄÄÄÅçÖ—ïùΩ…‰πçΩëî∞(ÄÄÄÄÄÅµΩŸïµïπ—Ö—î∞(ÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÅÖµΩ’π–π—Ω•·ïê†»§∞(ÄÄÄÄÄÅπΩ…µÖ±•ÈïëIïôï…ïπçîÄ¸¸ÅÕ’¡¡±•ï…9ÖµîÄ¸¸ÄùaA9Mú∞(ÄÄÄÅtπ©Ω•∏†úËú§§Ï(ÄÄÄÅçΩπÕ–Å•πÕï…—Ω±’µπÃÄÙÅl(ÄÄÄÄÄÄùΩ…ùÖπ•ÈÖ—•Ωπ}•êú∞(ÄÄÄÄÄÄùâÖπ≠}ÖççΩ’π—}•êú∞(ÄÄÄÄÄÄù—…ÖπÕÖç—•Ωπ}π’µâï»ú∞(ÄÄÄÄÄÄù—…ÖπÕÖç—•Ωπ}ëÖ—îú∞(ÄÄÄÄÄÄùë•…ïç—•Ω∏ú∞(ÄÄÄÄÄÄù—…ÖπÕÖç—•Ωπ}—Â¡îú∞(ÄÄÄÄÄÄùÖµΩ’π–ú∞(ÄÄÄÄÄÄùç’……ïπç‰ú∞(ÄÄÄÄÄÄù…ïôï…ïπçîú∞(ÄÄÄÄÄÄùëïÕç…•¡—•Ω∏ú∞(ÄÄÄÄÄÄùçΩ’π—ï…¡Ö…—Â}πÖµîú∞(ÄÄÄÄÄÄùÕΩ’…çï}µΩë’±îú∞(ÄÄÄÄÄÄùÕΩ’…çï}ïπ—•—Â}—Â¡îú∞(ÄÄÄÄÄÄùÕΩ’…çï}ïπ—•—Â}•êú∞(ÄÄÄÄÄÄùÕ—Ö—’Ãú∞(ÄÄÄÄÄÄù…ïŸï…ÕÖ±}Ωô}•êú∞(ÄÄÄÄÄÄù•ëïµ¡Ω—ïπçÂ}≠ï‰ú∞(ÄÄÄÄÄÄùç…ïÖ—ïë}â‰ú∞(ÄÄÄÅtÏ(ÄÄÄÅçΩπÕ–Å•πÕï…—YÖ±’ïÃËÅ’π≠πΩ›πmtÄÙÅl(ÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÅ9’µâï»°âÖπ≠ççΩ’π–π•ê§∞(ÄÄÄÄÄÅ—…ÖπÕÖç—•Ωπ9’µâï»∞(ÄÄÄÄÄÅµΩŸïµïπ—Ö—î∞(ÄÄÄÄÄÄù=UPú∞(ÄÄÄÄÄÅ—…ÖπÕÖç—•ΩπQÂ¡î∞(ÄÄÄÄÄÅÖµΩ’π–∞(ÄÄÄÄÄÅM—…•πú°ç’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§∞(ÄÄÄÄÄÅπΩ…µÖ±•ÈïëIïôï…ïπçî∞(ÄÄÄÄÄÅëïÕç…•¡—•Ω∏∞(ÄÄÄÄÄÅÕ’¡¡±•ï…9Öµî∞(ÄÄÄÄÄÄùaA9MLú∞(ÄÄÄÄÄÄùaA9Mú∞(ÄÄÄÄÄÅπ’±∞∞(ÄÄÄÄÄÄùY1%Qú∞(ÄÄÄÄÄÅπ’±∞∞(ÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ-ï‰∞(ÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Äƒ∞(ÄÄÄÅtÏ(ÄÄÄÅ•òÄ°Õ’¡¡Ω…—ÕÖ—ïùΩ…‰§ÅÏ(ÄÄÄÄÄÅ•πÕï…—Ω±’µπÃπ¡’Õ††ùçÖ—ïùΩ…‰ú§Ï(ÄÄÄÄÄÅ•πÕï…—YÖ±’ïÃπ¡’Õ†°çÖ—ïùΩ…‰πçΩëî§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Õ’¡¡Ω…—Õ——Öç°µïπ—9Öµî§ÅÏ(ÄÄÄÄÄÅ•πÕï…—Ω±’µπÃπ¡’Õ††ùÖ——Öç°µïπ—}ô•±ï}πÖµîú§Ï(ÄÄÄÄÄÅ•πÕï…—YÖ±’ïÃπ¡’Õ†°âΩë‰πÖ——Öç°µïπ—}ô•±ï}πÖµîÄ¸¸Åπ’±∞§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Õ’¡¡Ω…—Õ——Öç°µïπ—U…∞§ÅÏ(ÄÄÄÄÄÅ•πÕï…—Ω±’µπÃπ¡’Õ††ùÖ——Öç°µïπ—}ô•±ï}’…∞ú§Ï(ÄÄÄÄÄÅ•πÕï…—YÖ±’ïÃπ¡’Õ†°âΩë‰πÖ——Öç°µïπ—}ô•±ï}’…∞Ä¸¸Åπ’±∞§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å•πÕï…—A±Öçï°Ω±ëï…ÃÄÙÅ•πÕï…—YÖ±’ïÃπµÖ¿†°|∞Å•πëï‡§ÄÙ¯ÅÄêëÌ•πëï‡Ä¨Ä≈ıÄ§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅâÖπ≠}—…ÖπÕÖç—•ΩπÃ(ÄÄÄÄÄÄÄÄ†ëÌ•πÕï…—Ω±’µπÃπ©Ω•∏†ú∞Äú•Ù§(ÄÄÄÄÄÄÅY1UL(ÄÄÄÄÄÄÄÄ†ëÌ•πÕï…—A±Öçï°Ω±ëï…Ãπ©Ω•∏†ú∞Äú•Ù§(ÄÄÄÄÄÄÅ=8Å=91%PÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å•ëïµ¡Ω—ïπçÂ}≠ï‰§(ÄÄÄÄÄÄÅ]!IÅ•ëïµ¡Ω—ïπçÂ}≠ï‰Å%LÅ9=PÅ9U10(ÄÄÄÄÄÄÅ<Å9=Q!%9(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅ•πÕï…—YÖ±’ïÃ∞(ÄÄÄÄ§Ï(ÄÄÄÅ±ï–Å—…ÖπÕÖç—•Ω∏ÄÙÅ…Ω›Õl¡tÏ(ÄÄÄÅ•òÄ†Ö—…ÖπÕÖç—•Ω∏§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åï·•Õ—•πúÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÄ®(ÄÄÄÄÄÄÄÄÅI=4ÅâÖπ≠}—…ÖπÕÖç—•ΩπÃ(ÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9Å•ëïµ¡Ω—ïπçÂ}≠ï‰ÄÙÄê»(ÄÄÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å•ëïµ¡Ω—ïπçÂ-ïÂt∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ—…ÖπÕÖç—•Ω∏ÄÙÅï·•Õ—•πúπ…Ω›Õl¡tÏ(ÄÄÄÅÙ(ÄÄÄÅ—…ÖπÕÖç—•Ω∏ÄÙÅ…ï≈’•…ïIΩ‹°—…ÖπÕÖç—•Ω∏∞Äù	Öπ¨Å—…ÖπÕÖç—•Ω∏ú§Ï(ÄÄÄÅ•òÄ†Ö—…ÖπÕÖç—•Ω∏πÕΩ’…çï}ïπ—•—Â}•ê§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å’¡ëÖ—ïYÖ±’ïÃËÅ’π≠πΩ›πmtÄÙÅm—…ÖπÕÖç—•Ω∏π•ê∞Å—…ÖπÕÖç—•Ω∏π•ëtÏ(ÄÄÄÄÄÅçΩπÕ–Å’¡ëÖ—ïMï–ËÅÕ—…•πùmtÄÙÅlùÕΩ’…çï}ïπ—•—Â}•êÄÙÄê»ùtÏ(ÄÄÄÄÄÅ•òÄ°Õ’¡¡Ω…—ÕÖ—ïùΩ…‰§ÅÏ(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïYÖ±’ïÃπ¡’Õ†°çÖ—ïùΩ…‰πçΩëî§Ï(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïMï–π¡’Õ†°ÅçÖ—ïùΩ…‰ÄÙÅ=1M†êëÌ’¡ëÖ—ïYÖ±’ïÃπ±ïπù—°Ù∞ÅçÖ—ïùΩ…‰•Ä§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°Õ’¡¡Ω…—Õ——Öç°µïπ—9Öµî§ÅÏ(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïYÖ±’ïÃπ¡’Õ†°âΩë‰πÖ——Öç°µïπ—}ô•±ï}πÖµîÄ¸¸Åπ’±∞§Ï(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïMï–π¡’Õ†°ÅÖ——Öç°µïπ—}ô•±ï}πÖµîÄÙÅ=1M†êëÌ’¡ëÖ—ïYÖ±’ïÃπ±ïπù—°Ù∞ÅÖ——Öç°µïπ—}ô•±ï}πÖµî•Ä§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°Õ’¡¡Ω…—Õ——Öç°µïπ—U…∞§ÅÏ(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïYÖ±’ïÃπ¡’Õ†°âΩë‰πÖ——Öç°µïπ—}ô•±ï}’…∞Ä¸¸Åπ’±∞§Ï(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïMï–π¡’Õ†°ÅÖ——Öç°µïπ—}ô•±ï}’…∞ÄÙÅ=1M†êëÌ’¡ëÖ—ïYÖ±’ïÃπ±ïπù—°Ù∞ÅÖ——Öç°µïπ—}ô•±ï}’…∞•Ä§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ’¡ëÖ—ïYÖ±’ïÃπ¡’Õ†°—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§§Ï(ÄÄÄÄÄÅçΩπÕ–Å’¡ëÖ—ïêÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅUAQÅâÖπ≠}—…ÖπÕÖç—•ΩπÃ(ÄÄÄÄÄÄÄÄÅMPÄëÌ’¡ëÖ—ïMï–π©Ω•∏†ú∞Äú•Ù(ÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêëÌ’¡ëÖ—ïYÖ±’ïÃπ±ïπù—°Ù(ÄÄÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïYÖ±’ïÃ∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ—…ÖπÕÖç—•Ω∏ÄÙÅ…ï≈’•…ïIΩ‹°’¡ëÖ—ïêπ…Ω›Õl¡t∞Äù	Öπ¨Å—…ÖπÕÖç—•Ω∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å—…ÖπÕÖç—•Ω∏Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅâÖπ≠’Ö…Öπ—ïïQ…ÖπÕÖç—•ΩπQÂ¡î°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å—…ÖπÕÖç—•ΩπQÂ¡îËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅa%MQLÄ†(ÄÄÄÄÄÄÄÄÅM1PÄƒ(ÄÄÄÄÄÄÄÄÅI=4Å¡ù}çΩπÕ—…Ö•π–Åå(ÄÄÄÄÄÄÄÄÅ)=%8Å¡ù}ç±ÖÕÃÅ–Å=8Å–πΩ•êÄÙÅåπçΩπ…ï±•ê(ÄÄÄÄÄÄÄÄÅ)=%8Å¡ù}πÖµïÕ¡ÖçîÅ∏Å=8Å∏πΩ•êÄÙÅ–π…ï±πÖµïÕ¡Öçî(ÄÄÄÄÄÄÄÄÅ]!IÅ∏ππÕ¡πÖµîÄÙÄù¡’â±•åú(ÄÄÄÄÄÄÄÄÄÄÅ9Å–π…ï±πÖµîÄÙÄùâÖπ≠}—…ÖπÕÖç—•ΩπÃú(ÄÄÄÄÄÄÄÄÄÄÅ9ÅåπçΩπ—Â¡îÄÙÄùåú(ÄÄÄÄÄÄÄÄÄÄÅ9Å¡ù}ùï—}çΩπÕ—…Ö•π—ëïò°åπΩ•ê§Å%1%-ÄúîúÅÒÄêƒÅÒÄúîú(ÄÄÄÄÄÄÄ§ÅLÅÕ’¡¡Ω…—ïëÄ∞(ÄÄÄÄÄÅm—…ÖπÕÖç—•ΩπQÂ¡ït∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡t¸πÕ’¡¡Ω…—ïêÄ¸Å—…ÖπÕÖç—•ΩπQÂ¡îÄËÄù59U1})UMQ59PúÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅç…ïÖ—ï’Ö…Öπ—ïï	Öπ≠Q…ÖπÕÖç—•Ωπ%πQ…ÖπÕÖç—•Ω∏†(ÄÄÄÅç±•ïπ–ËÅAΩΩ±±•ïπ–∞(ÄÄÄÅ¡ÖÂ±ΩÖêËÅÏ(ÄÄÄÄÄÅâÖπ≠ççΩ’π–ËÅÏÅ•êËÅπ’µâï»ÏÅâÖπ≠}πÖµî¸ËÅÕ—…•πúÅÅπ’±∞ÏÅÖççΩ’π—}πÖµî¸ËÅÕ—…•πúÅÅπ’±∞ÏÅç’……ïπç‰ËÅÕ—…•πúÅÙÏ(ÄÄÄÄÄÅÖµΩ’π–ËÅπ’µâï»Ï(ÄÄÄÄÄÅç’……ïπç‰ËÅÕ—…•πúÏ(ÄÄÄÄÄÅ…ïçï•¡—9’µâï»ËÅÕ—…•πúÏ(ÄÄÄÄÄÅ…ïôï…ïπçî¸ËÅÕ—…•πúÅÅπ’±∞Ï(ÄÄÄÄÄÅç…ïÖ—ïë	‰ËÅπ’µâï»ÅÅπ’±∞Ï(ÄÄÄÄÄÅ—…ÖπÕÖç—•ΩπQÂ¡îËÅÕ—…•πúÏ(ÄÄÄÄÄÅÕΩ’…çï5Ωë’±îËÅÕ—…•πúÏ(ÄÄÄÄÄÅë•…ïç—•Ω∏ËÄù%8úÅÄù=UPúÏ(ÄÄÄÄÄÅÕΩ’…çïπ—•—ÂQÂ¡îËÅÕ—…•πúÏ(ÄÄÄÄÄÅÕΩ’…çïπ—•—Â%êËÅπ’µâï»Ï(ÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÅÕ—…•πúÏ(ÄÄÄÄÄÅ—ïπÖπ—9Öµî¸ËÅÕ—…•πúÅÅπ’±∞Ï(ÄÄÄÄÄÅ±ïÖÕï9’µâï»¸ËÅπ’µâï»ÅÅÕ—…•πúÅÅπ’±∞Ï(ÄÄÄÄÄÅ’π•—9’µâï»¸ËÅÕ—…•πúÅÅπ’±∞Ï(ÄÄÄÅÙ∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–Å—…ÖπÕÖç—•Ωπ9’µâï»ÄÙÅÖ›Ö•–Å—°•Ãππï·—	Öπ≠Q…ÖπÕÖç—•Ωπ9’µâï»°ç±•ïπ–§Ï(ÄÄÄÅçΩπÕ–ÅÖµΩ’π–ÄÙÅ9’µâï»°¡ÖÂ±ΩÖêπÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅ•òÄ†Ö9’µâï»π•Õ•π•—î°ÖµΩ’π–§ÅÒÅÖµΩ’π–ÄÙÄ¿§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅµΩπ—Öπ–Åë‘ÅµΩ’Ÿïµïπ–ÅâÖπçÖ•…îÅïÕ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅâÖπ≠}—…ÖπÕÖç—•ΩπÃ(ÄÄÄÄÄÄÄÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞ÅâÖπ≠}ÖççΩ’π—}•ê∞Å—…ÖπÕÖç—•Ωπ}π’µâï»∞Å—…ÖπÕÖç—•Ωπ}ëÖ—î∞Åë•…ïç—•Ω∏∞Å—…ÖπÕÖç—•Ωπ}—Â¡î∞ÅÖµΩ’π–∞Åç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÅ…ïôï…ïπçî∞ÅëïÕç…•¡—•Ω∏∞ÅçΩ’π—ï…¡Ö…—Â}πÖµî∞ÅÕΩ’…çï}µΩë’±î∞ÅÕΩ’…çï}ïπ—•—Â}—Â¡î∞ÅÕΩ’…çï}ïπ—•—Â}•ê∞ÅÕ—Ö—’Ã∞Å…ïŸï…ÕÖ±}Ωô}•ê∞(ÄÄÄÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ}≠ï‰∞Åç…ïÖ—ïë}â‰§(ÄÄÄÄÄÄÅY1UL(ÄÄÄÄÄÄÄÄ†êƒ∞Äê»∞ÄêÃ∞ÅUII9Q}Q∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞(ÄÄÄÄÄÄÄÄÄê‡∞Äê‰∞Äêƒ¿∞Äêƒƒ∞Äêƒ»∞ÄêƒÃ∞ÄùY1%Qú∞Å9U10∞(ÄÄÄÄÄÄÄÄÄêƒ–∞Äêƒ‘§(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπâÖπ≠ççΩ’π–π•ê∞(ÄÄÄÄÄÄÄÅ—…ÖπÕÖç—•Ωπ9’µâï»∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπë•…ïç—•Ω∏∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ—…ÖπÕÖç—•ΩπQÂ¡î∞(ÄÄÄÄÄÄÄÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÅM—…•πú°¡ÖÂ±ΩÖêπç’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§∞(ÄÄÄÄÄÄÄÅM—…•πú°¡ÖÂ±ΩÖêπ…ïôï…ïπçîÄ¸¸Äúú§π—…•¥†§ÅÒÅ¡ÖÂ±ΩÖêπ…ïçï•¡—9’µâï»∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπëïÕç…•¡—•Ω∏∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ—ïπÖπ—9ÖµîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÕΩ’…çï5Ωë’±î∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÕΩ’…çïπ—•—ÂQÂ¡î∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÕΩ’…çïπ—•—Â%ê∞(ÄÄÄÄÄÄÄÅÄëÌM—…•πú°¡ÖÂ±ΩÖêπÕΩ’…çï5Ωë’±î§π—Ω1Ω›ï…ÖÕî†•Ù¥ëÌM—…•πú°¡ÖÂ±ΩÖêπë•…ïç—•Ω∏§π—Ω1Ω›ï…ÖÕî†•ÙËëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙËëÌ¡ÖÂ±ΩÖêπÕΩ’…çï5Ωë’±ïÙËëÌ¡ÖÂ±ΩÖêπ—…ÖπÕÖç—•ΩπQÂ¡ïÙËëÌ¡ÖÂ±ΩÖêπÕΩ’…çïπ—•—ÂQÂ¡ïÙËëÌ¡ÖÂ±ΩÖêπÕΩ’…çïπ—•—Â%ëÙËëÌ¡ÖÂ±ΩÖêπ…ïôï…ïπçîÄ¸¸Å¡ÖÂ±ΩÖêπ…ïçï•¡—9’µâï…ıÄ∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπç…ïÖ—ïë	‰∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡tÏ(ÄÅÙ((ÄÅÖÕÂπåÅ—ïπÖπ—…ïë•—Ã°ô•±—ï…ÃËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÄÙÅÌÙ§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïQïπÖπ—…ïë•—Mç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–ÅŸÖ±’ïÃËÅ’π≠πΩ›πmtÄÙÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•tÏ(ÄÄÄÅçΩπÕ–Åç±Ö’ÕïÃÄÙÅlù—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒú∞Äù—åπëï±ï—ïë}Ö–Å%LÅ9U10ùtÏ(ÄÄÄÅçΩπÕ–ÅÖëêÄÙÄ°Õ≈∞ËÅÕ—…•πú∞ÅŸÖ±’îËÅ’π≠πΩ›∏§ÄÙ¯ÅÏ(ÄÄÄÄÄÅŸÖ±’ïÃπ¡’Õ†°ŸÖ±’î§Ï(ÄÄÄÄÄÅç±Ö’ÕïÃπ¡’Õ†°Õ≈∞π…ï¡±Öçî†ú¸ú∞ÅÄêëÌŸÖ±’ïÃπ±ïπù—°ıÄ§§Ï(ÄÄÄÅÙÏ(ÄÄÄÅ•òÄ°ô•±—ï…Ãπ—ïπÖπ—}•ê§ÅÖëê†ù—åπ—ïπÖπ—}•êÄÙÄ¸ËÈ%9Pú∞Å9’µâï»°ô•±—ï…Ãπ—ïπÖπ—}•ê§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπ±ïÖÕï}•ê§ÅÖëê†ù—åπ±ïÖÕï}•êÄÙÄ¸ËÈ%9Pú∞Å9’µâï»°ô•±—ï…Ãπ±ïÖÕï}•ê§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…ÃπÕ—Ö—’Ã§ÅÖëê†ù—åπÕ—Ö—’ÃÄÙÄ¸ú∞ÅM—…•πú°ô•±—ï…ÃπÕ—Ö—’Ã§π—ΩU¡¡ï…ÖÕî†§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπç’……ïπç‰§ÅÖëê†ù—åπç’……ïπç‰ÄÙÄ¸ú∞ÅM—…•πú°ô•±—ï…Ãπç’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…ÃπÕ—Ö…–§ÅÖëê†ù—åπ¡ÖÂµïπ—}ëÖ—îÄ¯ÙÄ¸ËÈQú∞ÅM—…•πú°ô•±—ï…ÃπÕ—Ö…–§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπïπê§ÅÖëê†ù—åπ¡ÖÂµïπ—}ëÖ—îÄÙÄ¸ËÈQú∞ÅM—…•πú°ô•±—ï…Ãπïπê§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπ•ê§ÅÖëê†ù—åπ•êÄÙÄ¸ËÈ%9Pú∞Å9’µâï»°ô•±—ï…Ãπ•ê§§Ï(ÄÄÄÅçΩπÕ–ÅÕïÖ…ç†ÄÙÅM—…•πú°ô•±—ï…ÃπÕïÖ…ç†Ä¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅ•òÄ°ÕïÖ…ç†§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å¡±Öçï°Ω±ëï…ÃÄÙÅlƒ∞Ä»∞ÄÃ∞Ä–∞Ä’tπµÖ¿††§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅŸÖ±’ïÃπ¡’Õ†°ÕïÖ…ç†§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄêëÌŸÖ±’ïÃπ±ïπù—°ıÄÏ(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅç±Ö’ÕïÃπ¡’Õ†°Ä†(ÄÄÄÄÄÄÄÅ—åπ…ïôï…ïπçîÅ%1%-ÄúîúÅÒÄëÌ¡±Öçï°Ω±ëï…Õl¡uÙÅÒÄúîú(ÄÄÄÄÄÄÄÅ=HÅ¿π…ïçï•¡—}π’µâï»Å%1%-ÄúîúÅÒÄëÌ¡±Öçï°Ω±ëï…Õl≈uÙÅÒÄúîú(ÄÄÄÄÄÄÄÅ=HÅ—ïπÖπ—}πÖµîππÖµîÅ%1%-ÄúîúÅÒÄëÌ¡±Öçï°Ω±ëï…Õl…uÙÅÒÄúîú(ÄÄÄÄÄÄÄÅ=HÅ‘ππ’µâï»Å%1%-ÄúîúÅÒÄëÌ¡±Öçï°Ω±ëï…ÕlÕuÙÅÒÄúîú(ÄÄÄÄÄÄÄÅ=HÅàππÖµîÅ%1%-ÄúîúÅÒÄëÌ¡±Öçï°Ω±ëï…Õl—uÙÅÒÄúîú(ÄÄÄÄÄÄ•Ä§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ—å∏®∞Å¿π…ïçï•¡—}π’µâï»∞Å¿π¡ÖÂµïπ—}µï—°Ωê∞Å¿πÖµΩ’π—}’Õê∞Å¿πÖµΩ’π—}çëò∞Å¿π—Ω—Ö±}ï≈’•ŸÖ±ïπ—}’Õê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—}πÖµîππÖµîÅLÅ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ–πïµÖ•∞ÅLÅ—ïπÖπ—}ïµÖ•∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ∞π±ïÖÕï}π’µâï»(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—ÃÅ—å(ÄÄÄÄÄÄÅ)=%8Å¡ÖÂµïπ—ÃÅ¿Å=8Å¿π•êÄÙÅ—åπÕΩ’…çï}¡ÖÂµïπ—}•êÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ—åπ—ïπÖπ—}•êÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å1QI0Ä†(ÄÄÄÄÄÄÄÄÅM1PÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Å–πô•…Õ—}πÖµî∞Äúú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ1MÅQI%4°=9P°=1M°–πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π±ÖÕ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π¡ΩÕ—}πÖµî∞Äúú§§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅLÅπÖµî(ÄÄÄÄÄÄÄ§Å—ïπÖπ—}πÖµîÅ=8ÅQIU(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ—åπ±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•êÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•êÅ9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Åàπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ]!IÄëÌç±Ö’ÕïÃπ©Ω•∏†úÅ9Äú•Ù(ÄÄÄÄÄÄÅ=IHÅ	dÅ—åπ¡ÖÂµïπ—}ëÖ—îÅM∞Å—åπ•êÅMÄ∞(ÄÄÄÄÄÅŸÖ±’ïÃ∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅÖÕÂπåÅ—…ÖÕ°ïëQïπÖπ—…ïë•—Ã†§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïQïπÖπ—…ïë•—Mç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ—åπ•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπ—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπ±ïÖÕï}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπÕΩ’…çï}¡ÖÂµïπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπΩ…•ù•πÖ±}ÖµΩ’π–ÅLÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπΩ…•ù•πÖ±}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπ…ïµÖ•π•πù}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπÕ—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπ¡ÖÂµïπ—}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπ…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åππΩ—ïÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπ…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπ¡ÖÂµïπ—}µï—°Ωê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπëï±ï—ïë}Ö–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπëï±ï—•Ωπ}…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Äúú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ1MÅQI%4°=9P°=1M°–πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π±ÖÕ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π¡ΩÕ—}πÖµî∞Äúú§§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅLÅ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ–πïµÖ•∞ÅLÅ—ïπÖπ—}ïµÖ•∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ∞π±ïÖÕï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¿π…ïçï•¡—}π’µâï»ÅLÅÕΩ’…çï}…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°9U11%°QI%4°=9P°=1M°‘ƒπô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°‘ƒπ±ÖÕ—}πÖµî∞Äúú§§§∞Äúú§∞Å‘ƒπïµÖ•∞§ÅLÅëï±ï—ïë}âÂ}πÖµî(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—ÃÅ—å(ÄÄÄÄÄÄÅ)=%8Å¡ÖÂµïπ—ÃÅ¿Å=8Å¿π•êÄÙÅ—åπÕΩ’…çï}¡ÖÂµïπ—}•êÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ—åπ—ïπÖπ—}•êÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ—åπ±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•êÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•êÅ9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8ÅÖ¡¡}’Õï…ÃÅ‘ƒÅ=8Å‘ƒπ•êÄÙÅ—åπëï±ï—ïë}â‰Å9Å‘ƒπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ]!IÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å—åπëï±ï—ïë}Ö–Å%LÅ9=PÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅ—åπëï±ï—ïë}Ö–ÅM∞Å—åπ•êÅMÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅÖÕÂπåÅ—ïπÖπ—…ïë•—ï—Ö•∞°•êËÅπ’µâï»∞Å•πç±’ëïï±ï—ïêÄÙÅôÖ±Õî§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïQïπÖπ—…ïë•—Iïô’πëMç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–Åç°•±ëï±ï—ïë±Ö’ÕîÄÙÅ•πç±’ëïï±ï—ïêÄ¸Äù%LÅ9=PÅ9U10úÄËÄù%LÅ9U10úÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃËÅë•…ïç–ÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ—å∏®∞Å¿π…ïçï•¡—}π’µâï»∞Å¿π¡ÖÂµïπ—}µï—°Ωê∞Å¿πÖµΩ’π—}’Õê∞Å¿πÖµΩ’π—}çëò∞Å¿π—Ω—Ö±}ï≈’•ŸÖ±ïπ—}’Õê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ–π•êÅLÅçÖÕ°}µΩŸïµïπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ–π¡•ïçï}π’µâï»ÅLÅçÖÕ°}¡•ïçï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ–πçÖÕ°}ÕïÕÕ•Ωπ}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ–πÕïÕÕ•Ωπ}Õ—Ö—’ÃÅLÅçÖÕ°}ÕïÕÕ•Ωπ}Õ—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Å–πô•…Õ—}πÖµî∞Äúú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ1MÅQI%4°=9P°=1M°–πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π±ÖÕ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π¡ΩÕ—}πÖµî∞Äúú§§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅLÅ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ–πïµÖ•∞ÅLÅ—ïπÖπ—}ïµÖ•∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞Å∞π±ïÖÕï}π’µâï»(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—ÃÅ—å(ÄÄÄÄÄÄÅ)=%8Å¡ÖÂµïπ—ÃÅ¿Å=8Å¿π•êÄÙÅ—åπÕΩ’…çï}¡ÖÂµïπ—}•êÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å¿πëï±ï—ïë}Ö–ÄëÌ•πç±’ëïï±ï—ïêÄ¸Äù%LÅ9=PÅ9U10úÄËÄù%LÅ9U10ùÙ(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ—åπ—ïπÖπ—}•êÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ—åπ±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•êÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•êÅ9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Åàπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å1QI0Ä†(ÄÄÄÄÄÄÄÄÅM1PÅç¥π•ê∞Åç¥π¡•ïçï}π’µâï»∞Åç¥πçÖÕ°}ÕïÕÕ•Ωπ}•ê∞ÅçÃπÕ—Ö—’ÃÅLÅÕïÕÕ•Ωπ}Õ—Ö—’Ã(ÄÄÄÄÄÄÄÄÅI=4ÅçÖÕ°}µΩŸïµïπ—ÃÅç¥(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8ÅçÖÕ°}ÕïÕÕ•ΩπÃÅçÃÅ=8ÅçÃπ•êÄÙÅç¥πçÖÕ°}ÕïÕÕ•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ]!IÅç¥πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÄÄÅ9Åç¥πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ9Ä°ç¥π—ïπÖπ—}ç…ïë•—}•êÄÙÅ—åπ•êÅ=HÅç¥π¡ÖÂµïπ—}•êÄÙÅ—åπÕΩ’…çï}¡ÖÂµïπ—}•ê§(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅMÅ]!8Åç¥π—ïπÖπ—}ç…ïë•—}•êÄÙÅ—åπ•êÅQ!8Ä¿Å1MÄƒÅ9∞Åç¥π•êÅM(ÄÄÄÄÄÄÄÄÅ1%5%PÄƒ(ÄÄÄÄÄÄÄ§ÅµΩŸïµïπ–Å=8ÅQIU(ÄÄÄÄÄÄÅ]!IÅ—åπ•êÄÙÄêƒÅ9Å—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Å—åπëï±ï—ïë}Ö–ÄëÌ•πç±’ëïï±ï—ïêÄ¸Äù%LÅ9=PÅ9U10úÄËÄù%LÅ9U10ùıÄ∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Åç…ïë•–ÄÙÅ…ï≈’•…ïIΩ‹°ë•…ïç—l¡t∞ÄùQïπÖπ–Åç…ïë•–ú§Ï(ÄÄÄÅçΩπÕ–ÅmÖ±±ΩçÖ—•ΩπÃ∞Å…ïô’πëÕtÄÙÅÖ›Ö•–ÅA…Ωµ•ÕîπÖ±∞°l(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ—çÑπ•ê∞Å—çÑπÖµΩ’π—}Ö¡¡±•ïê∞Å—çÑπç’……ïπç‰∞Å—çÑπç…ïÖ—ïë}Ö–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ§π•êÅLÅ•πŸΩ•çï}•ê∞Å§π•πŸΩ•çï}π’µâï»∞Å§π•ÕÕ’ï}ëÖ—î∞Å§πë’ï}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¿π•êÅLÅ¡ÖÂµïπ—}•ê∞Å¿π¡ÖÂµïπ—}ëÖ—î(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—}Ö±±ΩçÖ—•ΩπÃÅ—çÑ(ÄÄÄÄÄÄÅ)=%8Å•πŸΩ•çïÃÅ§Å=8Å§π•êÄÙÅ—çÑπ•πŸΩ•çï}•êÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—çÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ)=%8Å¡ÖÂµïπ—ÃÅ¿Å=8Å¿π•êÄÙÅ—çÑπ¡ÖÂµïπ—}•êÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—çÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å¿πëï±ï—ïë}Ö–ÄëÌç°•±ëï±ï—ïë±Ö’ÕïÙ(ÄÄÄÄÄÄÅ]!IÅ—çÑπ—ïπÖπ—}ç…ïë•—}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å—çÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å—çÑπëï±ï—ïë}Ö–ÄëÌç°•±ëï±ï—ïë±Ö’ÕïÙ(ÄÄÄÄÄÄÅ=IHÅ	dÅ—çÑπç…ïÖ—ïë}Ö–ÅM∞Å—çÑπ•êÅMÄ∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ—ç»π•ê∞Å—ç»πÖµΩ’π–∞Å—ç»πç’……ïπç‰∞Å—ç»π…ïô’πë}ëÖ—î∞Å—ç»π¡ÖÂµïπ—}µï—°Ωê∞Å—ç»π…ïôï…ïπçî∞Å—ç»π…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»πçÖÕ°}µΩŸïµïπ—}•ê∞Å—ç»π…ïçï•¡—}π’µâï»∞Å—ç»πÕ—Ö—’Ã∞Å—ç»πç…ïÖ—ïë}Ö–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅç¥π¡•ïçï}π’µâï»ÅLÅçÖÕ°}¡•ïçï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°9U11%°QI%4°=9P°=1M°‘πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°‘π±ÖÕ—}πÖµî∞Äúú§§§∞Äúú§∞Å‘πïµÖ•∞§ÅLÅç…ïÖ—ïë}âÂ}πÖµî(ÄÄÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—}…ïô’πëÃÅ—ç»(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8ÅçÖÕ°}µΩŸïµïπ—ÃÅç¥Å=8Åç¥π•êÄÙÅ—ç»πçÖÕ°}µΩŸïµïπ—}•êÅ9Åç¥πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Åç¥πëï±ï—ïë}Ö–ÄëÌç°•±ëï±ï—ïë±Ö’ÕïÙ(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8ÅÖ¡¡}’Õï…ÃÅ‘Å=8Å‘π•êÄÙÅ—ç»πç…ïÖ—ïë}â‰Å9Å‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ]!IÅ—ç»π—ïπÖπ—}ç…ïë•—}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9Å—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÅ9Å—ç»πëï±ï—ïë}Ö–ÄëÌç°•±ëï±ï—ïë±Ö’ÕïÙ(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅ—ç»π…ïô’πë}ëÖ—îÅM∞Å—ç»π•êÅMÄ∞(ÄÄÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§∞(ÄÄÄÅt§Ï(ÄÄÄÅçΩπÕ–ÅÖ±±ΩçÖ—•ΩπÕIΩ›ÃÄÙÅÖ±±ΩçÖ—•ΩπÃπ…Ω›ÃÏ(ÄÄÄÅçΩπÕ–Å…ïô’πëÕIΩ›ÃÄÙÅ…ïô’πëÃπ…Ω›ÃÏ(ÄÄÄÅçΩπÕ–Å°ÖÕ±±ΩçÖ—•ΩπÃÄÙÅÖ±±ΩçÖ—•ΩπÕIΩ›Ãπ±ïπù—†Ä¯Ä¿Ï(ÄÄÄÅçΩπÕ–Å°ÖÕIïô’πëÃÄÙÅ…ïô’πëÕIΩ›Ãπ±ïπù—†Ä¯Ä¿Ï(ÄÄÄÅçΩπÕ–ÅÖ±±ΩçÖ—ïëµΩ’π–ÄÙÅÖ±±ΩçÖ—•ΩπÕIΩ›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πÖµΩ’π—}Ö¡¡±•ïêÄ¸¸Ä¿§∞Ä¿§Ï(ÄÄÄÅçΩπÕ–Å…ïô’πëïëµΩ’π–ÄÙÅ…ïô’πëÕIΩ›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§Ï(ÄÄÄÅçΩπÕ–Å…ïµÖ•π•πùµΩ’π–ÄÙÅ9’µâï»°ç…ïë•–π…ïµÖ•π•πù}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄ∏∏πç…ïë•–∞(ÄÄÄÄÄÅÖ±±ΩçÖ—•ΩπÃËÅÖ±±ΩçÖ—•ΩπÕIΩ›Ã∞(ÄÄÄÄÄÅ…ïô’πëÃËÅ…ïô’πëÕIΩ›Ã∞(ÄÄÄÄÄÅÖ±±ΩçÖ—ïë}ÖµΩ’π–ËÅÖ±±ΩçÖ—ïëµΩ’π–∞(ÄÄÄÄÄÅ…ïô’πëïë}ÖµΩ’π–ËÅ…ïô’πëïëµΩ’π–∞(ÄÄÄÄÄÅçÖÕ°}µΩŸïµïπ—}•êËÅ9’µâï»°ç…ïë•–πçÖÕ°}µΩŸïµïπ—}•êÄ¸¸Ä¿§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅçÖÕ°}¡•ïçï}π’µâï»ËÅç…ïë•–πçÖÕ°}¡•ïçï}π’µâï»Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅçÖÕ°}ÕïÕÕ•Ωπ}Õ—Ö—’ÃËÅç…ïë•–πçÖÕ°}ÕïÕÕ•Ωπ}Õ—Ö—’ÃÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅçÖπ}…ïô’πêËÅ…ïµÖ•π•πùµΩ’π–Ä¯Ä¿∞(ÄÄÄÄÄÅçÖπ}çÖπçï∞ËÄÖ°ÖÕ±±ΩçÖ—•ΩπÃÄòòÄÖ°ÖÕIïô’πëÃÄòòÅ9’µâï»°ç…ïë•–πΩ…•ù•πÖ±}ÖµΩ’π–Ä¸¸Ä¿§ÄÙÙÙÅ…ïµÖ•π•πùµΩ’π–∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅ—…ÖÕ°ïëQïπÖπ—…ïë•—ï—Ö•∞°•êËÅπ’µâï»§ÅÏ(ÄÄÄÅ…ï—’…∏Å—°•Ãπ—ïπÖπ—…ïë•—ï—Ö•∞°•ê∞Å—…’î§Ï(ÄÅÙ((ÄÅÖÕÂπåÅ—…ÖÕ°ïëQïπÖπ—…ïë•—Iïô’πëÃ†§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïQïπÖπ—…ïë•—Iïô’πëMç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–Å¡Ö…ïπ—ï±ï—ïë±Ö’ÕîÄÙÄù%LÅ9=PÅ9U10úÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ—ç»π•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»π—ïπÖπ—}ç…ïë•—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»π—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»π±ïÖÕï}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»πÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»πç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»π…ïô’πë}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»π¡ÖÂµïπ—}µï—°Ωê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»π…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»π…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»πçÖÕ°}µΩŸïµïπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»π…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»πÕ—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»πëï±ï—ïë}Ö–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»πëï±ï—•Ωπ}…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπ…ïôï…ïπçîÅLÅç…ïë•—}…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπÕΩ’…çï}¡ÖÂµïπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Äúú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ1MÅQI%4°=9P°=1M°–πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π±ÖÕ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π¡ΩÕ—}πÖµî∞Äúú§§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅLÅ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ∞π±ïÖÕï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅç¥π¡•ïçï}π’µâï»ÅLÅçÖÕ°}¡•ïçï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°9U11%°QI%4°=9P°=1M°‘ƒπô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°‘ƒπ±ÖÕ—}πÖµî∞Äúú§§§∞Äúú§∞Å‘ƒπïµÖ•∞§ÅLÅëï±ï—ïë}âÂ}πÖµî(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—}…ïô’πëÃÅ—ç»(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—}ç…ïë•—ÃÅ—åÅ=8Å—åπ•êÄÙÅ—ç»π—ïπÖπ—}ç…ïë•—}•êÅ9Å—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å—åπëï±ï—ïë}Ö–ÄëÌ¡Ö…ïπ—ï±ï—ïë±Ö’ÕïÙ(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ—ç»π—ïπÖπ—}•êÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ—ç»π±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•êÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•êÅ9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8ÅçÖÕ°}µΩŸïµïπ—ÃÅç¥Å=8Åç¥π•êÄÙÅ—ç»πçÖÕ°}µΩŸïµïπ—}•êÅ9Åç¥πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Åç¥πëï±ï—ïë}Ö–ÄëÌ¡Ö…ïπ—ï±ï—ïë±Ö’ÕïÙ(ÄÄÄÄÄÄÅ1PÅ)=%8ÅÖ¡¡}’Õï…ÃÅ‘ƒÅ=8Å‘ƒπ•êÄÙÅ—ç»πëï±ï—ïë}â‰Å9Å‘ƒπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ]!IÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å—ç»πëï±ï—ïë}Ö–Å%LÅ9=PÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅ—ç»πëï±ï—ïë}Ö–ÅM∞Å—ç»π•êÅMÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅÖÕÂπåÅ—ïπÖπ—…ïë•—Iïô’πëï—Ö•∞°•êËÅπ’µâï»∞Å•πç±’ëïï±ï—ïêÄÙÅôÖ±Õî§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïQïπÖπ—…ïë•—Iïô’πëMç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–Å¡Ö…ïπ—ï±ï—ïë±Ö’ÕîÄÙÅ•πç±’ëïï±ï—ïêÄ¸Äù%LÅ9=PÅ9U10úÄËÄù%LÅ9U10úÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ—ç»∏®∞Å—åπΩ…•ù•πÖ±}ÖµΩ’π–∞Å—åπ…ïµÖ•π•πù}ÖµΩ’π–∞Å—åπÕ—Ö—’ÃÅLÅç…ïë•—}Õ—Ö—’Ã∞Å—åπ…ïôï…ïπçîÅLÅç…ïë•—}…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπÕΩ’…çï}¡ÖÂµïπ—}•ê∞Å—åπ¡ÖÂµïπ—}ëÖ—îÅLÅç…ïë•—}¡ÖÂµïπ—}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Å–πô•…Õ—}πÖµî∞Äúú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ1MÅQI%4°=9P°=1M°–πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π±ÖÕ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π¡ΩÕ—}πÖµî∞Äúú§§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅLÅ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ∞π±ïÖÕï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅç¥π¡•ïçï}π’µâï»ÅLÅçÖÕ°}¡•ïçï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¿π…ïçï•¡—}π’µâï»ÅLÅÕΩ’…çï}…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°9U11%°QI%4°=9P°=1M°ç…ïÖ—Ω»πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°ç…ïÖ—Ω»π±ÖÕ—}πÖµî∞Äúú§§§∞Äúú§∞Åç…ïÖ—Ω»πïµÖ•∞§ÅLÅç…ïÖ—ïë}âÂ}πÖµî(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—}…ïô’πëÃÅ—ç»(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—}ç…ïë•—ÃÅ—åÅ=8Å—åπ•êÄÙÅ—ç»π—ïπÖπ—}ç…ïë•—}•êÅ9Å—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å—åπëï±ï—ïë}Ö–ÄëÌ¡Ö…ïπ—ï±ï—ïë±Ö’ÕïÙ(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ—ç»π—ïπÖπ—}•êÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ—ç»π±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•êÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•êÅ9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Åàπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8ÅçÖÕ°}µΩŸïµïπ—ÃÅç¥Å=8Åç¥π•êÄÙÅ—ç»πçÖÕ°}µΩŸïµïπ—}•êÅ9Åç¥πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Åç¥πëï±ï—ïë}Ö–ÄëÌ¡Ö…ïπ—ï±ï—ïë±Ö’ÕïÙ(ÄÄÄÄÄÄÅ1PÅ)=%8Å¡ÖÂµïπ—ÃÅ¿Å=8Å¿π•êÄÙÅ—åπÕΩ’…çï}¡ÖÂµïπ—}•êÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å¿πëï±ï—ïë}Ö–ÄëÌ¡Ö…ïπ—ï±ï—ïë±Ö’ÕïÙ(ÄÄÄÄÄÄÅ1PÅ)=%8ÅÖ¡¡}’Õï…ÃÅç…ïÖ—Ω»Å=8Åç…ïÖ—Ω»π•êÄÙÅ—ç»πç…ïÖ—ïë}â‰Å9Åç…ïÖ—Ω»πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ]!IÅ—ç»π•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å—ç»πëï±ï—ïë}Ö–ÄëÌ•πç±’ëïï±ï—ïêÄ¸Äù%LÅ9=PÅ9U10úÄËÄù%LÅ9U10ùıÄ∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞ÄùQïπÖπ–Åç…ïë•–Å…ïô’πêú§Ï(ÄÅÙ((ÄÅÖÕÂπåÅ—…ÖÕ°ïëQïπÖπ—…ïë•—Iïô’πëï—Ö•∞°•êËÅπ’µâï»§ÅÏ(ÄÄÄÅ…ï—’…∏Å—°•Ãπ—ïπÖπ—…ïë•—Iïô’πëï—Ö•∞°•ê∞Å—…’î§Ï(ÄÅÙ((ÄÅÖÕÂπåÅ—ïπÖπ—…ïë•—Ω…µÖ—Ñ†§ÅÏ(ÄÄÄÅçΩπÕ–Åm—ïπÖπ—Ã∞Å±ïÖÕïÃ∞ÅâÖπ≠ççΩ’π—ÕtÄÙÅÖ›Ö•–ÅA…Ωµ•ÕîπÖ±∞°l(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°çΩµ¡ÖπÂ}πÖµî∞Åô•…Õ—}πÖµî∞Äúú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ1MÅQI%4°=9P°=1M°ô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°±ÖÕ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°¡ΩÕ—}πÖµî∞Äúú§§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅLÅπÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—}π’µâï»(ÄÄÄÄÄÄÄÄÅI=4Å—ïπÖπ—Ã(ÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅπÖµïÄ∞(ÄÄÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ∞π•ê∞Å∞π—ïπÖπ—}•ê∞Å∞π±ïÖÕï}π’µâï»∞Å∞πÕ—Ö—’Ã∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî(ÄÄÄÄÄÄÄÄÅI=4Å±ïÖÕïÃÅ∞(ÄÄÄÄÄÄÄÄÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•êÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•êÅ9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Åàπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ]!IÅ∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10Å9Å∞πÖ…ç°•Ÿïë}Ö–Å%LÅ9U10Å9Å∞πÕ—Ö—’ÃÄÙÄùQ%Yú(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅàππÖµî∞Å‘ππ’µâï»∞Å∞π•êÅMÄ∞(ÄÄÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ•ê∞ÅâÖπ≠}πÖµî∞ÅÖççΩ’π—}πÖµî∞ÅÖççΩ’π—}π’µâï»∞Åç’……ïπç‰∞ÅÕ—Ö—’Ã(ÄÄÄÄÄÄÄÄÅI=4ÅâÖπ≠}ÖççΩ’π—Ã(ÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ9ÅÕ—Ö—’ÃÄÙÄùQ%Yú(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅâÖπ≠}πÖµî∞ÅÖççΩ’π—}πÖµî∞Å•êÅMÄ∞(ÄÄÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§∞(ÄÄÄÅt§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ—ïπÖπ—ÃËÅ—ïπÖπ—Ãπ…Ω›Ã∞(ÄÄÄÄÄÅ±ïÖÕïÃËÅ±ïÖÕïÃπ…Ω›Ã∞(ÄÄÄÄÄÅâÖπ≠ççΩ’π—ÃËÅâÖπ≠ççΩ’π—Ãπ…Ω›Ã∞(ÄÄÄÄÄÅ¡ÖÂµïπ—5ï—°ΩëÃËÅl(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄùM ú∞Å±Öâï∞ËÄùÕ√°çïÃúÅÙ∞(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄù	9,ú∞Å±Öâï∞ËÄù	Öπ≈’îúÅÙ∞(ÄÄÄÄÄÄÄÅÏÅŸÖ±’îËÄù5=	%1}5=9dú∞Å±Öâï∞ËÄù5Ωâ•±îÅ5Ωπï‰úÅÙ∞(ÄÄÄÄÄÅt∞(ÄÄÄÄÄÅç’……ïπç•ïÃËÅlùUMú∞Äùùt∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅç…ïÖ—ïQïπÖπ—…ïë•–°âΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïQïπÖπ—…ïë•—Mç°ïµÑ†§Ï(ÄÄÄÅ•òÄ†Ö—°•Ãπ°ÖÕAï…µ•ÕÕ•Ω∏†ù¡ÖÂµïπ—Ãπç…ïÖ—îú§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩ…â•ëëïπ·çï¡—•Ω∏†ùAï…µ•ÕÕ•Ω∏ÅëîÅçÀ•Ö—•Ω∏ÅëîÅ¡Ö•ïµïπ–Å…ï≈’•Õî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Åç…ïë•–ÄÙÅÖ›Ö•–Å—°•Ãπëàπ—…ÖπÕÖç—•Ω∏°ÖÕÂπåÄ°ç±•ïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å—ïπÖπ—%êÄÙÅ9’µâï»°âΩë‰π—ïπÖπ—}•êÄ¸¸Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å±ïÖÕï%êÄÙÅâΩë‰π±ïÖÕï}•êÄ¸Å9’µâï»°âΩë‰π±ïÖÕï}•ê§ÄËÅπ’±∞Ï(ÄÄÄÄÄÅçΩπÕ–Åç’……ïπç‰ÄÙÅM—…•πú°âΩë‰πç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÖµΩ’π–ÄÙÅ9’µâï»°âΩë‰πÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—5ï—°ΩêÄÙÅM—…•πú°âΩë‰π¡ÖÂµïπ—}µï—°ΩêÄ¸¸ÄùM ú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—Ö—îÄÙÅM—…•πú°âΩë‰π¡ÖÂµïπ—}ëÖ—îÄ¸¸Åπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§§Ï(ÄÄÄÄÄÅçΩπÕ–Åï·ç°ÖπùïIÖ—ïUÕïêÄÙÅ9’µâï»°âΩë‰πï·ç°Öπùï}…Ö—ï}’ÕïêÄ¸¸Ä¿§ÅÒÅπ’±∞Ï(ÄÄÄÄÄÅçΩπÕ–Åï·ç°ÖπùïIÖ—ïÖ—îÄÙÅâΩë‰πï·ç°Öπùï}…Ö—ï}ëÖ—îÄ¸ÅM—…•πú°âΩë‰πï·ç°Öπùï}…Ö—ï}ëÖ—î§ÄËÅπ’±∞Ï(ÄÄÄÄÄÅ•òÄ†Ö—ïπÖπ—%ê§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1ΩçÖ—Ö•…îÅ…ï≈’•Ã∏ú§Ï(ÄÄÄÄÄÅ•òÄ†ÖlùUMú∞Äùùtπ•πç±’ëïÃ°ç’……ïπç‰§§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùïŸ•ÕîÅ•πŸÖ±•ëî∏ú§Ï(ÄÄÄÄÄÅ•òÄ†Ö9’µâï»π•Õ•π•—î°ÖµΩ’π–§ÅÒÅÖµΩ’π–ÄÙÄ¿§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù5Ωπ—Öπ–Åë‘ÅçÀ•ë•–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÄÄÅ•òÄ†ÖlùM ú∞Äù	9,ú∞Äù5=	%1}5=9dùtπ•πç±’ëïÃ°¡ÖÂµïπ—5ï—°Ωê§§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù5ΩëîÅëîÅ¡Ö•ïµïπ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÄÄÅ•òÄ°ç’……ïπç‰ÄÙÙÙÄùúÄòòÄ†Öï·ç°ÖπùïIÖ—ïUÕïêÅÒÅï·ç°ÖπùïIÖ—ïUÕïêÄÙÄ¿§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùU∏Å—Ö’‡ÅëîÅç°ÖπùîÅïÕ–Å…ï≈’•ÃÅ¡Ω’»Å’∏ÅçÀ•ë•–Å±ΩçÖ—Ö•…îÅï∏Å∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°¡ÖÂµïπ—5ï—°ΩêÄÙÙÙÄù	9,ú§ÅÏ(ÄÄÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ï	Öπ≠Mç°ïµÑ†§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†ùM1PÅ¡ù}ÖëŸ•ÕΩ…Â}·Öç—}±Ωç¨°°ÖÕ°—ï·–†êƒ§§ú∞ÅmÅ—ïπÖπ–µç…ïë•–¥ëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•Ù¥ëÌ—ïπÖπ—%ëÙ¥ëÌ¡ÖÂµïπ—Ö—ïÙ¥ëÌÖµΩ’π—Ù¥ëÌç’……ïπçÂıÅt§Ï(ÄÄÄÄÄÅçΩπÕ–Å—ïπÖπ–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°çΩµ¡ÖπÂ}πÖµî∞Åô•…Õ—}πÖµî∞Äúú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ1MÅQI%4°=9P°=1M°ô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°±ÖÕ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°¡ΩÕ—}πÖµî∞Äúú§§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅLÅπÖµî(ÄÄÄÄÄÄÄÄÅI=4Å—ïπÖπ—Ã(ÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÄÄÅm—ïπÖπ—%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅçΩπÕ–Å—ïπÖπ—IΩ‹ÄÙÅ…ï≈’•…ïIΩ‹°—ïπÖπ–π…Ω›Õl¡t∞ÄùQïπÖπ–ú§Ï(ÄÄÄÄÄÅ•òÄ°±ïÖÕï%ê§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å±ïÖÕîÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÄÄÅÅM1PÅ•êÅI=4Å±ïÖÕïÃ(ÄÄÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9Å—ïπÖπ—}•êÄÙÄê»Å9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10Å9ÅÖ…ç°•Ÿïë}Ö–Å%LÅ9U10Å9ÅÕ—Ö—’ÃÄÙÄùQ%YùÄ∞(ÄÄÄÄÄÄÄÄÄÅm±ïÖÕï%ê∞Å—ïπÖπ—%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅ…ï≈’•…ïIΩ‹°±ïÖÕîπ…Ω›Õl¡t∞Äù1ïÖÕîú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅçΩπÕ–ÅâÖπ≠ççΩ’π–ÄÙÅ¡ÖÂµïπ—5ï—°ΩêÄÙÙÙÄù	9,ú(ÄÄÄÄÄÄÄÄ¸ÅÖ›Ö•–Å—°•ÃπŸÖ±•ëÖ—ï	Öπ≠ççΩ’π—Ω…QïπÖπ—…ïë•–°ç±•ïπ–∞Å9’µâï»°âΩë‰πâÖπ≠}ÖççΩ’π—}•êÄ¸¸Ä¿§∞Åç’……ïπç‰§(ÄÄÄÄÄÄÄÄËÅπ’±∞Ï(ÄÄÄÄÄÅçΩπÕ–ÅÖµΩ’π—UÕêÄÙÅç’……ïπç‰ÄÙÙÙÄùUMúÄ¸ÅÖµΩ’π–ÄËÄ¿Ï(ÄÄÄÄÄÅçΩπÕ–ÅÖµΩ’π—ëòÄÙÅç’……ïπç‰ÄÙÙÙÄùúÄ¸ÅÖµΩ’π–ÄËÄ¿Ï(ÄÄÄÄÄÅçΩπÕ–Åçëô≈’•ŸÖ±ïπ—UÕêÄÙÅç’……ïπç‰ÄÙÙÙÄùúÄòòÅï·ç°ÖπùïIÖ—ïUÕïêÄ¸Å9’µâï»†°ÖµΩ’π–ÄºÅï·ç°ÖπùïIÖ—ïUÕïê§π—Ω•·ïê†»§§ÄËÄ¿Ï(ÄÄÄÄÄÅçΩπÕ–Å—Ω—Ö±≈’•ŸÖ±ïπ—UÕêÄÙÅç’……ïπç‰ÄÙÙÙÄùUMúÄ¸ÅÖµΩ’π–ÄËÅçëô≈’•ŸÖ±ïπ—UÕêÏ(ÄÄÄÄÄÅçΩπÕ–Å…ïçï•¡—9’µâï»ÄÙÅÖ›Ö•–Å—°•Ãππï·—AÖÂµïπ—Iïçï•¡—9’µâï»°ç±•ïπ–§Ï(ÄÄÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•ÈïëIïôï…ïπçîÄÙÅâΩë‰π…ïôï…ïπçîÄ¸ÅM—…•πú°âΩë‰π…ïôï…ïπçî§π—…•¥†§ÄËÅÅI%P¥ëÌ—ïπÖπ—%ëÙ¥ëÌ¡ÖÂµïπ—Ö—ïıÄÏ(ÄÄÄÄÄÅçΩπÕ–Å•ëïµ¡Ω—ïπçÂ-ï‰ÄÙÅM—…•πú°âΩë‰π•ëïµ¡Ω—ïπçÂ}≠ï‰Ä¸¸Ål(ÄÄÄÄÄÄÄÄùQ99Q}I%Pú∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ—ïπÖπ—%ê∞(ÄÄÄÄÄÄÄÅ±ïÖÕï%êÄ¸¸Äù9=1Mú∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—Ö—î∞(ÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÅÖµΩ’π–π—Ω•·ïê†»§∞(ÄÄÄÄÄÄÄÅπΩ…µÖ±•ÈïëIïôï…ïπçî∞(ÄÄÄÄÄÅtπ©Ω•∏†úËú§§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<Å¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÄÄÄÄ°•πŸΩ•çï}•ê∞Å¡ÖÂµïπ—}ëÖ—î∞ÅÖµΩ’π–∞Å¡ÖÂµïπ—}µï—°Ωê∞Å…ïôï…ïπçî∞ÅπΩ—ïÃ∞Å¡ÖÂï…}πÖµî∞Å…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÅç’……ïπç‰∞ÅÖµΩ’π—}’Õê∞ÅÖµΩ’π—}çëò∞Åï·ç°Öπùï}…Ö—ï}’Õïê∞Åï·ç°Öπùï}…Ö—ï}ëÖ—î∞Åçëô}ï≈’•ŸÖ±ïπ—}’Õê∞Å—Ω—Ö±}ï≈’•ŸÖ±ïπ—}’Õê∞(ÄÄÄÄÄÄÄÄÄÄÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê∞Å¡ÖÂµïπ—}—Â¡î∞Å•ëïµ¡Ω—ïπçÂ}≠ï‰§(ÄÄÄÄÄÄÄÄÅY1UL(ÄÄÄÄÄÄÄÄÄÄ°9U10∞Äêƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞(ÄÄÄÄÄÄÄÄÄÄÄê‡∞Äê‰∞Äêƒ¿∞Äêƒƒ∞Äêƒ»∞ÄêƒÃ∞Äêƒ–∞(ÄÄÄÄÄÄÄÄÄÄÄêƒ‘∞ÄùQ99Q}I%Pú∞Äêƒÿ§(ÄÄÄÄÄÄÄÄÅ=8Å=91%PÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å•ëïµ¡Ω—ïπçÂ}≠ï‰§(ÄÄÄÄÄÄÄÄÅ]!IÅëï±ï—ïë}Ö–Å%LÅ9U10Å9Å•ëïµ¡Ω—ïπçÂ}≠ï‰Å%LÅ9=PÅ9U10(ÄÄÄÄÄÄÄÄÅ<Å9=Q!%9(ÄÄÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—Ö—î∞(ÄÄÄÄÄÄÄÄÄÅ—Ω—Ö±≈’•ŸÖ±ïπ—UÕê∞(ÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—5ï—°Ωê∞(ÄÄÄÄÄÄÄÄÄÅπΩ…µÖ±•ÈïëIïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅâΩë‰ππΩ—ïÃÄ¸ÅM—…•πú°âΩë‰ππΩ—ïÃ§ÄËÄùAÖ•ïµïπ–ÅÖπ—•ç•√§Å±ΩçÖ—Ö•…îú∞(ÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—IΩ‹ππÖµî∞(ÄÄÄÄÄÄÄÄÄÅ…ïçï•¡—9’µâï»∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π—UÕê∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π—ëò∞(ÄÄÄÄÄÄÄÄÄÅï·ç°ÖπùïIÖ—ïUÕïê∞(ÄÄÄÄÄÄÄÄÄÅï·ç°ÖπùïIÖ—ïÖ—î∞(ÄÄÄÄÄÄÄÄÄÅçëô≈’•ŸÖ±ïπ—UÕê∞(ÄÄÄÄÄÄÄÄÄÅ—Ω—Ö±≈’•ŸÖ±ïπ—UÕê∞(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ-ï‰∞(ÄÄÄÄÄÄÄÅt∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ•òÄ†Ö¡ÖÂµïπ–π…Ω›Õl¡t§Å—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ùîÅçÀ•ë•–Å±ΩçÖ—Ö•…îÅïÕ–Åì•´ÄÅïπ…ïù•Õ—À§∏ú§Ï(ÄÄÄÄÄÅçΩπÕ–Åç…ïë•–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<Å—ïπÖπ—}ç…ïë•—Ã(ÄÄÄÄÄÄÄÄÄÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å—ïπÖπ—}•ê∞Å±ïÖÕï}•ê∞ÅÕΩ’…çï}¡ÖÂµïπ—}•ê∞Åç’……ïπç‰∞ÅΩ…•ù•πÖ±}ÖµΩ’π–∞Å…ïµÖ•π•πù}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—’Ã∞Å¡ÖÂµïπ—}ëÖ—î∞Å…ïôï…ïπçî∞ÅπΩ—ïÃ∞Å•ëïµ¡Ω—ïπçÂ}≠ï‰∞Åç…ïÖ—ïë}â‰§(ÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äêÿ∞ÄùY%1	1ú∞Äê‹∞Äê‡∞Äê‰∞Äêƒ¿∞Äêƒƒ§(ÄÄÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—%ê∞(ÄÄÄÄÄÄÄÄÄÅ±ïÖÕï%ê∞(ÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ–π…Ω›Õl¡tπ•ê∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—Ö—î∞(ÄÄÄÄÄÄÄÄÄÅπΩ…µÖ±•ÈïëIïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅâΩë‰ππΩ—ïÃÄ¸ÅM—…•πú°âΩë‰ππΩ—ïÃ§ÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ-ï‰∞(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Äƒ∞(ÄÄÄÄÄÄÄÅt∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ±ï–ÅµΩŸïµïπ–ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅ±ï–ÅâÖπ≠Q…ÖπÕÖç—•Ω∏ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅ•òÄ°¡ÖÂµïπ—5ï—°ΩêÄÙÙÙÄù	9,ú§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å—…ÖπÕÖç—•ΩπQÂ¡îÄÙÅÖ›Ö•–Å—°•ÃπâÖπ≠’Ö…Öπ—ïïQ…ÖπÕÖç—•ΩπQÂ¡î°ç±•ïπ–∞ÄùQ99Q}I%Pú§Ï(ÄÄÄÄÄÄÄÅâÖπ≠Q…ÖπÕÖç—•Ω∏ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ï’Ö…Öπ—ïï	Öπ≠Q…ÖπÕÖç—•Ωπ%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅâÖπ≠ççΩ’π–ËÅâÖπ≠ççΩ’π–ÅÖÃÅÏÅ•êËÅπ’µâï»ÏÅâÖπ≠}πÖµî¸ËÅÕ—…•πúÅÅπ’±∞ÏÅÖççΩ’π—}πÖµî¸ËÅÕ—…•πúÅÅπ’±∞ÏÅç’……ïπç‰ËÅÕ—…•πúÅÙ∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÅ…ïçï•¡—9’µâï»∞(ÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅπΩ…µÖ±•ÈïëIïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅç…ïÖ—ïë	‰ËÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ—…ÖπÕÖç—•ΩπQÂ¡î∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çï5Ωë’±îËÄùQ99Q}I%QLú∞(ÄÄÄÄÄÄÄÄÄÅë•…ïç—•Ω∏ËÄù%8ú∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çïπ—•—ÂQÂ¡îËÄùQ99Q}I%Pú∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çïπ—•—Â%êËÅ9’µâï»°ç…ïë•–π…Ω›Õl¡tπ•ê§∞(ÄÄÄÄÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÄùÀ•ë•–Å±ΩçÖ—Ö•…îÄºÅAÖ•ïµïπ–ÅÖπ—•ç•√§Å±ΩçÖ—Ö•…îú∞(ÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—9ÖµîËÅ—ïπÖπ—IΩ‹ππÖµî∞(ÄÄÄÄÄÄÄÄÄÅ±ïÖÕï9’µâï»ËÅ±ïÖÕï%êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ’π•—9’µâï»ËÅπ’±∞∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÄÄÅµΩŸïµïπ–ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ïÖÕ°5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅ—Â¡îËÄù%8ú∞(ÄÄÄÄÄÄÄÄÄÅçÖ—ïùΩ…‰ËÄùQ99Q}I%Pú∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—îËÅ¡ÖÂµïπ—Ö—î∞(ÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}•êËÅ¡ÖÂµïπ–π…Ω›Õl¡tπ•ê∞(ÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—}•êËÅ—ïπÖπ—%ê∞(ÄÄÄÄÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÄùAÖ•ïµïπ–ÅÖπ—•ç•√§Å±ΩçÖ—Ö•…îú∞(ÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅπΩ…µÖ±•ÈïëIïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}’ÕïêËÅï·ç°ÖπùïIÖ—ïUÕïê∞(ÄÄÄÄÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}ëÖ—îËÅï·ç°ÖπùïIÖ—ïÖ—î∞(ÄÄÄÄÄÄÄÄÄÅï≈’•ŸÖ±ïπ—}’ÕêËÅ—Ω—Ö±≈’•ŸÖ±ïπ—UÕê∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÅ•òÄ°Ö›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}µΩŸïµïπ—Ãú∞Äù—ïπÖπ—}ç…ïë•—}•êú§§ÅÏ(ÄÄÄÄÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÄÄÄÄÅÅUAQÅçÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÄÄÄÄÄÄÅMPÅ—ïπÖπ—}ç…ïë•—}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄê»Å9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÕÄ∞(ÄÄÄÄÄÄÄÄÄÄÄÅmç…ïë•–π…Ω›Õl¡tπ•ê∞ÅµΩŸïµïπ–¸π•êÄ¸¸Åπ’±∞∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÖ’ë•—}±ΩùÃÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å’Õï…}•ê∞ÅÖç—•Ω∏∞Å…ïÕΩ’…çî∞Å…ïÕΩ’…çï}•ê∞Åµï—°Ωê∞Å¡Ö—†∞ÅÕ—Ö—’Õ}çΩëî∞Åµï—ÖëÖ—Ñ§(ÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄùQ99Q}I%Q}IQú∞Äù—ïπÖπ—}ç…ïë•—Ãú∞ÄêÃ∞ÄùA=MPú∞ÄúΩÖ¡§Ω—ïπÖπ–µç…ïë•—Ãú∞Ä»¿ƒ∞Äê–•Ä∞(ÄÄÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅM—…•πú°ç…ïë•–π…Ω›Õl¡tπ•ê§∞(ÄÄÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°ÏÅ—ïπÖπ—}•êËÅ—ïπÖπ—%ê∞Å±ïÖÕï}•êËÅ±ïÖÕï%ê∞ÅÕΩ’…çï}¡ÖÂµïπ—}•êËÅ¡ÖÂµïπ–π…Ω›Õl¡tπ•ê∞ÅÖµΩ’π–∞Åç’……ïπç‰ÅÙ§∞(ÄÄÄÄÄÄÄÅt∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÄ∏∏πç…ïë•–π…Ω›Õl¡t∞(ÄÄÄÄÄÄÄÅ…ïçï•¡—}π’µâï»ËÅ¡ÖÂµïπ–π…Ω›Õl¡tπ…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÅÕΩ’…çï}¡ÖÂµïπ—}•êËÅ¡ÖÂµïπ–π…Ω›Õl¡tπ•ê∞(ÄÄÄÄÄÄÄÅçÖÕ°}µΩŸïµïπ—}•êËÅµΩŸïµïπ–¸π•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅçÖÕ°}µΩŸïµïπ–ËÅµΩŸïµïπ–∞(ÄÄÄÄÄÄÄÅâÖπ≠}—…ÖπÕÖç—•Ω∏ËÅâÖπ≠Q…ÖπÕÖç—•Ω∏∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÅŸΩ•êÅ—°•ÃπÕïπëQïπÖπ—…ïë•—Iïçï•¡—%ôπÖâ±ïê°ç…ïë•–π•ê§πçÖ—ç††°ï……Ω»§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ—°•Ãπ±Ωùùï»πï……Ω»†(ÄÄÄÄÄÄÄÅÅmQ99Q}I%QtÅÖÕÂπåÅ…ïçï•¡–ÅïµÖ•∞ÅôÖ•±ïêÅç…ïë•—%êÙëÌ9’µâï»°ç…ïë•–π•ê•ÙÅΩ…ùÖπ•ÈÖ—•Ωπ%êÙëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙÅµïÕÕÖùîÙëÌï……Ω»Å•πÕ—ÖπçïΩòÅ……Ω»Ä¸Åï……Ω»πµïÕÕÖùîÄËÅM—…•πú°ï……Ω»•ıÄ∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅ…ï—’…∏Åç…ïë•–Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕïπë1ïÖÕï%πŸΩ•çïµÖ•±%ôπÖâ±ïê°•πŸΩ•çîËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπçΩµµ’π•çÖ—•ΩπMï…Ÿ•çîπÕïπëΩç’µïπ–°Ï(ÄÄÄÄÄÅëΩç’µïπ—QÂ¡îËÅΩç’µïπ—QÂ¡îπ%9Y=%∞(ÄÄÄÄÄÅëΩç’µïπ—%êËÅ9’µâï»°•πŸΩ•çîπ•ê§∞(ÄÄÄÄÄÅµïÕÕÖùîËÄùYï’•±±ïËÅ—…Ω’Ÿï»Åç§µ©Ω•π–ÅŸΩ—…îÅôÖç—’…î∏ú∞(ÄÄÄÄÄÅ—…•ùùï»ËÅΩç’µïπ—ï±•Ÿï…ÂQ…•ùùï»πUQ<∞(ÄÄÄÅÙ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕïπëQïπÖπ—…ïë•—Iïçï•¡—%ôπÖâ±ïê°ç…ïë•—%êËÅπ’µâï»§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπçΩµµ’π•çÖ—•ΩπMï…Ÿ•çîπÕïπëΩç’µïπ–°Ï(ÄÄÄÄÄÅëΩç’µïπ—QÂ¡îËÅΩç’µïπ—QÂ¡îπQ99Q}I%Q}I%AP∞(ÄÄÄÄÄÅëΩç’µïπ—%êËÅç…ïë•—%ê∞(ÄÄÄÄÄÅµïÕÕÖùîËÄùYï’•±±ïËÅ—…Ω’Ÿï»Åç§µ©Ω•π–ÅŸΩ—…îÅ…óù‘ÅëîÅçÀ•ë•–Å±ΩçÖ—Ö•…î∏ú∞(ÄÄÄÄÄÅ—…•ùùï»ËÅΩç’µïπ—ï±•Ÿï…ÂQ…•ùùï»πUQ<∞(ÄÄÄÅÙ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅŸïπ—•±Ö—ïÖÕ°QïπÖπ—…ïë•—±±ΩçÖ—•Ωπ%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅÖ…ùÃËÅÏ(ÄÄÄÅΩ…ùÖπ•ÈÖ—•Ωπ%êËÅπ’µâï»Ï(ÄÄÄÅ—ïπÖπ—…ïë•—%êËÅπ’µâï»Ï(ÄÄÄÅ•πŸΩ•çï%êËÅπ’µâï»Ï(ÄÄÄÅÖµΩ’π—¡¡±•ïêËÅπ’µâï»Ï(ÄÄÄÅç…ïÖ—ïë	‰¸ËÅπ’µâï»ÅÅπ’±∞Ï(ÄÅÙ§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïMÂπë•çÖÕ°Mç°ïµÑ°ç±•ïπ–§Ï(ÄÄÄÅçΩπÕ–ÅÕΩ’…çïIïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ—åπÕΩ’…çï}¡ÖÂµïπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπ—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¿π¡ÖÂµïπ—}µï—°Ωê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¿π¡ÖÂµïπ—}ëÖ—îËÈQaPÅLÅ¡ÖÂµïπ—}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¿π…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅç¥π•êÅLÅçÖÕ°}µΩŸïµïπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅç¥πÖµΩ’π–ËÈ1=PÅLÅçÖÕ°}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅç¥πç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅç¥πï≈’•ŸÖ±ïπ—}’ÕêËÈ1=PÅLÅçÖÕ°}ï≈’•ŸÖ±ïπ—}’Õê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅç¥πï·ç°Öπùï}…Ö—ï}’ÕïêËÈ1=PÅLÅï·ç°Öπùï}…Ö—ï}’Õïê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅç¥πï·ç°Öπùï}…Ö—ï}ëÖ—îËÈQaPÅLÅï·ç°Öπùï}…Ö—ï}ëÖ—î(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—ÃÅ—å(ÄÄÄÄÄÄÅ)=%8Å¡ÖÂµïπ—ÃÅ¿(ÄÄÄÄÄÄÄÄÅ=8Å¿π•êÄÙÅ—åπÕΩ’…çï}¡ÖÂµïπ—}•ê(ÄÄÄÄÄÄÄÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÅ9Å¿πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ)=%8ÅçÖÕ°}µΩŸïµïπ—ÃÅç¥(ÄÄÄÄÄÄÄÄÅ=8Åç¥πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÅ9Ä°ç¥π—ïπÖπ—}ç…ïë•—}•êÄÙÅ—åπ•êÅ=HÅç¥π¡ÖÂµïπ—}•êÄÙÅ—åπÕΩ’…çï}¡ÖÂµïπ—}•ê§(ÄÄÄÄÄÄÄÅ9Åç¥πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ]!IÅ—åπ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å—åπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Å¿π¡ÖÂµïπ—}µï—°ΩêÅ%8Ä†ùM ú∞Äù5=	%1}5=9dú§(ÄÄÄÄÄÄÅ=IHÅ	dÅMÅ]!8Åç¥π—ïπÖπ—}ç…ïë•—}•êÄÙÅ—åπ•êÅQ!8Ä¿Å1MÄƒÅ9∞Åç¥π•êÅM(ÄÄÄÄÄÄÅ1%5%PÄƒ(ÄÄÄÄÄÄÅ=HÅUAQÅ=ÅçµÄ∞(ÄÄÄÄÄÅmÖ…ùÃπ—ïπÖπ—…ïë•—%ê∞ÅÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÕΩ’…çîÄÙÅÕΩ’…çïIïÕ’±–π…Ω›Õl¡tÏ(ÄÄÄÅ•òÄ†ÖÕΩ’…çî§Å…ï—’…∏ÅÏÅÕÂπë•ç}ÖµΩ’π–ËÄ¿∞ÅÕ≠•¡¡ïêËÅ—…’îÅÙÏ((ÄÄÄÅçΩπÕ–Å•πŸΩ•çïIïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°±•πïÃπ—Ω—Ö±}ÖµΩ’π–∞Å§π—Ω—Ö∞∞Ä¿§ËÈ1=PÅLÅ•πŸΩ•çï}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°±•πïÃπÕÂπë•ç}ÖµΩ’π–∞Ä¿§ËÈ1=PÅLÅÕÂπë•ç}ÖµΩ’π–(ÄÄÄÄÄÄÅI=4Å•πŸΩ•çïÃÅ§(ÄÄÄÄÄÄÅ1PÅ)=%8Å1QI0Ä†(ÄÄÄÄÄÄÄÄÅM1PÅ=1M°MU4°•§πÖµΩ’π–§∞Ä¿§ÅLÅ—Ω—Ö±}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅM(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ]!8ÅUAAH°QI%4°=1M°•§π•—ïµ}—Â¡î∞Äúú§§§ÄÙÄùMe9%ú(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=HÅUAAH°QI%4°=1M°•§πëïÕç…•¡—•Ω∏∞Äúú§§§Å1%-ÄùMe9%îú(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅQ!8Å•§πÖµΩ’π–Å1MÄ¿(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§∞Ä¿§ÅLÅÕÂπë•ç}ÖµΩ’π–(ÄÄÄÄÄÄÄÄÅI=4Å•πŸΩ•çï}•—ïµÃÅ•§(ÄÄÄÄÄÄÄÄÅ]!IÅ•§π•πŸΩ•çï}•êÄÙÅ§π•ê(ÄÄÄÄÄÄÄÄÄÄÅ9Å•§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÄÄÅ9Å•§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄ§Å±•πïÃÅ=8ÅQIU(ÄÄÄÄÄÄÅ]!IÅ§π•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅmÖ…ùÃπ•πŸΩ•çï%ê∞ÅÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å•πŸΩ•çîÄÙÅ…ï≈’•…ïIΩ‹°•πŸΩ•çïIïÕ’±–π…Ω›Õl¡t∞Äù%πŸΩ•çîú§Ï(ÄÄÄÅçΩπÕ–Å•πŸΩ•çïµΩ’π–ÄÙÅ9’µâï»°•πŸΩ•çîπ•πŸΩ•çï}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å•πŸΩ•çïMÂπë•çµΩ’π–ÄÙÅ9’µâï»°•πŸΩ•çîπÕÂπë•ç}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅÕÂπë•çIÖ—•ºÄÙÅ•πŸΩ•çïµΩ’π–Ä¯Ä¿(ÄÄÄÄÄÄ¸Å5Ö—†πµ•∏°5Ö—†πµÖ‡°•πŸΩ•çïMÂπë•çµΩ’π–ÄºÅ•πŸΩ•çïµΩ’π–∞Ä¿§∞Äƒ§(ÄÄÄÄÄÄËÄ¿Ï(ÄÄÄÅçΩπÕ–ÅÕÂπë•çµΩ’π–ÄÙÅ9’µâï»†°Ö…ùÃπÖµΩ’π—¡¡±•ïêÄ®ÅÕÂπë•çIÖ—•º§π—Ω•·ïê†»§§Ï(ÄÄÄÅ•òÄ†Ñ°ÕÂπë•çµΩ’π–Ä¯Ä¿§§Å…ï—’…∏ÅÏÅÕÂπë•ç}ÖµΩ’π–ËÄ¿∞ÅÕ≠•¡¡ïêËÅ—…’îÅÙÏ(ÄÄÄÅ•òÄ°9’µâï»°ÕΩ’…çîπçÖÕ°}ÖµΩ’π–Ä¸¸Ä¿§ÄÅÕÂπë•çµΩ’π–§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1ÑÅŸïπ—•±Ö—•Ω∏ÅÕÂπë•åÅì•¡ÖÕÕîÅ±îÅÕΩ±ëîÅë‘ÅµΩ’Ÿïµïπ–ÅëîÅçÖ•ÕÕîÅÕΩ’…çî∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Åï≈’•ŸÖ±ïπ—IÖ—•ºÄÙÅ9’µâï»°ÕΩ’…çîπçÖÕ°}ÖµΩ’π–Ä¸¸Ä¿§Ä¯Ä¿(ÄÄÄÄÄÄ¸Å9’µâï»°ÕΩ’…çîπçÖÕ°}ï≈’•ŸÖ±ïπ—}’ÕêÄ¸¸Ä¿§ÄºÅ9’µâï»°ÕΩ’…çîπçÖÕ°}ÖµΩ’π–§(ÄÄÄÄÄÄËÄƒÏ(ÄÄÄÅçΩπÕ–ÅÕÂπë•ç≈’•ŸÖ±ïπ—UÕêÄÙÅ9’µâï»†°ÕÂπë•çµΩ’π–Ä®Åï≈’•ŸÖ±ïπ—IÖ—•º§π—Ω•·ïê†»§§Ï(ÄÄÄÅçΩπÕ–Åâ…ïÖ≠ëΩ›ππ—…‰ÄÙÅÏ(ÄÄÄÄÄÅ—ïπÖπ—}ç…ïë•—}•êËÅÖ…ùÃπ—ïπÖπ—…ïë•—%ê∞(ÄÄÄÄÄÅ•πŸΩ•çï}•êËÅÖ…ùÃπ•πŸΩ•çï%ê∞(ÄÄÄÄÄÅÖ±±ΩçÖ—ïë}ÖµΩ’π–ËÅÖ…ùÃπÖµΩ’π—¡¡±•ïê∞(ÄÄÄÄÄÅÕÂπë•ç}…Ö—•ºËÅ9’µâï»°ÕÂπë•çIÖ—•ºπ—Ω•·ïê†‡§§∞(ÄÄÄÄÄÅÕÂπë•ç}ÖµΩ’π–ËÅÕÂπë•çµΩ’π–∞(ÄÄÄÅÙÏ((ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅçÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÅMPÅÖµΩ’π–ÄÙÅÖµΩ’π–Ä¥Äê»∞(ÄÄÄÄÄÄÄÄÄÄÅï≈’•ŸÖ±ïπ—}’ÕêÄÙÅIQMP†¿∞Åï≈’•ŸÖ±ïπ—}’ÕêÄ¥ÄêÃ§∞(ÄÄÄÄÄÄÄÄÄÄÅëïÕç…•¡—•Ω∏ÄÙÄùÀ•ë•–Å±ΩçÖ—Ö•…îÄ°°Ω…ÃÅÕÂπë•å§ú(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê–(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅmÕΩ’…çîπçÖÕ°}µΩŸïµïπ—}•ê∞ÅÕÂπë•çµΩ’π–∞ÅÕÂπë•ç≈’•ŸÖ±ïπ—UÕê∞ÅÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÕÂπë•ç}çÖÕ°}µΩŸïµïπ—ÃÄ†(ÄÄÄÄÄÄÄÄÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê∞Å—Â¡î∞ÅµΩŸïµïπ—}—Â¡î∞ÅÖµΩ’π–∞Åç’……ïπç‰∞Åï≈’•ŸÖ±ïπ—}’Õê∞(ÄÄÄÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}’Õïê∞Åï·ç°Öπùï}…Ö—ï}ëÖ—î∞ÅµΩŸïµïπ—}ëÖ—î∞Å¡ÖÂµïπ—}•ê∞Å•πŸΩ•çï}•ê∞(ÄÄÄÄÄÄÄÄÅ—ïπÖπ—}•ê∞Å¡ÖÂµïπ—}µï—°Ωê∞Å—…ïÖÕ’…Â}±ΩçÖ—•Ω∏∞Å…ïôï…ïπçî∞ÅëïÕç…•¡—•Ω∏∞(ÄÄÄÄÄÄÄÄÅÖ±±ΩçÖ—•Ωπ}â…ïÖ≠ëΩ›∏∞Åç…ïÖ—ïë}â‰(ÄÄÄÄÄÄÄ§ÅY1ULÄ†(ÄÄÄÄÄÄÄÄÄêƒ∞Äù%8ú∞ÄùMe9%}Ae59Pú∞Äê»∞ÄêÃ∞Äê–∞(ÄÄÄÄÄÄÄÄÄê‘∞Äêÿ∞Äê‹∞Äê‡∞Äê‰∞(ÄÄÄÄÄÄÄÄÄêƒ¿∞Äêƒƒ∞Äù5%9}M ú∞Äêƒ»∞ÄùAÖ•ïµïπ–ÅÕÂπë•åÅŸ•ÑÅçÀ•ë•–Å±ΩçÖ—Ö•…îú∞(ÄÄÄÄÄÄÄÄÄêƒÃËÈ)M=9∞Äêƒ–(ÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÅ=8Å=91%PÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å¡ÖÂµïπ—}•ê∞Åç’……ïπç‰§(ÄÄÄÄÄÄÅ]!IÅ¡ÖÂµïπ—}•êÅ%LÅ9=PÅ9U10Å9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ<ÅUAQÅMP(ÄÄÄÄÄÄÄÄÅÖµΩ’π–ÄÙÅÕÂπë•ç}çÖÕ°}µΩŸïµïπ—ÃπÖµΩ’π–Ä¨Åa1UπÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÅï≈’•ŸÖ±ïπ—}’ÕêÄÙÅÕÂπë•ç}çÖÕ°}µΩŸïµïπ—Ãπï≈’•ŸÖ±ïπ—}’ÕêÄ¨Åa1Uπï≈’•ŸÖ±ïπ—}’Õê∞(ÄÄÄÄÄÄÄÄÅ•πŸΩ•çï}•êÄÙÅa1Uπ•πŸΩ•çï}•ê∞(ÄÄÄÄÄÄÄÄÅÖ±±ΩçÖ—•Ωπ}â…ïÖ≠ëΩ›∏ÄÙÅÕÂπë•ç}çÖÕ°}µΩŸïµïπ—ÃπÖ±±ΩçÖ—•Ωπ}â…ïÖ≠ëΩ›∏ÅÒÅa1UπÖ±±ΩçÖ—•Ωπ}â…ïÖ≠ëΩ›πÄ∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ê∞(ÄÄÄÄÄÄÄÅÕÂπë•çµΩ’π–∞(ÄÄÄÄÄÄÄÅÕΩ’…çîπç’……ïπç‰∞(ÄÄÄÄÄÄÄÅÕÂπë•ç≈’•ŸÖ±ïπ—UÕê∞(ÄÄÄÄÄÄÄÅÕΩ’…çîπï·ç°Öπùï}…Ö—ï}’ÕïêÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅÕΩ’…çîπï·ç°Öπùï}…Ö—ï}ëÖ—îÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅÕΩ’…çîπ¡ÖÂµïπ—}ëÖ—î∞(ÄÄÄÄÄÄÄÅÕΩ’…çîπÕΩ’…çï}¡ÖÂµïπ—}•ê∞(ÄÄÄÄÄÄÄÅÖ…ùÃπ•πŸΩ•çï%ê∞(ÄÄÄÄÄÄÄÅÕΩ’…çîπ—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÅÕΩ’…çîπ¡ÖÂµïπ—}µï—°Ωê∞(ÄÄÄÄÄÄÄÅÕΩ’…çîπ…ïôï…ïπçîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°mâ…ïÖ≠ëΩ›ππ—…Ât§∞(ÄÄÄÄÄÄÄÅÖ…ùÃπç…ïÖ—ïë	‰Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÏÅÕÂπë•ç}ÖµΩ’π–ËÅÕÂπë•çµΩ’π–∞ÅÕ≠•¡¡ïêËÅôÖ±ÕîÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅÖ¡¡±ÂQïπÖπ—…ïë•—ÕQΩIïπ—%πŸΩ•çï%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅÖ…ùÃËÅÏ(ÄÄÄÅΩ…ùÖπ•ÈÖ—•Ωπ%êËÅπ’µâï»Ï(ÄÄÄÅ•πŸΩ•çï%êËÅπ’µâï»Ï(ÄÄÄÅ±ïÖÕï%êËÅπ’µâï»ÅÅπ’±∞Ï(ÄÄÄÅ—ïπÖπ—%êËÅπ’µâï»ÅÅπ’±∞Ï(ÄÄÄÅç…ïÖ—ïë	‰¸ËÅπ’µâï»ÅÅπ’±∞Ï(ÄÅÙ§ÅÏ(ÄÄÄÅ•òÄ†ÖÖ…ùÃπ±ïÖÕï%êÅÒÄÖÖ…ùÃπ—ïπÖπ—%ê§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÏÅÖ¡¡±•ïë}—Ω—Ö∞ËÄ¿∞ÅÖ±±ΩçÖ—•ΩπÃËÅmtÅÖÃÅ……Ö‰ÒIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯¯ÅÙÏ(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Å•πŸΩ•çïIïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê∞Å•πŸΩ•çï}π’µâï»∞Å•πŸΩ•çï}—Â¡î∞Å•ÕÕ’ï}ëÖ—îËÈQaPÅLÅ•ÕÕ’ï}ëÖ—î∞ÅÕ—Ö—’Ã∞Å—Ω—Ö∞(ÄÄÄÄÄÄÅI=4Å•πŸΩ•çïÃ(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÅmÖ…ùÃπ•πŸΩ•çï%ê∞ÅÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å•πŸΩ•çîÄÙÅ…ï≈’•…ïIΩ‹°•πŸΩ•çïIïÕ’±–π…Ω›Õl¡t∞Äù%πŸΩ•çîú§Ï(ÄÄÄÅ•òÄ°M—…•πú°•πŸΩ•çîπ•πŸΩ•çï}—Â¡îÄ¸¸Äúú§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÄùI9Pú§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÏÅÖ¡¡±•ïë}—Ω—Ö∞ËÄ¿∞ÅÖ±±ΩçÖ—•ΩπÃËÅmtÅÖÃÅ……Ö‰ÒIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯¯ÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°lùIPú∞Äù911ùtπ•πç±’ëïÃ°M—…•πú°•πŸΩ•çîπÕ—Ö—’ÃÄ¸¸Äúú§π—ΩU¡¡ï…ÖÕî†§§§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÏÅÖ¡¡±•ïë}—Ω—Ö∞ËÄ¿∞ÅÖ±±ΩçÖ—•ΩπÃËÅmtÅÖÃÅ……Ö‰ÒIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯¯ÅÙÏ(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Åç…ïë•—ÃÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å±ïÖÕï}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å—ïπÖπ—}•êÄÙÄêÃ(ÄÄÄÄÄÄÄÄÅ9Åç’……ïπç‰ÄÙÄùUMú(ÄÄÄÄÄÄÄÄÅ9ÅÕ—Ö—’ÃÅ%8Ä†ùY%1	1ú∞ÄùAIQ%11e}UMú§(ÄÄÄÄÄÄÄÄÅ9Å…ïµÖ•π•πù}ÖµΩ’π–Ä¯Ä¿(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅ¡ÖÂµïπ—}ëÖ—îÅM∞Å•êÅM(ÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÅmÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ê∞ÅÖ…ùÃπ±ïÖÕï%ê∞ÅÖ…ùÃπ—ïπÖπ—%ët∞(ÄÄÄÄ§Ï((ÄÄÄÅ±ï–Å…ïµÖ•π•πùQΩ¡¡±‰ÄÙÅ9’µâï»°•πŸΩ•çîπ—Ω—Ö∞Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅÖ±±ΩçÖ—•ΩπÃËÅ……Ö‰ÒIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯¯ÄÙÅmtÏ((ÄÄÄÅôΩ»Ä°çΩπÕ–Åç…ïë•–ÅΩòÅç…ïë•—Ãπ…Ω›Ã§ÅÏ(ÄÄÄÄÄÅ•òÄ°…ïµÖ•π•πùQΩ¡¡±‰ÄÙÄ¿§Åâ…ïÖ¨Ï(ÄÄÄÄÄÅçΩπÕ–Åë’¡±•çÖ—îÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÄƒ(ÄÄÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—}Ö±±ΩçÖ—•ΩπÃ(ÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9Å—ïπÖπ—}ç…ïë•—}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÅ9Å•πŸΩ•çï}•êÄÙÄêÃ(ÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÄÄÅmÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Åç…ïë•–π•ê∞ÅÖ…ùÃπ•πŸΩ•çï%ët∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ•òÄ°ë’¡±•çÖ—îπ…Ω›Õl¡t§ÅÏ(ÄÄÄÄÄÄÄÅçΩπ—•π’îÏ(ÄÄÄÄÄÅÙ((ÄÄÄÄÄÅçΩπÕ–ÅÖŸÖ•±Öâ±îÄÙÅ9’µâï»°ç…ïë•–π…ïµÖ•π•πù}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÅ•òÄ†Ñ°ÖŸÖ•±Öâ±îÄ¯Ä¿§§ÅçΩπ—•π’îÏ(ÄÄÄÄÄÅçΩπÕ–ÅÖµΩ’π—¡¡±•ïêÄÙÅ9’µâï»°5Ö—†πµ•∏°ÖŸÖ•±Öâ±î∞Å…ïµÖ•π•πùQΩ¡¡±‰§π—Ω•·ïê†»§§Ï(ÄÄÄÄÄÅ•òÄ†Ñ°ÖµΩ’π—¡¡±•ïêÄ¯Ä¿§§ÅçΩπ—•π’îÏ((ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—Iïôï…ïπçîÄÙÅÅI%Pµ11=¥ëÌç…ïë•–π•ëÙ¥ëÌÖ…ùÃπ•πŸΩ•çï%ëıÄÏ(ÄÄÄÄÄÅçΩπÕ–Å•ëïµ¡Ω—ïπçÂ-ï‰ÄÙÅÅQ99Q}I%Q}11=Q%=8ËëÌÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ëÙËëÌç…ïë•–π•ëÙËëÌÖ…ùÃπ•πŸΩ•çï%ëıÄÏ(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—IïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<Å¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÄÄÄÄ°•πŸΩ•çï}•ê∞Å¡ÖÂµïπ—}ëÖ—î∞ÅÖµΩ’π–∞Å¡ÖÂµïπ—}µï—°Ωê∞Å…ïôï…ïπçî∞ÅπΩ—ïÃ∞Å¡ÖÂï…}πÖµî∞Å…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÅç’……ïπç‰∞ÅÖµΩ’π—}’Õê∞ÅÖµΩ’π—}çëò∞Åï·ç°Öπùï}…Ö—ï}’Õïê∞Åï·ç°Öπùï}…Ö—ï}ëÖ—î∞Åçëô}ï≈’•ŸÖ±ïπ—}’Õê∞Å—Ω—Ö±}ï≈’•ŸÖ±ïπ—}’Õê∞(ÄÄÄÄÄÄÄÄÄÄÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê∞Å¡ÖÂµïπ—}—Â¡î∞Å•ëïµ¡Ω—ïπçÂ}≠ï‰§(ÄÄÄÄÄÄÄÄÅY1UL(ÄÄÄÄÄÄÄÄÄÄ†êƒ∞Äê»∞ÄêÃ∞ÄùQ99Q}I%Pú∞Äê–∞Äê‘∞Äêÿ∞Å9U10∞(ÄÄÄÄÄÄÄÄÄÄÄùUMú∞ÄêÃ∞Ä¿∞Å9U10∞Å9U10∞Ä¿∞ÄêÃ∞(ÄÄÄÄÄÄÄÄÄÄÄê‹∞ÄùQ99Q}I%Q}11=Q%=8ú∞Äê‡§(ÄÄÄÄÄÄÄÄÅ=8Å=91%PÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å•ëïµ¡Ω—ïπçÂ}≠ï‰§(ÄÄÄÄÄÄÄÄÅ]!IÅëï±ï—ïë}Ö–Å%LÅ9U10Å9Å•ëïµ¡Ω—ïπçÂ}≠ï‰Å%LÅ9=PÅ9U10(ÄÄÄÄÄÄÄÄÅ<Å9=Q!%9(ÄÄÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÄÄÅÖ…ùÃπ•πŸΩ•çï%ê∞(ÄÄÄÄÄÄÄÄÄÅM—…•πú°•πŸΩ•çîπ•ÕÕ’ï}ëÖ—î§πÕ±•çî†¿∞Äƒ¿§∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π—¡¡±•ïê∞(ÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—Iïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄùAÖ•ïµïπ–Å¡Ö»ÅçÀ•ë•–Å±ΩçÖ—Ö•…îú∞(ÄÄÄÄÄÄÄÄÄÅç…ïë•–π…ïôï…ïπçîÄ¸¸ÅÅÀ•ë•–Å±ΩçÖ—Ö•…îÄåëÌç…ïë•–π•ëıÄ∞(ÄÄÄÄÄÄÄÄÄÅÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ê∞(ÄÄÄÄÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ-ï‰∞(ÄÄÄÄÄÄÄÅt∞(ÄÄÄÄÄÄ§Ï((ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ–ÄÙ(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—IïÕ’±–π…Ω›Õl¡t(ÄÄÄÄÄÄÄÄ¸¸Ä†(ÄÄÄÄÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÄÄÄÄÅÅM1PÄ®(ÄÄÄÄÄÄÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9Å•ëïµ¡Ω—ïπçÂ}≠ï‰ÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÄÄÄÄÄÄÅmÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Å•ëïµ¡Ω—ïπçÂ-ïÂt∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄ§π…Ω›Õl¡tÏ(ÄÄÄÄÄÅ•òÄ†Ö¡ÖÂµïπ–§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù%µ¡ΩÕÕ•â±îÅëîÅçÀ•ï»Å±îÅ¡Ö•ïµïπ–ÅìäeÖôôïç—Ö—•Ω∏Åë‘ÅçÀ•ë•–Å±ΩçÖ—Ö•…î∏ú§Ï(ÄÄÄÄÄÅÙ((ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<Å¡ÖÂµïπ—}Ö±±ΩçÖ—•ΩπÃÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å¡ÖÂµïπ—}•ê∞Å•πŸΩ•çï}•ê∞ÅÖµΩ’π–§(ÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–§(ÄÄÄÄÄÄÄÄÅ=8Å=91%PÅ<Å9=Q!%9Ä∞(ÄÄÄÄÄÄÄÅmÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Å¡ÖÂµïπ–π•ê∞ÅÖ…ùÃπ•πŸΩ•çï%ê∞ÅÖµΩ’π—¡¡±•ïët∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÖ±±ΩçÖ—•Ωπ%πÕï…–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<Å—ïπÖπ—}ç…ïë•—}Ö±±ΩçÖ—•ΩπÃ(ÄÄÄÄÄÄÄÄÄÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å—ïπÖπ—}ç…ïë•—}•ê∞Å•πŸΩ•çï}•ê∞Å¡ÖÂµïπ—}•ê∞ÅÖµΩ’π—}Ö¡¡±•ïê∞Åç’……ïπç‰∞Åç…ïÖ—ïë}â‰§(ÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞ÄùUMú∞Äêÿ§(ÄÄÄÄÄÄÄÄÅ=8Å=91%PÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å—ïπÖπ—}ç…ïë•—}•ê∞Å•πŸΩ•çï}•ê§(ÄÄÄÄÄÄÄÄÅ]!IÅëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ<Å9=Q!%9(ÄÄÄÄÄÄÄÄÅIQUI9%9Å•ëÄ∞(ÄÄÄÄÄÄÄÅmÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Åç…ïë•–π•ê∞ÅÖ…ùÃπ•πŸΩ•çï%ê∞Å¡ÖÂµïπ–π•ê∞ÅÖµΩ’π—¡¡±•ïê∞ÅÖ…ùÃπç…ïÖ—ïë	‰Ä¸¸Åπ’±±t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ•òÄ°Ö±±ΩçÖ—•Ωπ%πÕï…–π…Ω›Õl¡t§ÅÏ(ÄÄÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπŸïπ—•±Ö—ïÖÕ°QïπÖπ—…ïë•—±±ΩçÖ—•Ωπ%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅΩ…ùÖπ•ÈÖ—•Ωπ%êËÅÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ê∞(ÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—…ïë•—%êËÅ9’µâï»°ç…ïë•–π•ê§∞(ÄÄÄÄÄÄÄÄÄÅ•πŸΩ•çï%êËÅÖ…ùÃπ•πŸΩ•çï%ê∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π—¡¡±•ïê∞(ÄÄÄÄÄÄÄÄÄÅç…ïÖ—ïë	‰ËÅÖ…ùÃπç…ïÖ—ïë	‰Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅÙ((ÄÄÄÄÄÅçΩπÕ–Å…ïµÖ•π•πùµΩ’π–ÄÙÅ9’µâï»†°ÖŸÖ•±Öâ±îÄ¥ÅÖµΩ’π—¡¡±•ïê§π—Ω•·ïê†»§§Ï(ÄÄÄÄÄÅçΩπÕ–Åπï·—M—Ö—’ÃÄÙÅ…ïµÖ•π•πùµΩ’π–ÄÙÄ¿Ä¸ÄùUMúÄËÄùAIQ%11e}UMúÏ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅUAQÅ—ïπÖπ—}ç…ïë•—Ã(ÄÄÄÄÄÄÄÄÅMPÅ…ïµÖ•π•πù}ÖµΩ’π–ÄÙÄê»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—’ÃÄÙÄêÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅ’¡ëÖ—ïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê—Ä∞(ÄÄÄÄÄÄÄÅmç…ïë•–π•ê∞Å…ïµÖ•π•πùµΩ’π–∞Åπï·—M—Ö—’Ã∞ÅÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÖ’ë•—}±ΩùÃÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å’Õï…}•ê∞ÅÖç—•Ω∏∞Å…ïÕΩ’…çî∞Å…ïÕΩ’…çï}•ê∞Åµï—°Ωê∞Å¡Ö—†∞ÅÕ—Ö—’Õ}çΩëî∞Åµï—ÖëÖ—Ñ§(ÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄùQ99Q}I%Q}AA1%ú∞Äù—ïπÖπ—}ç…ïë•—Ãú∞ÄêÃ∞ÄùA=MPú∞Äê–∞Ä»¿¿∞Äê‘•Ä∞(ÄÄÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÄÄÅÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ê∞(ÄÄÄÄÄÄÄÄÄÅÖ…ùÃπç…ïÖ—ïë	‰Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅM—…•πú°ç…ïë•–π•ê§∞(ÄÄÄÄÄÄÄÄÄÅÄΩÖ¡§Ω•πŸΩ•çïÃºëÌÖ…ùÃπ•πŸΩ•çï%ëÙΩ—ïπÖπ–µç…ïë•–µÖ±±ΩçÖ—•ΩπÄ∞(ÄÄÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ•πŸΩ•çï}•êËÅÖ…ùÃπ•πŸΩ•çï%ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}•êËÅ¡ÖÂµïπ–π•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—}ç…ïë•—}Ö±±ΩçÖ—•Ωπ}ÖµΩ’π–ËÅÖµΩ’π—¡¡±•ïê∞(ÄÄÄÄÄÄÄÄÄÄÄÅ•πŸΩ•çï}π’µâï»ËÅ•πŸΩ•çîπ•πŸΩ•çï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄÄÅt∞(ÄÄÄÄÄÄ§Ï((ÄÄÄÄÄÅÖ±±ΩçÖ—•ΩπÃπ¡’Õ†°Ï(ÄÄÄÄÄÄÄÅ—ïπÖπ—}ç…ïë•—}•êËÅç…ïë•–π•ê∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}•êËÅ¡ÖÂµïπ–π•ê∞(ÄÄÄÄÄÄÄÅ•πŸΩ•çï}•êËÅÖ…ùÃπ•πŸΩ•çï%ê∞(ÄÄÄÄÄÄÄÅÖµΩ’π—}Ö¡¡±•ïêËÅÖµΩ’π—¡¡±•ïê∞(ÄÄÄÄÄÄÄÅç’……ïπç‰ËÄùUMú∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅ…ïµÖ•π•πùQΩ¡¡±‰ÄÙÅ9’µâï»†°…ïµÖ•π•πùQΩ¡¡±‰Ä¥ÅÖµΩ’π—¡¡±•ïê§π—Ω•·ïê†»§§Ï(ÄÄÄÅÙ((ÄÄÄÅÖ›Ö•–Å—°•Ãπ…ïô…ïÕ°%πŸΩ•çïM—Ö—’Õ%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÖ…ùÃπΩ…ùÖπ•ÈÖ—•Ωπ%ê∞ÅÖ…ùÃπ•πŸΩ•çï%ê§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅÖ¡¡±•ïë}—Ω—Ö∞ËÅÖ±±ΩçÖ—•ΩπÃπ…ïë’çî†°Õ’¥∞ÅÖ±±ΩçÖ—•Ω∏§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°Ö±±ΩçÖ—•Ω∏πÖµΩ’π—}Ö¡¡±•ïêÄ¸¸Ä¿§∞Ä¿§∞(ÄÄÄÄÄÅÖ±±ΩçÖ—•ΩπÃ∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅ’¡ëÖ—ïQïπÖπ—…ïë•–°•êËÅπ’µâï»∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïQïπÖπ—…ïë•—Iïô’πëMç°ïµÑ†§Ï(ÄÄÄÅ•òÄ†Ö—°•Ãπ°ÖÕAï…µ•ÕÕ•Ω∏†ù—ïπÖπ—}ç…ïë•—Ãπ’¡ëÖ—îú§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩ…â•ëëïπ·çï¡—•Ω∏†ùAï…µ•ÕÕ•Ω∏ÅëîÅçΩ……ïç—•Ω∏ÅëîÅçÀ•ë•–Å±ΩçÖ—Ö•…îÅ…ï≈’•Õî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å’¡ëÖ—ïë%êÄÙÅÖ›Ö•–Å—°•Ãπëàπ—…ÖπÕÖç—•Ω∏°ÖÕÂπåÄ°ç±•ïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ…ï—’…∏Å—°•Ãπ’¡ëÖ—ïQïπÖπ—…ïë•—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞Å•ê∞ÅâΩë‰§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅ…ï—’…∏Å—°•Ãπ—ïπÖπ—…ïë•—ï—Ö•∞°’¡ëÖ—ïë%ê§Ï(ÄÅÙ((ÄÅÖÕÂπåÅ…ïô’πëQïπÖπ—…ïë•–°•êËÅπ’µâï»∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïQïπÖπ—…ïë•—Iïô’πëMç°ïµÑ†§Ï(ÄÄÄÅ•òÄ†Ö—°•Ãπ°ÖÕAï…µ•ÕÕ•Ω∏†ù—ïπÖπ—}ç…ïë•—Ãπ…ïô’πêú§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩ…â•ëëïπ·çï¡—•Ω∏†ùAï…µ•ÕÕ•Ω∏ÅëîÅ…ïµâΩ’…Õïµïπ–ÅëîÅçÀ•ë•–Å±ΩçÖ—Ö•…îÅ…ï≈’•Õî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å—°•Ãπëàπ—…ÖπÕÖç—•Ω∏°ÖÕÂπåÄ°ç±•ïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ…ï—’…∏Å—°•Ãπ…ïô’πëQïπÖπ—…ïë•—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞Å•ê∞ÅâΩë‰∞ÅôÖ±Õî§Ï(ÄÄÄÅÙ§Ï(ÄÅÙ((ÄÅÖÕÂπåÅçÖπçï±QïπÖπ—…ïë•–°•êËÅπ’µâï»∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïQïπÖπ—…ïë•—Iïô’πëMç°ïµÑ†§Ï(ÄÄÄÅ•òÄ†Ö—°•Ãπ°ÖÕAï…µ•ÕÕ•Ω∏†ù—ïπÖπ—}ç…ïë•—ÃπçÖπçï∞ú§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩ…â•ëëïπ·çï¡—•Ω∏†ùAï…µ•ÕÕ•Ω∏ÅêÅÖππ’±Ö—•Ω∏ÅëîÅçÀ•ë•–Å±ΩçÖ—Ö•…îÅ…ï≈’•Õî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å—°•Ãπëàπ—…ÖπÕÖç—•Ω∏°ÖÕÂπåÄ°ç±•ïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ…ï—’…∏Å—°•Ãπ…ïô’πëQïπÖπ—…ïë•—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞Å•ê∞ÅâΩë‰∞Å—…’î§Ï(ÄÄÄÅÙ§Ï(ÄÅÙ((ÄÅÖÕÂπåÅ±ïÖÕïQïπÖπ—…ïë•—M’µµÖ…‰°±ïÖÕï%êËÅπ’µâï»§ÅÏ(ÄÄÄÅ•òÄ†Ñ°Ö›Ö•–Å—°•Ãπ—Öâ±ï·•Õ—Ã†ù—ïπÖπ—}ç…ïë•—Ãú§§§Å…ï—’…∏ÅÏÅ—Ω—Ö±}’ÕêËÄ¿∞Å—Ω—Ö±}çëòËÄ¿∞Åç…ïë•—ÃËÅmtÅÙÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ—åπ•ê∞Å—åπç’……ïπç‰∞Å—åπ…ïµÖ•π•πù}ÖµΩ’π–∞Å—åπΩ…•ù•πÖ±}ÖµΩ’π–∞Å—åπÕ—Ö—’Ã∞Å—åπ¡ÖÂµïπ—}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπÕΩ’…çï}¡ÖÂµïπ—}•ê∞Å¿π…ïçï•¡—}π’µâï»(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—ÃÅ—å(ÄÄÄÄÄÄÅ)=%8Å¡ÖÂµïπ—ÃÅ¿Å=8Å¿π•êÄÙÅ—åπÕΩ’…çï}¡ÖÂµïπ—}•êÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å¿πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ]!IÅ—åπ±ïÖÕï}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å—åπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅ—åπ¡ÖÂµïπ—}ëÖ—îÅM∞Å—åπ•êÅMÄ∞(ÄÄÄÄÄÅm±ïÖÕï%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÖŸÖ•±Öâ±ï…ïë•—ÃÄÙÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯ÅlùY%1	1ú∞ÄùAIQ%11e}UMùtπ•πç±’ëïÃ°M—…•πú°…Ω‹πÕ—Ö—’ÃÄ¸¸Äúú§π—ΩU¡¡ï…ÖÕî†§§ÄòòÅ9’µâï»°…Ω‹π…ïµÖ•π•πù}ÖµΩ’π–Ä¸¸Ä¿§Ä¯Ä¿§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ—Ω—Ö±}’ÕêËÅÖŸÖ•±Öâ±ï…ïë•—Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πç’……ïπç‰ÄÙÙÙÄùUMú§π…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π…ïµÖ•π•πù}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§∞(ÄÄÄÄÄÅ—Ω—Ö±}çëòËÅÖŸÖ•±Öâ±ï…ïë•—Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πç’……ïπç‰ÄÙÙÙÄùú§π…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π…ïµÖ•π•πù}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§∞(ÄÄÄÄÄÅ’Õïë}’ÕêËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πç’……ïπç‰ÄÙÙÙÄùUMú§π…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»†°…Ω‹πΩ…•ù•πÖ±}ÖµΩ’π–Ä¸¸Ä¿§Ä¥Ä°…Ω‹π…ïµÖ•π•πù}ÖµΩ’π–Ä¸¸Ä¿§§∞Ä¿§∞(ÄÄÄÄÄÅ’Õïë}çëòËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πç’……ïπç‰ÄÙÙÙÄùú§π…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»†°…Ω‹πΩ…•ù•πÖ±}ÖµΩ’π–Ä¸¸Ä¿§Ä¥Ä°…Ω‹π…ïµÖ•π•πù}ÖµΩ’π–Ä¸¸Ä¿§§∞Ä¿§∞(ÄÄÄÄÄÅ°•Õ—Ω…Â}çΩ’π–ËÅ…Ω›Ãπ±ïπù—†∞(ÄÄÄÄÄÅç…ïë•—ÃËÅÖŸÖ•±Öâ±ï…ïë•—Ã∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅïπÕ’…ïQïπÖπ—…ïë•—Mç°ïµÑ†§ÅÏ(ÄÄÄÅ•òÄ†Ñ°Ö›Ö•–Å—°•Ãπ—Öâ±ï·•Õ—Ã†ù—ïπÖπ—}ç…ïë•—Ãú§§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅµΩë’±îÅëïÃÅçÀ•ë•—ÃÅ±ΩçÖ—Ö•…ïÃÅªäeïÕ–Å¡ÖÃÅïπçΩ…îÅçΩπô•ù’À§∏ú§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅïπÕ’…ïQïπÖπ—…ïë•—Iïô’πëMç°ïµÑ†§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïQïπÖπ—…ïë•—Mç°ïµÑ†§Ï(ÄÄÄÅ•òÄ†Ñ°Ö›Ö•–Å—°•Ãπ—Öâ±ï·•Õ—Ã†ù—ïπÖπ—}ç…ïë•—}…ïô’πëÃú§§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅµΩë’±îÅëîÅ…ïµâΩ’…Õïµïπ–ÅëïÃÅçÀ•ë•—ÃÅ±ΩçÖ—Ö•…ïÃÅ∏ÅïÕ–Å¡ÖÃÅïπçΩ…îÅçΩπô•ù’À§∏ú§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ°ÖÕAï…µ•ÕÕ•Ω∏°¡ï…µ•ÕÕ•Ω∏ËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–Å¡ï…µ•ÕÕ•ΩπÃÄÙÅ—°•ÃπçΩπ—ï·–π’Õï»†§¸π¡ï…µ•ÕÕ•ΩπÃÄ¸¸ÅmtÏ(ÄÄÄÅ…ï—’…∏Å¡ï…µ•ÕÕ•ΩπÃπ•πç±’ëïÃ†ú®ú§ÅÒÅ¡ï…µ•ÕÕ•ΩπÃπ•πç±’ëïÃ°¡ï…µ•ÕÕ•Ω∏§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕΩô—ï±ï—ï•πÖπçïIΩ›Ã†(ÄÄÄÅç±•ïπ–ËÅAΩΩ±±•ïπ–∞(ÄÄÄÅ—Öâ±ï9ÖµîËÄù¡ÖÂµïπ—ÃúÅÄù¡ÖÂµïπ—}Ö±±ΩçÖ—•ΩπÃúÅÄùçÖÕ°}µΩŸïµïπ—ÃúÅÄùù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—ÃúÅÄùÕÂπë•ç}çÖÕ°}µΩŸïµïπ—ÃúÅÄùµÖ•π—ïπÖπçï}ï·¡ïπÕïÃú∞(ÄÄÄÅ≠ïÂΩ±’µ∏ËÄù•êúÅÄù¡ÖÂµïπ—}•êú∞(ÄÄÄÅŸÖ±’îËÅπ’µâï»∞(ÄÄÄÅ…ïÖÕΩ∏ËÅÕ—…•πú∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕ’¡¡Ω…—Õï±ï—•ΩπIïÖÕΩ∏ÄÙÅÖ›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã°—Öâ±ï9Öµî∞Äùëï±ï—•Ωπ}…ïÖÕΩ∏ú§Ï(ÄÄÄÅçΩπÕ–ÅÖÕÕ•ùπµïπ—ÃÄÙÅlùëï±ï—ïë}Ö–ÄÙÅ9=\†§ú∞Äùëï±ï—ïë}â‰ÄÙÄê»ùtÏ(ÄÄÄÅçΩπÕ–Å¡Ö…ÖµÃËÅ’π≠πΩ›πmtÄÙÅmŸÖ±’î∞Å—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•tÏ(ÄÄÄÅ•òÄ°Õ’¡¡Ω…—Õï±ï—•ΩπIïÖÕΩ∏§ÅÏ(ÄÄÄÄÄÅ¡Ö…ÖµÃπÕ¡±•çî†»∞Ä¿∞Å…ïÖÕΩ∏§Ï(ÄÄÄÄÄÅÖÕÕ•ùπµïπ—Ãπ¡’Õ††ùëï±ï—•Ωπ}…ïÖÕΩ∏ÄÙÄêÃú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅΩ…ùÖπ•ÈÖ—•ΩπAÖ…Ö¥ÄÙÅÕ’¡¡Ω…—Õï±ï—•ΩπIïÖÕΩ∏Ä¸Ä–ÄËÄÃÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÄëÌ—Öâ±ï9ÖµïÙ(ÄÄÄÄÄÄÅMPÄëÌÖÕÕ•ùπµïπ—Ãπ©Ω•∏†ú∞Äú•Ù(ÄÄÄÄÄÄÅ]!IÄëÌ≠ïÂΩ±’µπÙÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêëÌΩ…ùÖπ•ÈÖ—•ΩπAÖ…ÖµÙ(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅ¡Ö…ÖµÃ∞(ÄÄÄÄ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ—…ÖÕ°AÖÂµïπ—%πQ…ÖπÕÖç—•Ω∏†(ÄÄÄÅç±•ïπ–ËÅAΩΩ±±•ïπ–∞(ÄÄÄÅ¡ÖÂµïπ—%êËÅπ’µâï»∞(ÄÄÄÅ…ïÖÕΩ∏ËÅÕ—…•πú∞(ÄÄÄÅΩ¡—•ΩπÃ¸ËÅÏ(ÄÄÄÄÄÅÖ’ë•—ç—•Ω∏¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÅÖ’ë•—IïÕΩ’…çî¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÅÖ’ë•—IïÕΩ’…çï%ê¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÅÕΩ’…çï5ΩŸïµïπ—%ê¸ËÅπ’µâï»ÅÅπ’±∞Ï(ÄÄÄÅÙ∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—IïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê∞Å¡ÖÂµïπ—}—Â¡î∞Å±ïÖÕï}ù’Ö…Öπ—ïï}•ê∞Åëï±ï—ïë}Ö–∞Å•πŸΩ•çï}•ê(ÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÅm¡ÖÂµïπ—%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ–ÄÙÅ…ï≈’•…ïIΩ‹°¡ÖÂµïπ—IïÕ’±–π…Ω›Õl¡t∞ÄùAÖÂµïπ–ú§ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯Ï(ÄÄÄÅ•òÄ°¡ÖÂµïπ–πëï±ï—ïë}Ö–§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ùîÅ¡Ö•ïµïπ–ÅïÕ–Åì•´ÄÅëÖπÃÅ±ÑÅçΩ…âï•±±î∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–ÅÖ±±ΩçÖ—•ΩπÃÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•πŸΩ•çï}•ê(ÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—}Ö±±ΩçÖ—•ΩπÃ(ÄÄÄÄÄÄÅ]!IÅ¡ÖÂµïπ—}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÅm¡ÖÂµïπ—%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï((ÄÄÄÅÖ›Ö•–Å—°•ÃπÕΩô—ï±ï—ï•πÖπçïIΩ›Ã°ç±•ïπ–∞ÄùçÖÕ°}µΩŸïµïπ—Ãú∞Äù¡ÖÂµïπ—}•êú∞Å¡ÖÂµïπ—%ê∞Å…ïÖÕΩ∏§Ï(ÄÄÄÅÖ›Ö•–Å—°•ÃπÕΩô—ï±ï—ï•πÖπçïIΩ›Ã°ç±•ïπ–∞Äùù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—Ãú∞Äù¡ÖÂµïπ—}•êú∞Å¡ÖÂµïπ—%ê∞Å…ïÖÕΩ∏§Ï(ÄÄÄÅ•òÄ°Ö›Ö•–Å—°•Ãπ—Öâ±ï·•Õ—Ã†ùÕÂπë•ç}çÖÕ°}µΩŸïµïπ—Ãú§§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπÕΩô—ï±ï—ï•πÖπçïIΩ›Ã°ç±•ïπ–∞ÄùÕÂπë•ç}çÖÕ°}µΩŸïµïπ—Ãú∞Äù¡ÖÂµïπ—}•êú∞Å¡ÖÂµïπ—%ê∞Å…ïÖÕΩ∏§Ï(ÄÄÄÅÙ(ÄÄÄÅÖ›Ö•–Å—°•ÃπÕΩô—ï±ï—ï•πÖπçïIΩ›Ã°ç±•ïπ–∞Äù¡ÖÂµïπ—}Ö±±ΩçÖ—•ΩπÃú∞Äù¡ÖÂµïπ—}•êú∞Å¡ÖÂµïπ—%ê∞Å…ïÖÕΩ∏§Ï(ÄÄÄÅÖ›Ö•–Å—°•ÃπÕΩô—ï±ï—ï•πÖπçïIΩ›Ã°ç±•ïπ–∞Äù¡ÖÂµïπ—Ãú∞Äù•êú∞Å¡ÖÂµïπ—%ê∞Å…ïÖÕΩ∏§Ï((ÄÄÄÅçΩπÕ–Å•πŸΩ•çï%ëÃÄÙÅ……Ö‰πô…Ω¥†(ÄÄÄÄÄÅπï‹ÅMï–†(ÄÄÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÄÄÅ9’µâï»°¡ÖÂµïπ–π•πŸΩ•çï}•êÄ¸¸Ä¿§∞(ÄÄÄÄÄÄÄÄÄÄ∏∏πÖ±±ΩçÖ—•ΩπÃπ…Ω›ÃπµÖ¿†°…Ω‹§ÄÙ¯Å9’µâï»°…Ω‹π•πŸΩ•çï}•êÄ¸¸Ä¿§§∞(ÄÄÄÄÄÄÄÅtπô•±—ï»†°•πŸΩ•çï%ê§ÄÙ¯Å•πŸΩ•çï%êÄ¯Ä¿§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄ§Ï((ÄÄÄÅôΩ»Ä°çΩπÕ–Å•πŸΩ•çï%êÅΩòÅ•πŸΩ•çï%ëÃ§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Å—°•Ãπ…ïô…ïÕ°%πŸΩ•çïM—Ö—’Õ%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å•πŸΩ•çï%ê§Ï(ÄÄÄÅÙ((ÄÄÄÅ•òÄ°M—…•πú°¡ÖÂµïπ–π¡ÖÂµïπ—}—Â¡îÄ¸¸Äúú§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄùUI9QúÄòòÅ¡ÖÂµïπ–π±ïÖÕï}ù’Ö…Öπ—ïï}•ê§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Å—°•Ãπ…ïçÖ±ç’±Ö—ï1ïÖÕï’Ö…Öπ—ïï…Ωµç—•ŸïIΩ›Ã°ç±•ïπ–∞Å9’µâï»°¡ÖÂµïπ–π±ïÖÕï}ù’Ö…Öπ—ïï}•ê§§Ï(ÄÄÄÅÙ((ÄÄÄÅÖ›Ö•–Å—°•Ãπ›…•—ï•πÖπçïQ…ÖÕ°’ë•–†(ÄÄÄÄÄÅç±•ïπ–∞(ÄÄÄÄÄÅΩ¡—•ΩπÃ¸πÖ’ë•—ç—•Ω∏Ä¸¸ÄùAe59Q}5=Y}Q=}QIM ú∞(ÄÄÄÄÄÅΩ¡—•ΩπÃ¸πÖ’ë•—IïÕΩ’…çîÄ¸¸Äù¡ÖÂµïπ—Ãú∞(ÄÄÄÄÄÅΩ¡—•ΩπÃ¸πÖ’ë•—IïÕΩ’…çï%êÄ¸¸ÅM—…•πú°¡ÖÂµïπ—%ê§∞(ÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÅ…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}•êËÅ¡ÖÂµïπ—%ê∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}—Â¡îËÅ¡ÖÂµïπ–π¡ÖÂµïπ—}—Â¡îÄ¸¸Äù%9Y=%ú∞(ÄÄÄÄÄÄÄÅ•πŸΩ•çï}•ëÃËÅ•πŸΩ•çï%ëÃ∞(ÄÄÄÄÄÄÄÅ±ïÖÕï}ù’Ö…Öπ—ïï}•êËÅ9’µâï»°¡ÖÂµïπ–π±ïÖÕï}ù’Ö…Öπ—ïï}•êÄ¸¸Ä¿§ÅÒÅπ’±∞∞(ÄÄÄÄÄÄÄÅÕΩ’…çï}µΩŸïµïπ—}•êËÅΩ¡—•ΩπÃ¸πÕΩ’…çï5ΩŸïµïπ—%êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÄ§Ï((ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅëï±ï—ïêËÅ—…’î∞(ÄÄÄÄÄÅ¡ÖÂµïπ—}•êËÅ¡ÖÂµïπ—%ê∞(ÄÄÄÄÄÅ¡ÖÂµïπ—}—Â¡îËÅM—…•πú°¡ÖÂµïπ–π¡ÖÂµïπ—}—Â¡îÄ¸¸Äù%9Y=%ú§∞(ÄÄÄÄÄÅ•πŸΩ•çï}•ëÃËÅ•πŸΩ•çï%ëÃ∞(ÄÄÄÄÄÅ±ïÖÕï}ù’Ö…Öπ—ïï}•êËÅ9’µâï»°¡ÖÂµïπ–π±ïÖÕï}ù’Ö…Öπ—ïï}•êÄ¸¸Ä¿§ÅÒÅπ’±∞∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ…ïçÖ±ç’±Ö—ï1ïÖÕï’Ö…Öπ—ïï…Ωµç—•ŸïIΩ›Ã°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å±ïÖÕï’Ö…Öπ—ïï%êËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïïIïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê∞Å±ïÖÕï}•ê∞ÅÖµΩ’π–∞Å¡ÖÂµïπ—}ëÖ—î(ÄÄÄÄÄÄÅI=4Å±ïÖÕï}ù’Ö…Öπ—ïïÃ(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÅm±ïÖÕï’Ö…Öπ—ïï%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïîÄÙÅ…ï≈’•…ïIΩ‹°ù’Ö…Öπ—ïïIïÕ’±–π…Ω›Õl¡t∞Äù1ïÖÕîÅù’Ö…Öπ—ïîú§ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯Ï(ÄÄÄÅçΩπÕ–Å…ïçï•¡—ÃÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°MU4°—Ω—Ö±}ï≈’•ŸÖ±ïπ—}’Õê§∞Ä¿§ËÈ9U5I%†ƒ»∞»§ÅLÅ—Ω—Ö∞(ÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å±ïÖÕï}ù’Ö…Öπ—ïï}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å¡ÖÂµïπ—}—Â¡îÄÙÄùUI9Qú(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å±ïÖÕï’Ö…Öπ—ïï%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å…ïô’πëÃÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°MU4°=1M°ï≈’•ŸÖ±ïπ—}’Õê∞ÅÖµΩ’π–§§∞Ä¿§ËÈ9U5I%†ƒ»∞»§ÅLÅ—Ω—Ö∞(ÄÄÄÄÄÄÅI=4Åù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å±ïÖÕï}ù’Ö…Öπ—ïï}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9ÅµΩŸïµïπ—}—Â¡îÄÙÄùI9Qe}IU9ú(ÄÄÄÄÄÄÄÄÅ9Å—Â¡îÄÙÄù=UPú(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å±ïÖÕï’Ö…Öπ—ïï%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÖµΩ’π–ÄÙÅ9’µâï»°ù’Ö…Öπ—ïîπÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å¡Ö•ëµΩ’π–ÄÙÅ5Ö—†πµÖ‡°9’µâï»°…ïçï•¡—Ãπ…Ω›Õl¡t¸π—Ω—Ö∞Ä¸¸Ä¿§Ä¥Å9’µâï»°…ïô’πëÃπ…Ω›Õl¡t¸π—Ω—Ö∞Ä¸¸Ä¿§∞Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ö—’ÃÄÙÅ¡Ö•ëµΩ’π–Ä¯ÙÅÖµΩ’π–ÄòòÅÖµΩ’π–Ä¯Ä¿(ÄÄÄÄÄÄ¸ÄùA%ú(ÄÄÄÄÄÄËÅ¡Ö•ëµΩ’π–Ä¯Ä¿(ÄÄÄÄÄÄÄÄ¸ÄùAIQ%0ú(ÄÄÄÄÄÄÄÄËÄù9=Q}A%úÏ(ÄÄÄÅÖ›Ö•–Å—°•Ãπ’¡Õï…—1ïÖÕï’Ö…Öπ—ïî°ç±•ïπ–∞Å9’µâï»°ù’Ö…Öπ—ïîπ±ïÖÕï}•ê§∞ÅÏ(ÄÄÄÄÄÅÖµΩ’π–∞(ÄÄÄÄÄÅ¡Ö•ë}ÖµΩ’π–ËÅ¡Ö•ëµΩ’π–∞(ÄÄÄÄÄÅ¡ÖÂµïπ—}ëÖ—îËÅ¡Ö•ëµΩ’π–Ä¯Ä¿Ä¸Ä°ù’Ö…Öπ—ïîπ¡ÖÂµïπ—}ëÖ—îÄ¸¸Åπ’±∞§ÄËÅπ’±∞∞(ÄÄÄÄÄÅÕ—Ö—’Ã∞(ÄÄÄÅÙ§Ï(ÄÅÙ((ÄÅÖÕÂπåÅ—…ÖÕ°ïëM°Ö…ï°Ω±ëï…AÖÂΩ’—1•πïÃ†§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ïM°Ö…ï°Ω±ëï…Mç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅÕ¡∞π•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πâÖ—ç°}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πÕ°Ö…ï°Ω±ëï…}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞π¡ÖÂµïπ—}µï—°Ωê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞π…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞π…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πçÖÕ°}µΩŸïµïπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πëï±ï—ïë}Ö–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πëï±ï—•Ωπ}…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°9U11%°QI%4°=9P°=1M°‘πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°‘π±ÖÕ—}πÖµî∞Äúú§§§∞Äúú§∞Å‘πïµÖ•∞§ÅLÅëï±ï—ïë}âÂ}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπ…ïôï…ïπçîÅLÅâÖ—ç°}…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπÕΩ’…çï}…ïù•Õ—ï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ†πë•Õ¡±ÖÂ}πÖµîÅLÅÕ°Ö…ï°Ω±ëï…}πÖµî(ÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃÅÕ¡∞(ÄÄÄÄÄÄÅ)=%8ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃÅÕ¡àÅ=8ÅÕ¡àπ•êÄÙÅÕ¡∞πâÖ—ç°}•êÅ9ÅÕ¡àπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ)=%8ÅÕ°Ö…ï°Ω±ëï…ÃÅÕ†Å=8ÅÕ†π•êÄÙÅÕ¡∞πÕ°Ö…ï°Ω±ëï…}•êÅ9ÅÕ†πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8ÅÖ¡¡}’Õï…ÃÅ‘Å=8Å‘π•êÄÙÅÕ¡∞πëï±ï—ïë}â‰(ÄÄÄÄÄÄÅ]!IÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅÕ¡∞πëï±ï—ïë}Ö–Å%LÅ9=PÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅÕ¡∞πëï±ï—ïë}Ö–ÅM∞ÅÕ¡∞π•êÅMÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ—…ÖÕ°M°Ö…ï°Ω±ëï…AÖÂΩ’—%πQ…ÖπÕÖç—•Ω∏†(ÄÄÄÅç±•ïπ–ËÅAΩΩ±±•ïπ–∞(ÄÄÄÅ¡ÖÂΩ’—1•πï%êËÅπ’µâï»∞(ÄÄÄÅ…ïÖÕΩ∏ËÅÕ—…•πú∞(ÄÄÄÅΩ¡—•ΩπÃ¸ËÅÏ(ÄÄÄÄÄÅÖ’ë•—ç—•Ω∏¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÅÖ’ë•—IïÕΩ’…çî¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÅÖ’ë•—IïÕΩ’…çï%ê¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÅÕΩ’…çï5ΩŸïµïπ—%ê¸ËÅπ’µâï»ÅÅπ’±∞Ï(ÄÄÄÅÙ∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–Å—…ÖçîÄÙÄ°Õ—ï¿ËÅÕ—…•πú∞ÅÕ—Ö—’ÃËÄùMQIPúÅÄù=,úÅÄù%0ú∞Åï·—…ÑÄÙÄúú§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ—°•Ãπ±Ωùùï»π±Ωú†(ÄÄÄÄÄÄÄÅÅÕ°Ö…ï°Ω±ëï»Å¡ÖÂΩ’–Å—…ÖÕ†ÄëÌÕ—ï¡ÙÄëÌÕ—Ö—’ÕÙÅÅ¡ÖÂΩ’—1•πï%êÙëÌ¡ÖÂΩ’—1•πï%ëÙÅΩ…ùÖπ•ÈÖ—•Ωπ%êÙëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙÅÕΩ’…çï5ΩŸïµïπ—%êÙëÌΩ¡—•ΩπÃ¸πÕΩ’…çï5ΩŸïµïπ—%êÄ¸¸Åπ’±±ÙëÌï·—…ÑÄ¸ÅÄÄëÌï·—…ÖıÄÄËÄúùıÄ∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å±ΩùAù……Ω»ÄÙÄ°ï……Ω»ËÅ’π≠πΩ›∏§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å¡ù……Ω»ÄÙÅï……Ω»ÅÖÃÅÏ(ÄÄÄÄÄÄÄÅçΩëî¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÄÄÅëï—Ö•∞¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÄÄÅçΩπÕ—…Ö•π–¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÄÄÅ—Öâ±î¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÄÄÅçΩ±’µ∏¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅ—°•Ãπ±Ωùùï»πï……Ω»†(ÄÄÄÄÄÄÄÅÅÕ°Ö…ï°Ω±ëï»Å¡ÖÂΩ’–Å—…ÖÕ†Åï……Ω»ÅÅ¡ÖÂΩ’—1•πï%êÙëÌ¡ÖÂΩ’—1•πï%ëÙÅΩ…ùÖπ•ÈÖ—•Ωπ%êÙëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙÅµïÕÕÖùîÙëÌï……Ω»Å•πÕ—ÖπçïΩòÅ……Ω»Ä¸Åï……Ω»πµïÕÕÖùîÄËÅM—…•πú°ï……Ω»•ÙÅ¡ùΩëîÙëÌ¡ù……Ω»¸πçΩëîÄ¸¸Åπ’±±ÙÅ¡ùï—Ö•∞ÙëÌ¡ù……Ω»¸πëï—Ö•∞Ä¸¸Åπ’±±ÙÅ¡ùΩπÕ—…Ö•π–ÙëÌ¡ù……Ω»¸πçΩπÕ—…Ö•π–Ä¸¸Åπ’±±ÙÅ¡ùQÖâ±îÙëÌ¡ù……Ω»¸π—Öâ±îÄ¸¸Åπ’±±ÙÅ¡ùΩ±’µ∏ÙëÌ¡ù……Ω»¸πçΩ±’µ∏Ä¸¸Åπ’±±ıÄ∞(ÄÄÄÄÄÄÄÅï……Ω»Å•πÕ—ÖπçïΩòÅ……Ω»Ä¸Åï……Ω»πÕ—Öç¨ÄËÅ’πëïô•πïê∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙÏ((ÄÄÄÅ±ï–Å±•πîËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯Ï(ÄÄÄÅ±ï–ÅçÖÕ°5ΩŸïµïπ—%êËÅπ’µâï»ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÅ±ï–Åù’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%êËÅπ’µâï»ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÅ±ï–Å…ïµÖ•π•πù1•πïΩ’π–ÄÙÄ¿Ï(ÄÄÄÅ±ï–Å…ïµÖ•π•πùQΩ—Ö±µΩ’π–ÄÙÄ¿Ï(ÄÄÄÅ±ï–Åπï·—	Ö—ç°M—Ö—’ÃËÄùY1%QúÅÄù911úÄÙÄùY1%QúÏ(ÄÄÄÅ±ï–ÅÕ°Ö…ï°Ω±ëï…QΩ—Ö±ÃËÅÏÅ…Ω›ÃËÅ……Ö‰ÒÏÅ—Ω—Ö±}’Õê¸ËÅπ’µâï»ÏÅ—Ω—Ö±}çëò¸ËÅπ’µâï»ÏÅ¡ÖÂΩ’—}çΩ’π–¸ËÅπ’µâï»ÅÙ¯ÅÙÄÙÅÏÅ…Ω›ÃËÅmtÅÙÏ((ÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÅ—…Öçî†ùïπ—…‰ú∞ÄùMQIPú§Ï(ÄÄÄÄÄÅ—…Öçî†ù¡ÖÂΩ’–Å±•πîÅ…ïÖêú∞ÄùMQIPú§Ï(ÄÄÄÄÄÅçΩπÕ–Å±•πïIïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅÕ¡∞π•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πâÖ—ç°}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πÕ°Ö…ï°Ω±ëï…}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞π…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞π…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πçÖÕ°}µΩŸïµïπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πâÖπ≠}—…ÖπÕÖç—•Ωπ}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡∞πëï±ï—ïë}Ö–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπ…ïôï…ïπçîÅLÅâÖ—ç°}…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπÕΩ’…çï}…ïù•Õ—ï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπÕ—Ö—’ÃÅLÅâÖ—ç°}Õ—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ¡àπëï±ï—ïë}Ö–ÅLÅâÖ—ç°}ëï±ï—ïë}Ö–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ†πë•Õ¡±ÖÂ}πÖµîÅLÅÕ°Ö…ï°Ω±ëï…}πÖµî(ÄÄÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃÅÕ¡∞(ÄÄÄÄÄÄÄÄÅ)=%8ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃÅÕ¡àÅ=8ÅÕ¡àπ•êÄÙÅÕ¡∞πâÖ—ç°}•êÅ9ÅÕ¡àπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ)=%8ÅÕ°Ö…ï°Ω±ëï…ÃÅÕ†Å=8ÅÕ†π•êÄÙÅÕ¡∞πÕ°Ö…ï°Ω±ëï…}•êÅ9ÅÕ†πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ]!IÅÕ¡∞π•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9ÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÄÄÅm¡ÖÂΩ’—1•πï%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ—…Öçî†ù¡ÖÂΩ’–Å±•πîÅ…ïÖêú∞Äù=,ú∞ÅÅ¡ÖÂΩ’—Ω’πêÙëÌ	ΩΩ±ïÖ∏°±•πïIïÕ’±–π…Ω›Õl¡t•ıÄ§Ï(ÄÄÄÄÄÅ±•πîÄÙÅ…ï≈’•…ïIΩ‹°±•πïIïÕ’±–π…Ω›Õl¡t∞ÄùM°Ö…ï°Ω±ëï»Å¡ÖÂΩ’–ú§ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯Ï((ÄÄÄÄÄÅ—…Öçî†ùâÖ—ç†Å…ïÖêú∞Äù=,ú∞ÅÅâÖ—ç°%êÙëÌ9’µâï»°±•πîπâÖ—ç°}•ê•ÙÅâÖ—ç°ï±ï—ïêÙëÌ	ΩΩ±ïÖ∏°±•πîπâÖ—ç°}ëï±ï—ïë}Ö–•ıÄ§Ï(ÄÄÄÄÄÅ—…Öçî†ùÕ°Ö…ï°Ω±ëï»Å…ïÖêú∞Äù=,ú∞ÅÅÕ°Ö…ï°Ω±ëï…%êÙëÌ9’µâï»°±•πîπÕ°Ö…ï°Ω±ëï…}•ê•ıÄ§Ï((ÄÄÄÄÄÅ•òÄ°±•πîπëï±ï—ïë}Ö–§ÅÏ(ÄÄÄÄÄÄÄÅ—…Öçî†ù¡ÖÂΩ’–Å±•πîÅŸÖ±•ëÖ—•Ω∏ú∞Äù%0ú∞Äù…ïÖÕΩ∏ıÖ±…ïÖëÂ}•π}—…ÖÕ†ú§Ï(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ùîÅ…ïµâΩ’…Õïµïπ–ÅÖç—•ΩππÖ•…îÅïÕ–Åì•´ÄÅëÖπÃÅ±ÑÅçΩ…âï•±±î∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°±•πîπâÖ—ç°}ëï±ï—ïë}Ö–§ÅÏ(ÄÄÄÄÄÄÄÅ—…Öçî†ùâÖ—ç†ÅŸÖ±•ëÖ—•Ω∏ú∞Äù%0ú∞Äù…ïÖÕΩ∏ıâÖ—ç°}Ö±…ïÖëÂ}•π}—…ÖÕ†ú§Ï(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1îÅ±Ω–ÅëîÅ…ïµâΩ’…Õïµïπ–ÅÖç—•ΩππÖ•…îÅïÕ–Åì•´ÄÅëÖπÃÅ±ÑÅçΩ…âï•±±î∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°±•πîπâÖπ≠}—…ÖπÕÖç—•Ωπ}•ê§ÅÏ(ÄÄÄÄÄÄÄÅ—…Öçî†ùâÖπ¨Å—…ÖπÕÖç—•Ω∏ÅŸÖ±•ëÖ—•Ω∏ú∞Äù%0ú∞Äù…ïÖÕΩ∏ıâÖπ≠}—…ÖπÕÖç—•Ωπ}±•π≠ïêú§Ï(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†(ÄÄÄÄÄÄÄÄÄÄùîÅ…ïµâΩ’…Õïµïπ–ÅÖç—•ΩππÖ•…îÅâÖπçÖ•…îÅπîÅ¡ï’–Å¡ÖÃÅïπçΩ…îÉ©—…îÅÕ’¡¡…•∑§ÅÖ’—ΩµÖ—•≈’ïµïπ–Åëï¡’•ÃÅçîÅ›Ω…≠ô±Ω‹∏ú∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ((ÄÄÄÄÄÅçÖÕ°5ΩŸïµïπ—%êÄÙÅ9’µâï»°±•πîπçÖÕ°}µΩŸïµïπ—}•êÄ¸¸Ä¿§ÅÒÅπ’±∞Ï(ÄÄÄÄÄÅù’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%êÄÙÅ9’µâï»°±•πîπù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—}•êÄ¸¸Ä¿§ÅÒÅπ’±∞Ï(ÄÄÄÄÄÅ•òÄ°çÖÕ°5ΩŸïµïπ—%ê§ÅÏ(ÄÄÄÄÄÄÄÅ—…Öçî†ùçÖÕ°}µΩŸïµïπ—ÃÅÕΩô–Åëï±ï—îú∞ÄùMQIPú∞ÅÅçÖÕ°5ΩŸïµïπ—%êÙëÌçÖÕ°5ΩŸïµïπ—%ëıÄ§Ï(ÄÄÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπÕΩô—ï±ï—ï•πÖπçïIΩ›Ã°ç±•ïπ–∞ÄùçÖÕ°}µΩŸïµïπ—Ãú∞Äù•êú∞ÅçÖÕ°5ΩŸïµïπ—%ê∞Å…ïÖÕΩ∏§Ï(ÄÄÄÄÄÄÄÅ—…Öçî†ùçÖÕ°}µΩŸïµïπ—ÃÅÕΩô–Åëï±ï—îú∞Äù=,ú∞ÅÅçÖÕ°5ΩŸïµïπ—%êÙëÌçÖÕ°5ΩŸïµïπ—%ëıÄ§Ï(ÄÄÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÄÄÅ—…Öçî†ùçÖÕ°}µΩŸïµïπ—ÃÅÕΩô–Åëï±ï—îú∞Äù=,ú∞ÄùçÖÕ°5ΩŸïµïπ—%êıπ’±∞ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°ù’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%ê§ÅÏ(ÄÄÄÄÄÄÄÅ—…Öçî†ùù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—ÃÅÕΩô–Åëï±ï—îú∞ÄùMQIPú∞ÅÅù’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%êÙëÌù’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%ëıÄ§Ï(ÄÄÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπÕΩô—ï±ï—ï•πÖπçïIΩ›Ã°ç±•ïπ–∞Äùù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—Ãú∞Äù•êú∞Åù’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%ê∞Å…ïÖÕΩ∏§Ï(ÄÄÄÄÄÄÄÅ—…Öçî†ùù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—ÃÅÕΩô–Åëï±ï—îú∞Äù=,ú∞ÅÅù’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%êÙëÌù’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%ëıÄ§Ï(ÄÄÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÄÄÅ—…Öçî†ùù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—ÃÅÕΩô–Åëï±ï—îú∞Äù=,ú∞Äùù’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%êıπ’±∞ú§Ï(ÄÄÄÄÄÅÙ((ÄÄÄÄÄÅ—…Öçî†ùÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃÅ’¡ëÖ—îú∞ÄùMQIPú§Ï(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅUAQÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃ(ÄÄÄÄÄÄÄÄÅMPÅëï±ï—ïë}Ö–ÄÙÅ9=\†§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅëï±ï—ïë}â‰ÄÙÄê»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅëï±ï—•Ωπ}…ïÖÕΩ∏ÄÙÄêÃ(ÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê–(ÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÄÄÅm¡ÖÂΩ’—1•πï%ê∞Å—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞Å…ïÖÕΩ∏∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ—…Öçî†ùÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃÅ’¡ëÖ—îú∞Äù=,ú§Ï((ÄÄÄÄÄÅ—…Öçî†ùâÖ—ç†Å…ïçÖ±ç’±Ö—•Ω∏ú∞ÄùMQIPú§Ï(ÄÄÄÄÄÅçΩπÕ–Å…ïµÖ•π•πùIïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ=U9P†®§ËÈ%9PÅLÅ±•πï}çΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°ÖµΩ’π–§∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅ—Ω—Ö±}ÖµΩ’π–(ÄÄÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃ(ÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9ÅâÖ—ç°}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å9’µâï»°±•πîπâÖ—ç°}•ê•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ…ïµÖ•π•πù1•πïΩ’π–ÄÙÅ9’µâï»°…ïµÖ•π•πùIïÕ’±–π…Ω›Õl¡t¸π±•πï}çΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÅ…ïµÖ•π•πùQΩ—Ö±µΩ’π–ÄÙÅ9’µâï»°…ïµÖ•π•πùIïÕ’±–π…Ω›Õl¡t¸π—Ω—Ö±}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÅπï·—	Ö—ç°M—Ö—’ÃÄÙÅ…ïµÖ•π•πù1•πïΩ’π–Ä¯Ä¿Ä¸ÄùY1%QúÄËÄù911úÏ((ÄÄÄÄÄÅ•òÄ°…ïµÖ•π•πù1•πïΩ’π–Ä¯Ä¿§ÅÏ(ÄÄÄÄÄÄÄÅ—…Öçî†ùâÖ—ç†Å…ïçÖ±ç’±Ö—•Ω∏ú∞Äù=,ú∞ÅÅ…ïµÖ•π•πù1•πïΩ’π–ÙëÌ…ïµÖ•π•πù1•πïΩ’π—ÙÅ—Ω—Ö±µΩ’π–ÙëÌ…ïµÖ•π•πùQΩ—Ö±µΩ’π—ÙÅÕ—Ö—’ÃÙëÌπï·—	Ö—ç°M—Ö—’ÕıÄ§Ï(ÄÄÄÄÄÄÄÅ—…Öçî†ùÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃÅ’¡ëÖ—îú∞ÄùMQIPú§Ï(ÄÄÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÄÄÅÅUAQÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃ(ÄÄÄÄÄÄÄÄÄÄÅMPÅ—Ω—Ö±}ÖµΩ’π–ÄÙÄêÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅâïπïô•ç•Ö…Â}çΩ’π–ÄÙÄê–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—’ÃÄÙÄê‘(ÄÄÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê…Ä∞(ÄÄÄÄÄÄÄÄÄÅm9’µâï»°±•πîπâÖ—ç°}•ê§∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å…ïµÖ•π•πùQΩ—Ö±µΩ’π–∞Å…ïµÖ•π•πù1•πïΩ’π–∞Åπï·—	Ö—ç°M—Ö—’Õt∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅ—…Öçî†ùÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃÅ’¡ëÖ—îú∞Äù=,ú∞ÅÅ…ïµÖ•π•πù1•πïΩ’π–ÙëÌ…ïµÖ•π•πù1•πïΩ’π—ıÄ§Ï(ÄÄÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÄÄÅ—…Öçî†ùâÖ—ç†Å…ïçÖ±ç’±Ö—•Ω∏ú∞Äù=,ú∞ÅÅ…ïµÖ•π•πù1•πïΩ’π–Ù¿Å—Ω—Ö±µΩ’π–Ù¿ÅÕ—Ö—’ÃÙëÌπï·—	Ö—ç°M—Ö—’ÕıÄ§Ï(ÄÄÄÄÄÄÄÅ—…Öçî†ùÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃÅ’¡ëÖ—îú∞ÄùMQIPú§Ï(ÄÄÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÄÄÅÅUAQÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃ(ÄÄÄÄÄÄÄÄÄÄÅMPÅ—Ω—Ö±}ÖµΩ’π–ÄÙÄ¿∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅâïπïô•ç•Ö…Â}çΩ’π–ÄÙÄ¿∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—’ÃÄÙÄêÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅëï±ï—ïë}Ö–ÄÙÅ9=\†§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅëï±ï—ïë}â‰ÄÙÄê–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅëï±ï—•Ωπ}…ïÖÕΩ∏ÄÙÄê‘(ÄÄÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê…Ä∞(ÄÄÄÄÄÄÄÄÄÅm9’µâï»°±•πîπâÖ—ç°}•ê§∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Åπï·—	Ö—ç°M—Ö—’Ã∞Å—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞Å…ïÖÕΩπt∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅ—…Öçî†ùÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃÅ’¡ëÖ—îú∞Äù=,ú∞ÄùâÖ—ç°5Ö…≠ïëï±ï—ïêı—…’îú§Ï(ÄÄÄÄÄÅÙ((ÄÄÄÄÄÅ—…Öçî†ùÕ°Ö…ï°Ω±ëï»Å—Ω—Ö±ÃÅ…ïçÖ±ç’±Ö—•Ω∏ú∞ÄùMQIPú§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕ°Ö…ï°Ω±ëï…QΩ—Ö±ÕIïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ=1M°MU4°MÅ]!8ÅÕ¡àπÕ—Ö—’ÃÄÙÄùY1%QúÅ9ÅÕ¡∞πç’……ïπç‰ÄÙÄùUMúÅQ!8ÅÕ¡∞πÖµΩ’π–Å1MÄ¿Å9§∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅ—Ω—Ö±}’Õê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°MÅ]!8ÅÕ¡àπÕ—Ö—’ÃÄÙÄùY1%QúÅ9ÅÕ¡∞πç’……ïπç‰ÄÙÄùúÅQ!8ÅÕ¡∞πÖµΩ’π–Å1MÄ¿Å9§∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅ—Ω—Ö±}çëò∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=U9P†®§Å%1QHÄ°]!IÅÕ¡àπÕ—Ö—’ÃÄÙÄùY1%Qú§ËÈ%9PÅLÅ¡ÖÂΩ’—}çΩ’π–(ÄÄÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃÅÕ¡∞(ÄÄÄÄÄÄÄÄÅ)=%8ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃÅÕ¡àÅ=8ÅÕ¡àπ•êÄÙÅÕ¡∞πâÖ—ç°}•êÅ9ÅÕ¡àπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ]!IÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9ÅÕ¡∞πÕ°Ö…ï°Ω±ëï…}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÅ9ÅÕ¡∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ9ÅÕ¡àπëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å9’µâï»°±•πîπÕ°Ö…ï°Ω±ëï…}•ê•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…QΩ—Ö±ÃÄÙÅÕ°Ö…ï°Ω±ëï…QΩ—Ö±ÕIïÕ’±–Ï(ÄÄÄÄÄÅ—…Öçî†(ÄÄÄÄÄÄÄÄùÕ°Ö…ï°Ω±ëï»Å—Ω—Ö±ÃÅ…ïçÖ±ç’±Ö—•Ω∏ú∞(ÄÄÄÄÄÄÄÄù=,ú∞(ÄÄÄÄÄÄÄÅÅ—Ω—Ö±UÕêÙëÌ9’µâï»°Õ°Ö…ï°Ω±ëï…QΩ—Ö±Ãπ…Ω›Õl¡t¸π—Ω—Ö±}’ÕêÄ¸¸Ä¿•ÙÅ—Ω—Ö±ëòÙëÌ9’µâï»°Õ°Ö…ï°Ω±ëï…QΩ—Ö±Ãπ…Ω›Õl¡t¸π—Ω—Ö±}çëòÄ¸¸Ä¿•ÙÅ¡ÖÂΩ’—Ω’π–ÙëÌ9’µâï»°Õ°Ö…ï°Ω±ëï…QΩ—Ö±Ãπ…Ω›Õl¡t¸π¡ÖÂΩ’—}çΩ’π–Ä¸¸Ä¿•ıÄ∞(ÄÄÄÄÄÄ§Ï((ÄÄÄÄÄÅ—…Öçî†ùÖ’ë•–ú∞ÄùMQIPú§Ï(ÄÄÄÄÄÅÖ›Ö•–Å—°•Ãπ›…•—ï•πÖπçïQ…ÖÕ°’ë•–†(ÄÄÄÄÄÄÄÅç±•ïπ–∞(ÄÄÄÄÄÄÄÅΩ¡—•ΩπÃ¸πÖ’ë•—ç—•Ω∏Ä¸¸ÄùM!I!=1I}Ae=UQ}5=Y}Q=}QIM ú∞(ÄÄÄÄÄÄÄÅΩ¡—•ΩπÃ¸πÖ’ë•—IïÕΩ’…çîÄ¸¸ÄùÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—Ãú∞(ÄÄÄÄÄÄÄÅΩ¡—•ΩπÃ¸πÖ’ë•—IïÕΩ’…çï%êÄ¸¸ÅM—…•πú°¡ÖÂΩ’—1•πï%ê§∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÅ…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πï}•êËÅ¡ÖÂΩ’—1•πï%ê∞(ÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}•êËÅ9’µâï»°±•πîπÕ°Ö…ï°Ω±ëï…}•ê§∞(ÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}πÖµîËÅ±•πîπÕ°Ö…ï°Ω±ëï…}πÖµîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}âÖ—ç°}•êËÅ9’µâï»°±•πîπâÖ—ç°}•ê§∞(ÄÄÄÄÄÄÄÄÄÅâÖ—ç°}…ïôï…ïπçîËÅ±•πîπâÖ—ç°}…ïôï…ïπçîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çï}…ïù•Õ—ï»ËÅ±•πîπÕΩ’…çï}…ïù•Õ—ï»Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ9’µâï»°±•πîπÖµΩ’π–Ä¸¸Ä¿§∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰ËÅM—…•πú°±•πîπç’……ïπç‰Ä¸¸ÄùUMú§∞(ÄÄÄÄÄÄÄÄÄÅ…ïçï•¡—}π’µâï»ËÅ±•πîπ…ïçï•¡—}π’µâï»Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅçÖÕ°}µΩŸïµïπ—}•êËÅçÖÕ°5ΩŸïµïπ—%ê∞(ÄÄÄÄÄÄÄÄÄÅù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—}•êËÅù’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%ê∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çï}µΩŸïµïπ—}•êËÅΩ¡—•ΩπÃ¸πÕΩ’…çï5ΩŸïµïπ—%êÄ¸¸ÅçÖÕ°5ΩŸïµïπ—%êÄ¸¸Åù’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%ê∞(ÄÄÄÄÄÄÄÄÄÅ…ïµÖ•π•πù}âÖ—ç°}±•πïÃËÅ…ïµÖ•π•πù1•πïΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅâÖ—ç°}—Ω—Ö±}ÖµΩ’π–ËÅ…ïµÖ•π•πùQΩ—Ö±µΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅâÖ—ç°}Õ—Ö—’ÃËÅπï·—	Ö—ç°M—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}—Ω—Ö±}’ÕêËÅ9’µâï»°Õ°Ö…ï°Ω±ëï…QΩ—Ö±Ãπ…Ω›Õl¡t¸π—Ω—Ö±}’ÕêÄ¸¸Ä¿§∞(ÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}—Ω—Ö±}çëòËÅ9’µâï»°Õ°Ö…ï°Ω±ëï…QΩ—Ö±Ãπ…Ω›Õl¡t¸π—Ω—Ö±}çëòÄ¸¸Ä¿§∞(ÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}çΩ’π–ËÅ9’µâï»°Õ°Ö…ï°Ω±ëï…QΩ—Ö±Ãπ…Ω›Õl¡t¸π¡ÖÂΩ’—}çΩ’π–Ä¸¸Ä¿§∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ—…Öçî†ùÖ’ë•–ú∞Äù=,ú§Ï((ÄÄÄÄÄÅ—…Öçî†ù…ï—’…∏Å¡ÖÂ±ΩÖêú∞Äù=,ú§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅëï±ï—ïêËÅ—…’î∞(ÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πï}•êËÅ¡ÖÂΩ’—1•πï%ê∞(ÄÄÄÄÄÄÄÅâÖ—ç°}•êËÅ9’µâï»°±•πîπâÖ—ç°}•ê§∞(ÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}•êËÅ9’µâï»°±•πîπÕ°Ö…ï°Ω±ëï…}•ê§∞(ÄÄÄÄÄÄÄÅ…ïµÖ•π•πù}âÖ—ç°}±•πïÃËÅ…ïµÖ•π•πù1•πïΩ’π–∞(ÄÄÄÄÄÄÄÅâÖ—ç°}ëï±ï—ïêËÅ…ïµÖ•π•πù1•πïΩ’π–ÄÙÙÙÄ¿∞(ÄÄÄÄÄÄÄÅâÖ—ç°}Õ—Ö—’ÃËÅπï·—	Ö—ç°M—Ö—’Ã∞(ÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}—Ω—Ö±}’ÕêËÅ9’µâï»°Õ°Ö…ï°Ω±ëï…QΩ—Ö±Ãπ…Ω›Õl¡t¸π—Ω—Ö±}’ÕêÄ¸¸Ä¿§∞(ÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}—Ω—Ö±}çëòËÅ9’µâï»°Õ°Ö…ï°Ω±ëï…QΩ—Ö±Ãπ…Ω›Õl¡t¸π—Ω—Ö±}çëòÄ¸¸Ä¿§∞(ÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}çΩ’π–ËÅ9’µâï»°Õ°Ö…ï°Ω±ëï…QΩ—Ö±Ãπ…Ω›Õl¡t¸π¡ÖÂΩ’—}çΩ’π–Ä¸¸Ä¿§∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙÅçÖ—ç†Ä°ï……Ω»§ÅÏ(ÄÄÄÄÄÅ—…Öçî†ù›Ω…≠ô±Ω‹ú∞Äù%0ú∞ÅÅÕ—ï¿ıï·çï¡—•ΩπÄ§Ï(ÄÄÄÄÄÅ—°•Ãπ±ΩùM°Ö…ï°Ω±ëï…AÖÂΩ’—Q…ÖÕ°……Ω»†ù›Ω…≠ô±Ω‹ú∞Å¡ÖÂΩ’—1•πï%ê∞Åï……Ω»§Ï(ÄÄÄÄÄÅ—°…Ω‹Åï……Ω»Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ±ΩùM°Ö…ï°Ω±ëï…AÖÂΩ’—Q…ÖÕ°……Ω»°Õ—ÖùîËÅÕ—…•πú∞Å¡ÖÂΩ’—1•πï%êËÅπ’µâï»∞Åï……Ω»ËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅçΩπÕ–Å¡ù……Ω»ÄÙÅï……Ω»ÅÖÃÅÏ(ÄÄÄÄÄÅçΩëî¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÅëï—Ö•∞¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÅçΩπÕ—…Ö•π–¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÅ—Öâ±î¸ËÅÕ—…•πúÏ(ÄÄÄÄÄÅçΩ±’µ∏¸ËÅÕ—…•πúÏ(ÄÄÄÅÙÏ(ÄÄÄÅ—°•Ãπ±Ωùùï»πï……Ω»†(ÄÄÄÄÄÅÅÕ°Ö…ï°Ω±ëï»Å¡ÖÂΩ’–Å—…ÖÕ†ÄëÌÕ—ÖùïÙÅï……Ω»ÅÅ¡ÖÂΩ’—1•πï%êÙëÌ¡ÖÂΩ’—1•πï%ëÙÅΩ…ùÖπ•ÈÖ—•Ωπ%êÙëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙÅµïÕÕÖùîÙëÌï……Ω»Å•πÕ—ÖπçïΩòÅ……Ω»Ä¸Åï……Ω»πµïÕÕÖùîÄËÅM—…•πú°ï……Ω»•ÙÅ¡ùΩëîÙëÌ¡ù……Ω»¸πçΩëîÄ¸¸Åπ’±±ÙÅ¡ùï—Ö•∞ÙëÌ¡ù……Ω»¸πëï—Ö•∞Ä¸¸Åπ’±±ÙÅ¡ùΩπÕ—…Ö•π–ÙëÌ¡ù……Ω»¸πçΩπÕ—…Ö•π–Ä¸¸Åπ’±±ÙÅ¡ùQÖâ±îÙëÌ¡ù……Ω»¸π—Öâ±îÄ¸¸Åπ’±±ÙÅ¡ùΩ±’µ∏ÙëÌ¡ù……Ω»¸πçΩ±’µ∏Ä¸¸Åπ’±±ıÄ∞(ÄÄÄÄÄÅï……Ω»Å•πÕ—ÖπçïΩòÅ……Ω»Ä¸Åï……Ω»πÕ—Öç¨ÄËÅ’πëïô•πïê∞(ÄÄÄÄ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ›…•—ï•πÖπçïQ…ÖÕ°’ë•–†(ÄÄÄÅç±•ïπ–ËÅAΩΩ±±•ïπ–∞(ÄÄÄÅÖç—•Ω∏ËÅÕ—…•πú∞(ÄÄÄÅ…ïÕΩ’…çîËÅÕ—…•πú∞(ÄÄÄÅ…ïÕΩ’…çï%êËÅÕ—…•πú∞(ÄÄÄÅµï—ÖëÖ—ÑËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞(ÄÄ§ÅÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÖ’ë•—}±ΩùÃÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å’Õï…}•ê∞ÅÖç—•Ω∏∞Å…ïÕΩ’…çî∞Å…ïÕΩ’…çï}•ê∞Åµï—°Ωê∞Å¡Ö—†∞ÅÕ—Ö—’Õ}çΩëî∞Åµï—ÖëÖ—Ñ§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äù1Qú∞Äêÿ∞Ä»¿¿∞Äê‹ËÈ)M=9•Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅÖç—•Ω∏∞(ÄÄÄÄÄÄÄÅ…ïÕΩ’…çî∞(ÄÄÄÄÄÄÄÅ…ïÕΩ’…çï%ê∞(ÄÄÄÄÄÄÄÅÄΩÖ¡§ºëÌ…ïÕΩ’…çïÙºëÌ…ïÕΩ’…çï%ëıÄ∞(ÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°µï—ÖëÖ—Ñ§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅïπÕ’…ïM°Ö…ï°Ω±ëï…Mç°ïµÑ†§ÅÏ(ÄÄÄÅ•òÄ†Ñ°Ö›Ö•–Å—°•Ãπ°ÖÕM°Ö…ï°Ω±ëï…AÖÂΩ’—Mç°ïµÑ†§§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅµΩë’±îÅëïÃÅÖç—•ΩππÖ•…ïÃÅ∏ÅïÕ–Å¡ÖÃÅïπçΩ…îÅçΩπô•ù’À§∏ú§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ°ÖÕM°Ö…ï°Ω±ëï…AÖÂΩ’—Mç°ïµÑ†§ÅÏ(ÄÄÄÅ…ï—’…∏Ä°Ö›Ö•–Å—°•Ãπ—Öâ±ï·•Õ—Ã†ùÕ°Ö…ï°Ω±ëï…Ãú§§(ÄÄÄÄÄÄòòÄ°Ö›Ö•–Å—°•Ãπ—Öâ±ï·•Õ—Ã†ùÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃú§§(ÄÄÄÄÄÄòòÄ°Ö›Ö•–Å—°•Ãπ—Öâ±ï·•Õ—Ã†ùÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃú§§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÕï…—M°Ö…ï°Ω±ëï…AÖÂΩ’—Aï…µ•ÕÕ•Ω∏°ÕΩ’…çïIïù•Õ—ï»ËÄù5%9}M úÅÄùUI9Q}M úÅÄù	9,ú§ÅÏ(ÄÄÄÅ•òÄ°ÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄùUI9Q}M ú§ÅÏ(ÄÄÄÄÄÅ•òÄ†Ö—°•Ãπ°ÖÕAï…µ•ÕÕ•Ω∏†ùÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—Ãπô…Ωµ}ù’Ö…Öπ—ïï}çÖÕ†ú§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩ…â•ëëïπ·çï¡—•Ω∏†ùAï…µ•ÕÕ•Ω∏Å…ï≈’•ÕîÅ¡Ω’»Å’—•±•Õï»Å±ÑÅçÖ•ÕÕîÅëïÃÅùÖ…Öπ—•ïÃÅ±ΩçÖ—•ŸïÃ∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄù	9,ú§ÅÏ(ÄÄÄÄÄÅ•òÄ†Ö—°•Ãπ°ÖÕAï…µ•ÕÕ•Ω∏†ùÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—Ãπô…Ωµ}âÖπ¨ú§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩ…â•ëëïπ·çï¡—•Ω∏†ùAï…µ•ÕÕ•Ω∏Å…ï≈’•ÕîÅ¡Ω’»Å’—•±•Õï»Å±ÑÅâÖπ≈’îÅçΩµµîÅÕΩ’…çîÅëîÅ…ïµâΩ’…Õïµïπ–ÅÖç—•ΩππÖ•…î∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†Ö—°•Ãπ°ÖÕAï…µ•ÕÕ•Ω∏†ùÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—Ãπç…ïÖ—îú§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩ…â•ëëïπ·çï¡—•Ω∏†ùAï…µ•ÕÕ•Ω∏Å…ï≈’•ÕîÅ¡Ω’»ÅŸÖ±•ëï»Å’∏Å…ïµâΩ’…Õïµïπ–ÅÖç—•ΩππÖ•…î∏ú§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕ°Ö…ï°Ω±ëï…	Öπ≠ççΩ’π—Ã†§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ï	Öπ≠Mç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅâÑ∏®∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°—‡π—Ω—Ö±}•∏∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅ—Ω—Ö±}•∏∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°—‡π—Ω—Ö±}Ω’–∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅ—Ω—Ö±}Ω’–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°—‡πç’……ïπ—}âÖ±Öπçî∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅç’……ïπ—}âÖ±Öπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°—‡π—…ÖπÕÖç—•Ωπ}çΩ’π–∞Ä¿§ËÈ%9PÅLÅ—…ÖπÕÖç—•Ωπ}çΩ’π–(ÄÄÄÄÄÄÅI=4ÅâÖπ≠}ÖççΩ’π—ÃÅâÑ(ÄÄÄÄÄÄÅ1PÅ)=%8Ä†(ÄÄÄÄÄÄÄÄÅM1PÅâ–πâÖπ≠}ÖççΩ’π—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMU4°MÅ]!8Åâ–πÕ—Ö—’ÃÄÙÄùY1%QúÅ9Åâ–πë•…ïç—•Ω∏ÄÙÄù%8úÅQ!8Åâ–πÖµΩ’π–Å1MÄ¿Å9§ÅLÅ—Ω—Ö±}•∏∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMU4°MÅ]!8Åâ–πÕ—Ö—’ÃÄÙÄùY1%QúÅ9Åâ–πë•…ïç—•Ω∏ÄÙÄù=UPúÅQ!8Åâ–πÖµΩ’π–Å1MÄ¿Å9§ÅLÅ—Ω—Ö±}Ω’–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMU4°MÅ]!8Åâ–πÕ—Ö—’ÃÄÙÄùY1%QúÅ9Åâ–πë•…ïç—•Ω∏ÄÙÄù%8úÅQ!8Åâ–πÖµΩ’π–Å1MÄµâ–πÖµΩ’π–Å9§ÅLÅç’……ïπ—}âÖ±Öπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=U9P†®§Å%1QHÄ°]!IÅâ–πÕ—Ö—’ÃÄÙÄùY1%Qú§ÅLÅ—…ÖπÕÖç—•Ωπ}çΩ’π–(ÄÄÄÄÄÄÄÄÅI=4ÅâÖπ≠}—…ÖπÕÖç—•ΩπÃÅâ–(ÄÄÄÄÄÄÄÄÅ]!IÅâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅâ–πâÖπ≠}ÖççΩ’π—}•ê(ÄÄÄÄÄÄÄ§Å—‡Å=8Å—‡πâÖπ≠}ÖççΩ’π—}•êÄÙÅâÑπ•ê(ÄÄÄÄÄÄÅ]!IÅâÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅâÑπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9ÅâÑπÕ—Ö—’ÃÄÙÄùQ%Yú(ÄÄÄÄÄÄÅ=IHÅ	dÅâÑπâÖπ≠}πÖµîÅM∞ÅâÑπÖççΩ’π—}πÖµîÅM∞ÅâÑπ•êÅMÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÕ°Ö…ï°Ω±ëï…	Öπ≠	Ö±ÖπçïÃ°âÖπ≠ççΩ’π—ÃËÅ……Ö‰ÒIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯¯§ÅÏ(ÄÄÄÅçΩπÕ–ÅâÖ±ÖπçïÃËÅIïçΩ…êÒÕ—…•πú∞Åπ’µâï»¯ÄÙÅÏÅUMËÄ¿∞ÅËÄ¿ÅÙÏ(ÄÄÄÅôΩ»Ä°çΩπÕ–ÅÖççΩ’π–ÅΩòÅâÖπ≠ççΩ’π—Ã§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åç’……ïπç‰ÄÙÅM—…•πú°ÖççΩ’π–πç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅâÖ±ÖπçïÕmç’……ïπçÂtÄÙÅ9’µâï»†°âÖ±ÖπçïÕmç’……ïπçÂtÄ¸¸Ä¿§Ä¨Å9’µâï»°ÖççΩ’π–πç’……ïπ—}âÖ±ÖπçîÄ¸¸Ä¿§§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅâÖ±ÖπçïÃÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÕï…—Q…ïÖÕ’…ÂQ…ÖπÕôï…Aï…µ•ÕÕ•Ω∏°—…ÖπÕôï…QÂ¡îËÄùM!}Q=}	9,úÅÄù	9-}Q=}M úÅÄù	9-}Q=}	9,ú§ÅÏ(ÄÄÄÅ•òÄ†Ö—°•Ãπ°ÖÕAï…µ•ÕÕ•Ω∏†ù—…ïÖÕ’…Â}—…ÖπÕôï…Ãπç…ïÖ—îú§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩ…â•ëëïπ·çï¡—•Ω∏†ùAï…µ•ÕÕ•Ω∏Å…ï≈’•ÕîÅ¡Ω’»ÅçÀ•ï»Å’∏Å—…ÖπÕôï…–Å•π—ï…πî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°—…ÖπÕôï…QÂ¡îÄÙÙÙÄùM!}Q=}	9,úÄòòÄÖ—°•Ãπ°ÖÕAï…µ•ÕÕ•Ω∏†ù—…ïÖÕ’…Â}—…ÖπÕôï…Ãπô…Ωµ}çÖÕ†ú§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩ…â•ëëïπ·çï¡—•Ω∏†ùAï…µ•ÕÕ•Ω∏Å…ï≈’•ÕîÅ¡Ω’»Åì•¡ΩÕï»Å±ÑÅçÖ•ÕÕîÅï∏ÅâÖπ≈’î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°—…ÖπÕôï…QÂ¡îÄÙÙÙÄù	9-}Q=}M úÄòòÄÖ—°•Ãπ°ÖÕAï…µ•ÕÕ•Ω∏†ù—…ïÖÕ’…Â}—…ÖπÕôï…Ãπô…Ωµ}âÖπ¨ú§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩ…â•ëëïπ·çï¡—•Ω∏†ùAï…µ•ÕÕ•Ω∏Å…ï≈’•ÕîÅ¡Ω’»Å…ï—•…ï»Å’∏ÅçΩµ¡—îÅâÖπçÖ•…îÅŸï…ÃÅ±ÑÅçÖ•ÕÕî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°—…ÖπÕôï…QÂ¡îÄÙÙÙÄù	9-}Q=}	9,úÄòòÄÖ—°•Ãπ°ÖÕAï…µ•ÕÕ•Ω∏†ù—…ïÖÕ’…Â}—…ÖπÕôï…ÃπâÖπ≠}—Ω}âÖπ¨ú§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩ…â•ëëïπ·çï¡—•Ω∏†ùAï…µ•ÕÕ•Ω∏Å…ï≈’•ÕîÅ¡Ω’»ÅŸ•…ï»Åïπ—…îÅçΩµ¡—ïÃÅâÖπçÖ•…ïÃ∏ú§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ—…ïÖÕ’…ÂÖÕ°	Ö±ÖπçïÃ†§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕïÕÕ•Ω∏ÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê∞ÅΩ¡ïπ•πù}âÖ±Öπçî(ÄÄÄÄÄÄÅI=4ÅçÖÕ°}ÕïÕÕ•ΩπÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅÕ—Ö—’ÃÄÙÄù=A8ú(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅΩ¡ïπïë}Ö–ÅM(ÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅΩ¡ïπMïÕÕ•Ω∏ÄÙÅÕïÕÕ•Ω∏π…Ω›Õl¡tÏ(ÄÄÄÅçΩπÕ–ÅâÖ±ÖπçïÃËÅIïçΩ…êÒÕ—…•πú∞Åπ’µâï»¯ÄÙÅÏÅUMËÄ¿∞ÅËÄ¿ÅÙÏ(ÄÄÄÅ•òÄ†ÖΩ¡ïπMïÕÕ•Ω∏§Å…ï—’…∏ÅâÖ±ÖπçïÃÏ(ÄÄÄÅçΩπÕ–ÅÕ’¡¡Ω…—Õ’……ïπç‰ÄÙÅÖ›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}µΩŸïµïπ—Ãú∞Äùç’……ïπç‰ú§Ï(ÄÄÄÅçΩπÕ–Å—Ω—Ö±ÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÕ’¡¡Ω…—Õ’……ïπç‰(ÄÄÄÄÄÄÄÄ¸ÅÅM1PÅ=1M°ç’……ïπç‰∞ÄùUMú§ÅLÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°MÅ]!8Å—Â¡îÄÙÄù%8úÅQ!8ÅÖµΩ’π–Å1MÄµÖµΩ’π–Å9§∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅâÖ±Öπçî(ÄÄÄÄÄÄÄÄÄÄÅI=4ÅçÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅçÖÕ°}ÕïÕÕ•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅçÖ—ïùΩ…‰Å9=PÅ%8Ä†ù1M}UI9Qú∞Äù1M}UI9Q}IU9ú§(ÄÄÄÄÄÄÄÄÄÄÅI=U@Å	dÅ=1M°ç’……ïπç‰∞ÄùUMú•Ä(ÄÄÄÄÄÄÄÄËÅÅM1PÄùUMúÅLÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°MÅ]!8Å—Â¡îÄÙÄù%8úÅQ!8ÅÖµΩ’π–Å1MÄµÖµΩ’π–Å9§∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅâÖ±Öπçî(ÄÄÄÄÄÄÄÄÄÄÅI=4ÅçÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅçÖÕ°}ÕïÕÕ•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅçÖ—ïùΩ…‰Å9=PÅ%8Ä†ù1M}UI9Qú∞Äù1M}UI9Q}IU9ú•Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅΩ¡ïπMïÕÕ•Ω∏π•ët∞(ÄÄÄÄ§Ï(ÄÄÄÅâÖ±ÖπçïÃπUMÄÙÅ9’µâï»°Ω¡ïπMïÕÕ•Ω∏πΩ¡ïπ•πù}âÖ±ÖπçîÄ¸¸Ä¿§Ï(ÄÄÄÅôΩ»Ä°çΩπÕ–Å…Ω‹ÅΩòÅ—Ω—Ö±Ãπ…Ω›Ã§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åç’……ïπç‰ÄÙÅM—…•πú°…Ω‹πç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅâÖ±ÖπçïÕmç’……ïπçÂtÄÙÅ9’µâï»†°âÖ±ÖπçïÕmç’……ïπçÂtÄ¸¸Ä¿§Ä¨Å9’µâï»°…Ω‹πâÖ±ÖπçîÄ¸¸Ä¿§§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅâÖ±ÖπçïÃÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅΩ¡ïπÖÕ°MïÕÕ•ΩπΩ…Q…ïÖÕ’…‰°ç±•ïπ–ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê∞ÅÕ—Ö—’Ã∞ÅΩ¡ïπïë}Ö–∞ÅΩ¡ïπ•πù}âÖ±Öπçî(ÄÄÄÄÄÄÅI=4ÅçÖÕ°}ÕïÕÕ•ΩπÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅÕ—Ö—’ÃÄÙÄù=A8ú(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅΩ¡ïπïë}Ö–ÅM(ÄÄÄÄÄÄÅ1%5%PÄƒ(ÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞ÄùÖÕ†ÅÕïÕÕ•Ω∏ú§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ—…ïÖÕ’…ÂÖÕ°	Ö±ÖπçïΩ…’……ïπç‰°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅÕïÕÕ•Ωπ%êËÅπ’µâï»∞Åç’……ïπç‰ËÅÕ—…•πú∞ÅΩ¡ïπ•πù	Ö±ÖπçîËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•Èïë’……ïπç‰ÄÙÅM—…•πú°ç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°MU4°MÅ]!8Å—Â¡îÄÙÄù%8úÅQ!8ÅÖµΩ’π–Å1MÄµÖµΩ’π–Å9§∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅâÖ±Öπçî(ÄÄÄÄÄÄÅI=4ÅçÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅçÖÕ°}ÕïÕÕ•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9ÅçÖ—ïùΩ…‰Å9=PÅ%8Ä†ù1M}UI9Qú∞Äù1M}UI9Q}IU9ú•Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅÕïÕÕ•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅâÖÕîÄÙÅπΩ…µÖ±•Èïë’……ïπç‰ÄÙÙÙÄùUMúÄ¸Å9’µâï»°Ω¡ïπ•πù	Ö±ÖπçîÄ¸¸Ä¿§ÄËÄ¿Ï(ÄÄÄÅ…ï—’…∏Å9’µâï»†°âÖÕîÄ¨Å9’µâï»°…Ω›Õl¡t¸πâÖ±ÖπçîÄ¸¸Ä¿§§π—Ω•·ïê†»§§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅŸÖ±•ëÖ—ï	Öπ≠ççΩ’π—Ω…Q…ïÖÕ’…ÂQ…ÖπÕôï»†(ÄÄÄÅç±•ïπ–ËÅAΩΩ±±•ïπ–∞(ÄÄÄÅâÖπ≠ççΩ’π—%êËÅπ’µâï»ÅÅπ’±∞∞(ÄÄÄÅç’……ïπç‰ËÅÕ—…•πú∞(ÄÄÄÅΩ¡—•ΩπÃËÅÏÅ…Ω±îËÄùÕΩ’…çîúÅÄùëïÕ—•πÖ—•Ω∏úÏÅôΩ…U¡ëÖ—î¸ËÅâΩΩ±ïÖ∏ÅÙ∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–ÅÖççΩ’π—%êÄÙÅ9’µâï»°âÖπ≠ççΩ’π—%êÄ¸¸Ä¿§Ï(ÄÄÄÅ•òÄ†ÖÖççΩ’π—%ê§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†(ÄÄÄÄÄÄÄÅΩ¡—•ΩπÃπ…Ω±îÄÙÙÙÄùÕΩ’…çîú(ÄÄÄÄÄÄÄÄÄÄ¸Äù1îÅçΩµ¡—îÅâÖπçÖ•…îÅÕΩ’…çîÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú(ÄÄÄÄÄÄÄÄÄÄËÄù1îÅçΩµ¡—îÅâÖπçÖ•…îÅëîÅëïÕ—•πÖ—•Ω∏ÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Ω¡—•ΩπÃπôΩ…U¡ëÖ—î§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ•ê(ÄÄÄÄÄÄÄÄÅI=4ÅâÖπ≠}ÖççΩ’π—Ã(ÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅÖççΩ’π—%ët∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅâÑ∏®∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°—‡πç’……ïπ—}âÖ±Öπçî∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅç’……ïπ—}âÖ±Öπçî(ÄÄÄÄÄÄÅI=4ÅâÖπ≠}ÖççΩ’π—ÃÅâÑ(ÄÄÄÄÄÄÅ1PÅ)=%8Ä†(ÄÄÄÄÄÄÄÄÅM1PÅâ–πâÖπ≠}ÖççΩ’π—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMU4°MÅ]!8Åâ–πÕ—Ö—’ÃÄÙÄùY1%QúÅ9Åâ–πë•…ïç—•Ω∏ÄÙÄù%8úÅQ!8Åâ–πÖµΩ’π–Å1MÄµâ–πÖµΩ’π–Å9§ÅLÅç’……ïπ—}âÖ±Öπçî(ÄÄÄÄÄÄÄÄÅI=4ÅâÖπ≠}—…ÖπÕÖç—•ΩπÃÅâ–(ÄÄÄÄÄÄÄÄÅ]!IÅâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅâ–πâÖπ≠}ÖççΩ’π—}•ê(ÄÄÄÄÄÄÄ§Å—‡Å=8Å—‡πâÖπ≠}ÖççΩ’π—}•êÄÙÅâÑπ•ê(ÄÄÄÄÄÄÅ]!IÅâÑπ•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9ÅâÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅâÑπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅÖççΩ’π—%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÖççΩ’π–ÄÙÅ…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞Äù	Öπ¨ÅÖççΩ’π–ú§Ï(ÄÄÄÅ•òÄ°M—…•πú°ÖççΩ’π–πÕ—Ö—’Ã§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÄùQ%Yú§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1îÅçΩµ¡—îÅâÖπçÖ•…îÅœ•±ïç—•Ωπª§ÅëΩ•–É©—…îÅÖç—•ò∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°M—…•πú°ÖççΩ’π–πç’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÅM—…•πú°ç’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1ÑÅëïŸ•ÕîÅë‘ÅçΩµ¡—îÅâÖπçÖ•…îÅëΩ•–ÅçΩ……ïÕ¡Ωπë…îÉÄÅçï±±îÅë‘Å—…ÖπÕôï…–∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÖççΩ’π–Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÖÕÕï…—	Öπ≠Q…ÖπÕÖç—•ΩπQÂ¡ïM’¡¡Ω…—ïê°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å—…ÖπÕÖç—•ΩπQÂ¡îËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅa%MQLÄ†(ÄÄÄÄÄÄÄÄÅM1PÄƒ(ÄÄÄÄÄÄÄÄÅI=4Å¡ù}çΩπÕ—…Ö•π–Åå(ÄÄÄÄÄÄÄÄÅ)=%8Å¡ù}ç±ÖÕÃÅ–Å=8Å–πΩ•êÄÙÅåπçΩπ…ï±•ê(ÄÄÄÄÄÄÄÄÅ)=%8Å¡ù}πÖµïÕ¡ÖçîÅ∏Å=8Å∏πΩ•êÄÙÅ–π…ï±πÖµïÕ¡Öçî(ÄÄÄÄÄÄÄÄÅ]!IÅ∏ππÕ¡πÖµîÄÙÄù¡’â±•åú(ÄÄÄÄÄÄÄÄÄÄÅ9Å–π…ï±πÖµîÄÙÄùâÖπ≠}—…ÖπÕÖç—•ΩπÃú(ÄÄÄÄÄÄÄÄÄÄÅ9ÅåπçΩπ—Â¡îÄÙÄùåú(ÄÄÄÄÄÄÄÄÄÄÅ9Å¡ù}ùï—}çΩπÕ—…Ö•π—ëïò°åπΩ•ê§Å%1%-ÄúîúÅÒÄêƒÅÒÄúîú(ÄÄÄÄÄÄÄ§ÅLÅÕ’¡¡Ω…—ïëÄ∞(ÄÄÄÄÄÅm—…ÖπÕÖç—•ΩπQÂ¡ït∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ†Ö…Ω›Õl¡t¸πÕ’¡¡Ω…—ïê§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅMï…Ÿ•çïUπÖŸÖ•±Öâ±ï·çï¡—•Ω∏†(ÄÄÄÄÄÄÄÄù1ÑÅµ•ù…Ö—•Ω∏Ä»¿»ÿ¿‹»Õ}âÖπ≠}—…ïÖÕ’…Â}—…ÖπÕôï…ÃπÕ≈∞ÅëΩ•–É©—…îÅÖ¡¡±•≈◊•îÅ¡Ω’»ÅÖç—•Ÿï»Å±ïÃÅ—…ÖπÕôï…—ÃÅ•π—ï…πïÃ∏ú∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅç…ïÖ—ïQ…ïÖÕ’…Â	Öπ≠Q…ÖπÕÖç—•Ωπ%πQ…ÖπÕÖç—•Ω∏†(ÄÄÄÅç±•ïπ–ËÅAΩΩ±±•ïπ–∞(ÄÄÄÅ¡ÖÂ±ΩÖêËÅÏ(ÄÄÄÄÄÅ—…ÖπÕôï…%êËÅπ’µâï»Ï(ÄÄÄÄÄÅ—…ÖπÕôï…9’µâï»ËÅÕ—…•πúÏ(ÄÄÄÄÄÅ—…ÖπÕôï…Ö—îËÅÕ—…•πúÏ(ÄÄÄÄÄÅë•…ïç—•Ω∏ËÄù%8úÅÄù=UPúÏ(ÄÄÄÄÄÅâÖπ≠ççΩ’π–ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯Ï(ÄÄÄÄÄÅÖµΩ’π–ËÅπ’µâï»Ï(ÄÄÄÄÄÅç’……ïπç‰ËÅÕ—…•πúÏ(ÄÄÄÄÄÅ…ïôï…ïπçî¸ËÅÕ—…•πúÅÅπ’±∞Ï(ÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÅÕ—…•πúÏ(ÄÄÄÄÄÅçΩ’π—ï…¡Ö…—Â9ÖµîËÅÕ—…•πúÏ(ÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ-ï‰ËÅÕ—…•πúÏ(ÄÄÄÅÙ∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–Å—…ÖπÕÖç—•ΩπQÂ¡îÄÙÅ¡ÖÂ±ΩÖêπë•…ïç—•Ω∏ÄÙÙÙÄù%8úÄ¸ÄùQI9MI}%8úÄËÄùQI9MI}=UPúÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπÖÕÕï…—	Öπ≠Q…ÖπÕÖç—•ΩπQÂ¡ïM’¡¡Ω…—ïê°ç±•ïπ–∞Å—…ÖπÕÖç—•ΩπQÂ¡î§Ï(ÄÄÄÅçΩπÕ–Å—…ÖπÕÖç—•Ωπ9’µâï»ÄÙÅÖ›Ö•–Å—°•Ãππï·—	Öπ≠Q…ÖπÕÖç—•Ωπ9’µâï»°ç±•ïπ–§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅâÖπ≠}—…ÖπÕÖç—•ΩπÃ(ÄÄÄÄÄÄÄÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞ÅâÖπ≠}ÖççΩ’π—}•ê∞Å—…ÖπÕÖç—•Ωπ}π’µâï»∞Å—…ÖπÕÖç—•Ωπ}ëÖ—î∞Åë•…ïç—•Ω∏∞Å—…ÖπÕÖç—•Ωπ}—Â¡î∞ÅÖµΩ’π–∞Åç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÅ…ïôï…ïπçî∞ÅëïÕç…•¡—•Ω∏∞ÅçΩ’π—ï…¡Ö…—Â}πÖµî∞ÅÕΩ’…çï}µΩë’±î∞ÅÕΩ’…çï}ïπ—•—Â}—Â¡î∞ÅÕΩ’…çï}ïπ—•—Â}•ê∞ÅÕ—Ö—’Ã∞Å…ïŸï…ÕÖ±}Ωô}•ê∞(ÄÄÄÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ}≠ï‰∞Åç…ïÖ—ïë}â‰§(ÄÄÄÄÄÄÅY1UL(ÄÄÄÄÄÄÄÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞Äê‡∞(ÄÄÄÄÄÄÄÄÄê‰∞Äêƒ¿∞Äêƒƒ∞ÄùQIMUIe}QI9MILú∞ÄùQIMUIe}QI9MHú∞Äêƒ»∞ÄùY1%Qú∞Å9U10∞(ÄÄÄÄÄÄÄÄÄêƒÃ∞Äêƒ–§(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ9’µâï»°¡ÖÂ±ΩÖêπâÖπ≠ççΩ’π–π•ê§∞(ÄÄÄÄÄÄÄÅ—…ÖπÕÖç—•Ωπ9’µâï»∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ—…ÖπÕôï…Ö—î∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπë•…ïç—•Ω∏∞(ÄÄÄÄÄÄÄÅ—…ÖπÕÖç—•ΩπQÂ¡î∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÖµΩ’π–∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπç’……ïπç‰∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ…ïôï…ïπçîÄ¸¸Å¡ÖÂ±ΩÖêπ—…ÖπÕôï…9’µâï»∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπëïÕç…•¡—•Ω∏∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπçΩ’π—ï…¡Ö…—Â9Öµî∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ—…ÖπÕôï…%ê∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ•ëïµ¡Ω—ïπçÂ-ï‰∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞Äù	Öπ¨Å—…ÖπÕÖç—•Ω∏ú§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅç…ïÖ—ïQ…ïÖÕ’…ÂQ…ÖπÕôï…%πQ…ÖπÕÖç—•Ω∏†(ÄÄÄÅç±•ïπ–ËÅAΩΩ±±•ïπ–∞(ÄÄÄÅÕΩ’…çïIïù•Õ—ï»ËÄù5%9}M úÅÄù	9,ú∞(ÄÄÄÅ¡ÖÂ±ΩÖêËÅÏ(ÄÄÄÄÄÅ—…ÖπÕôï…QÂ¡îËÄùM!}Q=}	9,úÅÄù	9-}Q=}M úÅÄù	9-}Q=}	9,úÏ(ÄÄÄÄÄÅ—…ÖπÕôï…Ö—îËÅÕ—…•πúÏ(ÄÄÄÄÄÅç’……ïπç‰ËÅÕ—…•πúÏ(ÄÄÄÄÄÅÖµΩ’π–ËÅπ’µâï»Ï(ÄÄÄÄÄÅ¡ÖÂµïπ—5ï—°ΩêËÅÕ—…•πúÏ(ÄÄÄÄÄÅÕΩ’…çï	Öπ≠ççΩ’π—%êËÅπ’µâï»ÅÅπ’±∞Ï(ÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π—%êËÅπ’µâï»ÅÅπ’±∞Ï(ÄÄÄÄÄÅ…ïôï…ïπçîËÅÕ—…•πúÅÅπ’±∞Ï(ÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÅÕ—…•πúÅÅπ’±∞Ï(ÄÄÄÄÄÅπΩ—ïÃËÅÕ—…•πúÅÅπ’±∞Ï(ÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ-ï‰ËÅÕ—…•πúÏ(ÄÄÄÅÙ∞(ÄÄ§ÅÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†ùM1PÅ¡ù}ÖëŸ•ÕΩ…Â}·Öç—}±Ωç¨°°ÖÕ°—ï·–†êƒ§§ú∞ÅmÅ—…ïÖÕ’…‰µ—…ÖπÕôï»ËëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙËëÌ¡ÖÂ±ΩÖêπ•ëïµ¡Ω—ïπçÂ-ïÂıÅt§Ï(ÄÄÄÅçΩπÕ–Åï·•Õ—•πúÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê(ÄÄÄÄÄÄÅI=4Å—…ïÖÕ’…Â}—…ÖπÕôï…Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å•ëïµ¡Ω—ïπçÂ}≠ï‰ÄÙÄê»(ÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å¡ÖÂ±ΩÖêπ•ëïµ¡Ω—ïπçÂ-ïÂt∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°ï·•Õ—•πúπ…Ω›Õl¡t¸π•ê§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏Å—°•Ãπ—…ïÖÕ’…ÂQ…ÖπÕôï»°9’µâï»°ï·•Õ—•πúπ…Ω›Õl¡tπ•ê§§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Å—…ÖπÕôï…9’µâï»ÄÙÅÖ›Ö•–Å—°•Ãππï·—Q…ïÖÕ’…ÂQ…ÖπÕôï…9’µâï»°ç±•ïπ–§Ï(ÄÄÄÅçΩπÕ–ÅëïÕç…•¡—•Ω∏ÄÙÅ¡ÖÂ±ΩÖêπëïÕç…•¡—•Ω∏(ÄÄÄÄÄÅÒÄ†(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ—…ÖπÕôï…QÂ¡îÄÙÙÙÄùM!}Q=}	9,ú(ÄÄÄÄÄÄÄÄÄÄ¸Äù•√—–ÅëîÅçÖ•ÕÕîÅï∏ÅâÖπ≈’îú(ÄÄÄÄÄÄÄÄÄÄËÅ¡ÖÂ±ΩÖêπ—…ÖπÕôï…QÂ¡îÄÙÙÙÄù	9-}Q=}M ú(ÄÄÄÄÄÄÄÄÄÄÄÄ¸ÄùIï—…Ö•–ÅâÖπçÖ•…îÅŸï…ÃÅçÖ•ÕÕîú(ÄÄÄÄÄÄÄÄÄÄÄÄËÄùY•…ïµïπ–Åïπ—…îÅçΩµ¡—ïÃÅâÖπçÖ•…ïÃú(ÄÄÄÄÄÄ§Ï((ÄÄÄÅ±ï–ÅÕΩ’…çïQÂ¡îËÄù5%9}M úÅÄù	9,úÄÙÅ¡ÖÂ±ΩÖêπ—…ÖπÕôï…QÂ¡îÄÙÙÙÄùM!}Q=}	9,úÄ¸Äù5%9}M úÄËÄù	9,úÏ(ÄÄÄÅ±ï–ÅëïÕ—•πÖ—•ΩπQÂ¡îËÄù5%9}M úÅÄù	9,úÄÙÅ¡ÖÂ±ΩÖêπ—…ÖπÕôï…QÂ¡îÄÙÙÙÄù	9-}Q=}M úÄ¸Äù5%9}M úÄËÄù	9,úÏ(ÄÄÄÅ±ï–ÅÕΩ’…çïÖÕ°MïÕÕ•Ω∏ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÅ±ï–ÅëïÕ—•πÖ—•ΩπÖÕ°MïÕÕ•Ω∏ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÅ±ï–ÅÕΩ’…çï	Öπ≠ççΩ’π–ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÅ±ï–ÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π–ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÅÅπ’±∞ÄÙÅπ’±∞Ï((ÄÄÄÅ•òÄ°¡ÖÂ±ΩÖêπ—…ÖπÕôï…QÂ¡îÄÙÙÙÄùM!}Q=}	9,ú§ÅÏ(ÄÄÄÄÄÅÕΩ’…çïÖÕ°MïÕÕ•Ω∏ÄÙÅÖ›Ö•–Å—°•ÃπΩ¡ïπÖÕ°MïÕÕ•ΩπΩ…Q…ïÖÕ’…‰°ç±•ïπ–§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕΩ’…çïÖÕ°MïÕÕ•ΩπIΩ‹ÄÙÅÕΩ’…çïÖÕ°MïÕÕ•Ω∏ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯Ï(ÄÄÄÄÄÅçΩπÕ–ÅçÖÕ°	Ö±ÖπçîÄÙÅÖ›Ö•–Å—°•Ãπ—…ïÖÕ’…ÂÖÕ°	Ö±ÖπçïΩ…’……ïπç‰†(ÄÄÄÄÄÄÄÅç±•ïπ–∞(ÄÄÄÄÄÄÄÅ9’µâï»°ÕΩ’…çïÖÕ°MïÕÕ•ΩπIΩ‹π•ê§∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπç’……ïπç‰∞(ÄÄÄÄÄÄÄÅ9’µâï»°ÕΩ’…çïÖÕ°MïÕÕ•ΩπIΩ‹πΩ¡ïπ•πù}âÖ±ÖπçîÄ¸¸Ä¿§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ•òÄ°¡ÖÂ±ΩÖêπÖµΩ’π–Ä¯ÅçÖÕ°	Ö±ÖπçîÄ¨Ä¿∏¿¿¿ƒ§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1îÅÕΩ±ëîÅëîÅçÖ•ÕÕîÅïÕ–Å•πÕ’ôô•ÕÖπ–Å¡Ω’»ÅçîÅì•√—–Åï∏ÅâÖπ≈’î∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π–ÄÙÅÖ›Ö•–Å—°•ÃπŸÖ±•ëÖ—ï	Öπ≠ççΩ’π—Ω…Q…ïÖÕ’…ÂQ…ÖπÕôï»°ç±•ïπ–∞Å¡ÖÂ±ΩÖêπëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π—%ê∞Å¡ÖÂ±ΩÖêπç’……ïπç‰∞ÅÏÅ…Ω±îËÄùëïÕ—•πÖ—•Ω∏úÅÙ§Ï(ÄÄÄÅÙÅï±ÕîÅ•òÄ°¡ÖÂ±ΩÖêπ—…ÖπÕôï…QÂ¡îÄÙÙÙÄù	9-}Q=}M ú§ÅÏ(ÄÄÄÄÄÅÕΩ’…çï	Öπ≠ççΩ’π–ÄÙÅÖ›Ö•–Å—°•ÃπŸÖ±•ëÖ—ï	Öπ≠ççΩ’π—Ω…Q…ïÖÕ’…ÂQ…ÖπÕôï»°ç±•ïπ–∞Å¡ÖÂ±ΩÖêπÕΩ’…çï	Öπ≠ççΩ’π—%ê∞Å¡ÖÂ±ΩÖêπç’……ïπç‰∞ÅÏÅ…Ω±îËÄùÕΩ’…çîú∞ÅôΩ…U¡ëÖ—îËÅ—…’îÅÙ§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕΩ’…çï	Öπ≠ççΩ’π—IΩ‹ÄÙÅÕΩ’…çï	Öπ≠ççΩ’π–ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯Ï(ÄÄÄÄÄÅ•òÄ°¡ÖÂ±ΩÖêπÖµΩ’π–Ä¯Å9’µâï»°ÕΩ’…çï	Öπ≠ççΩ’π—IΩ‹πç’……ïπ—}âÖ±ÖπçîÄ¸¸Ä¿§Ä¨Ä¿∏¿¿¿ƒ§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1îÅÕΩ±ëîÅâÖπçÖ•…îÅïÕ–Å•πÕ’ôô•ÕÖπ–Å¡Ω’»ÅçîÅ…ï—…Ö•–ÅŸï…ÃÅ±ÑÅçÖ•ÕÕî∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅëïÕ—•πÖ—•ΩπÖÕ°MïÕÕ•Ω∏ÄÙÅÖ›Ö•–Å—°•ÃπΩ¡ïπÖÕ°MïÕÕ•ΩπΩ…Q…ïÖÕ’…‰°ç±•ïπ–§Ï(ÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÅÕΩ’…çï	Öπ≠ççΩ’π–ÄÙÅÖ›Ö•–Å—°•ÃπŸÖ±•ëÖ—ï	Öπ≠ççΩ’π—Ω…Q…ïÖÕ’…ÂQ…ÖπÕôï»°ç±•ïπ–∞Å¡ÖÂ±ΩÖêπÕΩ’…çï	Öπ≠ççΩ’π—%ê∞Å¡ÖÂ±ΩÖêπç’……ïπç‰∞ÅÏÅ…Ω±îËÄùÕΩ’…çîú∞ÅôΩ…U¡ëÖ—îËÅ—…’îÅÙ§Ï(ÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π–ÄÙÅÖ›Ö•–Å—°•ÃπŸÖ±•ëÖ—ï	Öπ≠ççΩ’π—Ω…Q…ïÖÕ’…ÂQ…ÖπÕôï»°ç±•ïπ–∞Å¡ÖÂ±ΩÖêπëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π—%ê∞Å¡ÖÂ±ΩÖêπç’……ïπç‰∞ÅÏÅ…Ω±îËÄùëïÕ—•πÖ—•Ω∏ú∞ÅôΩ…U¡ëÖ—îËÅ—…’îÅÙ§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕΩ’…çï	Öπ≠ççΩ’π—IΩ‹ÄÙÅÕΩ’…çï	Öπ≠ççΩ’π–ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯Ï(ÄÄÄÄÄÅçΩπÕ–ÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π—IΩ‹ÄÙÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π–ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯Ï(ÄÄÄÄÄÅ•òÄ°9’µâï»°ÕΩ’…çï	Öπ≠ççΩ’π—IΩ‹π•ê§ÄÙÙÙÅ9’µâï»°ëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π—IΩ‹π•ê§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅçΩµ¡—îÅÕΩ’…çîÅï–Å±îÅçΩµ¡—îÅëïÕ—•πÖ—•Ω∏ÅëΩ•Ÿïπ–É©—…îÅë•ôõ•…ïπ—Ã∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°¡ÖÂ±ΩÖêπÖµΩ’π–Ä¯Å9’µâï»°ÕΩ’…çï	Öπ≠ççΩ’π—IΩ‹πç’……ïπ—}âÖ±ÖπçîÄ¸¸Ä¿§Ä¨Ä¿∏¿¿¿ƒ§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1îÅÕΩ±ëîÅâÖπçÖ•…îÅë‘ÅçΩµ¡—îÅÕΩ’…çîÅïÕ–Å•πÕ’ôô•ÕÖπ–Å¡Ω’»ÅçîÅŸ•…ïµïπ–∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Å•πÕï…—ïêÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<Å—…ïÖÕ’…Â}—…ÖπÕôï…Ã(ÄÄÄÄÄÄÄÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å—…ÖπÕôï…}π’µâï»∞Å—…ÖπÕôï…}—Â¡î∞Å—…ÖπÕôï…}ëÖ—î∞Åç’……ïπç‰∞ÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÅÕΩ’…çï}—Â¡î∞ÅÕΩ’…çï}çÖÕ°}ÕïÕÕ•Ωπ}•ê∞ÅÕΩ’…çï}âÖπ≠}ÖççΩ’π—}•ê∞(ÄÄÄÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ}—Â¡î∞ÅëïÕ—•πÖ—•Ωπ}çÖÕ°}ÕïÕÕ•Ωπ}•ê∞ÅëïÕ—•πÖ—•Ωπ}âÖπ≠}ÖççΩ’π—}•ê∞(ÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}µï—°Ωê∞Å…ïôï…ïπçî∞ÅëïÕç…•¡—•Ω∏∞ÅπΩ—ïÃ∞ÅÕ—Ö—’Ã∞Å•ëïµ¡Ω—ïπçÂ}≠ï‰∞(ÄÄÄÄÄÄÄÄÅç…ïÖ—ïë}â‰∞Åç…ïÖ—ïë}Ö–∞Å’¡ëÖ—ïë}Ö–∞ÅŸÖ±•ëÖ—ïë}Ö–§(ÄÄÄÄÄÄÅY1UL(ÄÄÄÄÄÄÄÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞(ÄÄÄÄÄÄÄÄÄê‹∞Äê‡∞Äê‰∞(ÄÄÄÄÄÄÄÄÄêƒ¿∞Äêƒƒ∞Äêƒ»∞(ÄÄÄÄÄÄÄÄÄêƒÃ∞Äêƒ–∞Äêƒ‘∞Äêƒÿ∞ÄùY1%Qú∞Äêƒ‹∞(ÄÄÄÄÄÄÄÄÄêƒ‡∞Å9=\†§∞Å9=\†§∞Å9=\†§§(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ—…ÖπÕôï…9’µâï»∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ—…ÖπÕôï…QÂ¡î∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ—…ÖπÕôï…Ö—î∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπç’……ïπç‰∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπÖµΩ’π–∞(ÄÄÄÄÄÄÄÅÕΩ’…çïQÂ¡î∞(ÄÄÄÄÄÄÄÅÕΩ’…çïÖÕ°MïÕÕ•Ω∏Ä¸Å9’µâï»°ÕΩ’…çïÖÕ°MïÕÕ•Ω∏π•ê§ÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÅÕΩ’…çï	Öπ≠ççΩ’π–Ä¸Å9’µâï»°ÕΩ’…çï	Öπ≠ççΩ’π–π•ê§ÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÅëïÕ—•πÖ—•ΩπQÂ¡î∞(ÄÄÄÄÄÄÄÅëïÕ—•πÖ—•ΩπÖÕ°MïÕÕ•Ω∏Ä¸Å9’µâï»°ëïÕ—•πÖ—•ΩπÖÕ°MïÕÕ•Ω∏π•ê§ÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π–Ä¸Å9’µâï»°ëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π–π•ê§ÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ¡ÖÂµïπ—5ï—°Ωê∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÅëïÕç…•¡—•Ω∏∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêππΩ—ïÃ∞(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπ•ëïµ¡Ω—ïπçÂ-ï‰∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å—…ÖπÕôï»ÄÙÅ…ï≈’•…ïIΩ‹°•πÕï…—ïêπ…Ω›Õl¡t∞ÄùQ…ïÖÕ’…‰Å—…ÖπÕôï»ú§Ï((ÄÄÄÅ±ï–ÅÕΩ’…çïÖÕ°5ΩŸïµïπ—%êËÅπ’µâï»ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÅ±ï–ÅÕΩ’…çï	Öπ≠Q…ÖπÕÖç—•Ωπ%êËÅπ’µâï»ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÅ±ï–ÅëïÕ—•πÖ—•ΩπÖÕ°5ΩŸïµïπ—%êËÅπ’µâï»ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÅ±ï–ÅëïÕ—•πÖ—•Ωπ	Öπ≠Q…ÖπÕÖç—•Ωπ%êËÅπ’µâï»ÅÅπ’±∞ÄÙÅπ’±∞Ï((ÄÄÄÅ•òÄ°¡ÖÂ±ΩÖêπ—…ÖπÕôï…QÂ¡îÄÙÙÙÄùM!}Q=}	9,ú§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕΩ’…çï1Öâï∞ÄÙÅ—°•Ãπ—…ïÖÕ’…ÂM’¡¡Ω…—1Öâï∞°ÏÅÕ’¡¡Ω…—QÂ¡îËÄù5%9}M úÅÙ§Ï(ÄÄÄÄÄÅçΩπÕ–ÅëïÕ—•πÖ—•Ωπ1Öâï∞ÄÙÅ—°•Ãπ—…ïÖÕ’…ÂM’¡¡Ω…—1Öâï∞°Ï(ÄÄÄÄÄÄÄÅÕ’¡¡Ω…—QÂ¡îËÄù	9,ú∞(ÄÄÄÄÄÄÄÅâÖπ≠9ÖµîËÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π–¸πâÖπ≠}πÖµî∞(ÄÄÄÄÄÄÄÅÖççΩ’π—9ÖµîËÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π–¸πÖççΩ’π—}πÖµî∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅçΩπÕ–ÅçÖÕ°5ΩŸïµïπ–ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ïÖÕ°5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÅ—Â¡îËÄù=UPú∞(ÄÄÄÄÄÄÄÅçÖ—ïùΩ…‰ËÄù	9-}A=M%Pú∞(ÄÄÄÄÄÄÄÅ±Öâï∞ËÄù•√—–Åï∏ÅâÖπ≈’îú∞(ÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ¡ÖÂ±ΩÖêπÖµΩ’π–∞(ÄÄÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—îËÅ¡ÖÂ±ΩÖêπ—…ÖπÕôï…Ö—î∞(ÄÄÄÄÄÄÄÅëïÕç…•¡—•Ω∏∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅ¡ÖÂ±ΩÖêπ…ïôï…ïπçîÄ¸¸Å—…ÖπÕôï»π—…ÖπÕôï…}π’µâï»∞(ÄÄÄÄÄÄÄÅç’……ïπç‰ËÅ¡ÖÂ±ΩÖêπç’……ïπç‰∞(ÄÄÄÄÄÄÄÅÕ’¡¡±•ï»ËÅëïÕ—•πÖ—•Ωπ1Öâï∞∞(ÄÄÄÄÄÄÄÅ—…ïÖÕ’…Â}—…ÖπÕôï…}•êËÅ—…ÖπÕôï»π•ê∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅÕΩ’…çïÖÕ°5ΩŸïµïπ—%êÄÙÅ9’µâï»°çÖÕ°5ΩŸïµïπ–π•ê§Ï(ÄÄÄÄÄÅçΩπÕ–ÅâÖπ≠Q…ÖπÕÖç—•Ω∏ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ïQ…ïÖÕ’…Â	Öπ≠Q…ÖπÕÖç—•Ωπ%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÅ—…ÖπÕôï…%êËÅ9’µâï»°—…ÖπÕôï»π•ê§∞(ÄÄÄÄÄÄÄÅ—…ÖπÕôï…9’µâï»ËÅM—…•πú°—…ÖπÕôï»π—…ÖπÕôï…}π’µâï»§∞(ÄÄÄÄÄÄÄÅ—…ÖπÕôï…Ö—îËÅ¡ÖÂ±ΩÖêπ—…ÖπÕôï…Ö—î∞(ÄÄÄÄÄÄÄÅë•…ïç—•Ω∏ËÄù%8ú∞(ÄÄÄÄÄÄÄÅâÖπ≠ççΩ’π–ËÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π–ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞(ÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ¡ÖÂ±ΩÖêπÖµΩ’π–∞(ÄÄÄÄÄÄÄÅç’……ïπç‰ËÅ¡ÖÂ±ΩÖêπç’……ïπç‰∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅ¡ÖÂ±ΩÖêπ…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÄù•√—–ÅëîÅçÖ•ÕÕîÅï∏ÅâÖπ≈’îú∞(ÄÄÄÄÄÄÄÅçΩ’π—ï…¡Ö…—Â9ÖµîËÅÕΩ’…çï1Öâï∞∞(ÄÄÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ-ï‰ËÅÄëÌ¡ÖÂ±ΩÖêπ•ëïµ¡Ω—ïπçÂ-ïÂÙÈâÖπ¨µ•πÄ∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ	Öπ≠Q…ÖπÕÖç—•Ωπ%êÄÙÅ9’µâï»°âÖπ≠Q…ÖπÕÖç—•Ω∏π•ê§Ï(ÄÄÄÅÙÅï±ÕîÅ•òÄ°¡ÖÂ±ΩÖêπ—…ÖπÕôï…QÂ¡îÄÙÙÙÄù	9-}Q=}M ú§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕΩ’…çï1Öâï∞ÄÙÅ—°•Ãπ—…ïÖÕ’…ÂM’¡¡Ω…—1Öâï∞°Ï(ÄÄÄÄÄÄÄÅÕ’¡¡Ω…—QÂ¡îËÄù	9,ú∞(ÄÄÄÄÄÄÄÅâÖπ≠9ÖµîËÅÕΩ’…çï	Öπ≠ççΩ’π–¸πâÖπ≠}πÖµî∞(ÄÄÄÄÄÄÄÅÖççΩ’π—9ÖµîËÅÕΩ’…çï	Öπ≠ççΩ’π–¸πÖççΩ’π—}πÖµî∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅçΩπÕ–ÅëïÕ—•πÖ—•Ωπ1Öâï∞ÄÙÅ—°•Ãπ—…ïÖÕ’…ÂM’¡¡Ω…—1Öâï∞°ÏÅÕ’¡¡Ω…—QÂ¡îËÄù5%9}M úÅÙ§Ï(ÄÄÄÄÄÅçΩπÕ–ÅâÖπ≠Q…ÖπÕÖç—•Ω∏ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ïQ…ïÖÕ’…Â	Öπ≠Q…ÖπÕÖç—•Ωπ%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÅ—…ÖπÕôï…%êËÅ9’µâï»°—…ÖπÕôï»π•ê§∞(ÄÄÄÄÄÄÄÅ—…ÖπÕôï…9’µâï»ËÅM—…•πú°—…ÖπÕôï»π—…ÖπÕôï…}π’µâï»§∞(ÄÄÄÄÄÄÄÅ—…ÖπÕôï…Ö—îËÅ¡ÖÂ±ΩÖêπ—…ÖπÕôï…Ö—î∞(ÄÄÄÄÄÄÄÅë•…ïç—•Ω∏ËÄù=UPú∞(ÄÄÄÄÄÄÄÅâÖπ≠ççΩ’π–ËÅÕΩ’…çï	Öπ≠ççΩ’π–ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞(ÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ¡ÖÂ±ΩÖêπÖµΩ’π–∞(ÄÄÄÄÄÄÄÅç’……ïπç‰ËÅ¡ÖÂ±ΩÖêπç’……ïπç‰∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅ¡ÖÂ±ΩÖêπ…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÄùIï—…Ö•–ÅâÖπçÖ•…îÅŸï…ÃÅçÖ•ÕÕîú∞(ÄÄÄÄÄÄÄÅçΩ’π—ï…¡Ö…—Â9ÖµîËÅëïÕ—•πÖ—•Ωπ1Öâï∞∞(ÄÄÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ-ï‰ËÅÄëÌ¡ÖÂ±ΩÖêπ•ëïµ¡Ω—ïπçÂ-ïÂÙÈâÖπ¨µΩ’—Ä∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅÕΩ’…çï	Öπ≠Q…ÖπÕÖç—•Ωπ%êÄÙÅ9’µâï»°âÖπ≠Q…ÖπÕÖç—•Ω∏π•ê§Ï(ÄÄÄÄÄÅçΩπÕ–ÅçÖÕ°5ΩŸïµïπ–ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ïÖÕ°5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÅ—Â¡îËÄù%8ú∞(ÄÄÄÄÄÄÄÅçÖ—ïùΩ…‰ËÄù	9-}]%Q!I]0ú∞(ÄÄÄÄÄÄÄÅ±Öâï∞ËÄùIï—…Ö•–ÅâÖπçÖ•…îÅ…óù‘ú∞(ÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ¡ÖÂ±ΩÖêπÖµΩ’π–∞(ÄÄÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—îËÅ¡ÖÂ±ΩÖêπ—…ÖπÕôï…Ö—î∞(ÄÄÄÄÄÄÄÅëïÕç…•¡—•Ω∏∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅ¡ÖÂ±ΩÖêπ…ïôï…ïπçîÄ¸¸Å—…ÖπÕôï»π—…ÖπÕôï…}π’µâï»∞(ÄÄÄÄÄÄÄÅç’……ïπç‰ËÅ¡ÖÂ±ΩÖêπç’……ïπç‰∞(ÄÄÄÄÄÄÄÅÕ’¡¡±•ï»ËÅÕΩ’…çï1Öâï∞∞(ÄÄÄÄÄÄÄÅ—…ïÖÕ’…Â}—…ÖπÕôï…}•êËÅ—…ÖπÕôï»π•ê∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅëïÕ—•πÖ—•ΩπÖÕ°5ΩŸïµïπ—%êÄÙÅ9’µâï»°çÖÕ°5ΩŸïµïπ–π•ê§Ï(ÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕΩ’…çï1Öâï∞ÄÙÅ—°•Ãπ—…ïÖÕ’…ÂM’¡¡Ω…—1Öâï∞°Ï(ÄÄÄÄÄÄÄÅÕ’¡¡Ω…—QÂ¡îËÄù	9,ú∞(ÄÄÄÄÄÄÄÅâÖπ≠9ÖµîËÅÕΩ’…çï	Öπ≠ççΩ’π–¸πâÖπ≠}πÖµî∞(ÄÄÄÄÄÄÄÅÖççΩ’π—9ÖµîËÅÕΩ’…çï	Öπ≠ççΩ’π–¸πÖççΩ’π—}πÖµî∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅçΩπÕ–ÅëïÕ—•πÖ—•Ωπ1Öâï∞ÄÙÅ—°•Ãπ—…ïÖÕ’…ÂM’¡¡Ω…—1Öâï∞°Ï(ÄÄÄÄÄÄÄÅÕ’¡¡Ω…—QÂ¡îËÄù	9,ú∞(ÄÄÄÄÄÄÄÅâÖπ≠9ÖµîËÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π–¸πâÖπ≠}πÖµî∞(ÄÄÄÄÄÄÄÅÖççΩ’π—9ÖµîËÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π–¸πÖççΩ’π—}πÖµî∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕΩ’…çïQ…ÖπÕÖç—•Ω∏ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ïQ…ïÖÕ’…Â	Öπ≠Q…ÖπÕÖç—•Ωπ%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÅ—…ÖπÕôï…%êËÅ9’µâï»°—…ÖπÕôï»π•ê§∞(ÄÄÄÄÄÄÄÅ—…ÖπÕôï…9’µâï»ËÅM—…•πú°—…ÖπÕôï»π—…ÖπÕôï…}π’µâï»§∞(ÄÄÄÄÄÄÄÅ—…ÖπÕôï…Ö—îËÅ¡ÖÂ±ΩÖêπ—…ÖπÕôï…Ö—î∞(ÄÄÄÄÄÄÄÅë•…ïç—•Ω∏ËÄù=UPú∞(ÄÄÄÄÄÄÄÅâÖπ≠ççΩ’π–ËÅÕΩ’…çï	Öπ≠ççΩ’π–ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞(ÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ¡ÖÂ±ΩÖêπÖµΩ’π–∞(ÄÄÄÄÄÄÄÅç’……ïπç‰ËÅ¡ÖÂ±ΩÖêπç’……ïπç‰∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅ¡ÖÂ±ΩÖêπ…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÄùY•…ïµïπ–Åïπ—…îÅçΩµ¡—ïÃÅâÖπçÖ•…ïÃú∞(ÄÄÄÄÄÄÄÅçΩ’π—ï…¡Ö…—Â9ÖµîËÅëïÕ—•πÖ—•Ωπ1Öâï∞∞(ÄÄÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ-ï‰ËÅÄëÌ¡ÖÂ±ΩÖêπ•ëïµ¡Ω—ïπçÂ-ïÂÙÈÕΩ’…çïÄ∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅÕΩ’…çï	Öπ≠Q…ÖπÕÖç—•Ωπ%êÄÙÅ9’µâï»°ÕΩ’…çïQ…ÖπÕÖç—•Ω∏π•ê§Ï(ÄÄÄÄÄÅçΩπÕ–ÅëïÕ—•πÖ—•ΩπQ…ÖπÕÖç—•Ω∏ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ïQ…ïÖÕ’…Â	Öπ≠Q…ÖπÕÖç—•Ωπ%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÅ—…ÖπÕôï…%êËÅ9’µâï»°—…ÖπÕôï»π•ê§∞(ÄÄÄÄÄÄÄÅ—…ÖπÕôï…9’µâï»ËÅM—…•πú°—…ÖπÕôï»π—…ÖπÕôï…}π’µâï»§∞(ÄÄÄÄÄÄÄÅ—…ÖπÕôï…Ö—îËÅ¡ÖÂ±ΩÖêπ—…ÖπÕôï…Ö—î∞(ÄÄÄÄÄÄÄÅë•…ïç—•Ω∏ËÄù%8ú∞(ÄÄÄÄÄÄÄÅâÖπ≠ççΩ’π–ËÅëïÕ—•πÖ—•Ωπ	Öπ≠ççΩ’π–ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞(ÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ¡ÖÂ±ΩÖêπÖµΩ’π–∞(ÄÄÄÄÄÄÄÅç’……ïπç‰ËÅ¡ÖÂ±ΩÖêπç’……ïπç‰∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅ¡ÖÂ±ΩÖêπ…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÄùY•…ïµïπ–Åïπ—…îÅçΩµ¡—ïÃÅâÖπçÖ•…ïÃú∞(ÄÄÄÄÄÄÄÅçΩ’π—ï…¡Ö…—Â9ÖµîËÅÕΩ’…çï1Öâï∞∞(ÄÄÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ-ï‰ËÅÄëÌ¡ÖÂ±ΩÖêπ•ëïµ¡Ω—ïπçÂ-ïÂÙÈëïÕ—•πÖ—•ΩπÄ∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ	Öπ≠Q…ÖπÕÖç—•Ωπ%êÄÙÅ9’µâï»°ëïÕ—•πÖ—•ΩπQ…ÖπÕÖç—•Ω∏π•ê§Ï(ÄÄÄÅÙ((ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅ—…ïÖÕ’…Â}—…ÖπÕôï…Ã(ÄÄÄÄÄÄÅMPÅÕΩ’…çï}çÖÕ°}µΩŸïµïπ—}•êÄÙÄê»∞(ÄÄÄÄÄÄÄÄÄÄÅÕΩ’…çï}âÖπ≠}—…ÖπÕÖç—•Ωπ}•êÄÙÄêÃ∞(ÄÄÄÄÄÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ}çÖÕ°}µΩŸïµïπ—}•êÄÙÄê–∞(ÄÄÄÄÄÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ}âÖπ≠}—…ÖπÕÖç—•Ωπ}•êÄÙÄê‘∞(ÄÄÄÄÄÄÄÄÄÄÅ’¡ëÖ—ïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêŸÄ∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—…ÖπÕôï»π•ê∞(ÄÄÄÄÄÄÄÅÕΩ’…çïÖÕ°5ΩŸïµïπ—%ê∞(ÄÄÄÄÄÄÄÅÕΩ’…çï	Öπ≠Q…ÖπÕÖç—•Ωπ%ê∞(ÄÄÄÄÄÄÄÅëïÕ—•πÖ—•ΩπÖÕ°5ΩŸïµïπ—%ê∞(ÄÄÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ	Öπ≠Q…ÖπÕÖç—•Ωπ%ê∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï((ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÖ’ë•—}±ΩùÃÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å’Õï…}•ê∞ÅÖç—•Ω∏∞Å…ïÕΩ’…çî∞Å…ïÕΩ’…çï}•ê∞Åµï—°Ωê∞Å¡Ö—†∞ÅÕ—Ö—’Õ}çΩëî∞Åµï—ÖëÖ—Ñ§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄùQIMUIe}QI9MI}Y1%Qú∞Äù—…ïÖÕ’…Â}—…ÖπÕôï…Ãú∞ÄêÃ∞ÄùA=MPú∞Äê–∞Ä»¿ƒ∞Äê‘ËÈ)M=9•Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅM—…•πú°—…ÖπÕôï»π•ê§∞(ÄÄÄÄÄÄÄÅÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄù5%9}M úÄ¸ÄúΩÖ¡§ΩçÖÕ†Ω—…ïÖÕ’…‰µ—…ÖπÕôï…ÃúÄËÄúΩÖ¡§ΩâÖπ¨Ω—…ïÖÕ’…‰µ—…ÖπÕôï…Ãú∞(ÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°Ï(ÄÄÄÄÄÄÄÄÄÅ—…ÖπÕôï…}•êËÅ—…ÖπÕôï»π•ê∞(ÄÄÄÄÄÄÄÄÄÅ—…ÖπÕôï…}π’µâï»ËÅ—…ÖπÕôï»π—…ÖπÕôï…}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÅ—…ÖπÕôï…}—Â¡îËÅ—…ÖπÕôï»π—…ÖπÕôï…}—Â¡î∞(ÄÄÄÄÄÄÄÄÄÅ—…ÖπÕôï…}ëÖ—îËÅ—…ÖπÕôï»π—…ÖπÕôï…}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ¡ÖÂ±ΩÖêπÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰ËÅ¡ÖÂ±ΩÖêπç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çï}—Â¡îËÅÕΩ’…çïQÂ¡î∞(ÄÄÄÄÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ}—Â¡îËÅëïÕ—•πÖ—•ΩπQÂ¡î∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çï}çÖÕ°}µΩŸïµïπ—}•êËÅÕΩ’…çïÖÕ°5ΩŸïµïπ—%ê∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çï}âÖπ≠}—…ÖπÕÖç—•Ωπ}•êËÅÕΩ’…çï	Öπ≠Q…ÖπÕÖç—•Ωπ%ê∞(ÄÄÄÄÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ}çÖÕ°}µΩŸïµïπ—}•êËÅëïÕ—•πÖ—•ΩπÖÕ°5ΩŸïµïπ—%ê∞(ÄÄÄÄÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ}âÖπ≠}—…ÖπÕÖç—•Ωπ}•êËÅëïÕ—•πÖ—•Ωπ	Öπ≠Q…ÖπÕÖç—•Ωπ%ê∞(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï((ÄÄÄÅ…ï—’…∏Å—°•Ãπ—…ïÖÕ’…ÂQ…ÖπÕôï…	Â·ïç’—Ω»°ç±•ïπ–∞Å9’µâï»°—…ÖπÕôï»π•ê§§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ—…ïÖÕ’…ÂM’¡¡Ω…—1Öâï∞°¡ÖÂ±ΩÖêËÅÏÅÕ’¡¡Ω…—QÂ¡îËÅÕ—…•πúÏÅâÖπ≠9Öµî¸ËÅ’π≠πΩ›∏ÏÅÖççΩ’π—9Öµî¸ËÅ’π≠πΩ›∏ÅÙ§ÅÏ(ÄÄÄÅ•òÄ°M—…•πú°¡ÖÂ±ΩÖêπÕ’¡¡Ω…—QÂ¡î§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄù5%9}M ú§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏ÄùÖ•ÕÕîÅ¡…•πç•¡Ö±îúÏ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅâÖπ≠9ÖµîÄÙÅM—…•πú°¡ÖÂ±ΩÖêπâÖπ≠9ÖµîÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅçΩπÕ–ÅÖççΩ’π—9ÖµîÄÙÅM—…•πú°¡ÖÂ±ΩÖêπÖççΩ’π—9ÖµîÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅ…ï—’…∏ÅmâÖπ≠9Öµî∞ÅÖççΩ’π—9Öµïtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†úÄ¥Äú§ÅÒÄùΩµ¡—îÅâÖπçÖ•…îúÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅŸÖ±•ëÖ—ï	Öπ≠ççΩ’π—Ω…M°Ö…ï°Ω±ëï…AÖÂΩ’–°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅâÖπ≠ççΩ’π—%êËÅπ’µâï»ÅÅ’πëïô•πïê∞Åç’……ïπç‰ËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÖççΩ’π—%êÄÙÅ9’µâï»°âÖπ≠ççΩ’π—%êÄ¸¸Ä¿§Ï(ÄÄÄÅ•òÄ†ÖÖççΩ’π—%ê§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùU∏ÅçΩµ¡—îÅâÖπçÖ•…îÅïÕ–Å…ï≈’•ÃÅ¡Ω’»Å’∏Å…ïµâΩ’…Õïµïπ–ÅÖç—•ΩππÖ•…îÅ¡Ö»ÅâÖπ≈’î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅâÑ∏®∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°—‡πç’……ïπ—}âÖ±Öπçî∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅç’……ïπ—}âÖ±Öπçî(ÄÄÄÄÄÄÅI=4ÅâÖπ≠}ÖççΩ’π—ÃÅâÑ(ÄÄÄÄÄÄÅ1PÅ)=%8Ä†(ÄÄÄÄÄÄÄÄÅM1PÅâ–πâÖπ≠}ÖççΩ’π—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMU4°MÅ]!8Åâ–πÕ—Ö—’ÃÄÙÄùY1%QúÅ9Åâ–πë•…ïç—•Ω∏ÄÙÄù%8úÅQ!8Åâ–πÖµΩ’π–Å1MÄµâ–πÖµΩ’π–Å9§ÅLÅç’……ïπ—}âÖ±Öπçî(ÄÄÄÄÄÄÄÄÅI=4ÅâÖπ≠}—…ÖπÕÖç—•ΩπÃÅâ–(ÄÄÄÄÄÄÄÄÅ]!IÅâ–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅâ–πâÖπ≠}ÖççΩ’π—}•ê(ÄÄÄÄÄÄÄ§Å—‡Å=8Å—‡πâÖπ≠}ÖççΩ’π—}•êÄÙÅâÑπ•ê(ÄÄÄÄÄÄÅ]!IÅâÑπ•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9ÅâÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅâÑπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅÖççΩ’π—%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÖççΩ’π–ÄÙÅ…Ω›Õl¡tÏ(ÄÄÄÅ•òÄ†ÖÖççΩ’π–§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å9Ω—Ω’πë·çï¡—•Ω∏†ùΩµ¡—îÅâÖπçÖ•…îÅ•π—…Ω’ŸÖâ±îÅëÖπÃÅçï——îÅΩ…ùÖπ•ÕÖ—•Ω∏∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°M—…•πú°ÖççΩ’π–πÕ—Ö—’Ã§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÄùQ%Yú§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1îÅçΩµ¡—îÅâÖπçÖ•…îÅÕï±ïç—•ΩππîÅëΩ•–Åï—…îÅÖç—•ò∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°M—…•πú°ÖççΩ’π–πç’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÅM—…•πú°ç’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1ÑÅëïŸ•ÕîÅë‘ÅçΩµ¡—îÅâÖπçÖ•…îÅëΩ•–ÅçΩ……ïÕ¡Ωπë…îÅÑÅçï±±îÅë‘Å±Ω–ÅÖç—•ΩππÖ•…î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÖççΩ’π–Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•ÈïM°Ö…ï°Ω±ëï…AÖÂ±ΩÖê°âΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕ°Ö…ï°Ω±ëï…QÂ¡îÄÙÅM—…•πú°âΩë‰πÕ°Ö…ï°Ω±ëï…}—Â¡îÄ¸¸Äù%9%Y%U0ú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ†Ölù%9%Y%U0ú∞Äù=5A9dùtπ•πç±’ëïÃ°Õ°Ö…ï°Ω±ëï…QÂ¡î§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùQÂ¡îÅêÅÖç—•ΩππÖ•…îÅ•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÕ—Ö—’ÃÄÙÅM—…•πú°âΩë‰πÕ—Ö—’ÃÄ¸¸ÄùQ%Yú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ†ÖlùQ%Yú∞Äù%9Q%Yú∞ÄùI!%Yùtπ•πç±’ëïÃ°Õ—Ö—’Ã§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùM—Ö—’–ÅêÅÖç—•ΩππÖ•…îÅ•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Åô•…Õ—9ÖµîÄÙÅM—…•πú°âΩë‰πô•…Õ—}πÖµîÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞Ï(ÄÄÄÅçΩπÕ–Å±ÖÕ—9ÖµîÄÙÅM—…•πú°âΩë‰π±ÖÕ—}πÖµîÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅçΩµ¡ÖπÂ9ÖµîÄÙÅM—…•πú°âΩë‰πçΩµ¡ÖπÂ}πÖµîÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞Ï(ÄÄÄÅçΩπÕ–Åë•Õ¡±ÖÂ9ÖµîÄÙÅM—…•πú†(ÄÄÄÄÄÅâΩë‰πë•Õ¡±ÖÂ}πÖµî(ÄÄÄÄÄÄ¸¸Ä°Õ°Ö…ï°Ω±ëï…QÂ¡îÄÙÙÙÄù=5A9dú(ÄÄÄÄÄÄÄÄ¸ÅçΩµ¡ÖπÂ9Öµî(ÄÄÄÄÄÄÄÄËÅmô•…Õ—9Öµî∞Å±ÖÕ—9Öµïtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†úÄú§§∞(ÄÄÄÄ§π—…•¥†§Ï(ÄÄÄÅ•òÄ†Öë•Õ¡±ÖÂ9Öµî§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅπΩ¥ÅÖôô•ç£§ÅëîÅ∞ÅÖç—•ΩππÖ•…îÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅΩ›πï…Õ°•¡Aï…çïπ—ÖùîÄÙÅâΩë‰πΩ›πï…Õ°•¡}¡ï…çïπ—ÖùîÄÙÙÙÄúúÅÒÅâΩë‰πΩ›πï…Õ°•¡}¡ï…çïπ—ÖùîÄÙÙÙÅ’πëïô•πïêÅÒÅâΩë‰πΩ›πï…Õ°•¡}¡ï…çïπ—ÖùîÄÙÙÙÅπ’±∞(ÄÄÄÄÄÄ¸Åπ’±∞(ÄÄÄÄÄÄËÅ9’µâï»°âΩë‰πΩ›πï…Õ°•¡}¡ï…çïπ—Öùî§Ï(ÄÄÄÅ•òÄ°Ω›πï…Õ°•¡Aï…çïπ—ÖùîÄÑÙÙÅπ’±∞ÄòòÄ†Ö9’µâï»π•Õ•π•—î°Ω›πï…Õ°•¡Aï…çïπ—Öùî§ÅÒÅΩ›πï…Õ°•¡Aï…çïπ—ÖùîÄÄ¿ÅÒÅΩ›πï…Õ°•¡Aï…çïπ—ÖùîÄ¯Äƒ¿¿§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅ¡Ω’…çïπ—ÖùîÅëîÅì•—ïπ—•Ω∏ÅëΩ•–É©—…îÅçΩµ¡…•ÃÅïπ—…îÄ¿Åï–Äƒ¿¿∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}—Â¡îËÅÕ°Ö…ï°Ω±ëï…QÂ¡î∞(ÄÄÄÄÄÅë•Õ¡±ÖÂ}πÖµîËÅë•Õ¡±ÖÂ9Öµî∞(ÄÄÄÄÄÅô•…Õ—}πÖµîËÅô•…Õ—9Öµî∞(ÄÄÄÄÄÅ±ÖÕ—}πÖµîËÅ±ÖÕ—9Öµî∞(ÄÄÄÄÄÅçΩµ¡ÖπÂ}πÖµîËÅçΩµ¡ÖπÂ9Öµî∞(ÄÄÄÄÄÅ¡°ΩπîËÅM—…•πú°âΩë‰π¡°ΩπîÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅïµÖ•∞ËÅM—…•πú°âΩë‰πïµÖ•∞Ä¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅ•ëïπ—•—Â}π’µâï»ËÅM—…•πú°âΩë‰π•ëïπ—•—Â}π’µâï»Ä¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅÖëë…ïÕÃËÅM—…•πú°âΩë‰πÖëë…ïÕÃÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅΩ›πï…Õ°•¡}¡ï…çïπ—ÖùîËÅΩ›πï…Õ°•¡Aï…çïπ—Öùî∞(ÄÄÄÄÄÅπΩ—ïÃËÅM—…•πú°âΩë‰ππΩ—ïÃÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅÕ—Ö—’Ã∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕ°Ö…ï°Ω±ëï…5Ö•πÖÕ°	Ö±ÖπçïÃ†§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕïÕÕ•Ω∏ÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê∞ÅΩ¡ïπ•πù}âÖ±Öπçî(ÄÄÄÄÄÄÅI=4ÅçÖÕ°}ÕïÕÕ•ΩπÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅÕ—Ö—’ÃÄÙÄù=A8ú(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅΩ¡ïπïë}Ö–ÅM(ÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅΩ¡ïπMïÕÕ•Ω∏ÄÙÅÕïÕÕ•Ω∏π…Ω›Õl¡tÏ(ÄÄÄÅçΩπÕ–ÅâÖ±ÖπçïÃËÅIïçΩ…êÒÕ—…•πú∞Åπ’µâï»¯ÄÙÅÏÅUMËÄ¿∞ÅËÄ¿ÅÙÏ(ÄÄÄÅ•òÄ†ÖΩ¡ïπMïÕÕ•Ω∏§Å…ï—’…∏ÅâÖ±ÖπçïÃÏ(ÄÄÄÅçΩπÕ–Å—Ω—Ö±ÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°ç’……ïπç‰∞ÄùUMú§ÅLÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°MÅ]!8Å—Â¡îÄÙÄù%8úÅQ!8ÅÖµΩ’π–Å1MÄµÖµΩ’π–Å9§∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅâÖ±Öπçî(ÄÄÄÄÄÄÅI=4ÅçÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅçÖÕ°}ÕïÕÕ•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9ÅçÖ—ïùΩ…‰Å9=PÅ%8Ä†ù1M}UI9Qú∞Äù1M}UI9Q}IU9ú§(ÄÄÄÄÄÄÅI=U@Å	dÅ=1M°ç’……ïπç‰∞ÄùUMú•Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅΩ¡ïπMïÕÕ•Ω∏π•ët∞(ÄÄÄÄ§Ï(ÄÄÄÅâÖ±ÖπçïÃπUMÄÙÅ9’µâï»°Ω¡ïπMïÕÕ•Ω∏πΩ¡ïπ•πù}âÖ±ÖπçîÄ¸¸Ä¿§Ï(ÄÄÄÅôΩ»Ä°çΩπÕ–Å…Ω‹ÅΩòÅ—Ω—Ö±Ãπ…Ω›Ã§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åç’……ïπç‰ÄÙÅM—…•πú°…Ω‹πç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅâÖ±ÖπçïÕmç’……ïπçÂtÄÙÅ9’µâï»†°âÖ±ÖπçïÕmç’……ïπçÂtÄ¸¸Ä¿§Ä¨Å9’µâï»°…Ω‹πâÖ±ÖπçîÄ¸¸Ä¿§§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅâÖ±ÖπçïÃÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕ°Ö…ï°Ω±ëï…’Ö…Öπ—ïïÖÕ°	Ö±ÖπçïÃ†§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ï’Ö…Öπ—ïïÖÕ°Mç°ïµÑ†§Ï(ÄÄÄÅçΩπÕ–Å—Ω—Ö±ÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°MÅ]!8Å—Â¡îÄÙÄù%8úÅQ!8ÅÖµΩ’π–Å1MÄµÖµΩ’π–Å9§∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅâÖ±Öπçî(ÄÄÄÄÄÄÅI=4Åù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅI=U@Å	dÅç’……ïπçÂÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅâÖ±ÖπçïÃËÅIïçΩ…êÒÕ—…•πú∞Åπ’µâï»¯ÄÙÅÏÅUMËÄ¿∞ÅËÄ¿ÅÙÏ(ÄÄÄÅôΩ»Ä°çΩπÕ–Å…Ω‹ÅΩòÅ—Ω—Ö±Ãπ…Ω›Ã§ÅÏ(ÄÄÄÄÄÅâÖ±ÖπçïÕmM—…•πú°…Ω‹πç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†•tÄÙÅ9’µâï»°…Ω‹πâÖ±ÖπçîÄ¸¸Ä¿§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅâÖ±ÖπçïÃÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—M°Ö…ï°Ω±ëï…AÖÂΩ’—	Ö—ç°Iïôï…ïπçî°ç±•ïπ–ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅçΩπÕ–ÅÂïÖ»ÄÙÅπï‹ÅÖ—î†§πùï—’±±eïÖ»†§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°5`†°MU	MQI%9°…ïôï…ïπçîÅI=4Äêƒ§§ËÈ%9P§∞Ä¿§Ä¨ÄƒÅLÅŸÖ±’î(ÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å…ïôï…ïπçîÅ1%-ÄêÕÄ∞(ÄÄÄÄÄÅmÅMA¥ëÌÂïÖ…Ù¥°l¿¥Ât¨•Ä∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅÅMA¥ëÌÂïÖ…Ù¥ïÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÅMA¥ëÌÂïÖ…Ù¥ëÌM—…•πú°…Ω›Õl¡t¸πŸÖ±’îÄ¸¸Äƒ§π¡ÖëM—Ö…–†–∞Äú¿ú•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—M°Ö…ï°Ω±ëï…AÖÂΩ’—Iïçï•¡—9’µâï»°ç±•ïπ–ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅçΩπÕ–ÅÂïÖ»ÄÙÅπï‹ÅÖ—î†§πùï—’±±eïÖ»†§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°5`†°MU	MQI%9°…ïçï•¡—}π’µâï»ÅI=4Äêƒ§§ËÈ%9P§∞Ä¿§Ä¨ÄƒÅLÅŸÖ±’î(ÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å…ïçï•¡—}π’µâï»Å1%-ÄêÕÄ∞(ÄÄÄÄÄÅmÅM!H¥ëÌÂïÖ…Ù¥°l¿¥Ât¨•Ä∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅÅM!H¥ëÌÂïÖ…Ù¥ïÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÅM!H¥ëÌÂïÖ…Ù¥ëÌM—…•πú°…Ω›Õl¡t¸πŸÖ±’îÄ¸¸Äƒ§π¡ÖëM—Ö…–†–∞Äú¿ú•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—M°Ö…ï°Ω±ëï…AÖÂΩ’—1•πï%ê°ç±•ïπ–ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅπï·—ŸÖ∞°¡ù}ùï—}Õï…•Ö±}Õï≈’ïπçî†ùÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃú∞Äù•êú§§ÅLÅŸÖ±’ïÄ∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å9’µâï»°…Ω›Õl¡t¸πŸÖ±’îÄ¸¸Ä¿§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅç…ïÖ—ïM°Ö…ï°Ω±ëï…AÖÂΩ’—%πQ…ÖπÕÖç—•Ω∏†(ÄÄÄÅç±•ïπ–ËÅAΩΩ±±•ïπ–∞(ÄÄÄÅÕΩ’…çïIïù•Õ—ï»ËÄù5%9}M úÅÄùUI9Q}M úÅÄù	9,ú∞(ÄÄÄÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–Å¡ÖÂΩ’—Ö—îÄÙÅM—…•πú°âΩë‰π¡ÖÂΩ’—}ëÖ—îÄ¸¸Åπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§§Ï(ÄÄÄÅçΩπÕ–Åç’……ïπç‰ÄÙÅM—…•πú°âΩë‰πç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ†ÖlùUMú∞Äùùtπ•πç±’ëïÃ°ç’……ïπç‰§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùïŸ•ÕîÅëîÅ±Ω–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅΩ¡ï…Ö—•ΩπQÂ¡îÄÙÅM—…•πú°âΩë‰πΩ¡ï…Ö—•Ωπ}—Â¡îÄ¸¸Äúú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ†ÖlùM!I!=1I}IAe59Pú∞ÄùM!I!=1I}UII9Q}=U9Pú∞Äù%MQI%	UQ%=8ú∞ÄùY9ú∞Äù=Q!Hùtπ•πç±’ëïÃ°Ω¡ï…Ö—•ΩπQÂ¡î§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùQÂ¡îÅêÅΩ√•…Ö—•Ω∏Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å…ïÖÕΩ∏ÄÙÅM—…•πú°âΩë‰π…ïÖÕΩ∏Ä¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅ•òÄ†Ö…ïÖÕΩ∏§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅµΩ—•òÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅëïôÖ’±—AÖÂµïπ—5ï—°ΩêÄÙÅÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄù	9,ú(ÄÄÄÄÄÄ¸Äù	9,ú(ÄÄÄÄÄÄËÅM—…•πú°âΩë‰πëïôÖ’±—}¡ÖÂµïπ—}µï—°ΩêÄ¸¸ÅâΩë‰π¡ÖÂµïπ—}µï—°ΩêÄ¸¸ÄùM ú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ†ÖlùM ú∞Äù	9,ú∞Äù5=	%1}5=9dùtπ•πç±’ëïÃ°ëïôÖ’±—AÖÂµïπ—5ï—°Ωê§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù5ΩëîÅëîÅ¡Ö•ïµïπ–Å¡Ö»Åì•ôÖ’–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å±•πïÕ%π¡’–ÄÙÅ……Ö‰π•Õ……Ö‰°âΩë‰π±•πïÃ§Ä¸ÅâΩë‰π±•πïÃÄËÅmtÏ(ÄÄÄÅ•òÄ†Ö±•πïÕ%π¡’–π±ïπù—†§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù‘ÅµΩ•πÃÅ’πîÅ±•ùπîÅÖç—•ΩππÖ•…îÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•Èïë1•πïÃÄÙÅ±•πïÕ%π¡’–πµÖ¿†°ïπ—…‰∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å…Ω‹ÄÙÅ—Â¡ïΩòÅïπ—…‰ÄÙÙÙÄùΩâ©ïç–úÄòòÅïπ—…‰Ä¸Åïπ—…‰ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÄËÅÌÙÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕ°Ö…ï°Ω±ëï…%êÄÙÅ9’µâï»°…Ω‹πÕ°Ö…ï°Ω±ëï…}•êÄ¸¸Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÖµΩ’π–ÄÙÅ9’µâï»°…Ω‹πÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—5ï—°ΩêÄÙÅÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄù	9,ú(ÄÄÄÄÄÄÄÄ¸Äù	9,ú(ÄÄÄÄÄÄÄÄËÅM—…•πú°…Ω‹π¡ÖÂµïπ—}µï—°ΩêÄ¸¸ÅëïôÖ’±—AÖÂµïπ—5ï—°Ωê§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅ•òÄ†Ö9’µâï»π•Õ•π•—î°Õ°Ö…ï°Ω±ëï…%ê§ÅÒÅÕ°Ö…ï°Ω±ëï…%êÄÙÄ¿§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Åç—•ΩππÖ•…îÅ•πŸÖ±•ëîÉÄÅ±ÑÅ±•ùπîÄëÌ•πëï‡Ä¨Ä≈ÙπÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ†Ö9’µâï»π•Õ•π•—î°ÖµΩ’π–§ÅÒÅÖµΩ’π–ÄÙÄ¿§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Å5Ωπ—Öπ–Å•πŸÖ±•ëîÉÄÅ±ÑÅ±•ùπîÄëÌ•πëï‡Ä¨Ä≈ÙπÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ†ÖlùM ú∞Äù	9,ú∞Äù5=	%1}5=9dùtπ•πç±’ëïÃ°¡ÖÂµïπ—5ï—°Ωê§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Å5ΩëîÅëîÅ¡Ö•ïµïπ–Å•πŸÖ±•ëîÉÄÅ±ÑÅ±•ùπîÄëÌ•πëï‡Ä¨Ä≈ÙπÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}•êËÅÕ°Ö…ï°Ω±ëï…%ê∞(ÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ9’µâï»°ÖµΩ’π–π—Ω•·ïê†»§§∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}µï—°ΩêËÅ¡ÖÂµïπ—5ï—°Ωê∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅM—…•πú°…Ω‹π…ïôï…ïπçîÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÄÄÅπΩ—ïÃËÅM—…•πú°…Ω‹ππΩ—ïÃÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï((ÄÄÄÅçΩπÕ–Åë’¡±•çÖ—îÄÙÅπΩ…µÖ±•Èïë1•πïÃπô•πê†°±•πî∞Å•πëï‡§ÄÙ¯ÅπΩ…µÖ±•Èïë1•πïÃπô•πë%πëï‡†°Ω—°ï»§ÄÙ¯ÅΩ—°ï»πÕ°Ö…ï°Ω±ëï…}•êÄÙÙÙÅ±•πîπÕ°Ö…ï°Ω±ëï…}•ê§ÄÑÙÙÅ•πëï‡§Ï(ÄÄÄÅ•òÄ°ë’¡±•çÖ—î§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1îÅ∑©µîÅÖç—•ΩππÖ•…îÅπîÅ¡ï’–Å¡ÖÃÅÖ¡¡Ö…áπ—…îÅëï’‡ÅôΩ•ÃÅëÖπÃÅ±îÅ∑©µîÅ±Ω–∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Å—Ω—Ö±µΩ’π–ÄÙÅ9’µâï»°πΩ…µÖ±•Èïë1•πïÃπ…ïë’çî†°Õ’¥∞Å±•πî§ÄÙ¯ÅÕ’¥Ä¨Å±•πîπÖµΩ’π–∞Ä¿§π—Ω•·ïê†»§§Ï(ÄÄÄÅçΩπÕ–Å•ëïµ¡Ω—ïπçÂ-ï‰ÄÙÅM—…•πú†(ÄÄÄÄÄÅâΩë‰π•ëïµ¡Ω—ïπçÂ}≠ï‰(ÄÄÄÄÄÄ¸¸Ål(ÄÄÄÄÄÄÄÄùM!I!=1I}Ae=UPú∞(ÄÄÄÄÄÄÄÅÕΩ’…çïIïù•Õ—ï»∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ¡ÖÂΩ’—Ö—î∞(ÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÅΩ¡ï…Ö—•ΩπQÂ¡î∞(ÄÄÄÄÄÄÄÅ—Ω—Ö±µΩ’π–π—Ω•·ïê†»§∞(ÄÄÄÄÄÄÄÅπΩ…µÖ±•Èïë1•πïÃπµÖ¿†°±•πî§ÄÙ¯ÅÄëÌ±•πîπÕ°Ö…ï°Ω±ëï…}•ëÙËëÌ±•πîπÖµΩ’π–π—Ω•·ïê†»•ıÄ§π©Ω•∏†ùú§∞(ÄÄÄÄÄÅtπ©Ω•∏†úËú§∞(ÄÄÄÄ§Ï((ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†ùM1PÅ¡ù}ÖëŸ•ÕΩ…Â}·Öç—}±Ωç¨°°ÖÕ°—ï·–†êƒ§§ú∞ÅmÅÕ°Ö…ï°Ω±ëï»µ¡ÖÂΩ’–ËëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙËëÌÕΩ’…çïIïù•Õ—ï…ÙËëÌ•ëïµ¡Ω—ïπçÂ-ïÂıÅt§Ï(ÄÄÄÅçΩπÕ–Åï·•Õ—•πù	Ö—ç†ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê(ÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å•ëïµ¡Ω—ïπçÂ}≠ï‰ÄÙÄê»(ÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å•ëïµ¡Ω—ïπçÂ-ïÂt∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°ï·•Õ—•πù	Ö—ç†π…Ω›Õl¡t§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏Å—°•ÃπÕ°Ö…ï°Ω±ëï…AÖÂΩ’—	Ö—ç†°9’µâï»°ï·•Õ—•πù	Ö—ç†π…Ω›Õl¡tπ•ê§§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–ÅÕ°Ö…ï°Ω±ëï…%ëÃÄÙÅπΩ…µÖ±•Èïë1•πïÃπµÖ¿†°±•πî§ÄÙ¯Å±•πîπÕ°Ö…ï°Ω±ëï…}•ê§Ï(ÄÄÄÅçΩπÕ–ÅÕ°Ö…ï°Ω±ëï…IΩ›ÃÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê∞Åë•Õ¡±ÖÂ}πÖµî∞ÅÕ°Ö…ï°Ω±ëï…}—Â¡î∞ÅÕ—Ö—’Ã(ÄÄÄÄÄÄÅI=4ÅÕ°Ö…ï°Ω±ëï…Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Å•êÄÙÅ9d†ê»ËÈ%9Qmt•Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅÕ°Ö…ï°Ω±ëï…%ëÕt∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°Õ°Ö…ï°Ω±ëï…IΩ›Ãπ…Ω›Ãπ±ïπù—†ÄÑÙÙÅÕ°Ö…ï°Ω±ëï…%ëÃπ±ïπù—†§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùU∏ÅΩ‘Å¡±’Õ•ï’…ÃÅÖç—•ΩππÖ•…ïÃÅÕΩπ–Å•π—…Ω’ŸÖâ±ïÃÅëÖπÃÅçï——îÅΩ…ùÖπ•ÕÖ—•Ω∏∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÕ°Ö…ï°Ω±ëï…5Ö¿ÄÙÅπï‹Å5Ö¿°Õ°Ö…ï°Ω±ëï…IΩ›Ãπ…Ω›ÃπµÖ¿†°…Ω‹§ÄÙ¯Åm9’µâï»°…Ω‹π•ê§∞Å…Ω›t§§Ï(ÄÄÄÅôΩ»Ä°çΩπÕ–Å±•πîÅΩòÅπΩ…µÖ±•Èïë1•πïÃ§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕ°Ö…ï°Ω±ëï»ÄÙÅÕ°Ö…ï°Ω±ëï…5Ö¿πùï–°±•πîπÕ°Ö…ï°Ω±ëï…}•ê§Ï(ÄÄÄÄÄÅ•òÄ†ÖÕ°Ö…ï°Ω±ëï»§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùç—•ΩππÖ•…îÅ•π—…Ω’ŸÖâ±î∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°M—…•πú°Õ°Ö…ï°Ω±ëï»πÕ—Ö—’Ã§ÄÑÙÙÄùQ%Yú§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏°Å0ÅÖç—•ΩππÖ•…îÄëÌÕ°Ö…ï°Ω±ëï»πë•Õ¡±ÖÂ}πÖµïÙÅ∏ÅïÕ–Å¡ÖÃÅÖç—•òπÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ((ÄÄÄÅ±ï–ÅÖŸÖ•±Öâ±ï	Ö±ÖπçîÄÙÄ¿Ï(ÄÄÄÅ•òÄ°ÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄù	9,ú§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ï	Öπ≠Mç°ïµÑ†§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅâÖπ≠ççΩ’π–ÄÙÅÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄù	9,ú(ÄÄÄÄÄÄ¸ÅÖ›Ö•–Å—°•ÃπŸÖ±•ëÖ—ï	Öπ≠ççΩ’π—Ω…M°Ö…ï°Ω±ëï…AÖÂΩ’–°ç±•ïπ–∞Å9’µâï»°âΩë‰πâÖπ≠}ÖççΩ’π—}•êÄ¸¸Ä¿§∞Åç’……ïπç‰§(ÄÄÄÄÄÄËÅπ’±∞Ï(ÄÄÄÅ±ï–Åï·ç°ÖπùïIÖ—ïUÕïêËÅπ’µâï»ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÅ±ï–Åï·ç°ÖπùïIÖ—ïÖ—îËÅÕ—…•πúÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÅ•òÄ°ç’……ïπç‰ÄÙÙÙÄùú§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åï·ç°ÖπùïIÖ—îÄÙÅÖ›Ö•–Å—°•Ãπï·ç°ÖπùïIÖ—î†§Ï(ÄÄÄÄÄÅï·ç°ÖπùïIÖ—ïUÕïêÄÙÅ9’µâï»°âΩë‰πï·ç°Öπùï}…Ö—ï}’ÕïêÄ¸¸Åï·ç°ÖπùïIÖ—î¸π…Ö—îÄ¸¸Ä¿§ÅÒÅπ’±∞Ï(ÄÄÄÄÄÅï·ç°ÖπùïIÖ—ïÖ—îÄÙÅM—…•πú°âΩë‰πï·ç°Öπùï}…Ö—ï}ëÖ—îÄ¸¸Åï·ç°ÖπùïIÖ—î¸πïôôïç—•ŸïÖ—îÄ¸¸Äúú§ÅÒÅπ’±∞Ï(ÄÄÄÄÄÅ•òÄ†Öï·ç°ÖπùïIÖ—ïUÕïêÅÒÅï·ç°ÖπùïIÖ—ïUÕïêÄÙÄ¿§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùQÖ’‡ÅëîÅç°ÖπùîÅ…ï≈’•ÃÅ¡Ω’»Å’πîÅΩ√•…Ö—•Ω∏Åï∏Å∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄù5%9}M ú§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕïÕÕ•Ω∏ÄÙÅÖ›Ö•–Å—°•ÃπΩ¡ïπMïÕÕ•Ω∏°ç±•ïπ–§Ï(ÄÄÄÄÄÅçΩπÕ–Å—Ω—Ö±ÃÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ=1M°ç’……ïπç‰∞ÄùUMú§ÅLÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°MÅ]!8Å—Â¡îÄÙÄù%8úÅQ!8ÅÖµΩ’π–Å1MÄµÖµΩ’π–Å9§∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅâÖ±Öπçî(ÄÄÄÄÄÄÄÄÅI=4ÅçÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9ÅçÖÕ°}ÕïÕÕ•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ9ÅçÖ—ïùΩ…‰Å9=PÅ%8Ä†ù1M}UI9Qú∞Äù1M}UI9Q}IU9ú§(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅ=1M°ç’……ïπç‰∞ÄùUMú•Ä∞(ÄÄÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅÕïÕÕ•Ω∏π•ët∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÖŸÖ•±Öâ±ï	Ö±ÖπçîÄÙÅç’……ïπç‰ÄÙÙÙÄùUMúÄ¸Å9’µâï»°ÕïÕÕ•Ω∏πΩ¡ïπ•πù}âÖ±ÖπçîÄ¸¸Ä¿§ÄËÄ¿Ï(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Å…Ω‹ÅΩòÅ—Ω—Ö±Ãπ…Ω›Ã§ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°M—…•πú°…Ω‹πç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÅç’……ïπç‰§ÅÏ(ÄÄÄÄÄÄÄÄÄÅÖŸÖ•±Öâ±ï	Ö±ÖπçîÄ¨ÙÅ9’µâï»°…Ω‹πâÖ±ÖπçîÄ¸¸Ä¿§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÙ(ÄÄÄÅÙÅï±ÕîÅ•òÄ°ÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄùUI9Q}M ú§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ï’Ö…Öπ—ïïÖÕ°Mç°ïµÑ†§Ï(ÄÄÄÄÄÅçΩπÕ–Å—Ω—Ö±ÃÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°MÅ]!8Å—Â¡îÄÙÄù%8úÅQ!8ÅÖµΩ’π–Å1MÄµÖµΩ’π–Å9§∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅâÖ±Öπçî(ÄÄÄÄÄÄÄÄÅI=4Åù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅç’……ïπçÂÄ∞(ÄÄÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Å…Ω‹ÅΩòÅ—Ω—Ö±Ãπ…Ω›Ã§ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°M—…•πú°…Ω‹πç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÅç’……ïπç‰§ÅÏ(ÄÄÄÄÄÄÄÄÄÅÖŸÖ•±Öâ±ï	Ö±ÖπçîÄÙÅ9’µâï»°…Ω‹πâÖ±ÖπçîÄ¸¸Ä¿§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÙ(ÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÅÖŸÖ•±Öâ±ï	Ö±ÖπçîÄÙÅ9’µâï»°âÖπ≠ççΩ’π–¸πç’……ïπ—}âÖ±ÖπçîÄ¸¸Ä¿§Ï(ÄÄÄÅÙ((ÄÄÄÅ•òÄ°—Ω—Ö±µΩ’π–Ä¯Å9’µâï»°ÖŸÖ•±Öâ±ï	Ö±Öπçîπ—Ω•·ïê†»§§Ä¨Ä¿∏¿¿¿ƒ§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1îÅ—Ω—Ö∞Åë‘Å±Ω–Åì•¡ÖÕÕîÅ±îÅÕΩ±ëîÅë•Õ¡Ωπ•â±îÅëÖπÃÅ±ÑÅëïŸ•ÕîÅç°Ω•Õ•î∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–ÅâÖ—ç°Iïôï…ïπçîÄÙÅM—…•πú°âΩë‰π…ïôï…ïπçîÄ¸¸Äúú§π—…•¥†§ÅÒÅÖ›Ö•–Å—°•Ãππï·—M°Ö…ï°Ω±ëï…AÖÂΩ’—	Ö—ç°Iïôï…ïπçî°ç±•ïπ–§Ï(ÄÄÄÅçΩπÕ–ÅâÖ—ç°%πÕï…–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃ(ÄÄÄÄÄÄÄÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞ÅÕΩ’…çï}…ïù•Õ—ï»∞Åç’……ïπç‰∞Å¡ÖÂΩ’—}ëÖ—î∞ÅΩ¡ï…Ö—•Ωπ}—Â¡î∞Å…ïÖÕΩ∏∞Å…ïôï…ïπçî∞ÅπΩ—ïÃ∞ÅâÖπ≠}ÖççΩ’π—}•ê∞(ÄÄÄÄÄÄÄÄÅ—Ω—Ö±}ÖµΩ’π–∞Åâïπïô•ç•Ö…Â}çΩ’π–∞ÅÕ—Ö—’Ã∞Å•ëïµ¡Ω—ïπçÂ}≠ï‰∞Åç…ïÖ—ïë}â‰∞Åç…ïÖ—ïë}Ö–∞ÅŸÖ±•ëÖ—ïë}Ö–§(ÄÄÄÄÄÄÅY1UL(ÄÄÄÄÄÄÄÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞Äê‡∞Äê‰∞(ÄÄÄÄÄÄÄÄÄêƒ¿∞Äêƒƒ∞ÄùY1%Qú∞Äêƒ»∞ÄêƒÃ∞Å9=\†§∞Å9=\†§§(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅÕΩ’…çïIïù•Õ—ï»∞(ÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÅ¡ÖÂΩ’—Ö—î∞(ÄÄÄÄÄÄÄÅΩ¡ï…Ö—•ΩπQÂ¡î∞(ÄÄÄÄÄÄÄÅ…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÅâÖ—ç°Iïôï…ïπçî∞(ÄÄÄÄÄÄÄÅM—…•πú°âΩë‰ππΩ—ïÃÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÄÄÅâÖπ≠ççΩ’π–Ä¸Å9’µâï»°âÖπ≠ççΩ’π–π•ê§ÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÅ—Ω—Ö±µΩ’π–∞(ÄÄÄÄÄÄÄÅπΩ…µÖ±•Èïë1•πïÃπ±ïπù—†∞(ÄÄÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ-ï‰∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅâÖ—ç†ÄÙÅ…ï≈’•…ïIΩ‹°âÖ—ç°%πÕï…–π…Ω›Õl¡t∞ÄùM°Ö…ï°Ω±ëï»Å¡ÖÂΩ’–ÅâÖ—ç†ú§Ï((ÄÄÄÅçΩπÕ–Åç…ïÖ—ïë1•πïÃËÅ……Ö‰ÒIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯¯ÄÙÅmtÏ(ÄÄÄÅôΩ»Ä°çΩπÕ–Å±•πîÅΩòÅπΩ…µÖ±•Èïë1•πïÃ§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕ°Ö…ï°Ω±ëï»ÄÙÅÕ°Ö…ï°Ω±ëï…5Ö¿πùï–°±•πîπÕ°Ö…ï°Ω±ëï…}•ê§ÑÏ(ÄÄÄÄÄÅçΩπÕ–Å…ïçï•¡—9’µâï»ÄÙÅÖ›Ö•–Å—°•Ãππï·—M°Ö…ï°Ω±ëï…AÖÂΩ’—Iïçï•¡—9’µâï»°ç±•ïπ–§Ï(ÄÄÄÄÄÅ±ï–ÅçÖÕ°5ΩŸïµïπ—%êËÅπ’µâï»ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅ±ï–Åù’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%êËÅπ’µâï»ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅ±ï–ÅâÖπ≠Q…ÖπÕÖç—•Ωπ%êËÅπ’µâï»ÅÅπ’±∞ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅ•òÄ°ÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄù5%9}M ú§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅµΩŸïµïπ–ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ïÖÕ°5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅ—Â¡îËÄù=UPú∞(ÄÄÄÄÄÄÄÄÄÅçÖ—ïùΩ…‰ËÄùM!I!=1I}Ae=UPú∞(ÄÄÄÄÄÄÄÄÄÅ±Öâï∞ËÅÅIïµâΩ’…Õïµïπ–ÅÖç—•ΩππÖ•…îÄ¥ÄëÌÕ°Ö…ï°Ω±ëï»πë•Õ¡±ÖÂ}πÖµïıÄ∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ±•πîπÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—îËÅ¡ÖÂΩ’—Ö—î∞(ÄÄÄÄÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÅ…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅ±•πîπ…ïôï…ïπçîÄ¸¸ÅâÖ—ç°Iïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}’ÕïêËÅï·ç°ÖπùïIÖ—ïUÕïê∞(ÄÄÄÄÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}ëÖ—îËÅï·ç°ÖπùïIÖ—ïÖ—î∞(ÄÄÄÄÄÄÄÄÄÅï≈’•ŸÖ±ïπ—}’ÕêËÅç’……ïπç‰ÄÙÙÙÄùúÄòòÅï·ç°ÖπùïIÖ—ïUÕïêÄ¸Å9’µâï»†°±•πîπÖµΩ’π–ÄºÅï·ç°ÖπùïIÖ—ïUÕïê§π—Ω•·ïê†»§§ÄËÅ±•πîπÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅÕ’¡¡±•ï»ËÅÕ°Ö…ï°Ω±ëï»πë•Õ¡±ÖÂ}πÖµî∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÅçÖÕ°5ΩŸïµïπ—%êÄÙÅ9’µâï»°µΩŸïµïπ–π•ê§Ï(ÄÄÄÄÄÅÙÅï±ÕîÅ•òÄ°ÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄùUI9Q}M ú§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅµΩŸïµïπ–ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ï’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ—}—Â¡îËÄùM!I!=1I}Ae=UPú∞(ÄÄÄÄÄÄÄÄÄÅ—Â¡îËÄù=UPú∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ±•πîπÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÅï≈’•ŸÖ±ïπ—}’ÕêËÅç’……ïπç‰ÄÙÙÙÄùúÄòòÅï·ç°ÖπùïIÖ—ïUÕïêÄ¸Å9’µâï»†°±•πîπÖµΩ’π–ÄºÅï·ç°ÖπùïIÖ—ïUÕïê§π—Ω•·ïê†»§§ÄËÅ±•πîπÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—îËÅ¡ÖÂΩ’—Ö—î∞(ÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅ±•πîπ…ïôï…ïπçîÄ¸¸ÅâÖ—ç°Iïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅ…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄÄÅπΩ—ïÃËÅ±•πîππΩ—ïÃ∞(ÄÄÄÄÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}’ÕïêËÅï·ç°ÖπùïIÖ—ïUÕïê∞(ÄÄÄÄÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}ëÖ—îËÅï·ç°ÖπùïIÖ—ïÖ—î∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÅù’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%êÄÙÅ9’µâï»°µΩŸïµïπ–π•ê§Ï(ÄÄÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å±•πï%êÄÙÅÖ›Ö•–Å—°•Ãππï·—M°Ö…ï°Ω±ëï…AÖÂΩ’—1•πï%ê°ç±•ïπ–§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–Å—…ÖπÕÖç—•ΩπQÂ¡îÄÙÅÖ›Ö•–Å—°•ÃπâÖπ≠’Ö…Öπ—ïïQ…ÖπÕÖç—•ΩπQÂ¡î°ç±•ïπ–∞ÄùM!I!=1I}Ae=UPú§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–ÅâÖπ≠Q…ÖπÕÖç—•Ω∏ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ï’Ö…Öπ—ïï	Öπ≠Q…ÖπÕÖç—•Ωπ%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅâÖπ≠ççΩ’π–ËÅâÖπ≠ççΩ’π–ÅÖÃÅÏÅ•êËÅπ’µâï»ÏÅâÖπ≠}πÖµî¸ËÅÕ—…•πúÅÅπ’±∞ÏÅÖççΩ’π—}πÖµî¸ËÅÕ—…•πúÅÅπ’±∞ÏÅç’……ïπç‰ËÅÕ—…•πúÅÙ∞(ÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ±•πîπÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÅ…ïçï•¡—9’µâï»∞(ÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅ±•πîπ…ïôï…ïπçîÄ¸¸ÅâÖ—ç°Iïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅç…ïÖ—ïë	‰ËÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ—…ÖπÕÖç—•ΩπQÂ¡î∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çï5Ωë’±îËÄùM!I!=1I}Ae=UQLú∞(ÄÄÄÄÄÄÄÄÄÅë•…ïç—•Ω∏ËÄù=UPú∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çïπ—•—ÂQÂ¡îËÄùM!I!=1I}Ae=UQ}1%9ú∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çïπ—•—Â%êËÅ±•πï%ê∞(ÄÄÄÄÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÄùIïµâΩ’…Õïµïπ–ÅÖç—•ΩππÖ•…îú∞(ÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—9ÖµîËÅÕ°Ö…ï°Ω±ëï»πë•Õ¡±ÖÂ}πÖµî∞(ÄÄÄÄÄÄÄÄÄÅ±ïÖÕï9’µâï»ËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ’π•—9’µâï»ËÅπ’±∞∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÅâÖπ≠Q…ÖπÕÖç—•Ωπ%êÄÙÅ9’µâï»†°âÖπ≠Q…ÖπÕÖç—•Ω∏ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§π•êÄ¸¸Ä¿§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–Å•πÕï…—ïë1•πîÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃ(ÄÄÄÄÄÄÄÄÄÄÄÄ°•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê∞ÅâÖ—ç°}•ê∞ÅÕ°Ö…ï°Ω±ëï…}•ê∞ÅÖµΩ’π–∞Åç’……ïπç‰∞Å¡ÖÂµïπ—}µï—°Ωê∞Å…ïôï…ïπçî∞ÅπΩ—ïÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅçÖÕ°}µΩŸïµïπ—}•ê∞Åù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—}•ê∞ÅâÖπ≠}—…ÖπÕÖç—•Ωπ}•ê∞Å…ïçï•¡—}π’µâï»§(ÄÄÄÄÄÄÄÄÄÄÅY1UL(ÄÄÄÄÄÄÄÄÄÄÄÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞Äê‡∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄê‰∞Äêƒ¿∞Äêƒƒ∞Äêƒ»∞ÄêƒÃ§(ÄÄÄÄÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÄÄÄÄÅ±•πï%ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÄÄÄÄÅâÖ—ç†π•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅ±•πîπÕ°Ö…ï°Ω±ëï…}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅ±•πîπÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄù	9,ú∞(ÄÄÄÄÄÄÄÄÄÄÄÅ±•πîπ…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÅ±•πîππΩ—ïÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÄÄÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÄÄÅâÖπ≠Q…ÖπÕÖç—•Ωπ%ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïçï•¡—9’µâï»∞(ÄÄÄÄÄÄÄÄÄÅt∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅç…ïÖ—ïë1•πïÃπ¡’Õ†°Ï(ÄÄÄÄÄÄÄÄÄÄ∏∏π•πÕï…—ïë1•πîπ…Ω›Õl¡t∞(ÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}πÖµîËÅÕ°Ö…ï°Ω±ëï»πë•Õ¡±ÖÂ}πÖµî∞(ÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}—Â¡îËÅÕ°Ö…ï°Ω±ëï»πÕ°Ö…ï°Ω±ëï…}—Â¡î∞(ÄÄÄÄÄÄÄÄÄÅâÖπ≠}—…ÖπÕÖç—•Ωπ}•êËÅâÖπ≠Q…ÖπÕÖç—•Ωπ%ê∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÅçΩπ—•π’îÏ(ÄÄÄÄÄÅÙ((ÄÄÄÄÄÅçΩπÕ–Å•πÕï…—ïë1•πîÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}±•πïÃ(ÄÄÄÄÄÄÄÄÄÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞ÅâÖ—ç°}•ê∞ÅÕ°Ö…ï°Ω±ëï…}•ê∞ÅÖµΩ’π–∞Åç’……ïπç‰∞Å¡ÖÂµïπ—}µï—°Ωê∞Å…ïôï…ïπçî∞ÅπΩ—ïÃ∞(ÄÄÄÄÄÄÄÄÄÄÅçÖÕ°}µΩŸïµïπ—}•ê∞Åù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—}•ê∞ÅâÖπ≠}—…ÖπÕÖç—•Ωπ}•ê∞Å…ïçï•¡—}π’µâï»§(ÄÄÄÄÄÄÄÄÅY1UL(ÄÄÄÄÄÄÄÄÄÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞Äê‡∞(ÄÄÄÄÄÄÄÄÄÄÄê‰∞Äêƒ¿∞Äêƒƒ∞Äêƒ»§(ÄÄÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÄÄÅâÖ—ç†π•ê∞(ÄÄÄÄÄÄÄÄÄÅ±•πîπÕ°Ö…ï°Ω±ëï…}•ê∞(ÄÄÄÄÄÄÄÄÄÅ±•πîπÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÅ±•πîπ¡ÖÂµïπ—}µï—°Ωê∞(ÄÄÄÄÄÄÄÄÄÅ±•πîπ…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅ±•πîππΩ—ïÃ∞(ÄÄÄÄÄÄÄÄÄÅçÖÕ°5ΩŸïµïπ—%ê∞(ÄÄÄÄÄÄÄÄÄÅù’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%ê∞(ÄÄÄÄÄÄÄÄÄÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ…ïçï•¡—9’µâï»∞(ÄÄÄÄÄÄÄÅt∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅç…ïÖ—ïë1•πïÃπ¡’Õ†°Ï(ÄÄÄÄÄÄÄÄ∏∏π•πÕï…—ïë1•πîπ…Ω›Õl¡t∞(ÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}πÖµîËÅÕ°Ö…ï°Ω±ëï»πë•Õ¡±ÖÂ}πÖµî∞(ÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}—Â¡îËÅÕ°Ö…ï°Ω±ëï»πÕ°Ö…ï°Ω±ëï…}—Â¡î∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ((ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÖ’ë•—}±ΩùÃÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å’Õï…}•ê∞ÅÖç—•Ω∏∞Å…ïÕΩ’…çî∞Å…ïÕΩ’…çï}•ê∞Åµï—°Ωê∞Å¡Ö—†∞ÅÕ—Ö—’Õ}çΩëî∞Åµï—ÖëÖ—Ñ§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄùM!I!=1I}Ae=UQ}Y1%Qú∞ÄùÕ°Ö…ï°Ω±ëï…}¡ÖÂΩ’—}âÖ—ç°ïÃú∞ÄêÃ∞ÄùA=MPú∞Äê–∞Ä»¿ƒ∞Äê‘ËÈ)M=9•Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅM—…•πú°âÖ—ç†π•ê§∞(ÄÄÄÄÄÄÄÅÕΩ’…çïIïù•Õ—ï»ÄÙÙÙÄù5%9}M úÄ¸ÄúΩÖ¡§ΩçÖÕ†ΩÕ°Ö…ï°Ω±ëï»µ¡ÖÂΩ’—ÃúÄËÄúΩÖ¡§Ωù’Ö…Öπ—ïîµçÖÕ†ΩÕ°Ö…ï°Ω±ëï»µ¡ÖÂΩ’—Ãú∞(ÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°Ï(ÄÄÄÄÄÄÄÄÄÅâÖ—ç°}•êËÅâÖ—ç†π•ê∞(ÄÄÄÄÄÄÄÄÄÅÕΩ’…çï}…ïù•Õ—ï»ËÅÕΩ’…çïIïù•Õ—ï»∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÅ—Ω—Ö±}ÖµΩ’π–ËÅ—Ω—Ö±µΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅâïπïô•ç•Ö…Â}çΩ’π–ËÅπΩ…µÖ±•Èïë1•πïÃπ±ïπù—†∞(ÄÄÄÄÄÄÄÄÄÅΩ¡ï…Ö—•Ωπ}—Â¡îËÅΩ¡ï…Ö—•ΩπQÂ¡î∞(ÄÄÄÄÄÄÄÄÄÅ…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄÄÅ±•πïÃËÅç…ïÖ—ïë1•πïÃπµÖ¿†°±•πî§ÄÙ¯Ä°Ï(ÄÄÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}•êËÅ±•πîπÕ°Ö…ï°Ω±ëï…}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅÕ°Ö…ï°Ω±ëï…}πÖµîËÅ±•πîπÕ°Ö…ï°Ω±ëï…}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ±•πîπÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÅç’……ïπç‰ËÅ±•πîπç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïçï•¡—}π’µâï»ËÅ±•πîπ…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÅçÖÕ°}µΩŸïµïπ—}•êËÅ±•πîπçÖÕ°}µΩŸïµïπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—}•êËÅ±•πîπù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÅÙ§§∞(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï((ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄ∏∏πâÖ—ç†∞(ÄÄÄÄÄÅ±•πïÃËÅç…ïÖ—ïë1•πïÃ∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅçΩµ¡’—ïQïπÖπ—…ïë•—	Ö±ÖπçïM—Ö—î°Ω…•ù•πÖ±µΩ’π–ËÅπ’µâï»∞ÅÖ±±ΩçÖ—•ΩπÕQΩ—Ö∞ËÅπ’µâï»∞Å…ïô’πëÕQΩ—Ö∞ËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–Å…ïµÖ•π•πùµΩ’π–ÄÙÅ9’µâï»°5Ö—†πµÖ‡°Ω…•ù•πÖ±µΩ’π–Ä¥ÅÖ±±ΩçÖ—•ΩπÕQΩ—Ö∞Ä¥Å…ïô’πëÕQΩ—Ö∞∞Ä¿§π—Ω•·ïê†»§§Ï(ÄÄÄÅçΩπÕ–Å°ÖÕ±±ΩçÖ—•ΩπÃÄÙÅÖ±±ΩçÖ—•ΩπÕQΩ—Ö∞Ä¯Ä¿Ï(ÄÄÄÅçΩπÕ–Å°ÖÕIïô’πëÃÄÙÅ…ïô’πëÕQΩ—Ö∞Ä¯Ä¿Ï(ÄÄÄÅçΩπÕ–Åπï·—M—Ö—’ÃÄÙÅ°ÖÕ±±ΩçÖ—•ΩπÃ(ÄÄÄÄÄÄ¸Ä°…ïµÖ•π•πùµΩ’π–ÄÙÄ¿Ä¸ÄùUMúÄËÄùAIQ%11e}UMú§(ÄÄÄÄÄÄËÅ°ÖÕIïô’πëÃ(ÄÄÄÄÄÄÄÄ¸Ä°…ïµÖ•π•πùµΩ’π–ÄÙÄ¿Ä¸ÄùIU9úÄËÄùAIQ%11e}UMú§(ÄÄÄÄÄÄÄÄËÄùY%1	1úÏ(ÄÄÄÅ…ï—’…∏ÅÏÅ…ïµÖ•π•πùµΩ’π–∞Åπï·—M—Ö—’ÃÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ±•π≠ïëQïπÖπ—…ïë•—ÖÕ°5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Åç…ïë•—%êËÅπ’µâï»∞Å¡ÖÂµïπ—%êËÅπ’µâï»ÅÅπ’±∞§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅç¥∏®∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°M1PÅçÃπÕ—Ö—’ÃÅI=4ÅçÖÕ°}ÕïÕÕ•ΩπÃÅçÃÅ]!IÅçÃπ•êÄÙÅç¥πçÖÕ°}ÕïÕÕ•Ωπ}•ê§ÅLÅÕïÕÕ•Ωπ}Õ—Ö—’Ã(ÄÄÄÄÄÄÅI=4ÅçÖÕ°}µΩŸïµïπ—ÃÅç¥(ÄÄÄÄÄÄÅ]!IÅç¥πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Åç¥πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Ä°ç¥π—ïπÖπ—}ç…ïë•—}•êÄÙÄê»Å=HÄ†êÃËÈ%9PÅ%LÅ9=PÅ9U10Å9Åç¥π¡ÖÂµïπ—}•êÄÙÄêÃËÈ%9P§§(ÄÄÄÄÄÄÅ=IHÅ	dÅMÅ]!8Åç¥π—ïπÖπ—}ç…ïë•—}•êÄÙÄê»ÅQ!8Ä¿Å1MÄƒÅ9∞Åç¥π•êÅM(ÄÄÄÄÄÄÅ1%5%PÄƒ(ÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Åç…ïë•—%ê∞Å¡ÖÂµïπ—%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡tÄ¸¸Åπ’±∞Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ’¡ëÖ—ïQïπÖπ—…ïë•—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å•êËÅπ’µâï»∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–Å…ïÖÕΩ∏ÄÙÅM—…•πú°âΩë‰π…ïÖÕΩ∏Ä¸¸ÅâΩë‰πçΩ……ïç—•Ωπ}…ïÖÕΩ∏Ä¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅ•òÄ†Ö…ïÖÕΩ∏§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅµΩ—•òÅëîÅçΩ……ïç—•Ω∏ÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Åç…ïë•—IïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—Ã(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Åç…ïë•–ÄÙÅ…ï≈’•…ïIΩ‹°ç…ïë•—IïÕ’±–π…Ω›Õl¡t∞ÄùQïπÖπ–Åç…ïë•–ú§ÅÖÃÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯Ï((ÄÄÄÅ•òÄ°âΩë‰πç’……ïπç‰ÄÑÙÙÅ’πëïô•πïêÄòòÅM—…•πú°âΩë‰πç’……ïπç‰Ä¸¸Äúú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÅM—…•πú°ç…ïë•–πç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1ÑÅëïŸ•ÕîÅë‘ÅçÀ•ë•–Å±ΩçÖ—Ö•…îÅπîÅ¡ï’–Å¡ÖÃÉ©—…îÅµΩë•ôß•î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°âΩë‰π—ïπÖπ—}•êÄÑÙÙÅ’πëïô•πïêÄòòÅ9’µâï»°âΩë‰π—ïπÖπ—}•êÄ¸¸Ä¿§ÄÑÙÙÅ9’µâï»°ç…ïë•–π—ïπÖπ—}•êÄ¸¸Ä¿§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅ±ΩçÖ—Ö•…îÅë‘ÅçÀ•ë•–Å±ΩçÖ—Ö•…îÅπîÅ¡ï’–Å¡ÖÃÉ©—…îÅµΩë•ôß§∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°âΩë‰πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÑÙÙÅ’πëïô•πïêÄòòÅ9’µâï»°âΩë‰πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄ¸¸Ä¿§ÄÑÙÙÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù0ÅΩ…ùÖπ•ÕÖ—•Ω∏Åë‘ÅçÀ•ë•–Å±ΩçÖ—Ö•…îÅπîÅ¡ï’–Å¡ÖÃÉ©—…îÅµΩë•ôß•î∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—%êÄÙÅ9’µâï»°ç…ïë•–πÕΩ’…çï}¡ÖÂµïπ—}•êÄ¸¸Ä¿§ÅÒÅπ’±∞Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—IïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®(ÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÅm¡ÖÂµïπ—%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ–ÄÙÅ…ï≈’•…ïIΩ‹°¡ÖÂµïπ—IïÕ’±–π…Ω›Õl¡t∞ÄùQïπÖπ–Åç…ïë•–Å¡ÖÂµïπ–ú§ÅÖÃÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯Ï((ÄÄÄÅçΩπÕ–ÅÖ±±ΩçÖ—•ΩπM—Ö—ÃÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=U9P†®§ËÈ%9PÅLÅçΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°ÖµΩ’π—}Ö¡¡±•ïê§∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅ—Ω—Ö∞(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—}Ö±±ΩçÖ—•ΩπÃ(ÄÄÄÄÄÄÅ]!IÅ—ïπÖπ—}ç…ïë•—}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å…ïô’πëM—Ö—ÃÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=U9P†®§ËÈ%9PÅLÅçΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°ÖµΩ’π–§∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅ—Ω—Ö∞(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—}…ïô’πëÃ(ÄÄÄÄÄÄÅ]!IÅ—ïπÖπ—}ç…ïë•—}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï((ÄÄÄÅçΩπÕ–ÅÖ±±ΩçÖ—•ΩπΩ’π–ÄÙÅ9’µâï»°Ö±±ΩçÖ—•ΩπM—Ö—Ãπ…Ω›Õl¡t¸πçΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅÖ±±ΩçÖ—•ΩπÕQΩ—Ö∞ÄÙÅ9’µâï»°Ö±±ΩçÖ—•ΩπM—Ö—Ãπ…Ω›Õl¡t¸π—Ω—Ö∞Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å…ïô’πëΩ’π–ÄÙÅ9’µâï»°…ïô’πëM—Ö—Ãπ…Ω›Õl¡t¸πçΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å…ïô’πëÕQΩ—Ö∞ÄÙÅ9’µâï»°…ïô’πëM—Ö—Ãπ…Ω›Õl¡t¸π—Ω—Ö∞Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅçΩπÕ’µïëQΩ—Ö∞ÄÙÅ9’µâï»†°Ö±±ΩçÖ—•ΩπÕQΩ—Ö∞Ä¨Å…ïô’πëÕQΩ—Ö∞§π—Ω•·ïê†»§§Ï((ÄÄÄÅçΩπÕ–Åç’……ïπç‰ÄÙÅM—…•πú°ç…ïë•–πç’……ïπç‰Ä¸¸Å¡ÖÂµïπ–πç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅçΩπÕ–ÅΩ…•ù•πÖ±µΩ’π–ÄÙÅ9’µâï»°ç…ïë•–πΩ…•ù•πÖ±}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Åç’……ïπ—AÖÂµïπ—Ö—îÄÙÅM—…•πú°ç…ïë•–π¡ÖÂµïπ—}ëÖ—îÄ¸¸Å¡ÖÂµïπ–π¡ÖÂµïπ—}ëÖ—îÄ¸¸Äúú§πÕ±•çî†¿∞Äƒ¿§Ï(ÄÄÄÅçΩπÕ–Åç’……ïπ—Iïôï…ïπçîÄÙÅM—…•πú°ç…ïë•–π…ïôï…ïπçîÄ¸¸Å¡ÖÂµïπ–π…ïôï…ïπçîÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅçΩπÕ–Åç’……ïπ—9Ω—ïÃÄÙÅM—…•πú°ç…ïë•–ππΩ—ïÃÄ¸¸Å¡ÖÂµïπ–ππΩ—ïÃÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅçΩπÕ–Åç’……ïπ—AÖÂµïπ—5ï—°ΩêÄÙÅM—…•πú°¡ÖÂµïπ–π¡ÖÂµïπ—}µï—°ΩêÄ¸¸ÄùM ú§π—ΩU¡¡ï…ÖÕî†§Ï((ÄÄÄÅçΩπÕ–Å…ï≈’ïÕ—ïëµΩ’π–ÄÙÅâΩë‰πΩ…•ù•πÖ±}ÖµΩ’π–ÄÙÙÙÅ’πëïô•πïêÄòòÅâΩë‰πÖµΩ’π–ÄÙÙÙÅ’πëïô•πïê(ÄÄÄÄÄÄ¸ÅΩ…•ù•πÖ±µΩ’π–(ÄÄÄÄÄÄËÅ9’µâï»°âΩë‰πΩ…•ù•πÖ±}ÖµΩ’π–Ä¸¸ÅâΩë‰πÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅ•òÄ†Ö9’µâï»π•Õ•π•—î°…ï≈’ïÕ—ïëµΩ’π–§ÅÒÅ…ï≈’ïÕ—ïëµΩ’π–ÄÙÄ¿§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅµΩπ—Öπ–Åë‘ÅçÀ•ë•–ÅëΩ•–É©—…îÅÕ—…•ç—ïµïπ–Å¡ΩÕ•—•ò∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•ÈïëµΩ’π–ÄÙÅ9’µâï»°…ï≈’ïÕ—ïëµΩ’π–π—Ω•·ïê†»§§Ï(ÄÄÄÅ•òÄ°πΩ…µÖ±•ÈïëµΩ’π–ÄÅçΩπÕ’µïëQΩ—Ö∞§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅµΩπ—Öπ–ÅπîÅ¡ï’–Å¡ÖÃÉ©—…îÅ•πõ•…•ï’»ÅÖ‘Å—Ω—Ö∞Åì•´ÄÅ’—•±•œ§ÅΩ‘Å…ïµâΩ’…œ§∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Åπï·—AÖÂµïπ—Ö—îÄÙÅâΩë‰π¡ÖÂµïπ—}ëÖ—îÄÙÙÙÅ’πëïô•πïê(ÄÄÄÄÄÄ¸Åç’……ïπ—AÖÂµïπ—Ö—î(ÄÄÄÄÄÄËÅM—…•πú°âΩë‰π¡ÖÂµïπ—}ëÖ—îÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅ•òÄ†ÑΩyqëÏ—ÙµqëÏ…ÙµqëÏ…Ùêºπ—ïÕ–°πï·—AÖÂµïπ—Ö—î§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1ÑÅëÖ—îÅë‘ÅçÀ•ë•–Å±ΩçÖ—Ö•…îÅïÕ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Åπï·—Iïôï…ïπçîÄÙÅâΩë‰π…ïôï…ïπçîÄÙÙÙÅ’πëïô•πïê(ÄÄÄÄÄÄ¸Ä°ç’……ïπ—Iïôï…ïπçîÅÒÅπ’±∞§(ÄÄÄÄÄÄËÄ°M—…•πú°âΩë‰π…ïôï…ïπçîÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞§Ï(ÄÄÄÅçΩπÕ–Åπï·—9Ω—ïÃÄÙÅâΩë‰ππΩ—ïÃÄÙÙÙÅ’πëïô•πïê(ÄÄÄÄÄÄ¸Ä°ç’……ïπ—9Ω—ïÃÅÒÅπ’±∞§(ÄÄÄÄÄÄËÄ°M—…•πú°âΩë‰ππΩ—ïÃÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞§Ï((ÄÄÄÅçΩπÕ–Åπï·—AÖÂµïπ—5ï—°ΩêÄÙÅâΩë‰π¡ÖÂµïπ—}µï—°ΩêÄÙÙÙÅ’πëïô•πïê(ÄÄÄÄÄÄ¸Åç’……ïπ—AÖÂµïπ—5ï—°Ωê(ÄÄÄÄÄÄËÅM—…•πú°âΩë‰π¡ÖÂµïπ—}µï—°ΩêÄ¸¸Äúú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ†ÖlùM ú∞Äù	9,ú∞Äù5=	%1}5=9dùtπ•πç±’ëïÃ°πï·—AÖÂµïπ—5ï—°Ωê§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù5ΩëîÅëîÅ¡Ö•ïµïπ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°πï·—AÖÂµïπ—5ï—°ΩêÄÑÙÙÅç’……ïπ—AÖÂµïπ—5ï—°ΩêÄòòÅmπï·—AÖÂµïπ—5ï—°Ωê∞Åç’……ïπ—AÖÂµïπ—5ï—°Ωëtπ•πç±’ëïÃ†ù	9,ú§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1ÑÅµΩë•ô•çÖ—•Ω∏Åë‘ÅµΩëîÅëîÅ¡Ö•ïµïπ–ÅâÖπçÖ•…îÅ∏ÅïÕ–Å¡ÖÃÅÕ’¡¡Ω…”•îÅ¡Ω’»ÅçîÅçÀ•ë•–∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–ÅÖµΩ’π—°ÖπùïêÄÙÅπΩ…µÖ±•ÈïëµΩ’π–ÄÑÙÙÅ9’µâï»°Ω…•ù•πÖ±µΩ’π–π—Ω•·ïê†»§§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—Ö—ï°ÖπùïêÄÙÅπï·—AÖÂµïπ—Ö—îÄÑÙÙÅç’……ïπ—AÖÂµïπ—Ö—îÏ(ÄÄÄÅçΩπÕ–Å…ïôï…ïπçï°ÖπùïêÄÙÄ°πï·—Iïôï…ïπçîÄ¸¸Äúú§ÄÑÙÙÅç’……ïπ—Iïôï…ïπçîÏ((ÄÄÄÅçΩπÕ–Å±•π≠ïë5ΩŸïµïπ–ÄÙÅÖ›Ö•–Å—°•Ãπ±•π≠ïëQïπÖπ—…ïë•—ÖÕ°5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞Å•ê∞Å¡ÖÂµïπ—%ê§Ï(ÄÄÄÅ•òÄ°ÖµΩ’π—°ÖπùïêÄòòÄÖ±•π≠ïë5ΩŸïµïπ–§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1ÑÅçΩ……ïç—•Ω∏ÅµΩª•—Ö•…îÅë•…ïç—îÅ∏ÅïÕ–Å¡ÖÃÅë•Õ¡Ωπ•â±îÅ¡Ω’»ÅçîÅçÀ•ë•–∏ÅU—•±•ÕïËÅ’πîÉ•ç…•—’…îÅëîÅçΩ……ïç—•Ω∏ÅΩ‘Å’∏Å…ïµâΩ’…Õïµïπ–∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ÖµΩ’π—°ÖπùïêÄòòÅ±•π≠ïë5ΩŸïµïπ–ÄòòÅM—…•πú°±•π≠ïë5ΩŸïµïπ–πÕïÕÕ•Ωπ}Õ—Ö—’ÃÄ¸¸Äúú§ÄÑÙÙÄù=A8ú§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1ÑÅçÖ•ÕÕîÅ±ß•îÅïÕ–Åç≥——’À•î∏ÅU—•±•ÕïËÅ’πîÉ•ç…•—’…îÅëîÅçΩ……ïç—•Ω∏∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°¡ÖÂµïπ—Ö—ï°ÖπùïêÄòòÅ±•π≠ïë5ΩŸïµïπ–ÄòòÅM—…•πú°±•π≠ïë5ΩŸïµïπ–πÕïÕÕ•Ωπ}Õ—Ö—’ÃÄ¸¸Äúú§ÄÑÙÙÄù=A8ú§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1ÑÅçÖ•ÕÕîÅ±ß•îÅïÕ–Åç≥——’À•î∏ÅU—•±•ÕïËÅ’πîÉ•ç…•—’…îÅëîÅçΩ……ïç—•Ω∏∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Åï·ç°ÖπùïIÖ—ïUÕïêÄÙÅç’……ïπç‰ÄÙÙÙÄùú(ÄÄÄÄÄÄ¸Å9’µâï»°¡ÖÂµïπ–πï·ç°Öπùï}…Ö—ï}’ÕïêÄ¸¸Å±•π≠ïë5ΩŸïµïπ–¸πï·ç°Öπùï}…Ö—ï}’ÕïêÄ¸¸Ä¿§(ÄÄÄÄÄÄËÅπ’±∞Ï(ÄÄÄÅ•òÄ°ç’……ïπç‰ÄÙÙÙÄùúÄòòÅÖµΩ’π—°ÖπùïêÄòòÄÑ°9’µâï»°ï·ç°ÖπùïIÖ—ïUÕïê§Ä¯Ä¿§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù%µ¡ΩÕÕ•â±îÅëîÅçΩ……•ùï»ÅçîÅçÀ•ë•–ÅÅÕÖπÃÅ—Ö’‡ÅëîÅç°ÖπùîÅÕΩ’…çîÅŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Åï·ç°ÖπùïIÖ—ïÖ—îÄÙÅç’……ïπç‰ÄÙÙÙÄùú(ÄÄÄÄÄÄ¸ÅM—…•πú°¡ÖÂµïπ–πï·ç°Öπùï}…Ö—ï}ëÖ—îÄ¸¸Å±•π≠ïë5ΩŸïµïπ–¸πï·ç°Öπùï}…Ö—ï}ëÖ—îÄ¸¸Åç’……ïπ—AÖÂµïπ—Ö—î§(ÄÄÄÄÄÄËÅπ’±∞Ï(ÄÄÄÅçΩπÕ–Å—Ω—Ö±≈’•ŸÖ±ïπ—UÕêÄÙÅç’……ïπç‰ÄÙÙÙÄùú(ÄÄÄÄÄÄ¸Å9’µâï»†°πΩ…µÖ±•ÈïëµΩ’π–ÄºÅ9’µâï»°ï·ç°ÖπùïIÖ—ïUÕïêÅÒÄƒ§§π—Ω•·ïê†»§§(ÄÄÄÄÄÄËÅπΩ…µÖ±•ÈïëµΩ’π–Ï(ÄÄÄÅçΩπÕ–Åπï·—µΩ’π—UÕêÄÙÅç’……ïπç‰ÄÙÙÙÄùUMúÄ¸ÅπΩ…µÖ±•ÈïëµΩ’π–ÄËÄ¿Ï(ÄÄÄÅçΩπÕ–Åπï·—µΩ’π—ëòÄÙÅç’……ïπç‰ÄÙÙÙÄùúÄ¸ÅπΩ…µÖ±•ÈïëµΩ’π–ÄËÄ¿Ï((ÄÄÄÅçΩπÕ–ÅâïôΩ…ïMπÖ¡Õ°Ω–ÄÙÅÏ(ÄÄÄÄÄÅΩ…•ù•πÖ±}ÖµΩ’π–ËÅ9’µâï»°ç…ïë•–πΩ…•ù•πÖ±}ÖµΩ’π–Ä¸¸Ä¿§∞(ÄÄÄÄÄÅ…ïµÖ•π•πù}ÖµΩ’π–ËÅ9’µâï»°ç…ïë•–π…ïµÖ•π•πù}ÖµΩ’π–Ä¸¸Ä¿§∞(ÄÄÄÄÄÅ¡ÖÂµïπ—}ëÖ—îËÅç’……ïπ—AÖÂµïπ—Ö—î∞(ÄÄÄÄÄÅ…ïôï…ïπçîËÅç…ïë•–π…ïôï…ïπçîÄ¸¸Å¡ÖÂµïπ–π…ïôï…ïπçîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅπΩ—ïÃËÅç…ïë•–ππΩ—ïÃÄ¸¸Å¡ÖÂµïπ–ππΩ—ïÃÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅ¡ÖÂµïπ—}µï—°ΩêËÅç’……ïπ—AÖÂµïπ—5ï—°Ωê∞(ÄÄÄÄÄÅÖ±±ΩçÖ—•Ωπ}çΩ’π–ËÅÖ±±ΩçÖ—•ΩπΩ’π–∞(ÄÄÄÄÄÅÖ±±ΩçÖ—•ΩπÕ}—Ω—Ö∞ËÅÖ±±ΩçÖ—•ΩπÕQΩ—Ö∞∞(ÄÄÄÄÄÅ…ïô’πë}çΩ’π–ËÅ…ïô’πëΩ’π–∞(ÄÄÄÄÄÅ…ïô’πëÕ}—Ω—Ö∞ËÅ…ïô’πëÕQΩ—Ö∞∞(ÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÅçÖÕ°}µΩŸïµïπ—}•êËÅ9’µâï»°±•π≠ïë5ΩŸïµïπ–¸π•êÄ¸¸Ä¿§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅçÖÕ°}ÕïÕÕ•Ωπ}Õ—Ö—’ÃËÅ±•π≠ïë5ΩŸïµïπ–¸πÕïÕÕ•Ωπ}Õ—Ö—’ÃÄ¸¸Åπ’±∞∞(ÄÄÄÅÙÏ((ÄÄÄÅçΩπÕ–ÅÏÅ…ïµÖ•π•πùµΩ’π–∞Åπï·—M—Ö—’ÃÅÙÄÙÅ—°•ÃπçΩµ¡’—ïQïπÖπ—…ïë•—	Ö±ÖπçïM—Ö—î°πΩ…µÖ±•ÈïëµΩ’π–∞ÅÖ±±ΩçÖ—•ΩπÕQΩ—Ö∞∞Å…ïô’πëÕQΩ—Ö∞§Ï((ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅ¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÅMPÅ¡ÖÂµïπ—}ëÖ—îÄÙÄê»∞(ÄÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}µï—°ΩêÄÙÄêÃ∞(ÄÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîÄÙÄê–∞(ÄÄÄÄÄÄÄÄÄÄÅπΩ—ïÃÄÙÄê‘∞(ÄÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ÄÙÄêÿ∞(ÄÄÄÄÄÄÄÄÄÄÅÖµΩ’π—}’ÕêÄÙÄê‹∞(ÄÄÄÄÄÄÄÄÄÄÅÖµΩ’π—}çëòÄÙÄê‡∞(ÄÄÄÄÄÄÄÄÄÄÅçëô}ï≈’•ŸÖ±ïπ—}’ÕêÄÙÄê‰∞(ÄÄÄÄÄÄÄÄÄÄÅ—Ω—Ö±}ï≈’•ŸÖ±ïπ—}’ÕêÄÙÄêƒ¿(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒƒ(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—%ê∞(ÄÄÄÄÄÄÄÅπï·—AÖÂµïπ—Ö—î∞(ÄÄÄÄÄÄÄÅπï·—AÖÂµïπ—5ï—°Ωê∞(ÄÄÄÄÄÄÄÅπï·—Iïôï…ïπçî∞(ÄÄÄÄÄÄÄÅπï·—9Ω—ïÃ∞(ÄÄÄÄÄÄÄÅ—Ω—Ö±≈’•ŸÖ±ïπ—UÕê∞(ÄÄÄÄÄÄÄÅπï·—µΩ’π—UÕê∞(ÄÄÄÄÄÄÄÅπï·—µΩ’π—ëò∞(ÄÄÄÄÄÄÄÅç’……ïπç‰ÄÙÙÙÄùúÄ¸Å—Ω—Ö±≈’•ŸÖ±ïπ—UÕêÄËÄ¿∞(ÄÄÄÄÄÄÄÅ—Ω—Ö±≈’•ŸÖ±ïπ—UÕê∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï((ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅ—ïπÖπ—}ç…ïë•—Ã(ÄÄÄÄÄÄÅMPÅΩ…•ù•πÖ±}ÖµΩ’π–ÄÙÄê»∞(ÄÄÄÄÄÄÄÄÄÄÅ…ïµÖ•π•πù}ÖµΩ’π–ÄÙÄêÃ∞(ÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—’ÃÄÙÄê–∞(ÄÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}ëÖ—îÄÙÄê‘∞(ÄÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîÄÙÄêÿ∞(ÄÄÄÄÄÄÄÄÄÄÅπΩ—ïÃÄÙÄê‹∞(ÄÄÄÄÄÄÄÄÄÄÅ’¡ëÖ—ïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê‡(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ•ê∞(ÄÄÄÄÄÄÄÅπΩ…µÖ±•ÈïëµΩ’π–∞(ÄÄÄÄÄÄÄÅ…ïµÖ•π•πùµΩ’π–∞(ÄÄÄÄÄÄÄÅπï·—M—Ö—’Ã∞(ÄÄÄÄÄÄÄÅπï·—AÖÂµïπ—Ö—î∞(ÄÄÄÄÄÄÄÅπï·—Iïôï…ïπçî∞(ÄÄÄÄÄÄÄÅπï·—9Ω—ïÃ∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï((ÄÄÄÅ•òÄ°±•π≠ïë5ΩŸïµïπ–ÄòòÄ°ÖµΩ’π—°ÖπùïêÅÒÅ¡ÖÂµïπ—Ö—ï°ÖπùïêÅÒÅ…ïôï…ïπçï°Öπùïê§§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅUAQÅçÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÄÄÅMPÅÖµΩ’π–ÄÙÄê»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—îÄÙÄêÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîÄÙÄê–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}’ÕïêÄÙÄê‘∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}ëÖ—îÄÙÄêÿ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅï≈’•ŸÖ±ïπ—}’ÕêÄÙÄê‹(ÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê‡(ÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÄÄÅ9’µâï»°±•π≠ïë5ΩŸïµïπ–π•ê§∞(ÄÄÄÄÄÄÄÄÄÅπΩ…µÖ±•ÈïëµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅπï·—AÖÂµïπ—Ö—î∞(ÄÄÄÄÄÄÄÄÄÅπï·—Iïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰ÄÙÙÙÄùúÄ¸Å9’µâï»°ï·ç°ÖπùïIÖ—ïUÕïê§ÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰ÄÙÙÙÄùúÄ¸Åï·ç°ÖπùïIÖ—ïÖ—îÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ—Ω—Ö±≈’•ŸÖ±ïπ—UÕê∞(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅt∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÖ’ë•—}±ΩùÃÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å’Õï…}•ê∞ÅÖç—•Ω∏∞Å…ïÕΩ’…çî∞Å…ïÕΩ’…çï}•ê∞Åµï—°Ωê∞Å¡Ö—†∞ÅÕ—Ö—’Õ}çΩëî∞Åµï—ÖëÖ—Ñ§(ÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄùQ99Q}I%Q}M=UI}5=Y59Q}UAQú∞ÄùçÖÕ†ú∞ÄêÃ∞ÄùAQ ú∞Äê–∞Ä»¿¿∞Äê‘ËÈ)M=9•Ä∞(ÄÄÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅM—…•πú°±•π≠ïë5ΩŸïµïπ–π•ê§∞(ÄÄÄÄÄÄÄÄÄÅÄΩÖ¡§ΩçÖÕ†ΩµΩŸïµïπ—ÃºëÌ9’µâï»°±•π≠ïë5ΩŸïµïπ–π•ê•ıÄ∞(ÄÄÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—}ç…ïë•—}•êËÅ•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄÄÄÄÅâïôΩ…îËÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ9’µâï»°±•π≠ïë5ΩŸïµïπ–πÖµΩ’π–Ä¸¸Ä¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—îËÅM—…•πú°±•π≠ïë5ΩŸïµïπ–πµΩŸïµïπ—}ëÖ—îÄ¸¸Äúú§πÕ±•çî†¿∞Äƒ¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅ±•π≠ïë5ΩŸïµïπ–π…ïôï…ïπçîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅï≈’•ŸÖ±ïπ—}’ÕêËÅ9’µâï»°±•π≠ïë5ΩŸïµïπ–πï≈’•ŸÖ±ïπ—}’ÕêÄ¸¸Ä¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÅÖô—ï»ËÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ËÅπΩ…µÖ±•ÈïëµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—îËÅπï·—AÖÂµïπ—Ö—î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅπï·—Iïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅï≈’•ŸÖ±ïπ—}’ÕêËÅ—Ω—Ö±≈’•ŸÖ±ïπ—UÕê∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄÄÅt∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ((ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÖ’ë•—}±ΩùÃÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å’Õï…}•ê∞ÅÖç—•Ω∏∞Å…ïÕΩ’…çî∞Å…ïÕΩ’…çï}•ê∞Åµï—°Ωê∞Å¡Ö—†∞ÅÕ—Ö—’Õ}çΩëî∞Åµï—ÖëÖ—Ñ§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄùQ99Q}I%Q}UAQú∞Äù—ïπÖπ—}ç…ïë•—Ãú∞ÄêÃ∞ÄùAQ ú∞Äê–∞Ä»¿¿∞Äê‘ËÈ)M=9•Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅM—…•πú°•ê§∞(ÄÄÄÄÄÄÄÅÄΩÖ¡§Ω—ïπÖπ–µç…ïë•—ÃºëÌ•ëıÄ∞(ÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°Ï(ÄÄÄÄÄÄÄÄÄÅ…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄÄÅâïôΩ…îËÅâïôΩ…ïMπÖ¡Õ°Ω–∞(ÄÄÄÄÄÄÄÄÄÅÖô—ï»ËÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅΩ…•ù•πÖ±}ÖµΩ’π–ËÅπΩ…µÖ±•ÈïëµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïµÖ•π•πù}ÖµΩ’π–ËÅ…ïµÖ•π•πùµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}ëÖ—îËÅπï·—AÖÂµïπ—Ö—î∞(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅπï·—Iïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÅπΩ—ïÃËÅπï·—9Ω—ïÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}µï—°ΩêËÅπï·—AÖÂµïπ—5ï—°Ωê∞(ÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—’ÃËÅπï·—M—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÅÖ±±ΩçÖ—•ΩπÕ}—Ω—Ö∞ËÅÖ±±ΩçÖ—•ΩπÕQΩ—Ö∞∞(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïô’πëÕ}—Ω—Ö∞ËÅ…ïô’πëÕQΩ—Ö∞∞(ÄÄÄÄÄÄÄÄÄÄÄÅçÖÕ°}µΩŸïµïπ—}•êËÅ9’µâï»°±•π≠ïë5ΩŸïµïπ–¸π•êÄ¸¸Ä¿§ÅÒÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÄÄÅçÖÕ°}ÕïÕÕ•Ωπ}Õ—Ö—’ÃËÅ±•π≠ïë5ΩŸïµïπ–¸πÕïÕÕ•Ωπ}Õ—Ö—’ÃÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï((ÄÄÄÅ…ï—’…∏Å•êÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—QïπÖπ—…ïë•—Iïô’πëIïçï•¡—9’µâï»°ç±•ïπ–ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅçΩπÕ–ÅÂïÖ»ÄÙÅπï‹ÅÖ—î†§πùï—’±±eïÖ»†§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°5`†°MU	MQI%9°…ïçï•¡—}π’µâï»ÅI=4Äêƒ§§ËÈ%9P§∞Ä¿§Ä¨ÄƒÅLÅŸÖ±’î(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—}…ïô’πëÃ(ÄÄÄÄÄÄÅ]!IÅ…ïçï•¡—}π’µâï»Å1%-Äê»(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÕÄ∞(ÄÄÄÄÄÅmÅQI¥ëÌÂïÖ…Ù¥°l¿¥Ât¨•Ä∞ÅÅQI¥ëÌÂïÖ…Ù¥ïÄ∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÅQI¥ëÌÂïÖ…Ù¥ëÌM—…•πú°…Ω›Õl¡tπŸÖ±’î§π¡ÖëM—Ö…–†–∞Äú¿ú•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ…ïô’πëQïπÖπ—…ïë•—%πQ…ÖπÕÖç—•Ω∏†(ÄÄÄÅç±•ïπ–ËÅAΩΩ±±•ïπ–∞(ÄÄÄÅ•êËÅπ’µâï»∞(ÄÄÄÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞(ÄÄÄÅçÖπçï±]°Ω±ï…ïë•–ËÅâΩΩ±ïÖ∏∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–Åç…ïë•—IïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—Ã(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Åç…ïë•–ÄÙÅ…ï≈’•…ïIΩ‹°ç…ïë•—IïÕ’±–π…Ω›Õl¡t∞ÄùQïπÖπ–Åç…ïë•–ú§Ï(ÄÄÄÅçΩπÕ–Å…ïµÖ•π•πù	ïôΩ…îÄÙÅ9’µâï»°ç…ïë•–π…ïµÖ•π•πù}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅ•òÄ†Ñ°…ïµÖ•π•πù	ïôΩ…îÄ¯Ä¿§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù’ç’∏ÅÕΩ±ëîÅë•Õ¡Ωπ•â±îÉÄÅ…ïµâΩ’…Õï»Å¡Ω’»ÅçîÅçÀ•ë•–Å±ΩçÖ—Ö•…î∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–ÅÖ±±ΩçÖ—•ΩπM—Ö—ÃÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=U9P†®§ËÈ%9PÅLÅçΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°ÖµΩ’π—}Ö¡¡±•ïê§∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅ—Ω—Ö∞(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—}Ö±±ΩçÖ—•ΩπÃ(ÄÄÄÄÄÄÅ]!IÅ—ïπÖπ—}ç…ïë•—}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å…ïô’πëM—Ö—ÃÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=U9P†®§ËÈ%9PÅLÅçΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°ÖµΩ’π–§∞Ä¿§ËÈ9U5I%†ƒ–∞»§ÅLÅ—Ω—Ö∞(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—}…ïô’πëÃ(ÄÄÄÄÄÄÅ]!IÅ—ïπÖπ—}ç…ïë•—}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÖ±±ΩçÖ—•ΩπΩ’π–ÄÙÅ9’µâï»°Ö±±ΩçÖ—•ΩπM—Ö—Ãπ…Ω›Õl¡t¸πçΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å…ïô’πëΩ’π–ÄÙÅ9’µâï»°…ïô’πëM—Ö—Ãπ…Ω›Õl¡t¸πçΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅÕΩ’…çïAÖÂµïπ–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅï·ç°Öπùï}…Ö—ï}’Õïê∞Åï·ç°Öπùï}…Ö—ï}ëÖ—î∞Åçëô}ï≈’•ŸÖ±ïπ—}’Õê∞Å—Ω—Ö±}ï≈’•ŸÖ±ïπ—}’Õê(ÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅmç…ïë•–πÕΩ’…çï}¡ÖÂµïπ—}•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—IΩ‹ÄÙÅÕΩ’…çïAÖÂµïπ–π…Ω›Õl¡tÏ(ÄÄÄÅ•òÄ°M—…•πú°ç…ïë•–πç’……ïπç‰Ä¸¸ÄùUMú§ÄÙÙÙÄùúÄòòÄÑ°9’µâï»°¡ÖÂµïπ—IΩ‹¸πï·ç°Öπùï}…Ö—ï}’ÕïêÄ¸¸Ä¿§Ä¯Ä¿§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù%µ¡ΩÕÕ•â±îÅëîÅ…ïµâΩ’…Õï»ÅçîÅçÀ•ë•–ÅÅÕÖπÃÅ—Ö’‡ÅëîÅç°ÖπùîÅÕΩ’…çîÅŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Å…ïô’πëÖ—îÄÙÅM—…•πú°âΩë‰π…ïô’πë}ëÖ—îÄ¸¸Åπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—5ï—°ΩêÄÙÅM—…•πú°âΩë‰π¡ÖÂµïπ—}µï—°ΩêÄ¸¸ÄùM ú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅçΩπÕ–Å…ïôï…ïπçîÄÙÅM—…•πú°âΩë‰π…ïôï…ïπçîÄ¸¸ÅÅQH¥ëÌ•ëÙ¥ëÌ…ïô’πëÖ—ïıÄ§π—…•¥†§Ï(ÄÄÄÅçΩπÕ–Å…ïÖÕΩ∏ÄÙÅM—…•πú°âΩë‰π…ïÖÕΩ∏Ä¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅ•òÄ†Ö…ïÖÕΩ∏§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅµΩ—•òÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÅ•òÄ†ÖlùM ú∞Äù	9,ú∞Äù5=	%1}5=9dùtπ•πç±’ëïÃ°¡ÖÂµïπ—5ï—°Ωê§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù5ΩëîÅëîÅ…ïµâΩ’…Õïµïπ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅ•òÄ°çÖπçï±]°Ω±ï…ïë•–§ÅÏ(ÄÄÄÄÄÅ•òÄ°Ö±±ΩçÖ—•ΩπΩ’π–Ä¯Ä¿§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ùîÅçÀ•ë•–ÅÑÅì•´ÄÉ•”§Å’—•±•œ§∏ÅMï’∞Å±îÅÕΩ±ëîÅë•Õ¡Ωπ•â±îÅ¡ï’–É©—…îÅ…ïµâΩ’…œ§∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°…ïô’πëΩ’π–Ä¯Ä¿§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ùîÅçÀ•ë•–ÅÑÅì•´ÄÅôÖ•–Å∞ÅΩâ©ï–ÅêÅ’∏Å…ïµâΩ’…Õïµïπ–∏Å0ÅÖππ’±Ö—•Ω∏Åù±ΩâÖ±îÅ∏ÅïÕ–Å¡±’ÃÅÖ’—Ω…•œ•î∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°9’µâï»°ç…ïë•–πΩ…•ù•πÖ±}ÖµΩ’π–Ä¸¸Ä¿§ÄÑÙÙÅ…ïµÖ•π•πù	ïôΩ…î§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ùMï’∞Å’∏ÅçÀ•ë•–Å—Ω—Ö±ïµïπ–Å•π’—•±•œ§Å¡ï’–É©—…îÅÖππ’≥§∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Å…ï≈’ïÕ—ïëµΩ’π–ÄÙÅçÖπçï±]°Ω±ï…ïë•–Ä¸Å…ïµÖ•π•πù	ïôΩ…îÄËÅ9’µâï»°âΩë‰πÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅ•òÄ†Ö9’µâï»π•Õ•π•—î°…ï≈’ïÕ—ïëµΩ’π–§ÅÒÅ…ï≈’ïÕ—ïëµΩ’π–ÄÙÄ¿§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù5Ωπ—Öπ–ÅëîÅ…ïµâΩ’…Õïµïπ–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÖµΩ’π–ÄÙÅ9’µâï»°…ï≈’ïÕ—ïëµΩ’π–π—Ω•·ïê†»§§Ï(ÄÄÄÅ•òÄ°ÖµΩ’π–Ä¯Å…ïµÖ•π•πù	ïôΩ…î§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ù1îÅµΩπ—Öπ–ÅëïµÖπì§Åì•¡ÖÕÕîÅ±îÅÕΩ±ëîÅë•Õ¡Ωπ•â±îÅë‘ÅçÀ•ë•–∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†ùM1PÅ¡ù}ÖëŸ•ÕΩ…Â}·Öç—}±Ωç¨°°ÖÕ°—ï·–†êƒ§§ú∞ÅmÅ—ïπÖπ–µç…ïë•–µ…ïô’πêËëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙËëÌ•ëıÅt§Ï((ÄÄÄÅçΩπÕ–Å•ëïµ¡Ω—ïπçÂ-ï‰ÄÙÅM—…•πú†(ÄÄÄÄÄÅâΩë‰π•ëïµ¡Ω—ïπçÂ}≠ï‰(ÄÄÄÄÄÄ¸¸Ål(ÄÄÄÄÄÄÄÅçÖπçï±]°Ω±ï…ïë•–Ä¸ÄùQ99Q}I%Q}90úÄËÄùQ99Q}I%Q}IU9ú∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ•ê∞(ÄÄÄÄÄÄÄÅ…ïô’πëÖ—î∞(ÄÄÄÄÄÄÄÅÖµΩ’π–π—Ω•·ïê†»§∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—5ï—°Ωê∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçî∞(ÄÄÄÄÄÅtπ©Ω•∏†úËú§∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Åï·•Õ—•πùIïô’πêÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—}…ïô’πëÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å•ëïµ¡Ω—ïπçÂ}≠ï‰ÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å•ëïµ¡Ω—ïπçÂ-ïÂt∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°ï·•Õ—•πùIïô’πêπ…Ω›Õl¡t§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ùï——îÅΩ√•…Ö—•Ω∏ÅëîÅ…ïµâΩ’…Õïµïπ–ÅÑÅì•´ÄÉ•”§Åïπ…ïù•Õ—À•î∏ú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Å…ïçï•¡—9’µâï»ÄÙÅÖ›Ö•–Å—°•Ãππï·—QïπÖπ—…ïë•—Iïô’πëIïçï•¡—9’µâï»°ç±•ïπ–§Ï(ÄÄÄÅçΩπÕ–Å…ïô’πë%πÕï…–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<Å—ïπÖπ—}ç…ïë•—}…ïô’πëÃ(ÄÄÄÄÄÄÄÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å—ïπÖπ—}ç…ïë•—}•ê∞Å—ïπÖπ—}•ê∞Å±ïÖÕï}•ê∞ÅÖµΩ’π–∞Åç’……ïπç‰∞Å…ïô’πë}ëÖ—î∞Å¡ÖÂµïπ—}µï—°Ωê∞(ÄÄÄÄÄÄÄÄÅ…ïôï…ïπçî∞Å…ïÖÕΩ∏∞ÅçÖÕ°}µΩŸïµïπ—}•ê∞Å…ïçï•¡—}π’µâï»∞ÅÕ—Ö—’Ã∞Åç…ïÖ—ïë}â‰∞Å•ëïµ¡Ω—ïπçÂ}≠ï‰§(ÄÄÄÄÄÄÅY1UL(ÄÄÄÄÄÄÄÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞Äê‡∞(ÄÄÄÄÄÄÄÄÄê‰∞Äêƒ¿∞Å9U10∞Äêƒƒ∞Äêƒ»∞ÄêƒÃ∞Äêƒ–§(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ•ê∞(ÄÄÄÄÄÄÄÅç…ïë•–π—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÅç…ïë•–π±ïÖÕï}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÅM—…•πú°ç…ïë•–πç’……ïπç‰Ä¸¸ÄùUMú§∞(ÄÄÄÄÄÄÄÅ…ïô’πëÖ—î∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—5ï—°Ωê∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîÅÒÅπ’±∞∞(ÄÄÄÄÄÄÄÅ…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÅ…ïçï•¡—9’µâï»∞(ÄÄÄÄÄÄÄÅçÖπçï±]°Ω±ï…ïë•–Ä¸Äù911úÄËÄùIU9ú∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅ•ëïµ¡Ω—ïπçÂ-ï‰∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å…ïô’πêÄÙÅ…ï≈’•…ïIΩ‹°…ïô’πë%πÕï…–π…Ω›Õl¡t∞ÄùQïπÖπ–Åç…ïë•–Å…ïô’πêú§Ï((ÄÄÄÅçΩπÕ–ÅµΩŸïµïπ–ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ïÖÕ°5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÅ—Â¡îËÄù=UPú∞(ÄÄÄÄÄÅçÖ—ïùΩ…‰ËÄùQ99Q}I%Q}IU9ú∞(ÄÄÄÄÄÅ±Öâï∞ËÅçÖπçï±]°Ω±ï…ïë•–Ä¸Äùππ’±Ö—•Ω∏ÅëîÅçÀ•ë•–Å±ΩçÖ—Ö•…îúÄËÄùIïµâΩ’…Õïµïπ–ÅëîÅçÀ•ë•–Å±ΩçÖ—Ö•…îú∞(ÄÄÄÄÄÅÖµΩ’π–∞(ÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—îËÅ…ïô’πëÖ—î∞(ÄÄÄÄÄÅ—ïπÖπ—}•êËÅç…ïë•–π—ïπÖπ—}•ê∞(ÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÅçÖπçï±]°Ω±ï…ïë•–Ä¸Äùππ’±Ö—•Ω∏ÅëîÅçÀ•ë•–Å±ΩçÖ—Ö•…îúÄËÄùIïµâΩ’…Õïµïπ–ÅëîÅçÀ•ë•–Å±ΩçÖ—Ö•…îú∞(ÄÄÄÄÄÅ…ïôï…ïπçîËÅ…ïôï…ïπçîÅÒÅ…ïçï•¡—9’µâï»∞(ÄÄÄÄÄÅç’……ïπç‰ËÅM—…•πú°ç…ïë•–πç’……ïπç‰Ä¸¸ÄùUMú§∞(ÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}’ÕïêËÅ¡ÖÂµïπ—IΩ‹¸πï·ç°Öπùï}…Ö—ï}’ÕïêÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅï·ç°Öπùï}…Ö—ï}ëÖ—îËÅ¡ÖÂµïπ—IΩ‹¸πï·ç°Öπùï}…Ö—ï}ëÖ—îÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅï≈’•ŸÖ±ïπ—}’ÕêË(ÄÄÄÄÄÄÄÅM—…•πú°ç…ïë•–πç’……ïπç‰Ä¸¸ÄùUMú§ÄÙÙÙÄùú(ÄÄÄÄÄÄÄÄÄÄ¸Å9’µâï»†°ÖµΩ’π–ÄºÅ9’µâï»°¡ÖÂµïπ—IΩ‹¸πï·ç°Öπùï}…Ö—ï}’ÕïêÄ¸¸Äƒ§§π—Ω•·ïê†»§§(ÄÄÄÄÄÄÄÄÄÄËÅÖµΩ’π–∞(ÄÄÄÄÄÅ—ïπÖπ—}ç…ïë•—}•êËÅç…ïë•–π•ê∞(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ°Ö›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}µΩŸïµïπ—Ãú∞Äù—ïπÖπ—}ç…ïë•—}•êú§§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅUAQÅçÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÄÄÅMPÅ—ïπÖπ—}ç…ïë•—}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄê»Å9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÕÄ∞(ÄÄÄÄÄÄÄÅmç…ïë•–π•ê∞ÅµΩŸïµïπ–π•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅ—ïπÖπ—}ç…ïë•—}…ïô’πëÃ(ÄÄÄÄÄÄÅMPÅçÖÕ°}µΩŸïµïπ—}•êÄÙÄê»(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÕÄ∞(ÄÄÄÄÄÅm…ïô’πêπ•ê∞ÅµΩŸïµïπ–π•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï((ÄÄÄÅçΩπÕ–Å…ïµÖ•π•πùô—ï»ÄÙÅ9’µâï»†°…ïµÖ•π•πù	ïôΩ…îÄ¥ÅÖµΩ’π–§π—Ω•·ïê†»§§Ï(ÄÄÄÅçΩπÕ–Åπï·—M—Ö—’ÃÄÙÅçÖπçï±]°Ω±ï…ïë•–(ÄÄÄÄÄÄ¸Äù911ú(ÄÄÄÄÄÄËÅ…ïµÖ•π•πùô—ï»ÄÙÄ¿(ÄÄÄÄÄÄÄÄ¸ÄùIU9ú(ÄÄÄÄÄÄÄÄËÄùAIQ%11e}UMúÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅ—ïπÖπ—}ç…ïë•—Ã(ÄÄÄÄÄÄÅMPÅ…ïµÖ•π•πù}ÖµΩ’π–ÄÙÄê»∞(ÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—’ÃÄÙÄêÃ∞(ÄÄÄÄÄÄÄÄÄÄÅ’¡ëÖ—ïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê—Ä∞(ÄÄÄÄÄÅmç…ïë•–π•ê∞Å…ïµÖ•π•πùô—ï»∞Åπï·—M—Ö—’Ã∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÖ’ë•—}±ΩùÃÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å’Õï…}•ê∞ÅÖç—•Ω∏∞Å…ïÕΩ’…çî∞Å…ïÕΩ’…çï}•ê∞Åµï—°Ωê∞Å¡Ö—†∞ÅÕ—Ö—’Õ}çΩëî∞Åµï—ÖëÖ—Ñ§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äù—ïπÖπ—}ç…ïë•—Ãú∞Äê–∞ÄùA=MPú∞Äê‘∞Ä»¿¿∞Äêÿ•Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅçÖπçï±]°Ω±ï…ïë•–Ä¸ÄùQ99Q}I%Q}911úÄËÄùQ99Q}I%Q}IU9ú∞(ÄÄÄÄÄÄÄÅM—…•πú°ç…ïë•–π•ê§∞(ÄÄÄÄÄÄÄÅçÖπçï±]°Ω±ï…ïë•–Ä¸ÅÄΩÖ¡§Ω—ïπÖπ–µç…ïë•—ÃºëÌç…ïë•–π•ëÙΩçÖπçï±ÄÄËÅÄΩÖ¡§Ω—ïπÖπ–µç…ïë•—ÃºëÌç…ïë•–π•ëÙΩ…ïô’πëÄ∞(ÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°Ï(ÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—}ç…ïë•—}•êËÅç…ïë•–π•ê∞(ÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—}•êËÅç…ïë•–π—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÅ±ïÖÕï}•êËÅç…ïë•–π±ïÖÕï}•ê∞(ÄÄÄÄÄÄÄÄÄÅ¡…ïŸ•Ω’Õ}…ïµÖ•π•πù}ÖµΩ’π–ËÅ…ïµÖ•π•πù	ïôΩ…î∞(ÄÄÄÄÄÄÄÄÄÅ…ïô’πëïë}ÖµΩ’π–ËÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÅπï›}…ïµÖ•π•πù}ÖµΩ’π–ËÅ…ïµÖ•π•πùô—ï»∞(ÄÄÄÄÄÄÄÄÄÅç’……ïπç‰ËÅç…ïë•–πç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÅ…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄÄÅ…ïô’πë}•êËÅ…ïô’πêπ•ê∞(ÄÄÄÄÄÄÄÄÄÅ…ïçï•¡—}π’µâï»ËÅ…ïçï•¡—9’µâï»∞(ÄÄÄÄÄÄÄÄÄÅçÖÕ°}µΩŸïµïπ—}•êËÅµΩŸïµïπ–π•ê∞(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï((ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅç…ïë•–ËÅÖ›Ö•–Å—°•Ãπ—ïπÖπ—…ïë•—ï—Ö•±%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞Åç…ïë•–π•ê§∞(ÄÄÄÄÄÅ…ïô’πêËÅÏÄ∏∏π…ïô’πê∞ÅçÖÕ°}µΩŸïµïπ—}•êËÅµΩŸïµïπ–π•ê∞Å…ïçï•¡—}π’µâï»ËÅ…ïçï•¡—9’µâï»ÅÙ∞(ÄÄÄÄÄÅçÖÕ°}µΩŸïµïπ–ËÅµΩŸïµïπ–∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ—ïπÖπ—…ïë•—ï—Ö•±%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å•êËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ—å∏®(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—ÃÅ—å(ÄÄÄÄÄÄÅ]!IÅ—åπ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å—åπëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞ÄùQïπÖπ–Åç…ïë•–ú§Ï(ÄÅÙ((ÄÅÖÕÂπåÅ…ïô…ïÕ°%πŸΩ•çïM—Ö—’Õ%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%êËÅπ’µâï»∞Å•πŸΩ•çï%êËÅπ’µâï»§ÅÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅ•πŸΩ•çïÃÅ§(ÄÄÄÄÄÄÅMPÅÕ—Ö—’ÃÄÙÅM(ÄÄÄÄÄÄÄÄÅ]!8Å§πÕ—Ö—’ÃÄÙÄùIPúÅQ!8ÄùIPú(ÄÄÄÄÄÄÄÄÅ]!8Å§πÕ—Ö—’ÃÄÙÄù911úÅQ!8Äù911ú(ÄÄÄÄÄÄÄÄÅ]!8ÅÃπ¡Ö•ë}ÖµΩ’π–ÄÙÄ¿ÅQ!8ÄùU9A%ú(ÄÄÄÄÄÄÄÄÅ]!8ÅÃπ¡Ö•ë}ÖµΩ’π–ÄÅ§π—Ω—Ö∞ÅQ!8ÄùAIQ%0ú(ÄÄÄÄÄÄÄÄÅ1MÄùA%ú(ÄÄÄÄÄÄÅ9(ÄÄÄÄÄÄÅI=4Å•πŸΩ•çï}¡ÖÂµïπ—}Õ’µµÖ…‰ÅÃ(ÄÄÄÄÄÄÅ]!IÅÃπ•πŸΩ•çï}•êÄÙÅ§π•ê(ÄÄÄÄÄÄÄÄÅ9Å§π•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê…Ä∞(ÄÄÄÄÄÅm•πŸΩ•çï%ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÅÙ((ÄÅÖÕÂπåÅ’π•—=çç’¡Ö—•Ωπ!•Õ—Ω…‰°’π•—%êËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ∞∏®∞Å=9P°–πô•…Õ—}πÖµî∞ÄúÄú∞Å–π±ÖÕ—}πÖµî§ÅLÅ—ïπÖπ—}πÖµî∞ÅúπÖµΩ’π–ÅLÅù’Ö…Öπ—ïï}ÖµΩ’π–∞ÅúπÕ—Ö—’ÃÅLÅù’Ö…Öπ—ïï}Õ—Ö—’Ã(ÄÄÄÄÄÄÅI=4Å±ïÖÕïÃÅ∞(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ∞π—ïπÖπ—}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕï}ù’Ö…Öπ—ïïÃÅúÅ=8Åúπ±ïÖÕï}•êÄÙÅ∞π•êÅ9Åúπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ]!IÅ∞π’π•—}•êÄÙÄêƒÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10Å9Å∞πÖ…ç°•Ÿïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅ∞πÕ—Ö…—}ëÖ—îÅM∞Å∞π•êÅMÄ∞(ÄÄÄÄÄÅm’π•—%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅÖÕÂπåÅ—ïπÖπ—1ïÖÕïÃ°—ïπÖπ—%êËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ∞∏®∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞ÅúπÖµΩ’π–ÅLÅù’Ö…Öπ—ïï}ÖµΩ’π–∞ÅúπÕ—Ö—’ÃÅLÅù’Ö…Öπ—ïï}Õ—Ö—’Ã(ÄÄÄÄÄÄÅI=4Å±ïÖÕïÃÅ∞(ÄÄÄÄÄÄÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•ê(ÄÄÄÄÄÄÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕï}ù’Ö…Öπ—ïïÃÅúÅ=8Åúπ±ïÖÕï}•êÄÙÅ∞π•êÅ9Åúπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ]!IÅ∞π—ïπÖπ—}•êÄÙÄêƒÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10Å9Å∞πÖ…ç°•Ÿïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅ∞πÕ—Ö…—}ëÖ—îÅM∞Å∞π•êÅMÄ∞(ÄÄÄÄÄÅm—ïπÖπ—%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅÖÕÂπåÅÖç—•Ÿï1ïÖÕïÕ	Â	’•±ë•πú°â’•±ë•πù%ê¸ËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ∞∏®∞Å=9P°–πô•…Õ—}πÖµî∞ÄúÄú∞Å–π±ÖÕ—}πÖµî§ÅLÅ—ïπÖπ—}πÖµî∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî(ÄÄÄÄÄÄÅI=4Å±ïÖÕïÃÅ∞(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ∞π—ïπÖπ—}•ê(ÄÄÄÄÄÄÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•ê(ÄÄÄÄÄÄÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÅ]!IÅ∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10Å9Å∞πÖ…ç°•Ÿïë}Ö–Å%LÅ9U10Å9Å∞πÕ—Ö—’ÃÄÙÄùQ%Yú(ÄÄÄÄÄÄÄÄÅ9Ä†ê»ËÈ%9PÅ%LÅ9U10Å=HÅàπ•êÄÙÄê»§(ÄÄÄÄÄÄÅ=IHÅ	dÅàππÖµî∞Å‘ππ’µâï…Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Åâ’•±ë•πù%êÄ¸¸Åπ’±±t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅÖÕÂπåÅ…ïπ—Ö±Uπ•—ÕŸÖ•±Öâ•±•—‰†§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞Å‘π•êÅLÅ’π•—}•ê∞Å‘ππ’µâï»∞Å‘πÕ—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å∞π•êÅ%LÅ9U10ÅQ!8Äù1•â…îúÅ1MÄù=çç’√•îúÅ9ÅLÅΩçç’¡Öπç‰(ÄÄÄÄÄÄÅI=4Å’π•—ÃÅ‘(ÄÄÄÄÄÄÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π’π•—}•êÄÙÅ‘π•êÅ9Å∞πÕ—Ö—’ÃÄÙÄùQ%YúÅ9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10Å9Å∞πÖ…ç°•Ÿïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ]!IÅ‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Å‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅàππÖµî∞Å‘ππ’µâï…Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅÖÕÂπåÅç…ïÖ—ï1ïÖÕï%πŸΩ•çî°•êËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–Å•πŸΩ•çîÄÙÅÖ›Ö•–Å—°•Ãπëàπ—…ÖπÕÖç—•Ω∏°ÖÕÂπåÄ°ç±•ïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å±ïÖÕîÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ∞∏®∞Å‘πâ’•±ë•πù}•êÅI=4Å±ïÖÕïÃÅ∞Å)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•êÅ]!IÅ∞π•êÄÙÄêƒÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10Å9Å∞πÖ…ç°•Ÿïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅçΩπÕ–Å…Ω‹ÄÙÅ…ï≈’•…ïIΩ‹°±ïÖÕîπ…Ω›Õl¡t∞Äù1ïÖÕîú§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕï≈’ïπçîÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰°ÅM1PÅ=1M°5`†°MU	MQI%9°•πŸΩ•çï}π’µâï»ÅI=4Äêƒ§§ËÈ%9P§∞Ä¿§Ä¨ÄƒÅLÅŸÖ±’îÅI=4Å•πŸΩ•çïÃÅ]!IÅ•πŸΩ•çï}π’µâï»Å1%-Äê…Ä∞Ål(ÄÄÄÄÄÄÄÅÅ%9X¥ëÌπï‹ÅÖ—î†§πùï—’±±eïÖ»†•Ù¥°l¿¥Ât¨•Ä∞(ÄÄÄÄÄÄÄÅÅ%9X¥ëÌπï‹ÅÖ—î†§πùï—’±±eïÖ»†•Ù¥ïÄ∞(ÄÄÄÄÄÅt§Ï(ÄÄÄÄÄÅçΩπÕ–Åπï·—%êÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰°ÅM1PÅπï·—ŸÖ∞†ù•πŸΩ•çïÕ}•ë}Õïƒú§ËÈ%9PÅLÅŸÖ±’ïÄ§Ï(ÄÄÄÄÄÅçΩπÕ–Åπ’µâï»ÄÙÅÅ%9X¥ëÌπï‹ÅÖ—î†§πùï—’±±eïÖ»†•Ù¥ëÌM—…•πú°Õï≈’ïπçîπ…Ω›Õl¡tπŸÖ±’î§π¡ÖëM—Ö…–†–∞Äú¿ú•ıÄÏ(ÄÄÄÄÄÅçΩπÕ–Å—ΩëÖ‰ÄÙÅπï‹ÅÖ—î†§Ï(ÄÄÄÄÄÅçΩπÕ–Åë’îÄÙÅπï‹ÅÖ—î°—ΩëÖ‰πùï—’±±eïÖ»†§∞Å—ΩëÖ‰πùï—5Ωπ—††§∞Äƒ¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å…ïπ—µΩ’π–ÄÙÅ9’µâï»°…Ω‹πµΩπ—°±Â}…ïπ–Ä¸¸Ä¿§Ä¨Å9’µâï»°…Ω‹πµÖ•π—ïπÖπçï}ôïï}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕÂπë•çµΩ’π–ÄÙÅ9’µâï»°…Ω‹πµΩπ—°±Â}ÕÂπë•ç}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å—Ω—Ö±µΩ’π–ÄÙÅ…ïπ—µΩ’π–Ä¨ÅÕÂπë•çµΩ’π–Ï(ÄÄÄÄÄÅçΩπÕ–Å•πŸΩ•çîÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<Å•πŸΩ•çïÃÄ°•ê∞Å—ïπÖπ—}•ê∞Å±ïÖÕï}•ê∞Å’π•—}•ê∞Åâ’•±ë•πù}•ê∞Å•πŸΩ•çï}π’µâï»∞ÅµΩπ—†∞ÅÂïÖ»∞Å•ÕÕ’ï}ëÖ—î∞Åë’ï}ëÖ—î∞ÅÕ—Ö—’Ã∞Å—Ω—Ö∞∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞Äê‡∞ÅUII9Q}Q∞Äê‰∞ÄùU9A%ú∞Äêƒ¿∞Äêƒƒ§ÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÄÄÅmπï·—%êπ…Ω›Õl¡tπŸÖ±’î∞Å…Ω‹π—ïπÖπ—}•ê∞Å…Ω‹π•ê∞Å…Ω‹π’π•—}•ê∞Å…Ω‹πâ’•±ë•πù}•ê∞Åπ’µâï»∞Å—ΩëÖ‰πùï—5Ωπ—††§Ä¨Äƒ∞Å—ΩëÖ‰πùï—’±±eïÖ»†§∞Åë’îπ—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§∞Å—Ω—Ö±µΩ’π–∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ•òÄ°…ïπ—µΩ’π–Ä¯Ä¿§ÅÏ(ÄÄÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÄÄÄù%9MIPÅ%9Q<Å•πŸΩ•çï}•—ïµÃÄ°•πŸΩ•çï}•ê∞Å•—ïµ}—Â¡î∞ÅëïÕç…•¡—•Ω∏∞ÅÖµΩ’π–∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§ÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘§ú∞(ÄÄÄÄÄÄÄÄÄÅm•πŸΩ•çîπ…Ω›Õl¡tπ•ê∞Äù5Ωπ—°±‰Å…ïπ–ú∞Å—°•Ãπ•πŸΩ•çïAï…•ΩëïÕç…•¡—•Ω∏†ù1ΩÂï»ú∞Å—ΩëÖ‰πùï—5Ωπ—††§Ä¨Äƒ∞Å—ΩëÖ‰πùï—’±±eïÖ»†§§∞Å…ïπ—µΩ’π–∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°ÕÂπë•çµΩ’π–Ä¯Ä¿§ÅÏ(ÄÄÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÄÄÄù%9MIPÅ%9Q<Å•πŸΩ•çï}•—ïµÃÄ°•πŸΩ•çï}•ê∞Å•—ïµ}—Â¡î∞ÅëïÕç…•¡—•Ω∏∞ÅÖµΩ’π–∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§ÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘§ú∞(ÄÄÄÄÄÄÄÄÄÅm•πŸΩ•çîπ…Ω›Õl¡tπ•ê∞ÄùMÂπë•åú∞Å—°•Ãπ•πŸΩ•çïAï…•ΩëïÕç…•¡—•Ω∏†ùMÂπë•åú∞Å—ΩëÖ‰πùï—5Ωπ—††§Ä¨Äƒ∞Å—ΩëÖ‰πùï—’±±eïÖ»†§§∞ÅÕÂπë•çµΩ’π–∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ…ï—’…∏Å•πŸΩ•çîπ…Ω›Õl¡tÏ(ÄÄÄÅÙ§Ï(ÄÄÄÅŸΩ•êÅ—°•ÃπÕïπë1ïÖÕï%πŸΩ•çïµÖ•±%ôπÖâ±ïê°•πŸΩ•çî§πçÖ—ç††°ï……Ω»§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ—°•Ãπ±Ωùùï»πï……Ω»†(ÄÄÄÄÄÄÄÅÅm%9Y=%tÅÖÕÂπåÅ…ïçï•¡–ÅïµÖ•∞ÅôÖ•±ïêÅ•πŸΩ•çï%êÙëÌ9’µâï»°•πŸΩ•çîπ•ê•ÙÅΩ…ùÖπ•ÈÖ—•Ωπ%êÙëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙÅµïÕÕÖùîÙëÌï……Ω»Å•πÕ—ÖπçïΩòÅ……Ω»Ä¸Åï……Ω»πµïÕÕÖùîÄËÅM—…•πú°ï……Ω»•ıÄ∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅ…ï—’…∏Å•πŸΩ•çîÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÖ¡¡ïπë%πŸΩ•çï%—ïµM’µµÖ…•ïÃ°…Ω›ÃËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰˘mt§ËÅA…Ωµ•ÕîÒIïçΩ…êÒÕ—…•πú∞ÅÖπ‰˘mt¯ÅÏ(ÄÄÄÅçΩπÕ–Å•πŸΩ•çï%ëÃÄÙÅ…Ω›ÃπµÖ¿†°…Ω‹§ÄÙ¯Å9’µâï»°…Ω‹π•ê§§πô•±—ï»°9’µâï»π•Õ•π•—î§Ï(ÄÄÄÅ•òÄ†Ö•πŸΩ•çï%ëÃπ±ïπù—†§Å…ï—’…∏Å…Ω›ÃÏ(ÄÄÄÅçΩπÕ–ÅÕ’µµÖ…•ïÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•πŸΩ•çï}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°MÅ]!8Å•—ïµ}—Â¡îÄÙÄù5Ωπ—°±‰Å…ïπ–úÅ=HÅëïÕç…•¡—•Ω∏ÄÙÄù5Ωπ—°±‰Å…ïπ–úÅ=HÅëïÕç…•¡—•Ω∏Å%1%-Äù1ΩÂï»ÄîúÅQ!8ÅÖµΩ’π–Å1MÄ¿Å9§∞Ä¿§ËÈ1=PÅLÅ…ïπ—}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°MÅ]!8Å•—ïµ}—Â¡îÄÙÄùMÂπë•åúÅ=HÅëïÕç…•¡—•Ω∏ÄÙÄùMÂπë•åúÅ=HÅëïÕç…•¡—•Ω∏Å%1%-ÄùMÂπë•åÄîúÅQ!8ÅÖµΩ’π–Å1MÄ¿Å9§∞Ä¿§ËÈ1=PÅLÅÕÂπë•ç}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°)M=9	}°)M=9	}	U%1}=	)P†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄù•êú∞Å•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄù•—ïµ}—Â¡îú∞Å•—ïµ}—Â¡î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄùëïÕç…•¡—•Ω∏ú∞ÅëïÕç…•¡—•Ω∏∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄùÖµΩ’π–ú∞ÅÖµΩ’π–(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§Å=IHÅ	dÅ•ê§∞ÄùmtúËÈ)M=9§ÅLÅ•—ïµÃ(ÄÄÄÄÄÄÅI=4Å•πŸΩ•çï}•—ïµÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Å•πŸΩ•çï}•êÄÙÅ9d†ê»ËÈ%9Qmt§(ÄÄÄÄÄÄÅI=U@Å	dÅ•πŸΩ•çï}•ëÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å•πŸΩ•çï%ëÕt∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÕ’µµÖ…Â5Ö¿ÄÙÅπï‹Å5Ö¿Òπ’µâï»∞ÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯¯°Õ’µµÖ…•ïÃπ…Ω›ÃπµÖ¿†°…Ω‹§ÄÙ¯Åm9’µâï»°…Ω‹π•πŸΩ•çï}•ê§∞Å…Ω‹ÅÖÃÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰˘t§§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃπµÖ¿†°…Ω‹§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕ’µµÖ…‰ÄÙÅÕ’µµÖ…Â5Ö¿πùï–°9’µâï»°…Ω‹π•ê§§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÄ∏∏π…Ω‹∞(ÄÄÄÄÄÄÄÅ…ïπ—}ÖµΩ’π–ËÅ9’µâï»°Õ’µµÖ…‰¸π…ïπ—}ÖµΩ’π–Ä¸¸Ä¿§∞(ÄÄÄÄÄÄÄÅÕÂπë•ç}ÖµΩ’π–ËÅ9’µâï»°Õ’µµÖ…‰¸πÕÂπë•ç}ÖµΩ’π–Ä¸¸Ä¿§∞(ÄÄÄÄÄÄÄÅ•—ïµÃËÅ……Ö‰π•Õ……Ö‰°Õ’µµÖ…‰¸π•—ïµÃ§Ä¸ÅÕ’µµÖ…‰π•—ïµÃÄËÅmt∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ•πŸΩ•çïAï…•ΩëïÕç…•¡—•Ω∏°¡…ïô•‡ËÅÕ—…•πú∞ÅµΩπ—†ËÅπ’µâï»∞ÅÂïÖ»ËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅµΩπ—°1Öâï∞ÄÙÅlù©ÖπŸ•ï»ú∞ÄùôïŸ…•ï»ú∞ÄùµÖ…Ãú∞ÄùÖŸ…•∞ú∞ÄùµÖ§ú∞Äù©’•∏ú∞Äù©’•±±ï–ú∞ÄùÖΩ’–ú∞ÄùÕï¡—ïµâ…îú∞ÄùΩç—Ωâ…îú∞ÄùπΩŸïµâ…îú∞Äùëïçïµâ…îùumµΩπ—†Ä¥Ä≈tÄ¸¸ÅM—…•πú°µΩπ—†§Ï(ÄÄÄÅ…ï—’…∏ÅÄëÌ¡…ïô•·ÙÄëÌµΩπ—°1Öâï±ÙÄëÌÂïÖ…ıÄÏ(ÄÅÙ((ÄÅÖÕÂπåÅ…ï¡Ω…—ÕÖÕ°âΩÖ…ê†§ÅÏ(ÄÄÄÅçΩπÕ–ÅΩ…ùÖπ•ÈÖ—•Ωπ%êÄÙÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§Ï(ÄÄÄÅçΩπÕ–ÅmΩçç’¡Ö—•Ω∏∞Å…ïŸïπ’î∞Å¡ÖÂµïπ—Ã∞ÅΩŸï…ë’î∞Åù’Ö…Öπ—ïïÃ∞ÅçÖÕ°tÄÙÅÖ›Ö•–ÅA…Ωµ•ÕîπÖ±∞°l(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅÕ—Ö—’ÃÅLÅπÖµî∞Å=U9P†®§ËÈ%9PÅLÅŸÖ±’î(ÄÄÄÄÄÄÄÄÅI=4Å’π•—Ã(ÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅÕ—Ö—’Ã(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅÕ—Ö—’ÕÄ∞(ÄÄÄÄÄÄÄÅmΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅàππÖµî∞Å=1M°MU4°§π—Ω—Ö∞§∞Ä¿§ËÈ1=PÅLÅŸÖ±’î(ÄÄÄÄÄÄÄÄÅI=4Åâ’•±ë•πùÃÅà(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å•πŸΩ•çïÃÅ§Å=8Å§πâ’•±ë•πù}•êÄÙÅàπ•êÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ]!IÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Åàπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅàπ•ê∞ÅàππÖµî(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅàππÖµïÄ∞(ÄÄÄÄÄÄÄÅmΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅQ=}!H°¡ÖÂµïπ—}ëÖ—î∞Äùeeedµ54ú§ÅLÅπÖµî∞Å=1M°MU4°ÖµΩ’π–§∞Ä¿§ËÈ1=PÅLÅŸÖ±’î(ÄÄÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅQ=}!H°¡ÖÂµïπ—}ëÖ—î∞Äùeeedµ54ú§(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅπÖµïÄ∞(ÄÄÄÄÄÄÄÅmΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ=U9P†®§ËÈ%9PÅLÅçΩ’π–∞Å=1M°MU4°=1M°Ãπ…ïµÖ•π•πù}ÖµΩ’π–∞Å§π—Ω—Ö∞§§∞Ä¿§ËÈ1=PÅLÅÖµΩ’π–(ÄÄÄÄÄÄÄÄÅI=4Å•πŸΩ•çïÃÅ§(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å•πŸΩ•çï}¡ÖÂµïπ—}Õ’µµÖ…‰ÅÃÅ=8ÅÃπ•πŸΩ•çï}•êÄÙÅ§π•ê(ÄÄÄÄÄÄÄÄÅ]!IÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10Å9Å§πÕ—Ö—’ÃÄ¯ÄùA%úÅ9Å§πë’ï}ëÖ—îÄÅUII9Q}QÄ∞(ÄÄÄÄÄÄÄÅmΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅÕ—Ö—’ÃÅLÅπÖµî∞Å=U9P†®§ËÈ%9PÅLÅŸÖ±’î∞Å=1M°MU4°ÖµΩ’π–§∞Ä¿§ËÈ1=PÅLÅÖµΩ’π–(ÄÄÄÄÄÄÄÄÅI=4Å±ïÖÕï}ù’Ö…Öπ—ïïÃ(ÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅÕ—Ö—’Ã(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅÕ—Ö—’ÕÄ∞(ÄÄÄÄÄÄÄÅmΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1P(ÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°MÅ]!8Å—Â¡îÄÙÄù%8úÅQ!8ÅÖµΩ’π–Å1MÄ¿Å9§∞Ä¿§ËÈ1=PÅLÅ—Ω—Ö±}•∏∞(ÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°MÅ]!8Å—Â¡îÄÙÄù=UPúÅQ!8ÅÖµΩ’π–Å1MÄ¿Å9§∞Ä¿§ËÈ1=PÅLÅ—Ω—Ö±}Ω’–(ÄÄÄÄÄÄÄÄÅI=4ÅçÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ9ÅçÖ—ïùΩ…‰Å9=PÅ%8Ä†ù1M}UI9Qú∞Äù1M}UI9Q}IU9ú•Ä∞(ÄÄÄÄÄÄÄÅmΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§∞(ÄÄÄÅt§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅΩçç’¡Ö—•Ω∏ËÅΩçç’¡Ö—•Ω∏π…Ω›Ã∞(ÄÄÄÄÄÅ…ïŸïπ’ï}âÂ}â’•±ë•πúËÅ…ïŸïπ’îπ…Ω›Ã∞(ÄÄÄÄÄÅµΩπ—°±Â}¡ÖÂµïπ—ÃËÅ¡ÖÂµïπ—Ãπ…Ω›Ã∞(ÄÄÄÄÄÅΩŸï…ë’îËÅΩŸï…ë’îπ…Ω›Õl¡t∞(ÄÄÄÄÄÅù’Ö…Öπ—ïïÃËÅù’Ö…Öπ—ïïÃπ…Ω›Ã∞(ÄÄÄÄÄÅçÖÕ°}Õ’µµÖ…‰ËÅÏ(ÄÄÄÄÄÄÄÄ∏∏πçÖÕ†π…Ω›Õl¡t∞(ÄÄÄÄÄÄÄÅâÖ±ÖπçîËÅ9’µâï»°çÖÕ†π…Ω›Õl¡t¸π—Ω—Ö±}•∏Ä¸¸Ä¿§Ä¥Å9’µâï»°çÖÕ†π…Ω›Õl¡t¸π—Ω—Ö±}Ω’–Ä¸¸Ä¿§∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ…ï¡Ω…—Aï…•Ωê°ô•±—ï…ÃËÅÏÅµΩπ—†¸ËÅÕ—…•πúÏÅÂïÖ»¸ËÅÕ—…•πúÏÅÕ—Ö…–¸ËÅÕ—…•πúÏÅïπê¸ËÅÕ—…•πúÅÙ§ÅÏ(ÄÄÄÅ•òÄ°ô•±—ï…ÃπµΩπ—†ÄòòÅô•±—ï…ÃπÂïÖ»§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅµΩπ—†ÄÙÅ9’µâï»°ô•±—ï…ÃπµΩπ—†§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÂïÖ»ÄÙÅ9’µâï»°ô•±—ï…ÃπÂïÖ»§Ï(ÄÄÄÄÄÅ•òÄ°µΩπ—†Ä¯ÙÄƒÄòòÅµΩπ—†ÄÙÄƒ»ÄòòÅÂïÖ»Ä¯Äƒ‰¿¿§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å¡Öëëïë5Ωπ—†ÄÙÅM—…•πú°µΩπ—†§π¡ÖëM—Ö…–†»∞Äú¿ú§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–Å±ÖÕ—Ö‰ÄÙÅπï‹ÅÖ—î°Ö—îπUQ°ÂïÖ»∞ÅµΩπ—†∞Ä¿§§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÏÅÕ—Ö…–ËÅÄëÌÂïÖ…Ù¥ëÌ¡Öëëïë5Ωπ—°Ù¥¿≈Ä∞ÅïπêËÅ±ÖÕ—Ö‰ÅÙÏ(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÏÅÕ—Ö…–ËÅô•±—ï…ÃπÕ—Ö…–Ä¸¸Äú»¿¿¿¥¿ƒ¥¿ƒú∞ÅïπêËÅô•±—ï…ÃπïπêÄ¸¸Äú»‰‰‰¥ƒ»¥ÃƒúÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ•πŸΩ•çïM—Ö—’Õ±Ö’Õî°Ö±•ÖÃËÅÕ—…•πú∞Å¡Ö…Öµï—ï…%πëï‡ËÅπ’µâï»§ÅÏ(ÄÄÄÅ…ï—’…∏ÅÄ†êëÌ¡Ö…Öµï—ï…%πëï·ÙËÈQaPÅ%LÅ9U10(ÄÄÄÄÄÅ=HÄ†êëÌ¡Ö…Öµï—ï…%πëï·ÙÄÙÄù=YIUúÅ9ÄëÌÖ±•ÖÕÙπÕ—Ö—’ÃÄ¯ÄùA%úÅ9ÄëÌÖ±•ÖÕÙπë’ï}ëÖ—îÄÅUII9Q}Q§(ÄÄÄÄÄÅ=HÄ†êëÌ¡Ö…Öµï—ï…%πëï·ÙÄ¯Äù=YIUúÅ9ÄëÌÖ±•ÖÕÙπÕ—Ö—’ÃÄÙÄêëÌ¡Ö…Öµï—ï…%πëï·Ù§•ÄÏ(ÄÅÙ((ÄÅÖÕÂπåÅâ’•±ë•πùIï¡Ω…–†(ÄÄÄÅ•êËÅπ’µâï»∞(ÄÄÄÅô•±—ï…ÃËÅÏÅµΩπ—†¸ËÅÕ—…•πúÏÅÂïÖ»¸ËÅÕ—…•πúÏÅÕ—Ö…–¸ËÅÕ—…•πúÏÅïπê¸ËÅÕ—…•πúÏÅ¡ÖÂµïπ—M—Ö—’Ã¸ËÅÕ—…•πúÏÅ—ïπÖπ—%ê¸ËÅπ’µâï»ÏÅ’π•—%ê¸ËÅπ’µâï»ÅÙÄÙÅÌÙ∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–ÅΩ…ùÖπ•ÈÖ—•Ωπ%êÄÙÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§Ï(ÄÄÄÅçΩπÕ–Å¡ï…•ΩêÄÙÅ—°•Ãπ…ï¡Ω…—Aï…•Ωê°ô•±—ï…Ã§Ï(ÄÄÄÅçΩπÕ–Å¡Ö…ÖµÃËÅ’π≠πΩ›πmtÄÙÅl(ÄÄÄÄÄÅ•ê∞(ÄÄÄÄÄÅ¡ï…•ΩêπÕ—Ö…–∞(ÄÄÄÄÄÅ¡ï…•Ωêπïπê∞(ÄÄÄÄÄÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞(ÄÄÄÄÄÅô•±—ï…Ãπ—ïπÖπ—%êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅô•±—ï…Ãπ’π•—%êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅô•±—ï…Ãπ¡ÖÂµïπ—M—Ö—’ÃÅÒÅπ’±∞∞(ÄÄÄÅtÏ(ÄÄÄÅçΩπÕ–Åâ’•±ë•πúÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†ùM1PÄ®ÅI=4Åâ’•±ë•πùÃÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U10ú∞Åm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët§Ï(ÄÄÄÅçΩπÕ–Å’π•—ÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®ÅI=4Å’π•—Ã(ÄÄÄÄÄÄÅ]!IÅâ’•±ë•πù}•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Ä†êÃËÈ%9PÅ%LÅ9U10Å=HÅ•êÄÙÄêÃ§(ÄÄÄÄÄÄÅ=IHÅ	dÅπ’µâï…Ä∞(ÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Åô•±—ï…Ãπ’π•—%êÄ¸¸Åπ’±±t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å—ïπÖπ—ÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ%MQ%9PÅ=8Ä°–π•ê§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ–π•ê∞Å=9P°–πô•…Õ—}πÖµî∞ÄúÄú∞Å–π±ÖÕ—}πÖµî§ÅLÅ—ïπÖπ—}πÖµî∞Å–π¡°Ωπî∞Å–πïµÖ•∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞Å∞π•êÅLÅ±ïÖÕï}•ê∞Å∞πÕ—Ö—’ÃÅLÅ±ïÖÕï}Õ—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ∞πµΩπ—°±Â}…ïπ–∞Å∞πµÖ•π—ïπÖπçï}ôïï}ÖµΩ’π–∞Å∞πµΩπ—°±Â}ÕÂπë•ç}ÖµΩ’π–(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—ÃÅ–(ÄÄÄÄÄÄÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π—ïπÖπ—}•êÄÙÅ–π•êÅ9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•ê(ÄÄÄÄÄÄÅ]!IÅ‘πâ’•±ë•πù}•êÄÙÄêƒÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Ä†êÃËÈ%9PÅ%LÅ9U10Å=HÅ–π•êÄÙÄêÃ§(ÄÄÄÄÄÄÄÄÅ9Ä†ê–ËÈ%9PÅ%LÅ9U10Å=HÅ‘π•êÄÙÄê–§(ÄÄÄÄÄÄÅ=IHÅ	dÅ–π•ê∞Å∞πÕ—Ö—’ÃÄÙÄùQ%YúÅM∞Å∞πÕ—Ö…—}ëÖ—îÅMÄ∞(ÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Åô•±—ï…Ãπ—ïπÖπ—%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπ’π•—%êÄ¸¸Åπ’±±t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å•πŸΩ•çïÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ§π•ê∞Å§π—ïπÖπ—}•ê∞Å§π•πŸΩ•çï}π’µâï»∞Å§πµΩπ—†∞Å§πÂïÖ»∞Å§π•ÕÕ’ï}ëÖ—î∞Å§πë’ï}ëÖ—î∞Å§πÕ—Ö—’Ã∞Å§π—Ω—Ö∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ§π±ÖÕ—}…ïµ•πëï…}Ö–∞Å=1M°§π…ïµ•πëï…}çΩ’π–∞Ä¿§ËÈ%9PÅLÅ…ïµ•πëï…}çΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=9P°–πô•…Õ—}πÖµî∞ÄúÄú∞Å–π±ÖÕ—}πÖµî§ÅLÅ—ïπÖπ—}πÖµî∞Å–π¡°Ωπî∞Å–πïµÖ•∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Ãπ¡Ö•ë}ÖµΩ’π–∞Ä¿§ËÈ1=PÅLÅ¡Ö•ë}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Ãπ…ïµÖ•π•πù}ÖµΩ’π–∞Å§π—Ω—Ö∞§ËÈ1=PÅLÅ…ïµÖ•π•πù}ÖµΩ’π–(ÄÄÄÄÄÄÅI=4Å•πŸΩ•çïÃÅ§(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ§π—ïπÖπ—}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ§π±ïÖÕï}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ=1M°§π’π•—}•ê∞Å∞π’π•—}•ê∞Å–π’π•—}•ê§(ÄÄÄÄÄÄÅ1PÅ)=%8Å•πŸΩ•çï}¡ÖÂµïπ—}Õ’µµÖ…‰ÅÃÅ=8ÅÃπ•πŸΩ•çï}•êÄÙÅ§π•ê(ÄÄÄÄÄÄÅ]!IÅ=1M°§πâ’•±ë•πù}•ê∞Å‘πâ’•±ë•πù}•ê§ÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å§π•ÕÕ’ï}ëÖ—îÅ	Q]8Äê»Å9ÄêÃ(ÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê–(ÄÄÄÄÄÄÄÄÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Ä†ê‘ËÈ%9PÅ%LÅ9U10Å=HÅ§π—ïπÖπ—}•êÄÙÄê‘§(ÄÄÄÄÄÄÄÄÅ9Ä†êÿËÈ%9PÅ%LÅ9U10Å=HÅ=1M°§π’π•—}•ê∞Å∞π’π•—}•ê∞Å–π’π•—}•ê§ÄÙÄêÿ§(ÄÄÄÄÄÄÄÄÅ9ÄëÌ—°•Ãπ•πŸΩ•çïM—Ö—’Õ±Ö’Õî†ù§ú∞Ä‹•Ù(ÄÄÄÄÄÄÅ=IHÅ	dÅ§π•ÕÕ’ï}ëÖ—îÅM∞Å§π•πŸΩ•çï}π’µâï…Ä∞(ÄÄÄÄÄÅ¡Ö…ÖµÃ∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å•πŸΩ•çïIΩ›ÃÄÙÅÖ›Ö•–Å—°•ÃπÖ¡¡ïπë%πŸΩ•çï%—ïµM’µµÖ…•ïÃ°•πŸΩ•çïÃπ…Ω›Ã§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—ÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ¿π•ê∞Å¿π¡ÖÂµïπ—}ëÖ—î∞Å¿πÖµΩ’π–∞Å¿π¡ÖÂµïπ—}µï—°Ωê∞Å¿π…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ§π•πŸΩ•çï}π’µâï»∞Å§π—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=9P°–πô•…Õ—}πÖµî∞ÄúÄú∞Å–π±ÖÕ—}πÖµî§ÅLÅ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»(ÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—ÃÅ¿(ÄÄÄÄÄÄÅ)=%8Å•πŸΩ•çïÃÅ§Å=8Å§π•êÄÙÅ¿π•πŸΩ•çï}•ê(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ§π—ïπÖπ—}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ§π±ïÖÕï}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ=1M°§π’π•—}•ê∞Å∞π’π•—}•ê∞Å–π’π•—}•ê§(ÄÄÄÄÄÄÅ]!IÅ=1M°§πâ’•±ë•πù}•ê∞Å‘πâ’•±ë•πù}•ê§ÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å¿π¡ÖÂµïπ—}ëÖ—îÅ	Q]8Äê»Å9ÄêÃ(ÄÄÄÄÄÄÄÄÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê–(ÄÄÄÄÄÄÄÄÅ9Å¿πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Ä†ê‘ËÈ%9PÅ%LÅ9U10Å=HÅ§π—ïπÖπ—}•êÄÙÄê‘§(ÄÄÄÄÄÄÄÄÅ9Ä†êÿËÈ%9PÅ%LÅ9U10Å=HÅ=1M°§π’π•—}•ê∞Å∞π’π•—}•ê∞Å–π’π•—}•ê§ÄÙÄêÿ§(ÄÄÄÄÄÄÄÄÅ9ÄëÌ—°•Ãπ•πŸΩ•çïM—Ö—’Õ±Ö’Õî†ù§ú∞Ä‹•Ù(ÄÄÄÄÄÄÅ=IHÅ	dÅ¿π¡ÖÂµïπ—}ëÖ—îÅM∞Å¿π•êÅMÄ∞(ÄÄÄÄÄÅ¡Ö…ÖµÃ∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å¡Ö•ëQïπÖπ—%ëÃÄÙÅπï‹ÅMï–°¡ÖÂµïπ—Ãπ…Ω›ÃπµÖ¿†°…Ω‹§ÄÙ¯Å…Ω‹π—ïπÖπ—}•ê§πô•±—ï»°	ΩΩ±ïÖ∏§§Ï(ÄÄÄÅçΩπÕ–Å—ïπÖπ—ÕAÖ•êÄÙÅ……Ö‰πô…Ω¥†(ÄÄÄÄÄÅπï‹Å5Ö¿†(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—Ãπ…Ω›Ã(ÄÄÄÄÄÄÄÄÄÄπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹π—ïπÖπ—}•ê§(ÄÄÄÄÄÄÄÄÄÄπµÖ¿†°…Ω‹§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å—ïπÖπ–ÄÙÅ—ïπÖπ—Ãπ…Ω›Ãπô•πê†°•—ï¥§ÄÙ¯Å9’µâï»°•—ï¥π•ê§ÄÙÙÙÅ9’µâï»°…Ω‹π—ïπÖπ—}•ê§§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Åm…Ω‹π—ïπÖπ—}•ê∞ÅÏÅ—ïπÖπ—}•êËÅ…Ω‹π—ïπÖπ—}•ê∞Å—ïπÖπ—}πÖµîËÅ…Ω‹π—ïπÖπ—}πÖµî∞Å’π•—}π’µâï»ËÅ…Ω‹π’π•—}π’µâï»∞Å¡°ΩπîËÅ—ïπÖπ–¸π¡°Ωπî∞ÅïµÖ•∞ËÅ—ïπÖπ–¸πïµÖ•∞ÅıtÏ(ÄÄÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄ§πŸÖ±’ïÃ†§∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å—ïπÖπ—ÕUπ¡Ö•êÄÙÅ……Ö‰πô…Ω¥†(ÄÄÄÄÄÅπï‹Å5Ö¿†(ÄÄÄÄÄÄÄÅ•πŸΩ•çïIΩ›Ã(ÄÄÄÄÄÄÄÄÄÄπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹π—ïπÖπ—}•êÄòòÄÖ¡Ö•ëQïπÖπ—%ëÃπ°ÖÃ°…Ω‹π—ïπÖπ—}•ê§ÄòòÅ…Ω‹πÕ—Ö—’ÃÄÑÙÙÄùA%ú§(ÄÄÄÄÄÄÄÄÄÄπµÖ¿†°…Ω‹§ÄÙ¯Ål(ÄÄÄÄÄÄÄÄÄÄÄÅ…Ω‹π—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—}•êËÅ…Ω‹π—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ïπÖπ—}πÖµîËÅ…Ω‹π—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡°ΩπîËÅ…Ω‹π¡°Ωπî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅïµÖ•∞ËÅ…Ω‹πïµÖ•∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ’π•—}π’µâï»ËÅ…Ω‹π’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•πŸΩ•çï}•êËÅ…Ω‹π•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•πŸΩ•çï}π’µâï»ËÅ…Ω‹π•πŸΩ•çï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïµÖ•π•πù}ÖµΩ’π–ËÅ…Ω‹π…ïµÖ•π•πù}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ±ÖÕ—}…ïµ•πëï…}Ö–ËÅ…Ω‹π±ÖÕ—}…ïµ•πëï…}Ö–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïµ•πëï…}çΩ’π–ËÅ…Ω‹π…ïµ•πëï…}çΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÅt§∞(ÄÄÄÄÄÄ§πŸÖ±’ïÃ†§∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å—ïπÖπ—M•—’Ö—•ΩπÃÄÙÅ—ïπÖπ—Ãπ…Ω›ÃπµÖ¿†°—ïπÖπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å—ïπÖπ—%πŸΩ•çïÃÄÙÅ•πŸΩ•çïIΩ›Ãπô•±—ï»†°•πŸΩ•çî§ÄÙ¯Å9’µâï»°•πŸΩ•çîπ—ïπÖπ—}•ê§ÄÙÙÙÅ9’µâï»°—ïπÖπ–π•ê§§Ï(ÄÄÄÄÄÅçΩπÕ–Å—Ω—Ö±%πŸΩ•çïêÄÙÅ—ïπÖπ—%πŸΩ•çïÃπ…ïë’çî†°Õ’¥∞Å•πŸΩ•çî§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°•πŸΩ•çîπ—Ω—Ö∞§∞Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å—Ω—Ö±AÖ•êÄÙÅ—ïπÖπ—%πŸΩ•çïÃπ…ïë’çî†°Õ’¥∞Å•πŸΩ•çî§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°•πŸΩ•çîπ¡Ö•ë}ÖµΩ’π–§∞Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å…ïµÖ•π•πúÄÙÅ—ïπÖπ—%πŸΩ•çïÃπ…ïë’çî†°Õ’¥∞Å•πŸΩ•çî§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°•πŸΩ•çîπ…ïµÖ•π•πù}ÖµΩ’π–§∞Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å—Ω—Ö±Iïπ—%πŸΩ•çïêÄÙÅ—ïπÖπ—%πŸΩ•çïÃπ…ïë’çî†°Õ’¥∞Å•πŸΩ•çî§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°•πŸΩ•çîπ…ïπ—}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å—Ω—Ö±MÂπë•ç%πŸΩ•çïêÄÙÅ—ïπÖπ—%πŸΩ•çïÃπ…ïë’çî†°Õ’¥∞Å•πŸΩ•çî§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°•πŸΩ•çîπÕÂπë•ç}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡Ö•ëΩ’π–ÄÙÅ—ïπÖπ—%πŸΩ•çïÃπô•±—ï»†°•πŸΩ•çî§ÄÙ¯Å•πŸΩ•çîπÕ—Ö—’ÃÄÙÙÙÄùA%ú§π±ïπù—†Ï(ÄÄÄÄÄÅçΩπÕ–Å¡Ö…—•Ö±Ω’π–ÄÙÅ—ïπÖπ—%πŸΩ•çïÃπô•±—ï»†°•πŸΩ•çî§ÄÙ¯Å•πŸΩ•çîπÕ—Ö—’ÃÄÙÙÙÄùAIQ%0ú§π±ïπù—†Ï(ÄÄÄÄÄÅçΩπÕ–Å’π¡Ö•ëΩ’π–ÄÙÅ—ïπÖπ—%πŸΩ•çïÃπô•±—ï»†°•πŸΩ•çî§ÄÙ¯Å•πŸΩ•çîπÕ—Ö—’ÃÄÙÙÙÄùU9A%ú§π±ïπù—†Ï(ÄÄÄÄÄÅçΩπÕ–ÅΩŸï…ë’ïΩ’π–ÄÙÅ—ïπÖπ—%πŸΩ•çïÃπô•±—ï»†°•πŸΩ•çî§ÄÙ¯Å•πŸΩ•çîπÕ—Ö—’ÃÄÑÙÙÄùA%úÄòòÅπï‹ÅÖ—î°•πŸΩ•çîπë’ï}ëÖ—î§ÄÅπï‹ÅÖ—î†§§π±ïπù—†Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÄ∏∏π—ïπÖπ–∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}Õ—Ö—’ÃËÅ—ïπÖπ—%πŸΩ•çïÃπ±ïπù—†ÄÙÙÙÄ¿Ä¸Äù9=Q}%9Y=%úÄËÅΩŸï…ë’ïΩ’π–Ä¯Ä¿ÄòòÅ…ïµÖ•π•πúÄ¯Ä¿Ä¸Äù=YIUúÄËÅ…ïµÖ•π•πúÄÙÄ¿Ä¸ÄùA%úÄËÅ—Ω—Ö±AÖ•êÄ¯Ä¿Ä¸ÄùAIQ%0úÄËÄùU9A%ú∞(ÄÄÄÄÄÄÄÅ—Ω—Ö±}•πŸΩ•çïêËÅ—Ω—Ö±%πŸΩ•çïê∞(ÄÄÄÄÄÄÄÅ—Ω—Ö±}…ïπ—}•πŸΩ•çïêËÅ—Ω—Ö±Iïπ—%πŸΩ•çïê∞(ÄÄÄÄÄÄÄÅ—Ω—Ö±}ÕÂπë•ç}•πŸΩ•çïêËÅ—Ω—Ö±MÂπë•ç%πŸΩ•çïê∞(ÄÄÄÄÄÄÄÅ—Ω—Ö±}¡Ö•êËÅ—Ω—Ö±AÖ•ê∞(ÄÄÄÄÄÄÄÅ…ïµÖ•π•πù}ÖµΩ’π–ËÅ…ïµÖ•π•πú∞(ÄÄÄÄÄÄÄÅ¡Ö•ë}•πŸΩ•çïÃËÅ¡Ö•ëΩ’π–∞(ÄÄÄÄÄÄÄÅ¡Ö…—•Ö±}•πŸΩ•çïÃËÅ¡Ö…—•Ö±Ω’π–∞(ÄÄÄÄÄÄÄÅ’π¡Ö•ë}•πŸΩ•çïÃËÅ’π¡Ö•ëΩ’π–∞(ÄÄÄÄÄÄÄÅΩŸï…ë’ï}•πŸΩ•çïÃËÅΩŸï…ë’ïΩ’π–∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÅçΩπÕ–Åâ’•±ë•πùIΩ‹ÄÙÅ…ï≈’•…ïIΩ‹°â’•±ë•πúπ…Ω›Õl¡t∞Äù	’•±ë•πúú§Ï(ÄÄÄÅçΩπÕ–Å…ïÖ±Uπ•—ÕQΩ—Ö∞ÄÙÅ’π•—Ãπ…Ω›Ãπ±ïπù—†Ï(ÄÄÄÅçΩπÕ–ÅôÖ±±âÖç≠Uπ•—ÕQΩ—Ö∞ÄÙÅ9’µâï»°â’•±ë•πùIΩ‹π—Ω—Ö±}’π•—ÃÄ¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Åë•Õ¡±ÖÂUπ•—ÕQΩ—Ö∞ÄÙÅ…ïÖ±Uπ•—ÕQΩ—Ö∞Ä¯Ä¿Ä¸Å…ïÖ±Uπ•—ÕQΩ—Ö∞ÄËÅôÖ±±âÖç≠Uπ•—ÕQΩ—Ö∞Ï(ÄÄÄÅçΩπÕ–ÅΩçç’¡•ïêÄÙÅ’π•—Ãπ…Ω›Ãπô•±—ï»†°’π•–§ÄÙ¯Å’π•–πÕ—Ö—’ÃÄÙÙÙÄù=UA%ú§π±ïπù—†Ï(ÄÄÄÅçΩπÕ–ÅŸÖçÖπ–ÄÙÅ…ïÖ±Uπ•—ÕQΩ—Ö∞Ä¯Ä¿Ä¸Å…ïÖ±Uπ•—ÕQΩ—Ö∞Ä¥ÅΩçç’¡•ïêÄËÅôÖ±±âÖç≠Uπ•—ÕQΩ—Ö∞Ï(ÄÄÄÅçΩπÕ–Åô•πÖπçïM’µµÖ…‰ÄÙÅÏ(ÄÄÄÄÄÅ•πŸΩ•çïÃËÅ•πŸΩ•çïIΩ›Ãπ±ïπù—†∞(ÄÄÄÄÄÅ¡Ö•ë}•πŸΩ•çïÃËÅ•πŸΩ•çïIΩ›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πÕ—Ö—’ÃÄÙÙÙÄùA%ú§π±ïπù—†∞(ÄÄÄÄÄÅ¡Ö…—•Ö±}•πŸΩ•çïÃËÅ•πŸΩ•çïIΩ›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πÕ—Ö—’ÃÄÙÙÙÄùAIQ%0ú§π±ïπù—†∞(ÄÄÄÄÄÅ’π¡Ö•ë}•πŸΩ•çïÃËÅ•πŸΩ•çïIΩ›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πÕ—Ö—’ÃÄÑÙÙÄùA%úÄòòÅ…Ω‹πÕ—Ö—’ÃÄÑÙÙÄù911ú§π±ïπù—†∞(ÄÄÄÄÄÅΩŸï…ë’ï}•πŸΩ•çïÃËÅ•πŸΩ•çïIΩ›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πÕ—Ö—’ÃÄÑÙÙÄùA%úÄòòÅπï‹ÅÖ—î°…Ω‹πë’ï}ëÖ—î§ÄÅπï‹ÅÖ—î†§§π±ïπù—†∞(ÄÄÄÄÄÅ—Ω—Ö±}•πŸΩ•çïêËÅ•πŸΩ•çïIΩ›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π—Ω—Ö∞Ä¸¸Ä¿§∞Ä¿§∞(ÄÄÄÄÄÅ—Ω—Ö±}…ïπ—}•πŸΩ•çïêËÅ•πŸΩ•çïIΩ›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π…ïπ—}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§∞(ÄÄÄÄÄÅ—Ω—Ö±}ÕÂπë•ç}•πŸΩ•çïêËÅ•πŸΩ•çïIΩ›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πÕÂπë•ç}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§∞(ÄÄÄÄÄÅ—Ω—Ö±}¡Ö•êËÅ•πŸΩ•çïIΩ›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π¡Ö•ë}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§∞(ÄÄÄÄÄÅ…ïµÖ•π•πúËÅ•πŸΩ•çïIΩ›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π…ïµÖ•π•πù}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§∞(ÄÄÄÅÙÏ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅâ’•±ë•πúËÅâ’•±ë•πùIΩ‹∞(ÄÄÄÄÄÅ¡ï…•Ωê∞(ÄÄÄÄÄÅô•±—ï…Ã∞(ÄÄÄÄÄÅ’π•—Õ}—Ω—Ö∞ËÅë•Õ¡±ÖÂUπ•—ÕQΩ—Ö∞∞(ÄÄÄÄÄÅΩçç’¡•ïë}’π•—ÃËÅΩçç’¡•ïê∞(ÄÄÄÄÄÅŸÖçÖπ—}’π•—ÃËÅŸÖçÖπ–∞(ÄÄÄÄÄÅΩçç’¡ÖπçÂ}…Ö—îËÅë•Õ¡±ÖÂUπ•—ÕQΩ—Ö∞Ä¸Å5Ö—†π…Ω’πê†°Ωçç’¡•ïêÄºÅë•Õ¡±ÖÂUπ•—ÕQΩ—Ö∞§Ä®Äƒ¿¿§ÄËÄ¿∞(ÄÄÄÄÄÅ—ïπÖπ—ÃËÅ—ïπÖπ—Ãπ…Ω›Ã∞(ÄÄÄÄÄÅ—ïπÖπ—}Õ•—’Ö—•ΩπÃËÅ—ïπÖπ—M•—’Ö—•ΩπÃ∞(ÄÄÄÄÄÅô•πÖπçïÃËÅô•πÖπçïM’µµÖ…‰∞(ÄÄÄÄÄÅ’π•—ÃËÅ’π•—Ãπ…Ω›Ã∞(ÄÄÄÄÄÅ¡ÖÂµïπ—ÃËÅ¡ÖÂµïπ—Ãπ…Ω›Ã∞(ÄÄÄÄÄÅ—ïπÖπ—Õ}¡Ö•êËÅ—ïπÖπ—ÕAÖ•ê∞(ÄÄÄÄÄÅ—ïπÖπ—Õ}’π¡Ö•êËÅ—ïπÖπ—ÕUπ¡Ö•ê∞(ÄÄÄÄÄÅ¡Ö•ë}•πŸΩ•çïÃËÅ•πŸΩ•çïIΩ›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πÕ—Ö—’ÃÄÙÙÙÄùA%ú§∞(ÄÄÄÄÄÅ¡Ö…—•Ö±}•πŸΩ•çïÃËÅ•πŸΩ•çïIΩ›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πÕ—Ö—’ÃÄÙÙÙÄùAIQ%0ú§∞(ÄÄÄÄÄÅ’π¡Ö•ë}•πŸΩ•çïÃËÅ•πŸΩ•çïIΩ›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πÕ—Ö—’ÃÄÙÙÙÄùU9A%ú§∞(ÄÄÄÄÄÅΩŸï…ë’ï}•πŸΩ•çïÃËÅ•πŸΩ•çïIΩ›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πÕ—Ö—’ÃÄÑÙÙÄùA%úÄòòÅπï‹ÅÖ—î°…Ω‹πë’ï}ëÖ—î§ÄÅπï‹ÅÖ—î†§§∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅ¡ÖÂµïπ—ÕIï¡Ω…–°ô•±—ï…ÃËÅÏÅÕ—Ö…–¸ËÅÕ—…•πúÏÅïπê¸ËÅÕ—…•πúÏÅâ’•±ë•πù%ê¸ËÅπ’µâï»ÏÅ—ïπÖπ—%ê¸ËÅπ’µâï»ÏÅÕ—Ö—’Ã¸ËÅÕ—…•πúÏÅ¡ÖÂµïπ—5ï—°Ωê¸ËÅÕ—…•πúÅÙÄÙÅÌÙ§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕ—Ö…–ÄÙÅô•±—ï…ÃπÕ—Ö…–Ä¸¸Äú»¿¿¿¥¿ƒ¥¿ƒúÏ(ÄÄÄÅçΩπÕ–ÅïπêÄÙÅô•±—ï…ÃπïπêÄ¸¸Äú»‰‰‰¥ƒ»¥ÃƒúÏ(ÄÄÄÅçΩπÕ–ÅΩ…ùÖπ•ÈÖ—•Ωπ%êÄÙÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§Ï(ÄÄÄÅçΩπÕ–Å•πŸΩ•çïÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ§∏®∞Å=9P°–πô•…Õ—}πÖµî∞ÄúÄú∞Å–π±ÖÕ—}πÖµî§ÅLÅ—ïπÖπ—}πÖµî∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Ãπ¡Ö•ë}ÖµΩ’π–∞Ä¿§ËÈ1=PÅLÅ¡Ö•ë}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Ãπ…ïµÖ•π•πù}ÖµΩ’π–∞Å§π—Ω—Ö∞§ËÈ1=PÅLÅ…ïµÖ•π•πù}ÖµΩ’π–(ÄÄÄÄÄÄÅI=4Å•πŸΩ•çïÃÅ§(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ§π—ïπÖπ—}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ§π’π•—}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ§πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å•πŸΩ•çï}¡ÖÂµïπ—}Õ’µµÖ…‰ÅÃÅ=8ÅÃπ•πŸΩ•çï}•êÄÙÅ§π•ê(ÄÄÄÄÄÄÅ]!IÅ§π•ÕÕ’ï}ëÖ—îÅ	Q]8ÄêƒÅ9Äê»(ÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÿ(ÄÄÄÄÄÄÄÄÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Ä†êÃËÈ%9PÅ%LÅ9U10Å=HÅàπ•êÄÙÄêÃ§(ÄÄÄÄÄÄÄÄÅ9Ä†ê–ËÈ%9PÅ%LÅ9U10Å=HÅ–π•êÄÙÄê–§(ÄÄÄÄÄÄÄÄÅ9Ä†ê‘ËÈQaPÅ%LÅ9U10Å=HÅ§πÕ—Ö—’ÃÄÙÄê‘§(ÄÄÄÄÄÄÅ=IHÅ	dÅ§π•ÕÕ’ï}ëÖ—îÅMÄ∞(ÄÄÄÄÄÅmÕ—Ö…–∞Åïπê∞Åô•±—ï…Ãπâ’•±ë•πù%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπ—ïπÖπ—%êÄ¸¸Åπ’±∞∞Åô•±—ï…ÃπÕ—Ö—’ÃÅÒÅπ’±∞∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—ÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ¿∏®∞Å§π—ïπÖπ—}•ê∞Å=9P°–πô•…Õ—}πÖµî∞ÄúÄú∞Å–π±ÖÕ—}πÖµî§ÅLÅ—ïπÖπ—}πÖµî∞Å§π•πŸΩ•çï}π’µâï»∞Å§πÕ—Ö—’ÃÅLÅ•πŸΩ•çï}Õ—Ö—’Ã∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî(ÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—ÃÅ¿(ÄÄÄÄÄÄÅ1PÅ)=%8Å•πŸΩ•çïÃÅ§Å=8Å§π•êÄÙÅ¿π•πŸΩ•çï}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ§π—ïπÖπ—}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ§πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÅ]!IÅ¿π¡ÖÂµïπ—}ëÖ—îÅ	Q]8ÄêƒÅ9Äê»(ÄÄÄÄÄÄÄÄÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÿ(ÄÄÄÄÄÄÄÄÅ9Å¿πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Ä†êÃËÈ%9PÅ%LÅ9U10Å=HÅàπ•êÄÙÄêÃ§(ÄÄÄÄÄÄÄÄÅ9Ä†ê–ËÈ%9PÅ%LÅ9U10Å=HÅ–π•êÄÙÄê–§(ÄÄÄÄÄÄÄÄÅ9Ä†ê‘ËÈQaPÅ%LÅ9U10Å=HÅ¿π¡ÖÂµïπ—}µï—°ΩêÄÙÄê‘§(ÄÄÄÄÄÄÅ=IHÅ	dÅ¿π¡ÖÂµïπ—}ëÖ—îÅM∞Å¿π•êÅMÄ∞(ÄÄÄÄÄÅmÕ—Ö…–∞Åïπê∞Åô•±—ï…Ãπâ’•±ë•πù%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπ—ïπÖπ—%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπ¡ÖÂµïπ—5ï—°ΩêÅÒÅπ’±∞∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å…Ω›ÃÄÙÅ•πŸΩ•çïÃπ…Ω›ÃÏ(ÄÄÄÅçΩπÕ–Å¡Ö•ëQïπÖπ—%ëÃÄÙÅπï‹ÅMï–°¡ÖÂµïπ—Ãπ…Ω›ÃπµÖ¿†°…Ω‹§ÄÙ¯Å…Ω‹π—ïπÖπ—}•ê§πô•±—ï»°	ΩΩ±ïÖ∏§§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ¡ÖÂµïπ—Õ}…ïçï•ŸïêËÅ¡ÖÂµïπ—Ãπ…Ω›Ã∞(ÄÄÄÄÄÅ•πŸΩ•çïÃËÅ…Ω›Ã∞(ÄÄÄÄÄÅ—Ω—Ö±}•πŸΩ•çïêËÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π—Ω—Ö∞§∞Ä¿§∞(ÄÄÄÄÄÅ—Ω—Ö±}¡Ö•êËÅ¡ÖÂµïπ—Ãπ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πÖµΩ’π–§∞Ä¿§∞(ÄÄÄÄÄÅ…ïµÖ•π•πúËÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π…ïµÖ•π•πù}ÖµΩ’π–§∞Ä¿§∞(ÄÄÄÄÄÅ—ïπÖπ—Õ}¡Ö•êËÅ……Ö‰πô…Ω¥°πï‹Å5Ö¿°¡ÖÂµïπ—Ãπ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹π—ïπÖπ—}•ê§πµÖ¿†°…Ω‹§ÄÙ¯Åm…Ω‹π—ïπÖπ—}•ê∞ÅÏÅ—ïπÖπ—}•êËÅ…Ω‹π—ïπÖπ—}•ê∞Å—ïπÖπ—}πÖµîËÅ…Ω‹π—ïπÖπ—}πÖµîÅıt§§πŸÖ±’ïÃ†§§∞(ÄÄÄÄÄÅ—ïπÖπ—Õ}’π¡Ö•êËÅ…Ω›Ã(ÄÄÄÄÄÄÄÄπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹π—ïπÖπ—}•êÄòòÄÖ¡Ö•ëQïπÖπ—%ëÃπ°ÖÃ°…Ω‹π—ïπÖπ—}•ê§ÄòòÅ…Ω‹πÕ—Ö—’ÃÄÑÙÙÄùA%ú§(ÄÄÄÄÄÄÄÄπµÖ¿†°…Ω‹§ÄÙ¯Ä°ÏÅ—ïπÖπ—}•êËÅ…Ω‹π—ïπÖπ—}•ê∞Å—ïπÖπ—}πÖµîËÅ…Ω‹π—ïπÖπ—}πÖµî∞Å•πŸΩ•çï}π’µâï»ËÅ…Ω‹π•πŸΩ•çï}π’µâï»∞Å…ïµÖ•π•πù}ÖµΩ’π–ËÅ…Ω‹π…ïµÖ•π•πù}ÖµΩ’π–ÅÙ§§∞(ÄÄÄÄÄÅ¡Ö•êËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πÕ—Ö—’ÃÄÙÙÙÄùA%ú§∞(ÄÄÄÄÄÅ¡Ö…—•Ö∞ËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πÕ—Ö—’ÃÄÙÙÙÄùAIQ%0ú§∞(ÄÄÄÄÄÅ’π¡Ö•êËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πÕ—Ö—’ÃÄÙÙÙÄùU9A%ú§∞(ÄÄÄÄÄÅΩŸï…ë’îËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πÕ—Ö—’ÃÄÑÙÙÄùA%úÄòòÅπï‹ÅÖ—î°…Ω‹πë’ï}ëÖ—î§ÄÅπï‹ÅÖ—î†§§∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅ—ïπÖπ—Iï¡Ω…–†(ÄÄÄÅ•êËÅπ’µâï»∞(ÄÄÄÅô•±—ï…ÃËÅÏÅµΩπ—†¸ËÅÕ—…•πúÏÅÂïÖ»¸ËÅÕ—…•πúÏÅÕ—Ö…–¸ËÅÕ—…•πúÏÅïπê¸ËÅÕ—…•πúÏÅ•πŸΩ•çïM—Ö—’Ã¸ËÅÕ—…•πúÏÅâ’•±ë•πù%ê¸ËÅπ’µâï»ÏÅ’π•—%ê¸ËÅπ’µâï»ÏÅ±ïÖÕï%ê¸ËÅπ’µâï»ÅÙÄÙÅÌÙ∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–ÅΩ…ùÖπ•ÈÖ—•Ωπ%êÄÙÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§Ï(ÄÄÄÅçΩπÕ–Å¡ï…•ΩêÄÙÅ—°•Ãπ…ï¡Ω…—Aï…•Ωê°ô•±—ï…Ã§Ï(ÄÄÄÅçΩπÕ–Å—ïπÖπ–ÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†ùM1PÄ®ÅI=4Å—ïπÖπ—ÃÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U10ú∞Åm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët§Ï(ÄÄÄÅçΩπÕ–Å±ïÖÕïÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ∞∏®∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞Åàπ•êÅLÅâ’•±ë•πù}•ê∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞ÅúπÖµΩ’π–ÅLÅù’Ö…Öπ—ïï}ÖµΩ’π–∞Åúπ¡Ö•ë}ÖµΩ’π–ÅLÅù’Ö…Öπ—ïï}¡Ö•ê∞ÅúπÕ—Ö—’ÃÅLÅù’Ö…Öπ—ïï}Õ—Ö—’Ã(ÄÄÄÄÄÄÅI=4Å±ïÖÕïÃÅ∞(ÄÄÄÄÄÄÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•ê(ÄÄÄÄÄÄÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕï}ù’Ö…Öπ—ïïÃÅúÅ=8Åúπ±ïÖÕï}•êÄÙÅ∞π•êÅ9Åúπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ]!IÅ∞π—ïπÖπ—}•êÄÙÄêƒÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Ä†êÃËÈ%9PÅ%LÅ9U10Å=HÅàπ•êÄÙÄêÃ§(ÄÄÄÄÄÄÄÄÅ9Ä†ê–ËÈ%9PÅ%LÅ9U10Å=HÅ‘π•êÄÙÄê–§(ÄÄÄÄÄÄÄÄÅ9Ä†ê‘ËÈ%9PÅ%LÅ9U10Å=HÅ∞π•êÄÙÄê‘§(ÄÄÄÄÄÄÅ=IHÅ	dÅ∞πÕ—Ö…—}ëÖ—îÅMÄ∞(ÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Åô•±—ï…Ãπâ’•±ë•πù%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπ’π•—%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπ±ïÖÕï%êÄ¸¸Åπ’±±t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å•πŸΩ•çïÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ§∏®∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Ãπ¡Ö•ë}ÖµΩ’π–∞Ä¿§ËÈ1=PÅLÅ¡Ö•ë}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Ãπ…ïµÖ•π•πù}ÖµΩ’π–∞Å§π—Ω—Ö∞§ËÈ1=PÅLÅ…ïµÖ•π•πù}ÖµΩ’π–(ÄÄÄÄÄÄÅI=4Å•πŸΩ•çïÃÅ§(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ§π’π•—}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ§πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å•πŸΩ•çï}¡ÖÂµïπ—}Õ’µµÖ…‰ÅÃÅ=8ÅÃπ•πŸΩ•çï}•êÄÙÅ§π•ê(ÄÄÄÄÄÄÅ]!IÅ§π—ïπÖπ—}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å§π•ÕÕ’ï}ëÖ—îÅ	Q]8ÄêÃÅ9Äê–(ÄÄÄÄÄÄÄÄÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Ä†ê‘ËÈ%9PÅ%LÅ9U10Å=HÅ§πâ’•±ë•πù}•êÄÙÄê‘§(ÄÄÄÄÄÄÄÄÅ9Ä†êÿËÈ%9PÅ%LÅ9U10Å=HÅ§π’π•—}•êÄÙÄêÿ§(ÄÄÄÄÄÄÄÄÅ9Ä†ê‹ËÈ%9PÅ%LÅ9U10Å=HÅ§π±ïÖÕï}•êÄÙÄê‹§(ÄÄÄÄÄÄÄÄÅ9ÄëÌ—°•Ãπ•πŸΩ•çïM—Ö—’Õ±Ö’Õî†ù§ú∞Ä‡•Ù(ÄÄÄÄÄÄÅ=IHÅ	dÅ§π•ÕÕ’ï}ëÖ—îÅM∞Å§π•πŸΩ•çï}π’µâï…Ä∞(ÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Å¡ï…•ΩêπÕ—Ö…–∞Å¡ï…•Ωêπïπê∞Åô•±—ï…Ãπâ’•±ë•πù%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπ’π•—%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπ±ïÖÕï%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπ•πŸΩ•çïM—Ö—’ÃÅÒÅπ’±±t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å•πŸΩ•çïIΩ›ÃÄÙÅÖ›Ö•–Å—°•ÃπÖ¡¡ïπë%πŸΩ•çï%—ïµM’µµÖ…•ïÃ°•πŸΩ•çïÃπ…Ω›Ã§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—ÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ¿∏®∞Å§π—ïπÖπ—}•ê∞Å§π•πŸΩ•çï}π’µâï»∞Å§πÕ—Ö—’ÃÅLÅ•πŸΩ•çï}Õ—Ö—’Ã∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»(ÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—ÃÅ¿(ÄÄÄÄÄÄÅ1PÅ)=%8Å•πŸΩ•çïÃÅ§Å=8Å§π•êÄÙÅ¿π•πŸΩ•çï}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ§πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ§π’π•—}•ê(ÄÄÄÄÄÄÅ]!IÅ§π—ïπÖπ—}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å¿π¡ÖÂµïπ—}ëÖ—îÅ	Q]8ÄêÃÅ9Äê–(ÄÄÄÄÄÄÄÄÅ9Å¿πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Ä†ê‘ËÈ%9PÅ%LÅ9U10Å=HÅ§πâ’•±ë•πù}•êÄÙÄê‘§(ÄÄÄÄÄÄÄÄÅ9Ä†êÿËÈ%9PÅ%LÅ9U10Å=HÅ§π’π•—}•êÄÙÄêÿ§(ÄÄÄÄÄÄÄÄÅ9Ä†ê‹ËÈ%9PÅ%LÅ9U10Å=HÅ§π±ïÖÕï}•êÄÙÄê‹§(ÄÄÄÄÄÄÄÄÅ9ÄëÌ—°•Ãπ•πŸΩ•çïM—Ö—’Õ±Ö’Õî†ù§ú∞Ä‡•Ù(ÄÄÄÄÄÄÅ=IHÅ	dÅ¿π¡ÖÂµïπ—}ëÖ—îÅMÄ∞(ÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Å¡ï…•ΩêπÕ—Ö…–∞Å¡ï…•Ωêπïπê∞Åô•±—ï…Ãπâ’•±ë•πù%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπ’π•—%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπ±ïÖÕï%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπ•πŸΩ•çïM—Ö—’ÃÅÒÅπ’±±t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅëΩç’µïπ—ÃÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®(ÄÄÄÄÄÄÅI=4Ä†(ÄÄÄÄÄÄÄÄÅM1P(ÄÄÄÄÄÄÄÄÄÄÅ±êπ•ê∞(ÄÄÄÄÄÄÄÄÄÄÅ±êπ±ïÖÕï}•ê∞(ÄÄÄÄÄÄÄÄÄÄÅ±êπëΩç’µïπ—}—Â¡î∞(ÄÄÄÄÄÄÄÄÄÄÅ±êπô•±ï}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÅ±êπô•±ï}’…∞∞(ÄÄÄÄÄÄÄÄÄÄÅ±êπ’¡±ΩÖëïë}Ö–ÅLÅëΩç’µïπ—}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÅ∞πÕ—Ö—’ÃÅLÅ±ïÖÕï}Õ—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄù1M}=U59PúËÈQaPÅLÅÕΩ’…çï}—Â¡î(ÄÄÄÄÄÄÄÄÅI=4Å±ïÖÕï}ëΩç’µïπ—ÃÅ±ê(ÄÄÄÄÄÄÄÄÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ±êπ±ïÖÕï}•ê(ÄÄÄÄÄÄÄÄÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•ê(ÄÄÄÄÄÄÄÄÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÄÄÅ]!IÅ∞π—ïπÖπ—}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9Å±êπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÅ9Å±êπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ9Ä†êÃËÈ%9PÅ%LÅ9U10Å=HÅàπ•êÄÙÄêÃ§(ÄÄÄÄÄÄÄÄÄÄÅ9Ä†ê–ËÈ%9PÅ%LÅ9U10Å=HÅ‘π•êÄÙÄê–§(ÄÄÄÄÄÄÄÄÄÄÅ9Ä†ê‘ËÈ%9PÅ%LÅ9U10Å=HÅ∞π•êÄÙÄê‘§((ÄÄÄÄÄÄÄÄÅU9%=8Å10((ÄÄÄÄÄÄÄÄÅM1P(ÄÄÄÄÄÄÄÄÄÄÅçúπ•ê∞(ÄÄÄÄÄÄÄÄÄÄÅçúπ±ïÖÕï}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄù1M}=9QIPúËÈQaPÅLÅëΩç’µïπ—}—Â¡î∞(ÄÄÄÄÄÄÄÄÄÄÅ=1M°çúπëΩç·}ô•±ï}πÖµî∞Åçúπ¡ëô}ô•±ï}πÖµî∞ÅçúπÕ•ùπïë}çΩπ—…Öç—}ô•±ï}πÖµî∞ÄùΩπ—…Ö–ú§ÅLÅô•±ï}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÅ=1M°çúπëΩç·}ô•±ï}’…∞∞Åçúπ¡ëô}ô•±ï}’…∞∞ÅçúπÕ•ùπïë}çΩπ—…Öç—}ô•±ï}’…∞§ÅLÅô•±ï}’…∞∞(ÄÄÄÄÄÄÄÄÄÄÅçúπùïπï…Ö—ïë}Ö–ÅLÅëΩç’µïπ—}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÅ∞πÕ—Ö—’ÃÅLÅ±ïÖÕï}Õ—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄù1M}=9QIPúËÈQaPÅLÅÕΩ’…çï}—Â¡î(ÄÄÄÄÄÄÄÄÅI=4Å±ïÖÕï}çΩπ—…Öç—}ùïπï…Ö—•ΩπÃÅçú(ÄÄÄÄÄÄÄÄÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅçúπ±ïÖÕï}•ê(ÄÄÄÄÄÄÄÄÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•ê(ÄÄÄÄÄÄÄÄÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÄÄÅ]!IÅ∞π—ïπÖπ—}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÅ9ÅçúπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÅ9Åçúπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ9Ä†êÃËÈ%9PÅ%LÅ9U10Å=HÅàπ•êÄÙÄêÃ§(ÄÄÄÄÄÄÄÄÄÄÅ9Ä†ê–ËÈ%9PÅ%LÅ9U10Å=HÅ‘π•êÄÙÄê–§(ÄÄÄÄÄÄÄÄÄÄÅ9Ä†ê‘ËÈ%9PÅ%LÅ9U10Å=HÅ∞π•êÄÙÄê‘§(ÄÄÄÄÄÄÄ§ÅëΩçÃ(ÄÄÄÄÄÄÅ=IHÅ	dÅëΩçÃπëΩç’µïπ—}ëÖ—îÅMÅ9U11LÅ1MP∞ÅëΩçÃπ•êÅMÄ∞(ÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Åô•±—ï…Ãπâ’•±ë•πù%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπ’π•—%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπ±ïÖÕï%êÄ¸¸Åπ’±±t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å…Ω›ÃÄÙÅ•πŸΩ•çïIΩ›ÃÏ(ÄÄÄÅçΩπÕ–Å—Ω—Ö±%πŸΩ•çïêÄÙÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π—Ω—Ö∞§∞Ä¿§Ï(ÄÄÄÅçΩπÕ–Å—Ω—Ö±Iïπ—%πŸΩ•çïêÄÙÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π…ïπ—}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§Ï(ÄÄÄÅçΩπÕ–Å—Ω—Ö±MÂπë•ç%πŸΩ•çïêÄÙÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πÕÂπë•ç}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§Ï(ÄÄÄÅçΩπÕ–Å—Ω—Ö±AÖ•êÄÙÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π¡Ö•ë}ÖµΩ’π–§∞Ä¿§Ï(ÄÄÄÅçΩπÕ–Å…ïµÖ•π•πúÄÙÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π…ïµÖ•π•πù}ÖµΩ’π–§∞Ä¿§Ï(ÄÄÄÅçΩπÕ–Åç’……ïπ—1ïÖÕïÃÄÙÅ±ïÖÕïÃπ…Ω›Ãπô•±—ï»†°±ïÖÕî§ÄÙ¯Å—°•Ãπ•Õç—•Ÿï1ïÖÕî°±ïÖÕî§§Ï(ÄÄÄÅçΩπÕ–ÅÖç—•Ÿï1ïÖÕï%ëÃÄÙÅπï‹ÅMï–°ç’……ïπ—1ïÖÕïÃπµÖ¿†°±ïÖÕî§ÄÙ¯Å9’µâï»°±ïÖÕîπ•ê§§πô•±—ï»†°±ïÖÕï%ê§ÄÙ¯Å9’µâï»π•Õ•π•—î°±ïÖÕï%ê§§§Ï(ÄÄÄÅçΩπÕ–ÅÖç—•ŸïUπ•—%ëÃÄÙÅπï‹ÅMï–°ç’……ïπ—1ïÖÕïÃπµÖ¿†°±ïÖÕî§ÄÙ¯Å9’µâï»°±ïÖÕîπ’π•—}•ê§§πô•±—ï»†°’π•—%ê§ÄÙ¯Å9’µâï»π•Õ•π•—î°’π•—%ê§§§Ï(ÄÄÄÅçΩπÕ–Å—Ω—Ö±ç—•ŸïIïπ—µΩ’π–ÄÙÅç’……ïπ—1ïÖÕïÃπ…ïë’çî†(ÄÄÄÄÄÄ°Õ’¥∞Å±ïÖÕî§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°±ïÖÕîπµΩπ—°±Â}…ïπ–Ä¸¸Ä¿§Ä¨Å9’µâï»°±ïÖÕîπµÖ•π—ïπÖπçï}ôïï}ÖµΩ’π–Ä¸¸Ä¿§∞(ÄÄÄÄÄÄ¿∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å—Ω—Ö±ç—•Ÿï’Ö…Öπ—ïïµΩ’π–ÄÙÅç’……ïπ—1ïÖÕïÃπ…ïë’çî†(ÄÄÄÄÄÄ°Õ’¥∞Å±ïÖÕî§ÄÙ¯ÅÕ’¥Ä¨Å—°•Ãπ—ïπÖπ—1ïÖÕï’Ö…Öπ—ïïµΩ’π–°±ïÖÕî§∞(ÄÄÄÄÄÄ¿∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å¡Ö•ë%πŸΩ•çïÃËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏˘mtÄÙÅmtÏ(ÄÄÄÅçΩπÕ–Å¡Ö…—•Ö±%πŸΩ•çïÃËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏˘mtÄÙÅmtÏ(ÄÄÄÅçΩπÕ–Å’π¡Ö•ë%πŸΩ•çïÃËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏˘mtÄÙÅmtÏ(ÄÄÄÅçΩπÕ–ÅΩŸï…ë’ï%πŸΩ•çïÃËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏˘mtÄÙÅmtÏ(ÄÄÄÅ…Ω›ÃπôΩ…Öç††°…Ω‹§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅçÖ—ïùΩ…‰ÄÙÅ—°•Ãπ—ïπÖπ—%πŸΩ•çïÖ—ïùΩ…‰°…Ω‹§Ï(ÄÄÄÄÄÅ•òÄ°çÖ—ïùΩ…‰ÄÙÙÙÄùA%ú§Å¡Ö•ë%πŸΩ•çïÃπ¡’Õ†°…Ω‹§Ï(ÄÄÄÄÄÅï±ÕîÅ•òÄ°çÖ—ïùΩ…‰ÄÙÙÙÄùAIQ%0ú§Å¡Ö…—•Ö±%πŸΩ•çïÃπ¡’Õ†°…Ω‹§Ï(ÄÄÄÄÄÅï±ÕîÅ•òÄ°çÖ—ïùΩ…‰ÄÙÙÙÄù=YIUú§ÅΩŸï…ë’ï%πŸΩ•çïÃπ¡’Õ†°…Ω‹§Ï(ÄÄÄÄÄÅï±ÕîÅ’π¡Ö•ë%πŸΩ•çïÃπ¡’Õ†°…Ω‹§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ—ïπÖπ–ËÅ…ï≈’•…ïIΩ‹°—ïπÖπ–π…Ω›Õl¡t∞ÄùQïπÖπ–ú§∞(ÄÄÄÄÄÅ¡ï…•Ωê∞(ÄÄÄÄÄÅô•±—ï…Ã∞(ÄÄÄÄÄÅ±ïÖÕïÃËÅ±ïÖÕïÃπ…Ω›Ã∞(ÄÄÄÄÄÅ—Ω—Ö±}±ïÖÕï}çΩ’π–ËÅπï‹ÅMï–°±ïÖÕïÃπ…Ω›ÃπµÖ¿†°±ïÖÕî§ÄÙ¯Å9’µâï»°±ïÖÕîπ•ê§§πô•±—ï»†°±ïÖÕï%ê§ÄÙ¯Å9’µâï»π•Õ•π•—î°±ïÖÕï%ê§§§πÕ•Èî∞(ÄÄÄÄÄÅÖç—•Ÿï}±ïÖÕï}çΩ’π–ËÅÖç—•Ÿï1ïÖÕï%ëÃπÕ•Èî∞(ÄÄÄÄÄÅÖç—•Ÿï}’π•—}çΩ’π–ËÅÖç—•ŸïUπ•—%ëÃπÕ•Èî∞(ÄÄÄÄÄÅ—Ω—Ö±}Öç—•Ÿï}…ïπ—}ÖµΩ’π–ËÅ—Ω—Ö±ç—•ŸïIïπ—µΩ’π–∞(ÄÄÄÄÄÅ—Ω—Ö±}Öç—•Ÿï}ù’Ö…Öπ—ïï}ÖµΩ’π–ËÅ—Ω—Ö±ç—•Ÿï’Ö…Öπ—ïïµΩ’π–∞(ÄÄÄÄÄÅÖç—•Ÿï}±ïÖÕïÃËÅç’……ïπ—1ïÖÕïÃ∞(ÄÄÄÄÄÅΩ±ë}±ïÖÕïÃËÅ±ïÖÕïÃπ…Ω›Ãπô•±—ï»†°±ïÖÕî§ÄÙ¯ÄÖç’……ïπ—1ïÖÕïÃπ•πç±’ëïÃ°±ïÖÕî§§∞(ÄÄÄÄÄÅù’Ö…Öπ—ïïÃËÅ±ïÖÕïÃπ…Ω›ÃπµÖ¿†°±ïÖÕî§ÄÙ¯Ä°Ï(ÄÄÄÄÄÄÄÅ±ïÖÕï}•êËÅ±ïÖÕîπ•ê∞(ÄÄÄÄÄÄÄÅâ’•±ë•πù}πÖµîËÅ±ïÖÕîπâ’•±ë•πù}πÖµî∞(ÄÄÄÄÄÄÄÅ’π•—}π’µâï»ËÅ±ïÖÕîπ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÅù’Ö…Öπ—ïï}µΩπ—°ÃËÅ±ïÖÕîπù’Ö…Öπ—ïï}µΩπ—°Ã∞(ÄÄÄÄÄÄÄÅÖµΩ’π–ËÅ—°•Ãπ—ïπÖπ—1ïÖÕï’Ö…Öπ—ïïµΩ’π–°±ïÖÕî§∞(ÄÄÄÄÄÄÄÅ¡Ö•ë}ÖµΩ’π–ËÅ±ïÖÕîπù’Ö…Öπ—ïï}¡Ö•êÄ¸¸Å±ïÖÕîπ…ïπ—Ö±}ù’Ö…Öπ—ïï}¡Ö•êÄ¸¸Ä¿∞(ÄÄÄÄÄÄÄÅ…ïµÖ•π•πù}ÖµΩ’π–ËÅ5Ö—†πµÖ‡†(ÄÄÄÄÄÄÄÄÄÅ—°•Ãπ—ïπÖπ—1ïÖÕï’Ö…Öπ—ïïµΩ’π–°±ïÖÕî§Ä¥Å9’µâï»°±ïÖÕîπù’Ö…Öπ—ïï}¡Ö•êÄ¸¸Å±ïÖÕîπ…ïπ—Ö±}ù’Ö…Öπ—ïï}¡Ö•êÄ¸¸Ä¿§∞(ÄÄÄÄÄÄÄÄÄÄ¿∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}ëÖ—îËÅ±ïÖÕîπ…ïπ—Ö±}ù’Ö…Öπ—ïï}¡ÖÂµïπ—}ëÖ—îÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅÕ—Ö—’ÃËÅ±ïÖÕîπù’Ö…Öπ—ïï}Õ—Ö—’ÃÄ¸¸Å±ïÖÕîπ…ïπ—Ö±}ù’Ö…Öπ—ïï}Õ—Ö—’Ã∞(ÄÄÄÄÄÅÙ§§∞(ÄÄÄÄÄÅ¡ÖÂµïπ—ÃËÅ¡ÖÂµïπ—Ãπ…Ω›Ã∞(ÄÄÄÄÄÅëΩç’µïπ—ÃËÅëΩç’µïπ—Ãπ…Ω›Ã∞(ÄÄÄÄÄÅ¡ÖÂµïπ—Õ}…ïçï•ŸïêËÅ¡ÖÂµïπ—Ãπ…Ω›Ã∞(ÄÄÄÄÄÅ•πŸΩ•çïÃËÅ…Ω›Ã∞(ÄÄÄÄÄÅ—Ω—Ö±}•πŸΩ•çïêËÅ—Ω—Ö±%πŸΩ•çïê∞(ÄÄÄÄÄÅ—Ω—Ö±}…ïπ—}•πŸΩ•çïêËÅ—Ω—Ö±Iïπ—%πŸΩ•çïê∞(ÄÄÄÄÄÅ—Ω—Ö±}ÕÂπë•ç}•πŸΩ•çïêËÅ—Ω—Ö±MÂπë•ç%πŸΩ•çïê∞(ÄÄÄÄÄÅ—Ω—Ö±}¡Ö•êËÅ—Ω—Ö±AÖ•ê∞(ÄÄÄÄÄÅ…ïµÖ•π•πú∞(ÄÄÄÄÄÅ—ïπÖπ—Õ}¡Ö•êËÅ—Ω—Ö±AÖ•êÄ¯Ä¿Ä¸ÅmÏÅ—ïπÖπ—}•êËÅ•ê∞Å—ïπÖπ—}πÖµîËÅÄëÌ—ïπÖπ–π…Ω›Õl¡t¸πô•…Õ—}πÖµîÄ¸¸ÄúùÙÄëÌ—ïπÖπ–π…Ω›Õl¡t¸π±ÖÕ—}πÖµîÄ¸¸ÄúùıÄπ—…•¥†§ÅıtÄËÅmt∞(ÄÄÄÄÄÅ—ïπÖπ—Õ}’π¡Ö•êËÅ…ïµÖ•π•πúÄ¯Ä¿Ä¸ÅmÏÅ—ïπÖπ—}•êËÅ•ê∞Å—ïπÖπ—}πÖµîËÅÄëÌ—ïπÖπ–π…Ω›Õl¡t¸πô•…Õ—}πÖµîÄ¸¸ÄúùÙÄëÌ—ïπÖπ–π…Ω›Õl¡t¸π±ÖÕ—}πÖµîÄ¸¸ÄúùıÄπ—…•¥†§∞Å…ïµÖ•π•πù}ÖµΩ’π–ËÅ…ïµÖ•π•πúÅıtÄËÅmt∞(ÄÄÄÄÄÅ¡Ö•êËÅ¡Ö•ë%πŸΩ•çïÃ∞(ÄÄÄÄÄÅ¡Ö…—•Ö∞ËÅ¡Ö…—•Ö±%πŸΩ•çïÃ∞(ÄÄÄÄÄÅ’π¡Ö•êËÅ’π¡Ö•ë%πŸΩ•çïÃ∞(ÄÄÄÄÄÅΩŸï…ë’îËÅΩŸï…ë’ï%πŸΩ•çïÃ∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅ—ïπÖπ—M—Ö—ïµïπ–°•êËÅπ’µâï»∞Åô•±—ï…ÃËÅÏÅµΩπ—†¸ËÅÕ—…•πúÏÅÂïÖ»¸ËÅÕ—…•πúÏÅÕ—Ö…–¸ËÅÕ—…•πúÏÅïπê¸ËÅÕ—…•πúÅÙÄÙÅÌÙ§ÅÏ(ÄÄÄÅ…ï—’…∏Å—°•ÃπÖççΩ’π—M—Ö—ïµïπ–†ù—ïπÖπ–ú∞Å•ê∞Åô•±—ï…Ã§Ï(ÄÅÙ((ÄÅÖÕÂπåÅ’π•—M—Ö—ïµïπ–°•êËÅπ’µâï»∞Åô•±—ï…ÃËÅÏÅµΩπ—†¸ËÅÕ—…•πúÏÅÂïÖ»¸ËÅÕ—…•πúÏÅÕ—Ö…–¸ËÅÕ—…•πúÏÅïπê¸ËÅÕ—…•πúÅÙÄÙÅÌÙ§ÅÏ(ÄÄÄÅ…ï—’…∏Å—°•ÃπÖççΩ’π—M—Ö—ïµïπ–†ù’π•–ú∞Å•ê∞Åô•±—ï…Ã§Ï(ÄÅÙ((ÄÅÖÕÂπåÅâ’•±ë•πùM—Ö—ïµïπ–°•êËÅπ’µâï»∞Åô•±—ï…ÃËÅÏÅµΩπ—†¸ËÅÕ—…•πúÏÅÂïÖ»¸ËÅÕ—…•πúÏÅÕ—Ö…–¸ËÅÕ—…•πúÏÅïπê¸ËÅÕ—…•πúÅÙÄÙÅÌÙ§ÅÏ(ÄÄÄÅ…ï—’…∏Å—°•ÃπÖççΩ’π—M—Ö—ïµïπ–†ùâ’•±ë•πúú∞Å•ê∞Åô•±—ï…Ã§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÕ—Ö—ïµïπ—Aï…•Ωê°ô•±—ï…ÃËÅÏÅµΩπ—†¸ËÅÕ—…•πúÏÅÂïÖ»¸ËÅÕ—…•πúÏÅÕ—Ö…–¸ËÅÕ—…•πúÏÅïπê¸ËÅÕ—…•πúÅÙ§ÅÏ(ÄÄÄÅ…ï—’…∏Å—°•Ãπ…ï¡Ω…—Aï…•Ωê°ô•±—ï…Ã§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ•Õç—•Ÿï1ïÖÕî°±ïÖÕîËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕ—Ö…—Ö—îÄÙÅ—°•ÃππΩ…µÖ±•Èï1ïÖÕïÖ—î°±ïÖÕîπÕ—Ö…—}ëÖ—î§Ï(ÄÄÄÅçΩπÕ–ÅïπëÖ—îÄÙÅ—°•ÃππΩ…µÖ±•Èï1ïÖÕïÖ—î°±ïÖÕîπïπë}ëÖ—î§Ï(ÄÄÄÅçΩπÕ–Å—ΩëÖ‰ÄÙÅπï‹ÅÖ—î†§Ï(ÄÄÄÅ—ΩëÖ‰πÕï—!Ω’…Ã†¿∞Ä¿∞Ä¿∞Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ö—’ÃÄÙÅM—…•πú°±ïÖÕîπÕ—Ö—’ÃÄ¸¸Äúú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏†(ÄÄÄÄÄÅÕ—Ö…—Ö—îÄòò(ÄÄÄÄÄÄÄÅÕ—Ö…—Ö—îπùï—Q•µî†§ÄÙÅ—ΩëÖ‰πùï—Q•µî†§Äòò(ÄÄÄÄÄÄÄÄ†ÖïπëÖ—îÅÒÅïπëÖ—îπùï—Q•µî†§Ä¯ÙÅ—ΩëÖ‰πùï—Q•µî†§§Äòò(ÄÄÄÄÄÄÄÄÖlùIPú∞Äù911ú∞ÄùQI5%9Qú∞ÄùaA%Iùtπ•πç±’ëïÃ°Õ—Ö—’Ã§∞(ÄÄÄÄ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•Èï1ïÖÕïÖ—î°ŸÖ±’îËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅ•òÄ†ÖŸÖ±’î§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅ•òÄ°ŸÖ±’îÅ•πÕ—ÖπçïΩòÅÖ—îÄòòÄÖ9’µâï»π•Õ9Ö8°ŸÖ±’îπùï—Q•µî†§§§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏Åπï‹ÅÖ—î°ŸÖ±’îπùï—’±±eïÖ»†§∞ÅŸÖ±’îπùï—5Ωπ—††§∞ÅŸÖ±’îπùï—Ö—î†§§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å…Ö‹ÄÙÅM—…•πú°ŸÖ±’î§π—…•¥†§Ï(ÄÄÄÅ•òÄ†Ö…Ö‹§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅçΩπÕ–Å•ÕΩÖ—îÄÙÄΩyqëÏ—ÙµqëÏ…ÙµqëÏ…Ùºπï·ïå°…Ö‹§¸πl¡tÏ(ÄÄÄÅ•òÄ°•ÕΩÖ—î§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅmÂïÖ»∞ÅµΩπ—†∞ÅëÖÂtÄÙÅ•ÕΩÖ—îπÕ¡±•–†ú¥ú§πµÖ¿†°¡Ö…–§ÄÙ¯Å9’µâï»°¡Ö…–§§Ï(ÄÄÄÄÄÅ•òÄ°mÂïÖ»∞ÅµΩπ—†∞ÅëÖÂtπïŸï…‰†°¡Ö…–§ÄÙ¯Å9’µâï»π•Õ•π•—î°¡Ö…–§§§ÅÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏Åπï‹ÅÖ—î°ÂïÖ»∞ÅµΩπ—†Ä¥Äƒ∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å¡Ö…ÕïêÄÙÅπï‹ÅÖ—î°…Ö‹§Ï(ÄÄÄÅ•òÄ°9’µâï»π•Õ9Ö8°¡Ö…Õïêπùï—Q•µî†§§§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅ…ï—’…∏Åπï‹ÅÖ—î°¡Ö…Õïêπùï—’±±eïÖ»†§∞Å¡Ö…Õïêπùï—5Ωπ—††§∞Å¡Ö…Õïêπùï—Ö—î†§§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ—ïπÖπ—1ïÖÕï’Ö…Öπ—ïïµΩ’π–°±ïÖÕîËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯§ÅÏ(ÄÄÄÅçΩπÕ–Å¡ï…Õ•Õ—ïπ—µΩ’π–ÄÙÅ±ïÖÕîπ…ïπ—Ö±}ù’Ö…Öπ—ïï}ÖµΩ’π–Ä¸¸Å±ïÖÕîπù’Ö…Öπ—ïï}ÖµΩ’π–Ä¸¸Å±ïÖÕîπÖµΩ’π–Ï(ÄÄÄÅ•òÄ°¡ï…Õ•Õ—ïπ—µΩ’π–ÄÑÙÅπ’±∞ÄòòÅ¡ï…Õ•Õ—ïπ—µΩ’π–ÄÑÙÙÄúú§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏Å9’µâï»°¡ï…Õ•Õ—ïπ—µΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïï5Ωπ—°ÃÄÙÅ9’µâï»°±ïÖÕîπù’Ö…Öπ—ïï}µΩπ—°ÃÄ¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å…ïπ—µΩ’π–ÄÙÅ9’µâï»°±ïÖÕîπµΩπ—°±Â}…ïπ–Ä¸¸Ä¿§Ä¨Å9’µâï»°±ïÖÕîπµÖ•π—ïπÖπçï}ôïï}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅ…ï—’…∏Å…ïπ—µΩ’π–Ä®Å5Ö—†πµÖ‡°ù’Ö…Öπ—ïï5Ωπ—°Ã∞Ä¿§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ—ïπÖπ—%πŸΩ•çïÖ—ïùΩ…‰°…Ω‹ËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕ—Ö—’ÃÄÙÅM—…•πú°…Ω‹πÕ—Ö—’ÃÄ¸¸Äúú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅçΩπÕ–Å¡Ö•ëµΩ’π–ÄÙÅ9’µâï»°…Ω‹π¡Ö•ë}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å…ïµÖ•π•πùµΩ’π–ÄÙÅ9’µâï»°…Ω‹π…ïµÖ•π•πù}ÖµΩ’π–Ä¸¸Å…Ω‹π—Ω—Ö∞Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Åë’ïÖ—îÄÙÅ…Ω‹πë’ï}ëÖ—îÄ¸Åπï‹ÅÖ—î°ÄëÌM—…•πú°…Ω‹πë’ï}ëÖ—î§πÕ±•çî†¿∞Äƒ¿•ıP»ÃË‘‰Ë‘ÂÄ§ÄËÅπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅπΩ‹ÄÙÅπï‹ÅÖ—î†§Ï((ÄÄÄÅ•òÄ°Õ—Ö—’ÃÄÙÙÙÄùA%úÅÒÅ…ïµÖ•π•πùµΩ’π–ÄÙÄ¿§Å…ï—’…∏ÄùA%úÏ(ÄÄÄÅ•òÄ°¡Ö•ëµΩ’π–Ä¯Ä¿ÄòòÅ…ïµÖ•π•πùµΩ’π–Ä¯Ä¿§Å…ï—’…∏ÄùAIQ%0úÏ(ÄÄÄÅ•òÄ°ë’ïÖ—îÄòòÅë’ïÖ—îπùï—Q•µî†§ÄÅπΩ‹πùï—Q•µî†§§Å…ï—’…∏Äù=YIUúÏ(ÄÄÄÅ…ï—’…∏ÄùU9A%úÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÕ—Ö—ïµïπ—5ΩŸïµïπ—=…ëï»°—Â¡îËÅÕ—…•πú§ÅÏ(ÄÄÄÅ•òÄ°—Â¡îÄÙÙÙÄù%9Y=%ú§Å…ï—’…∏ÄƒÏ(ÄÄÄÅ•òÄ°—Â¡îÄÙÙÙÄùQ99Q}I%Pú§Å…ï—’…∏Ä»Ï(ÄÄÄÅ•òÄ°—Â¡îÄÙÙÙÄùAe59Pú§Å…ï—’…∏ÄÃÏ(ÄÄÄÅ•òÄ°—Â¡îÄÙÙÙÄùQ99Q}I%Q}11=Q%=8ú§Å…ï—’…∏Ä–Ï(ÄÄÄÅ•òÄ°—Â¡îÄÙÙÙÄùQ99Q}I%Q}IU9ú§Å…ï—’…∏Ä‘Ï(ÄÄÄÅ…ï—’…∏Ä¿Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÕ—Ö—ïµïπ—π—•—Â1Öâï∞°ÕçΩ¡îËÄù—ïπÖπ–úÅÄù’π•–úÅÄùâ’•±ë•πúú∞Å…Ω‹ËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯§ÅÏ(ÄÄÄÅ•òÄ°ÕçΩ¡îÄÙÙÙÄù—ïπÖπ–ú§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏Å…Ω‹π—ïπÖπ—}—Â¡îÄÙÙÙÄù=5A9dú(ÄÄÄÄÄÄÄÄ¸Å…Ω‹πçΩµ¡ÖπÂ}πÖµî(ÄÄÄÄÄÄÄÄËÅm…Ω‹πô•…Õ—}πÖµî∞Å…Ω‹π±ÖÕ—}πÖµî∞Å…Ω‹π¡ΩÕ—}πÖµïtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†úÄú§π—…•¥†§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ÕçΩ¡îÄÙÙÙÄù’π•–ú§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÄëÌ…Ω‹πâ’•±ë•πù}πÖµîÄ¸¸ÄúùÙëÌ…Ω‹πâ’•±ë•πù}πÖµîÄòòÅ…Ω‹ππ’µâï»Ä¸ÄúÄ¥ÄúÄËÄúùÙëÌ…Ω‹ππ’µâï»Ä¸¸ÄúùıÄπ—…•¥†§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å…Ω‹ππÖµîÄ¸¸Å…Ω‹πâ’•±ë•πù}πÖµîÄ¸¸ÅÄåëÌ…Ω‹π•ëıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÕ—Ö—ïµïπ—π—•—ÂM’â—•—±î°ÕçΩ¡îËÄù—ïπÖπ–úÅÄù’π•–úÅÄùâ’•±ë•πúú∞Å…Ω‹ËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯§ÅÏ(ÄÄÄÅ•òÄ°ÕçΩ¡îÄÙÙÙÄù—ïπÖπ–ú§ÅÏ(ÄÄÄÄÄÅ•òÄ°…Ω‹π—ïπÖπ—}—Â¡îÄÙÙÙÄù=5A9dú§ÅÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏Åm…Ω‹π…çç¥∞Å…Ω‹π±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}πÖµïtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†úÉ
+‹Äú§ÅÒÅπ’±∞Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ…ï—’…∏Åm…Ω‹π¡°Ωπî∞Å…Ω‹πïµÖ•±tπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†úÉ
+‹Äú§ÅÒÅπ’±∞Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ÕçΩ¡îÄÙÙÙÄù’π•–ú§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏Åm…Ω‹πâ’•±ë•πù}Öëë…ïÕÃ∞Å…Ω‹πÖç—•Ÿï}±ïÖÕï}ïπë}ëÖ—îÄ¸ÅÅ•∏ÅâÖ•∞ÄëÌ…Ω‹πÖç—•Ÿï}±ïÖÕï}ïπë}ëÖ—ïıÄÄËÅπ’±±tπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†úÉ
+‹Äú§ÅÒÅπ’±∞Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Åm…Ω‹πç•—‰∞Å…Ω‹πÖëë…ïÕÕtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†úÉ
+‹Äú§ÅÒÅπ’±∞Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÖççΩ’π—M—Ö—ïµïπ–°ÕçΩ¡îËÄù—ïπÖπ–úÅÄù’π•–úÅÄùâ’•±ë•πúú∞Å•êËÅπ’µâï»∞Åô•±—ï…ÃËÅÏÅµΩπ—†¸ËÅÕ—…•πúÏÅÂïÖ»¸ËÅÕ—…•πúÏÅÕ—Ö…–¸ËÅÕ—…•πúÏÅïπê¸ËÅÕ—…•πúÅÙÄÙÅÌÙ§ÅÏ(ÄÄÄÅçΩπÕ–ÅΩ…ùÖπ•ÈÖ—•Ωπ%êÄÙÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§Ï(ÄÄÄÅçΩπÕ–Å¡ï…•ΩêÄÙÅ—°•ÃπÕ—Ö—ïµïπ—Aï…•Ωê°ô•±—ï…Ã§Ï(ÄÄÄÅçΩπÕ–Åç’……ïπç‰ÄÙÄùUMúÏ(ÄÄÄÅçΩπÕ–ÅÕΩ’…çîÄÙÅÖ›Ö•–Å—°•ÃπÕ—Ö—ïµïπ—MΩ’…çî°ÕçΩ¡î∞Å•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê§Ï(ÄÄÄÅçΩπÕ–ÅΩ¡ïπ•πù	Ö±ÖπçîÄÙÅÖ›Ö•–Å—°•ÃπÕ—Ö—ïµïπ—=¡ïπ•πù	Ö±Öπçî°ÕçΩ¡î∞Å•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Å¡ï…•ΩêπÕ—Ö…–§Ï(ÄÄÄÅçΩπÕ–Å•πŸΩ•çïIΩ›ÃÄÙÅÖ›Ö•–Å—°•ÃπÕ—Ö—ïµïπ—%πŸΩ•çïÃ°ÕçΩ¡î∞Å•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Å¡ï…•ΩêπÕ—Ö…–∞Å¡ï…•Ωêπïπê§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—IΩ›ÃÄÙÅÖ›Ö•–Å—°•ÃπÕ—Ö—ïµïπ—AÖÂµïπ—Ã°ÕçΩ¡î∞Å•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Å¡ï…•ΩêπÕ—Ö…–∞Å¡ï…•Ωêπïπê§Ï(ÄÄÄÅçΩπÕ–Å—ïπÖπ—…ïë•—IΩ›ÃÄÙÅÖ›Ö•–Å—°•ÃπÕ—Ö—ïµïπ—QïπÖπ—…ïë•—Ã°ÕçΩ¡î∞Å•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Å¡ï…•ΩêπÕ—Ö…–∞Å¡ï…•Ωêπïπê§Ï(ÄÄÄÅçΩπÕ–Å—ïπÖπ—…ïë•—Iïô’πëIΩ›ÃÄÙÅÖ›Ö•–Å—°•ÃπÕ—Ö—ïµïπ—QïπÖπ—…ïë•—Iïô’πëÃ°ÕçΩ¡î∞Å•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Å¡ï…•ΩêπÕ—Ö…–∞Å¡ï…•Ωêπïπê§Ï(ÄÄÄÅçΩπÕ–Å—ïπÖπ—…ïë•—±±ΩçÖ—•ΩπIΩ›ÃÄÙÅÖ›Ö•–Å—°•ÃπÕ—Ö—ïµïπ—QïπÖπ—…ïë•—±±ΩçÖ—•ΩπÃ°ÕçΩ¡î∞Å•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Å¡ï…•ΩêπÕ—Ö…–∞Å¡ï…•Ωêπïπê§Ï(ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïïIΩ›ÃÄÙÅÖ›Ö•–Å—°•ÃπÕ—Ö—ïµïπ—’Ö…Öπ—ïïÃ°ÕçΩ¡î∞Å•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê§Ï(ÄÄÄÅçΩπÕ–ÅµΩŸïµïπ—ÃÄÙÅ—°•ÃπÕ—Ö—ïµïπ—5ΩŸïµïπ—Ã†(ÄÄÄÄÄÅΩ¡ïπ•πù	Ö±Öπçî∞(ÄÄÄÄÄÅ•πŸΩ•çïIΩ›Ã∞(ÄÄÄÄÄÅ¡ÖÂµïπ—IΩ›Ã∞(ÄÄÄÄÄÅ—ïπÖπ—…ïë•—IΩ›Ã∞(ÄÄÄÄÄÅ—ïπÖπ—…ïë•—Iïô’πëIΩ›Ã∞(ÄÄÄÄÄÅ—ïπÖπ—…ïë•—±±ΩçÖ—•ΩπIΩ›Ã∞(ÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÅ¡ï…•ΩêπÕ—Ö…–∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Åëïâ•—ÃÄÙÅ•πŸΩ•çïIΩ›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π—Ω—Ö∞Ä¸¸Ä¿§∞Ä¿§(ÄÄÄÄÄÄ¨Å—ïπÖπ—…ïë•—Iïô’πëIΩ›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§Ï(ÄÄÄÅçΩπÕ–Åç…ïë•—ÃÄÙÅ¡ÖÂµïπ—IΩ›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§(ÄÄÄÄÄÄ¨Å—ïπÖπ—…ïë•—IΩ›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πÖµΩ’π–Ä¸¸Å…Ω‹πΩ…•ù•πÖ±}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§Ï(ÄÄÄÅçΩπÕ–Åç±ΩÕ•πù	Ö±ÖπçîÄÙÅ9’µâï»°Ω¡ïπ•πù	Ö±ÖπçîÄ¸¸Ä¿§Ä¨Åëïâ•—ÃÄ¥Åç…ïë•—ÃÏ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ≠•πêËÅÕçΩ¡îπ—ΩU¡¡ï…ÖÕî†§∞(ÄÄÄÄÄÅïπ—•—‰ËÅÕΩ’…çîπïπ—•—‰∞(ÄÄÄÄÄÅ¡ï…•Ωê∞(ÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÅΩ¡ïπ•πù}âÖ±ÖπçîËÅ9’µâï»°Ω¡ïπ•πù	Ö±ÖπçîÄ¸¸Ä¿§∞(ÄÄÄÄÄÅ—Ω—Ö±ÃËÅÏ(ÄÄÄÄÄÄÄÅëïâ•—Ã∞(ÄÄÄÄÄÄÄÅç…ïë•—Ã∞(ÄÄÄÄÄÄÄÅç±ΩÕ•πù}âÖ±ÖπçîËÅ9’µâï»°ç±ΩÕ•πù	Ö±Öπçîπ—Ω•·ïê†»§§∞(ÄÄÄÄÄÄÄÅ•πŸΩ•çïÕ}çΩ’π–ËÅ•πŸΩ•çïIΩ›Ãπ±ïπù—†∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—Õ}çΩ’π–ËÅ¡ÖÂµïπ—IΩ›Ãπ±ïπù—†Ä¨Å—ïπÖπ—…ïë•—IΩ›Ãπ±ïπù—†∞(ÄÄÄÄÄÄÄÅ…ïô’πëÕ}çΩ’π–ËÅ—ïπÖπ—…ïë•—Iïô’πëIΩ›Ãπ±ïπù—†∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅµΩŸïµïπ—Ã∞(ÄÄÄÄÄÅ•πŸΩ•çïÃËÅ•πŸΩ•çïIΩ›Ã∞(ÄÄÄÄÄÅ¡ÖÂµïπ—ÃËÅ¡ÖÂµïπ—IΩ›Ã∞(ÄÄÄÄÄÅ—ïπÖπ—}ç…ïë•—ÃËÅ—ïπÖπ—…ïë•—IΩ›Ã∞(ÄÄÄÄÄÅ—ïπÖπ—}ç…ïë•—}…ïô’πëÃËÅ—ïπÖπ—…ïë•—Iïô’πëIΩ›Ã∞(ÄÄÄÄÄÅ—ïπÖπ—}ç…ïë•—}Ö±±ΩçÖ—•ΩπÃËÅ—ïπÖπ—…ïë•—±±ΩçÖ—•ΩπIΩ›Ã∞(ÄÄÄÄÄÅù’Ö…Öπ—ïïÃËÅù’Ö…Öπ—ïïIΩ›Ã∞(ÄÄÄÄÄÅù’Ö…Öπ—ïï}—Ω—Ö±ÃËÅÏ(ÄÄÄÄÄÄÄÅï·¡ïç—ïêËÅù’Ö…Öπ—ïïIΩ›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§∞(ÄÄÄÄÄÄÄÅ¡Ö•êËÅù’Ö…Öπ—ïïIΩ›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π¡Ö•ë}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§∞(ÄÄÄÄÄÄÄÅ…ïµÖ•π•πúËÅù’Ö…Öπ—ïïIΩ›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å5Ö—†πµÖ‡°9’µâï»°…Ω‹πÖµΩ’π–Ä¸¸Ä¿§Ä¥Å9’µâï»°…Ω‹π¡Ö•ë}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§∞Ä¿§∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕ—Ö—ïµïπ—MΩ’…çî°ÕçΩ¡îËÄù—ïπÖπ–úÅÄù’π•–úÅÄùâ’•±ë•πúú∞Å•êËÅπ’µâï»∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%êËÅπ’µâï»§ÅÏ(ÄÄÄÅ•òÄ°ÕçΩ¡îÄÙÙÙÄù—ïπÖπ–ú§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ–∏®∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞ÅàπÖëë…ïÕÃÅLÅâ’•±ë•πù}Öëë…ïÕÃ(ÄÄÄÄÄÄÄÄÅI=4Å—ïπÖπ—ÃÅ–(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ–π’π•—}•ê(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÄÄÅ]!IÅ–π•êÄÙÄêƒÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Å–πëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅçΩπÕ–Å…Ω‹ÄÙÅ…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞ÄùQïπÖπ–ú§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅïπ—•—‰ËÅÏ(ÄÄÄÄÄÄÄÄÄÅ•êËÅ…Ω‹π•ê∞(ÄÄÄÄÄÄÄÄÄÅïπ—•—Â}—Â¡îËÄùQ99Pú∞(ÄÄÄÄÄÄÄÄÄÅ—•—±îËÅ—°•ÃπÕ—Ö—ïµïπ—π—•—Â1Öâï∞†ù—ïπÖπ–ú∞Å…Ω‹§∞(ÄÄÄÄÄÄÄÄÄÅÕ’â—•—±îËÅ—°•ÃπÕ—Ö—ïµïπ—π—•—ÂM’â—•—±î†ù—ïπÖπ–ú∞Å…Ω‹§∞(ÄÄÄÄÄÄÄÄÄÅ—ïπÖπ–ËÅ…Ω‹∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ÕçΩ¡îÄÙÙÙÄù’π•–ú§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ‘∏®∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞ÅàπÖëë…ïÕÃÅLÅâ’•±ë•πù}Öëë…ïÕÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ–π•êÅLÅ—ïπÖπ—}•ê∞Å=9P°–πô•…Õ—}πÖµî∞ÄúÄú∞Å–π±ÖÕ—}πÖµî§ÅLÅ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ–π¡°ΩπîÅLÅ—ïπÖπ—}¡°Ωπî∞Å–πïµÖ•∞ÅLÅ—ïπÖπ—}ïµÖ•∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ∞πïπë}ëÖ—îÅLÅÖç—•Ÿï}±ïÖÕï}ïπë}ëÖ—î(ÄÄÄÄÄÄÄÄÅI=4Å’π•—ÃÅ‘(ÄÄÄÄÄÄÄÄÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π’π•—}•êÄÙÅ‘π•êÅ9Å–πÕ—Ö—’ÃÄÙÄùQ%YúÅ9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π’π•—}•êÄÙÅ‘π•êÅ9Å∞πÕ—Ö—’ÃÄÙÄùQ%YúÅ9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ]!IÅ‘π•êÄÙÄêƒÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Å‘πëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅçΩπÕ–Å…Ω‹ÄÙÅ…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞ÄùUπ•–ú§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅïπ—•—‰ËÅÏ(ÄÄÄÄÄÄÄÄÄÅ•êËÅ…Ω‹π•ê∞(ÄÄÄÄÄÄÄÄÄÅïπ—•—Â}—Â¡îËÄùU9%Pú∞(ÄÄÄÄÄÄÄÄÄÅ—•—±îËÅ—°•ÃπÕ—Ö—ïµïπ—π—•—Â1Öâï∞†ù’π•–ú∞Å…Ω‹§∞(ÄÄÄÄÄÄÄÄÄÅÕ’â—•—±îËÅ—°•ÃπÕ—Ö—ïµïπ—π—•—ÂM’â—•—±î†ù’π•–ú∞Å…Ω‹§∞(ÄÄÄÄÄÄÄÄÄÅ’π•–ËÅ…Ω‹∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅà∏®(ÄÄÄÄÄÄÅI=4Åâ’•±ë•πùÃÅà(ÄÄÄÄÄÄÅ]!IÅàπ•êÄÙÄêƒÅ9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åàπëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å…Ω‹ÄÙÅ…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞Äù	’•±ë•πúú§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅïπ—•—‰ËÅÏ(ÄÄÄÄÄÄÄÅ•êËÅ…Ω‹π•ê∞(ÄÄÄÄÄÄÄÅïπ—•—Â}—Â¡îËÄù	U%1%9ú∞(ÄÄÄÄÄÄÄÅ—•—±îËÅ—°•ÃπÕ—Ö—ïµïπ—π—•—Â1Öâï∞†ùâ’•±ë•πúú∞Å…Ω‹§∞(ÄÄÄÄÄÄÄÅÕ’â—•—±îËÅ—°•ÃπÕ—Ö—ïµïπ—π—•—ÂM’â—•—±î†ùâ’•±ë•πúú∞Å…Ω‹§∞(ÄÄÄÄÄÄÄÅâ’•±ë•πúËÅ…Ω‹∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÕ—Ö—ïµïπ—%πŸΩ•çïMçΩ¡î°ÕçΩ¡îËÄù—ïπÖπ–úÅÄù’π•–úÅÄùâ’•±ë•πúú§ÅÏ(ÄÄÄÅ•òÄ°ÕçΩ¡îÄÙÙÙÄù—ïπÖπ–ú§Å…ï—’…∏Äù§π—ïπÖπ—}•êÄÙÄêƒúÏ(ÄÄÄÅ•òÄ°ÕçΩ¡îÄÙÙÙÄù’π•–ú§Å…ï—’…∏Äù=1M°§π’π•—}•ê∞Å∞π’π•—}•ê∞Å–π’π•—}•ê§ÄÙÄêƒúÏ(ÄÄÄÅ…ï—’…∏Äù=1M°§πâ’•±ë•πù}•ê∞Å‘πâ’•±ë•πù}•ê§ÄÙÄêƒúÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÕ—Ö—ïµïπ—AÖÂµïπ—MçΩ¡î°ÕçΩ¡îËÄù—ïπÖπ–úÅÄù’π•–úÅÄùâ’•±ë•πúú§ÅÏ(ÄÄÄÅ•òÄ°ÕçΩ¡îÄÙÙÙÄù—ïπÖπ–ú§Å…ï—’…∏Äù§π—ïπÖπ—}•êÄÙÄêƒúÏ(ÄÄÄÅ•òÄ°ÕçΩ¡îÄÙÙÙÄù’π•–ú§Å…ï—’…∏Äù=1M°§π’π•—}•ê∞Å∞π’π•—}•ê∞Å–π’π•—}•ê§ÄÙÄêƒúÏ(ÄÄÄÅ…ï—’…∏Äù=1M°§πâ’•±ë•πù}•ê∞Å‘πâ’•±ë•πù}•ê§ÄÙÄêƒúÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕ—Ö—ïµïπ—=¡ïπ•πù	Ö±Öπçî°ÕçΩ¡îËÄù—ïπÖπ–úÅÄù’π•–úÅÄùâ’•±ë•πúú∞Å•êËÅπ’µâï»∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%êËÅπ’µâï»∞ÅÕ—Ö…–ËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–Å•πŸΩ•çïΩπë•—•Ω∏ÄÙÅ—°•ÃπÕ—Ö—ïµïπ—%πŸΩ•çïMçΩ¡î°ÕçΩ¡î§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—Ωπë•—•Ω∏ÄÙÅ—°•ÃπÕ—Ö—ïµïπ—AÖÂµïπ—MçΩ¡î°ÕçΩ¡î§Ï(ÄÄÄÅçΩπÕ–Å•πŸΩ•çïM≈∞ÄÙÅÕçΩ¡îÄÙÙÙÄù—ïπÖπ–ú(ÄÄÄÄÄÄ¸ÅÅM1PÅ=1M°MU4°§π—Ω—Ö∞§∞Ä¿§ËÈ1=PÅLÅ—Ω—Ö∞(ÄÄÄÄÄÄÄÄÅI=4Å•πŸΩ•çïÃÅ§(ÄÄÄÄÄÄÄÄÅ]!IÄëÌ•πŸΩ•çïΩπë•—•ΩπÙ(ÄÄÄÄÄÄÄÄÄÄÅ9Å§π•ÕÕ’ï}ëÖ—îÄÄêÃ(ÄÄÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ9Å§πÕ—Ö—’ÃÅ9=PÅ%8Ä†ùIPú∞Äù911ú•Ä(ÄÄÄÄÄÄËÅÕçΩ¡îÄÙÙÙÄù’π•–ú(ÄÄÄÄÄÄÄÄ¸ÅÅM1PÅ=1M°MU4°§π—Ω—Ö∞§∞Ä¿§ËÈ1=PÅLÅ—Ω—Ö∞(ÄÄÄÄÄÄÄÄÄÄÅI=4Å•πŸΩ•çïÃÅ§(ÄÄÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ§π±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ§π—ïπÖπ—}•êÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÄÄÅ]!IÄëÌ•πŸΩ•çïΩπë•—•ΩπÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Å§π•ÕÕ’ï}ëÖ—îÄÄêÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Å§πÕ—Ö—’ÃÅ9=PÅ%8Ä†ùIPú∞Äù911ú•Ä(ÄÄÄÄÄÄÄÄËÅÅM1PÅ=1M°MU4°§π—Ω—Ö∞§∞Ä¿§ËÈ1=PÅLÅ—Ω—Ö∞(ÄÄÄÄÄÄÄÄÄÄÅI=4Å•πŸΩ•çïÃÅ§(ÄÄÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ§π±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ§π—ïπÖπ—}•êÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ=1M°§π’π•—}•ê∞Å∞π’π•—}•ê∞Å–π’π•—}•ê§Å9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÄÄÅ]!IÄëÌ•πŸΩ•çïΩπë•—•ΩπÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Å§π•ÕÕ’ï}ëÖ—îÄÄêÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÄÄÅ9Å§πÕ—Ö—’ÃÅ9=PÅ%8Ä†ùIPú∞Äù911ú•ÄÏ(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—M≈∞ÄÙÅÅ]%Q ÅÕçΩ¡ïë}¡ÖÂµïπ—ÃÅLÄ†(ÄÄÄÄÄÄÅM1PÅ¡ÑπÖµΩ’π–ËÈ1=PÅLÅÖµΩ’π–(ÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—}Ö±±ΩçÖ—•ΩπÃÅ¡Ñ(ÄÄÄÄÄÄÅ)=%8Å¡ÖÂµïπ—ÃÅ¿Å=8Å¿π•êÄÙÅ¡Ñπ¡ÖÂµïπ—}•ê(ÄÄÄÄÄÄÄÄÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ¡ÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å¿πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ)=%8Å•πŸΩ•çïÃÅ§Å=8Å§π•êÄÙÅ¡Ñπ•πŸΩ•çï}•ê(ÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ¡ÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ§π±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ§π—ïπÖπ—}•êÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ=1M°§π’π•—}•ê∞Å∞π’π•—}•ê∞Å–π’π•—}•ê§Å9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ]!IÄëÌ¡ÖÂµïπ—Ωπë•—•ΩπÙ(ÄÄÄÄÄÄÄÄÅ9Å¿π¡ÖÂµïπ—}ëÖ—îÄÄêÃ(ÄÄÄÄÄÄÄÄÅ9Å¡ÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å¡Ñπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Å=1M°¿π¡ÖÂµïπ—}—Â¡î∞Äù%9Y=%ú§Ä¯ÄùQ99Q}I%Q}11=Q%=8ú((ÄÄÄÄÄÄÅU9%=8Å10((ÄÄÄÄÄÄÅM1PÅ¿πÖµΩ’π–ËÈ1=PÅLÅÖµΩ’π–(ÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—ÃÅ¿(ÄÄÄÄÄÄÅ)=%8Å•πŸΩ•çïÃÅ§Å=8Å§π•êÄÙÅ¿π•πŸΩ•çï}•ê(ÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ§π±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ§π—ïπÖπ—}•êÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ=1M°§π’π•—}•ê∞Å∞π’π•—}•ê∞Å–π’π•—}•ê§Å9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ]!IÄëÌ¡ÖÂµïπ—Ωπë•—•ΩπÙ(ÄÄÄÄÄÄÄÄÅ9Å¿π¡ÖÂµïπ—}ëÖ—îÄÄêÃ(ÄÄÄÄÄÄÄÄÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å¿πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Å=1M°¿π¡ÖÂµïπ—}—Â¡î∞Äù%9Y=%ú§Ä¯ÄùQ99Q}I%Q}11=Q%=8ú(ÄÄÄÄÄÄÄÄÅ9Å9=PÅa%MQLÄ†(ÄÄÄÄÄÄÄÄÄÄÅM1PÄƒÅI=4Å¡ÖÂµïπ—}Ö±±ΩçÖ—•ΩπÃÅ¡Ñ(ÄÄÄÄÄÄÄÄÄÄÅ]!IÅ¡Ñπ¡ÖÂµïπ—}•êÄÙÅ¿π•êÅ9Å¡ÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å¡Ñπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄ§(ÄÄÄÄÅM1PÅ=1M°MU4°ÖµΩ’π–§∞Ä¿§ËÈ1=PÅLÅ—Ω—Ö∞ÅI=4ÅÕçΩ¡ïë}¡ÖÂµïπ—ÕÄÏ(ÄÄÄÅçΩπÕ–Åç…ïë•—MçΩ¡îÄÙÅ—°•ÃπÕ—Ö—ïµïπ—QïπÖπ—…ïë•—MçΩ¡î°ÕçΩ¡î§Ï(ÄÄÄÅçΩπÕ–Å—ïπÖπ—…ïë•—M≈∞ÄÙÅÅM1PÅ=1M°MU4°—åπΩ…•ù•πÖ±}ÖµΩ’π–§∞Ä¿§ËÈ1=PÅLÅ—Ω—Ö∞(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—ÃÅ—å(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ—åπ±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•êÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ]!IÄëÌç…ïë•—MçΩ¡ïÙ(ÄÄÄÄÄÄÄÄÅ9Å—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å—åπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Å—åπ¡ÖÂµïπ—}ëÖ—îÄÄêÃËÈQÄÏ(ÄÄÄÅçΩπÕ–Å—ïπÖπ—…ïë•—Iïô’πëM≈∞ÄÙÅÅM1PÅ=1M°MU4°—ç»πÖµΩ’π–§∞Ä¿§ËÈ1=PÅLÅ—Ω—Ö∞(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—}…ïô’πëÃÅ—ç»(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—}ç…ïë•—ÃÅ—åÅ=8Å—åπ•êÄÙÅ—ç»π—ïπÖπ—}ç…ïë•—}•êÅ9Å—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å—åπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ—åπ±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•êÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ]!IÄëÌç…ïë•—MçΩ¡ïÙ(ÄÄÄÄÄÄÄÄÅ9Å—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å—ç»πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Å—ç»π…ïô’πë}ëÖ—îÄÄêÃËÈQÄÏ(ÄÄÄÅçΩπÕ–Åm•πŸΩ•çï	Ö±Öπçî∞Å¡ÖÂµïπ—	Ö±Öπçî∞Å—ïπÖπ—…ïë•—	Ö±Öπçî∞Å—ïπÖπ—…ïë•—Iïô’πë	Ö±ÖπçïtÄÙÅÖ›Ö•–ÅA…Ωµ•ÕîπÖ±∞°l(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰°•πŸΩ•çïM≈∞∞Åm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞ÅÕ—Ö…—t§∞(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰°¡ÖÂµïπ—M≈∞∞Åm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞ÅÕ—Ö…—t§∞(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰°—ïπÖπ—…ïë•—M≈∞∞Åm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞ÅÕ—Ö…—t§∞(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰°—ïπÖπ—…ïë•—Iïô’πëM≈∞∞Åm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞ÅÕ—Ö…—t§∞(ÄÄÄÅt§Ï(ÄÄÄÅ…ï—’…∏Å9’µâï»°•πŸΩ•çï	Ö±Öπçîπ…Ω›Õl¡t¸π—Ω—Ö∞Ä¸¸Ä¿§(ÄÄÄÄÄÄ¥Å9’µâï»°¡ÖÂµïπ—	Ö±Öπçîπ…Ω›Õl¡t¸π—Ω—Ö∞Ä¸¸Ä¿§(ÄÄÄÄÄÄ¥Å9’µâï»°—ïπÖπ—…ïë•—	Ö±Öπçîπ…Ω›Õl¡t¸π—Ω—Ö∞Ä¸¸Ä¿§(ÄÄÄÄÄÄ¨Å9’µâï»°—ïπÖπ—…ïë•—Iïô’πë	Ö±Öπçîπ…Ω›Õl¡t¸π—Ω—Ö∞Ä¸¸Ä¿§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÕ—Ö—ïµïπ—QïπÖπ—…ïë•—MçΩ¡î°ÕçΩ¡îËÄù—ïπÖπ–úÅÄù’π•–úÅÄùâ’•±ë•πúú§ÅÏ(ÄÄÄÅ•òÄ°ÕçΩ¡îÄÙÙÙÄù—ïπÖπ–ú§Å…ï—’…∏Äù—åπ—ïπÖπ—}•êÄÙÄêƒúÏ(ÄÄÄÅ•òÄ°ÕçΩ¡îÄÙÙÙÄù’π•–ú§Å…ï—’…∏Äù∞π’π•—}•êÄÙÄêƒúÏ(ÄÄÄÅ…ï—’…∏Äù‘πâ’•±ë•πù}•êÄÙÄêƒúÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕ—Ö—ïµïπ—QïπÖπ—…ïë•—Ã°ÕçΩ¡îËÄù—ïπÖπ–úÅÄù’π•–úÅÄùâ’•±ë•πúú∞Å•êËÅπ’µâï»∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%êËÅπ’µâï»∞ÅÕ—Ö…–ËÅÕ—…•πú∞ÅïπêËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅçΩπë•—•Ω∏ÄÙÅ—°•ÃπÕ—Ö—ïµïπ—QïπÖπ—…ïë•—MçΩ¡î°ÕçΩ¡î§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ—åπ•ê∞Å—åπ¡ÖÂµïπ—}ëÖ—î∞Å—åπ…ïôï…ïπçî∞Å—åπç’……ïπç‰∞Å—åπΩ…•ù•πÖ±}ÖµΩ’π–∞Å—åπ…ïµÖ•π•πù}ÖµΩ’π–∞Å—åπÕ—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¿π…ïçï•¡—}π’µâï»∞Å¿π¡ÖÂµïπ—}µï—°Ωê∞Å¿πÖµΩ’π—}’Õê∞Å¿πÖµΩ’π—}çëò∞Å¿π—Ω—Ö±}ï≈’•ŸÖ±ïπ—}’Õê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—åπ—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Äúú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ1MÅQI%4°=9P°=1M°–πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π±ÖÕ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π¡ΩÕ—}πÖµî∞Äúú§§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅLÅ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ∞π±ïÖÕï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅàππÖµîÅLÅâ’•±ë•πù}πÖµî(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—ÃÅ—å(ÄÄÄÄÄÄÅ)=%8Å¡ÖÂµïπ—ÃÅ¿Å=8Å¿π•êÄÙÅ—åπÕΩ’…çï}¡ÖÂµïπ—}•ê(ÄÄÄÄÄÄÄÄÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ9Å¿πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ—åπ—ïπÖπ—}•ê(ÄÄÄÄÄÄÄÄÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ—åπ±ïÖÕï}•ê(ÄÄÄÄÄÄÄÄÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•ê(ÄÄÄÄÄÄÄÄÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ9Å‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÄÄÅ9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ9Åàπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ]!IÄëÌçΩπë•—•ΩπÙ(ÄÄÄÄÄÄÄÄÅ9Å—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å—åπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Å—åπ¡ÖÂµïπ—}ëÖ—îÅ	Q]8ÄêÃÅ9Äê–(ÄÄÄÄÄÄÅ=IHÅ	dÅ—åπ¡ÖÂµïπ—}ëÖ—îÅM∞Å—åπ•êÅMÄ∞(ÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞ÅÕ—Ö…–∞Åïπët∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕ—Ö—ïµïπ—QïπÖπ—…ïë•—Iïô’πëÃ°ÕçΩ¡îËÄù—ïπÖπ–úÅÄù’π•–úÅÄùâ’•±ë•πúú∞Å•êËÅπ’µâï»∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%êËÅπ’µâï»∞ÅÕ—Ö…–ËÅÕ—…•πú∞ÅïπêËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅçΩπë•—•Ω∏ÄÙÅ—°•ÃπÕ—Ö—ïµïπ—QïπÖπ—…ïë•—MçΩ¡î°ÕçΩ¡î§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ—ç»π•ê∞Å—ç»π…ïô’πë}ëÖ—î∞Å—ç»π…ïôï…ïπçî∞Å—ç»π…ïçï•¡—}π’µâï»∞Å—ç»πÖµΩ’π–∞Å—ç»πç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ç»π¡ÖÂµïπ—}µï—°Ωê∞Å—ç»π…ïÖÕΩ∏∞Å—ç»πÕ—Ö—’Ã∞Å—åπ—ïπÖπ—}•ê∞Å—åπ±ïÖÕï}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Äúú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ1MÅQI%4°=9P°=1M°–πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π±ÖÕ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π¡ΩÕ—}πÖµî∞Äúú§§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅLÅ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ∞π±ïÖÕï}π’µâï»∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—}…ïô’πëÃÅ—ç»(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—}ç…ïë•—ÃÅ—åÅ=8Å—åπ•êÄÙÅ—ç»π—ïπÖπ—}ç…ïë•—}•ê(ÄÄÄÄÄÄÄÄÅ9Å—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å—åπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ—åπ—ïπÖπ—}•ê(ÄÄÄÄÄÄÄÄÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ—åπ±ïÖÕï}•ê(ÄÄÄÄÄÄÄÄÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•ê(ÄÄÄÄÄÄÄÄÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÄÄÅ9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Åàπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ]!IÄëÌçΩπë•—•ΩπÙ(ÄÄÄÄÄÄÄÄÅ9Å—ç»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å—ç»πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Å—ç»π…ïô’πë}ëÖ—îÅ	Q]8ÄêÃÅ9Äê–(ÄÄÄÄÄÄÅ=IHÅ	dÅ—ç»π…ïô’πë}ëÖ—îÅM∞Å—ç»π•êÅMÄ∞(ÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞ÅÕ—Ö…–∞Åïπët∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕ—Ö—ïµïπ—QïπÖπ—…ïë•—±±ΩçÖ—•ΩπÃ°ÕçΩ¡îËÄù—ïπÖπ–úÅÄù’π•–úÅÄùâ’•±ë•πúú∞Å•êËÅπ’µâï»∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%êËÅπ’µâï»∞ÅÕ—Ö…–ËÅÕ—…•πú∞ÅïπêËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅçΩπë•—•Ω∏ÄÙÅ—°•ÃπÕ—Ö—ïµïπ—QïπÖπ—…ïë•—MçΩ¡î°ÕçΩ¡î§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ—çÑπ•ê∞Å—çÑπç…ïÖ—ïë}Ö–ËÈQÅLÅÖ±±ΩçÖ—•Ωπ}ëÖ—î∞Å—çÑπÖµΩ’π—}Ö¡¡±•ïêÅLÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—çÑπç’……ïπç‰∞Å—åπ—ïπÖπ—}•ê∞Å—åπ±ïÖÕï}•ê∞Å—åπ…ïôï…ïπçîÅLÅç…ïë•—}…ïôï…ïπçî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¿π…ïçï•¡—}π’µâï»∞Å§π•êÅLÅ•πŸΩ•çï}•ê∞Å§π•πŸΩ•çï}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ∞π±ïÖÕï}π’µâï»∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî(ÄÄÄÄÄÄÅI=4Å—ïπÖπ—}ç…ïë•—}Ö±±ΩçÖ—•ΩπÃÅ—çÑ(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—}ç…ïë•—ÃÅ—åÅ=8Å—åπ•êÄÙÅ—çÑπ—ïπÖπ—}ç…ïë•—}•ê(ÄÄÄÄÄÄÄÄÅ9Å—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—çÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å—åπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ)=%8Å¡ÖÂµïπ—ÃÅ¿Å=8Å¿π•êÄÙÅ—çÑπ¡ÖÂµïπ—}•ê(ÄÄÄÄÄÄÄÄÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—çÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å¿πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ)=%8Å•πŸΩ•çïÃÅ§Å=8Å§π•êÄÙÅ—çÑπ•πŸΩ•çï}•ê(ÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—çÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ—åπ±ïÖÕï}•ê(ÄÄÄÄÄÄÄÄÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•ê(ÄÄÄÄÄÄÄÄÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÄÄÅ9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ—åπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Åàπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ]!IÄëÌçΩπë•—•ΩπÙ(ÄÄÄÄÄÄÄÄÅ9Å—çÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å—çÑπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Å—çÑπç…ïÖ—ïë}Ö–ËÈQÅ	Q]8ÄêÃËÈQÅ9Äê–ËÈQ(ÄÄÄÄÄÄÅ=IHÅ	dÅ—çÑπç…ïÖ—ïë}Ö–ÅM∞Å—çÑπ•êÅMÄ∞(ÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞ÅÕ—Ö…–∞Åïπët∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕ—Ö—ïµïπ—’Ö…Öπ—ïïÃ°ÕçΩ¡îËÄù—ïπÖπ–úÅÄù’π•–úÅÄùâ’•±ë•πúú∞Å•êËÅπ’µâï»∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%êËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅçΩπë•—•Ω∏ÄÙÅÕçΩ¡îÄÙÙÙÄù—ïπÖπ–ú(ÄÄÄÄÄÄ¸Äù∞π—ïπÖπ—}•êÄÙÄêƒú(ÄÄÄÄÄÄËÅÕçΩ¡îÄÙÙÙÄù’π•–ú(ÄÄÄÄÄÄÄÄ¸Äù∞π’π•—}•êÄÙÄêƒú(ÄÄÄÄÄÄÄÄËÄù‘πâ’•±ë•πù}•êÄÙÄêƒúÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ±úπ•ê∞Å±úπ±ïÖÕï}•ê∞Å±úπÖµΩ’π–∞Å=1M°±úπ¡Ö•ë}ÖµΩ’π–∞Ä¿§ÅLÅ¡Ö•ë}ÖµΩ’π–∞Å±úπ¡ÖÂµïπ—}ëÖ—î∞Å±úπÕ—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ∞π±ïÖÕï}π’µâï»∞Å∞π—ïπÖπ—}•ê∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Äúú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ1MÅQI%4°=9P°=1M°–πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π±ÖÕ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π¡ΩÕ—}πÖµî∞Äúú§§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅLÅ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅIQMP°±úπÖµΩ’π–Ä¥Å=1M°±úπ¡Ö•ë}ÖµΩ’π–∞Ä¿§∞Ä¿§ËÈ1=PÅLÅ…ïµÖ•π•πù}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°ù¿π¡ÖÂµïπ—Ã∞ÄùmtúËÈ)M=9§ÅLÅ¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÅI=4Å±ïÖÕï}ù’Ö…Öπ—ïïÃÅ±ú(ÄÄÄÄÄÄÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ±úπ±ïÖÕï}•ê(ÄÄÄÄÄÄÄÄÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ±úπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ∞π—ïπÖπ—}•ê(ÄÄÄÄÄÄÄÄÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ∞π’π•—}•ê(ÄÄÄÄÄÄÄÄÅ9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÄÄÅ9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Åàπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å1QI0Ä†(ÄÄÄÄÄÄÄÄÅM1PÅ)M=9	}°)M=9	}	U%1}=	)P†(ÄÄÄÄÄÄÄÄÄÄÄù•êú∞Å¿π•ê∞(ÄÄÄÄÄÄÄÄÄÄÄù…ïçï•¡—}π’µâï»ú∞Å¿π…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄù¡ÖÂµïπ—}ëÖ—îú∞Å¿π¡ÖÂµïπ—}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÄùÖµΩ’π–ú∞Å¿πÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄùç’……ïπç‰ú∞Å¿πç’……ïπç‰∞(ÄÄÄÄÄÄÄÄÄÄÄù¡ÖÂµïπ—}µï—°Ωêú∞Å¿π¡ÖÂµïπ—}µï—°Ωê∞(ÄÄÄÄÄÄÄÄÄÄÄù…ïôï…ïπçîú∞Å¿π…ïôï…ïπçî(ÄÄÄÄÄÄÄÄÄ§Å=IHÅ	dÅ¿π¡ÖÂµïπ—}ëÖ—î∞Å¿π•ê§ÅLÅ¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—ÃÅ¿(ÄÄÄÄÄÄÄÄÅ]!IÅ¿π±ïÖÕï}ù’Ö…Öπ—ïï}•êÄÙÅ±úπ•ê(ÄÄÄÄÄÄÄÄÄÄÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ±úπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÄÄÅ9Å¿πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄ§Åù¿Å=8ÅQIU(ÄÄÄÄÄÄÅ]!IÄëÌçΩπë•—•ΩπÙ(ÄÄÄÄÄÄÄÄÅ9Å±úπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å±úπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅ∞πÕ—Ö…—}ëÖ—îÅM∞Å±úπ•êÅMÄ∞(ÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕ—Ö—ïµïπ—%πŸΩ•çïÃ°ÕçΩ¡îËÄù—ïπÖπ–úÅÄù’π•–úÅÄùâ’•±ë•πúú∞Å•êËÅπ’µâï»∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%êËÅπ’µâï»∞ÅÕ—Ö…–ËÅÕ—…•πú∞ÅïπêËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅçΩπë•—•Ω∏ÄÙÅ—°•ÃπÕ—Ö—ïµïπ—%πŸΩ•çïMçΩ¡î°ÕçΩ¡î§Ï(ÄÄÄÅçΩπÕ–ÅÕ≈∞ÄÙÅÕçΩ¡îÄÙÙÙÄù—ïπÖπ–ú(ÄÄÄÄÄÄ¸ÅÅM1PÅ§π•ê∞Å§π•πŸΩ•çï}π’µâï»∞Å§πµΩπ—†∞Å§πÂïÖ»∞Å§π•ÕÕ’ï}ëÖ—î∞Å§πë’ï}ëÖ—î∞Å§πÕ—Ö—’Ã∞Å§π—Ω—Ö∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ§π±ÖÕ—}…ïµ•πëï…}Ö–∞Å=1M°§π…ïµ•πëï…}çΩ’π–∞Ä¿§ËÈ%9PÅLÅ…ïµ•πëï…}çΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ§π—ïπÖπ—}•ê∞ÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Äúú§Å1MÅQI%4°=9Q}]L†úÄú∞Å–πô•…Õ—}πÖµî∞Å–π±ÖÕ—}πÖµî∞Å–π¡ΩÕ—}πÖµî§§Å9ÅLÅ—ïπÖπ—}πÖµî∞Å–π¡°Ωπî∞Å–πïµÖ•∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Ãπ¡Ö•ë}ÖµΩ’π–∞Ä¿§ËÈ1=PÅLÅ¡Ö•ë}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Ãπ…ïµÖ•π•πù}ÖµΩ’π–∞Å§π—Ω—Ö∞§ËÈ1=PÅLÅ…ïµÖ•π•πù}ÖµΩ’π–(ÄÄÄÄÄÄÄÄÅI=4Å•πŸΩ•çïÃÅ§(ÄÄÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ§π—ïπÖπ—}•êÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ§π±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ=1M°§π’π•—}•ê∞Å∞π’π•—}•ê∞Å–π’π•—}•ê§Å9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å•πŸΩ•çï}¡ÖÂµïπ—}Õ’µµÖ…‰ÅÃÅ=8ÅÃπ•πŸΩ•çï}•êÄÙÅ§π•ê(ÄÄÄÄÄÄÄÄÅ]!IÄëÌçΩπë•—•ΩπÙ(ÄÄÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ9Å§πÕ—Ö—’ÃÅ9=PÅ%8Ä†ùIPú∞Äù911ú§(ÄÄÄÄÄÄÄÄÄÄÅ9Å§π•ÕÕ’ï}ëÖ—îÅ	Q]8ÄêÃÅ9Äê–(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅ§π•ÕÕ’ï}ëÖ—îÅM∞Å§π•êÅMÄ(ÄÄÄÄÄÄËÅÕçΩ¡îÄÙÙÙÄù’π•–ú(ÄÄÄÄÄÄÄÄ¸ÅÅM1PÅ§π•ê∞Å§π•πŸΩ•çï}π’µâï»∞Å§πµΩπ—†∞Å§πÂïÖ»∞Å§π•ÕÕ’ï}ëÖ—î∞Å§πë’ï}ëÖ—î∞Å§πÕ—Ö—’Ã∞Å§π—Ω—Ö∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ§π±ÖÕ—}…ïµ•πëï…}Ö–∞Å=1M°§π…ïµ•πëï…}çΩ’π–∞Ä¿§ËÈ%9PÅLÅ…ïµ•πëï…}çΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ§π—ïπÖπ—}•ê∞ÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Äúú§Å1MÅQI%4°=9Q}]L†úÄú∞Å–πô•…Õ—}πÖµî∞Å–π±ÖÕ—}πÖµî∞Å–π¡ΩÕ—}πÖµî§§Å9ÅLÅ—ïπÖπ—}πÖµî∞Å–π¡°Ωπî∞Å–πïµÖ•∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Ãπ¡Ö•ë}ÖµΩ’π–∞Ä¿§ËÈ1=PÅLÅ¡Ö•ë}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Ãπ…ïµÖ•π•πù}ÖµΩ’π–∞Å§π—Ω—Ö∞§ËÈ1=PÅLÅ…ïµÖ•π•πù}ÖµΩ’π–(ÄÄÄÄÄÄÄÄÅI=4Å•πŸΩ•çïÃÅ§(ÄÄÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ§π—ïπÖπ—}•êÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ§π±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ=1M°§π’π•—}•ê∞Å∞π’π•—}•ê∞Å–π’π•—}•ê§Å9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ‘πâ’•±ë•πù}•êÅ9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å•πŸΩ•çï}¡ÖÂµïπ—}Õ’µµÖ…‰ÅÃÅ=8ÅÃπ•πŸΩ•çï}•êÄÙÅ§π•ê(ÄÄÄÄÄÄÄÄÅ]!IÄëÌçΩπë•—•ΩπÙ(ÄÄÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ9Å§πÕ—Ö—’ÃÅ9=PÅ%8Ä†ùIPú∞Äù911ú§(ÄÄÄÄÄÄÄÄÄÄÅ9Å§π•ÕÕ’ï}ëÖ—îÅ	Q]8ÄêÃÅ9Äê–(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅ§π•ÕÕ’ï}ëÖ—îÅM∞Å§π•êÅMÄ(ÄÄÄÄÄÄÄÄËÅÅM1PÅ§π•ê∞Å§π•πŸΩ•çï}π’µâï»∞Å§πµΩπ—†∞Å§πÂïÖ»∞Å§π•ÕÕ’ï}ëÖ—î∞Å§πë’ï}ëÖ—î∞Å§πÕ—Ö—’Ã∞Å§π—Ω—Ö∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ§π±ÖÕ—}…ïµ•πëï…}Ö–∞Å=1M°§π…ïµ•πëï…}çΩ’π–∞Ä¿§ËÈ%9PÅLÅ…ïµ•πëï…}çΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ§π—ïπÖπ—}•ê∞ÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Äúú§Å1MÅQI%4°=9Q}]L†úÄú∞Å–πô•…Õ—}πÖµî∞Å–π±ÖÕ—}πÖµî∞Å–π¡ΩÕ—}πÖµî§§Å9ÅLÅ—ïπÖπ—}πÖµî∞Å–π¡°Ωπî∞Å–πïµÖ•∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Ãπ¡Ö•ë}ÖµΩ’π–∞Ä¿§ËÈ1=PÅLÅ¡Ö•ë}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Ãπ…ïµÖ•π•πù}ÖµΩ’π–∞Å§π—Ω—Ö∞§ËÈ1=PÅLÅ…ïµÖ•π•πù}ÖµΩ’π–(ÄÄÄÄÄÄÄÄÅI=4Å•πŸΩ•çïÃÅ§(ÄÄÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ§π—ïπÖπ—}•êÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ§π±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ=1M°§π’π•—}•ê∞Å∞π’π•—}•ê∞Å–π’π•—}•ê§Å9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ=1M°§πâ’•±ë•πù}•ê∞Å‘πâ’•±ë•πù}•ê§Å9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å•πŸΩ•çï}¡ÖÂµïπ—}Õ’µµÖ…‰ÅÃÅ=8ÅÃπ•πŸΩ•çï}•êÄÙÅ§π•ê(ÄÄÄÄÄÄÄÄÅ]!IÄëÌçΩπë•—•ΩπÙ(ÄÄÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ9Å§πÕ—Ö—’ÃÅ9=PÅ%8Ä†ùIPú∞Äù911ú§(ÄÄÄÄÄÄÄÄÄÄÅ9Å§π•ÕÕ’ï}ëÖ—îÅ	Q]8ÄêÃÅ9Äê–(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅ§π•ÕÕ’ï}ëÖ—îÅM∞Å§π•êÅMÄÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰°Õ≈∞∞Åm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞ÅÕ—Ö…–∞Åïπët§Ï(ÄÄÄÅ…ï—’…∏Å—°•ÃπÖ¡¡ïπë%πŸΩ•çï%—ïµM’µµÖ…•ïÃ°…Ω›Ã§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕ—Ö—ïµïπ—AÖÂµïπ—Ã°ÕçΩ¡îËÄù—ïπÖπ–úÅÄù’π•–úÅÄùâ’•±ë•πúú∞Å•êËÅπ’µâï»∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%êËÅπ’µâï»∞ÅÕ—Ö…–ËÅÕ—…•πú∞ÅïπêËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅçΩπë•—•Ω∏ÄÙÅ—°•ÃπÕ—Ö—ïµïπ—AÖÂµïπ—MçΩ¡î°ÕçΩ¡î§Ï(ÄÄÄÅçΩπÕ–ÅÕ≈∞ÄÙÅÅ]%Q ÅÕçΩ¡ïë}¡ÖÂµïπ—ÃÅLÄ†(ÄÄÄÄÄÄÅM1PÅ¿π•ê∞Å¡Ñπ•êÅLÅÖ±±ΩçÖ—•Ωπ}•ê∞Å¿π¡ÖÂµïπ—}ëÖ—î∞Å¡ÑπÖµΩ’π–ËÈ1=PÅLÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¿πÖµΩ’π–ËÈ1=PÅLÅ¡ÖÂµïπ—}—Ω—Ö∞∞Å¿π¡ÖÂµïπ—}µï—°Ωê∞Å¿π…ïôï…ïπçî∞Å¿π…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¿πç’……ïπç‰∞Å¿π—Ω—Ö±}ï≈’•ŸÖ±ïπ—}’Õê∞Å§π•πŸΩ•çï}π’µâï»∞Å§πÕ—Ö—’ÃÅLÅ•πŸΩ•çï}Õ—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ§π•êÅLÅ•πŸΩ•çï}•ê∞Å§π—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Äúú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ1MÅQI%4°=9P°=1M°–πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π±ÖÕ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π¡ΩÕ—}πÖµî∞Äúú§§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅLÅ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî(ÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—}Ö±±ΩçÖ—•ΩπÃÅ¡Ñ(ÄÄÄÄÄÄÅ)=%8Å¡ÖÂµïπ—ÃÅ¿Å=8Å¿π•êÄÙÅ¡Ñπ¡ÖÂµïπ—}•ê(ÄÄÄÄÄÄÄÄÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ¡ÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å¿πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ)=%8Å•πŸΩ•çïÃÅ§Å=8Å§π•êÄÙÅ¡Ñπ•πŸΩ•çï}•ê(ÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ¡ÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ§π—ïπÖπ—}•ê(ÄÄÄÄÄÄÄÄÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ§π±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ=1M°§π’π•—}•ê∞Å∞π’π•—}•ê∞Å–π’π•—}•ê§Å9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ=1M°§πâ’•±ë•πù}•ê∞Å‘πâ’•±ë•πù}•ê§Å9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ]!IÄëÌçΩπë•—•ΩπÙ(ÄÄÄÄÄÄÄÄÅ9Å¿π¡ÖÂµïπ—}ëÖ—îÅ	Q]8ÄêÃÅ9Äê–(ÄÄÄÄÄÄÄÄÅ9Å¡ÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å¡Ñπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Å=1M°¿π¡ÖÂµïπ—}—Â¡î∞Äù%9Y=%ú§Ä¯ÄùQ99Q}I%Q}11=Q%=8ú((ÄÄÄÄÄÄÅU9%=8Å10((ÄÄÄÄÄÄÅM1PÅ¿π•ê∞Å9U10ËÈ%9PÅLÅÖ±±ΩçÖ—•Ωπ}•ê∞Å¿π¡ÖÂµïπ—}ëÖ—î∞Å¿πÖµΩ’π–ËÈ1=PÅLÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¿πÖµΩ’π–ËÈ1=PÅLÅ¡ÖÂµïπ—}—Ω—Ö∞∞Å¿π¡ÖÂµïπ—}µï—°Ωê∞Å¿π…ïôï…ïπçî∞Å¿π…ïçï•¡—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¿πç’……ïπç‰∞Å¿π—Ω—Ö±}ï≈’•ŸÖ±ïπ—}’Õê∞Å§π•πŸΩ•çï}π’µâï»∞Å§πÕ—Ö—’ÃÅLÅ•πŸΩ•çï}Õ—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ§π•êÅLÅ•πŸΩ•çï}•ê∞Å§π—ïπÖπ—}•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å–π—ïπÖπ—}—Â¡îÄÙÄù=5A9dúÅQ!8Å=1M°–πçΩµ¡ÖπÂ}πÖµî∞Äúú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ1MÅQI%4°=9P°=1M°–πô•…Õ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π±ÖÕ—}πÖµî∞Äúú§∞ÄúÄú∞Å=1M°–π¡ΩÕ—}πÖµî∞Äúú§§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅLÅ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî(ÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—ÃÅ¿(ÄÄÄÄÄÄÅ)=%8Å•πŸΩ•çïÃÅ§Å=8Å§π•êÄÙÅ¿π•πŸΩ•çï}•ê(ÄÄÄÄÄÄÄÄÅ9Å§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ§π—ïπÖπ—}•ê(ÄÄÄÄÄÄÄÄÅ9Å–πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å–πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ1PÅ)=%8Å±ïÖÕïÃÅ∞Å=8Å∞π•êÄÙÅ§π±ïÖÕï}•êÅ9Å∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ=1M°§π’π•—}•ê∞Å∞π’π•—}•ê∞Å–π’π•—}•ê§Å9Å‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ=1M°§πâ’•±ë•πù}•ê∞Å‘πâ’•±ë•πù}•ê§Å9ÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅ]!IÄëÌçΩπë•—•ΩπÙ(ÄÄÄÄÄÄÄÄÅ9Å¿π¡ÖÂµïπ—}ëÖ—îÅ	Q]8ÄêÃÅ9Äê–(ÄÄÄÄÄÄÄÄÅ9Å¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å¿πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Å=1M°¿π¡ÖÂµïπ—}—Â¡î∞Äù%9Y=%ú§Ä¯ÄùQ99Q}I%Q}11=Q%=8ú(ÄÄÄÄÄÄÄÄÅ9Å9=PÅa%MQLÄ†(ÄÄÄÄÄÄÄÄÄÄÅM1PÄƒÅI=4Å¡ÖÂµïπ—}Ö±±ΩçÖ—•ΩπÃÅ¡Ñ(ÄÄÄÄÄÄÄÄÄÄÅ]!IÅ¡Ñπ¡ÖÂµïπ—}•êÄÙÅ¿π•êÅ9Å¡ÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅ¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÅ9Å¡Ñπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄ§(ÄÄÄÄÅM1PÄ®ÅI=4ÅÕçΩ¡ïë}¡ÖÂµïπ—ÃÅ=IHÅ	dÅ¡ÖÂµïπ—}ëÖ—îÅM∞Å•êÅM∞ÅÖ±±ΩçÖ—•Ωπ}•êÅMÅ9U11LÅ1MQÄÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰°Õ≈∞∞Åm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞ÅÕ—Ö…–∞Åïπët§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÕ—Ö—ïµïπ—5ΩŸïµïπ—Ã†(ÄÄÄÅΩ¡ïπ•πù	Ö±ÖπçîËÅπ’µâï»∞(ÄÄÄÅ•πŸΩ•çïÃËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰˘mt∞(ÄÄÄÅ¡ÖÂµïπ—ÃËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰˘mt∞(ÄÄÄÅ—ïπÖπ—…ïë•—ÃËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰˘mt∞(ÄÄÄÅ—ïπÖπ—…ïë•—Iïô’πëÃËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰˘mt∞(ÄÄÄÅ—ïπÖπ—…ïë•—±±ΩçÖ—•ΩπÃËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰˘mt∞(ÄÄÄÅç’……ïπç‰ËÅÕ—…•πú∞(ÄÄÄÅΩ¡ïπ•πùÖ—îËÅÕ—…•πú∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–Å…Ω›ÃÄÙÅl(ÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÅëÖ—îËÅΩ¡ïπ•πùÖ—î∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÄù=UYIQUIú∞(ÄÄÄÄÄÄÄÅµΩŸïµïπ—}—Â¡îËÄù=A9%9ú∞(ÄÄÄÄÄÄÄÅ±Öâï∞ËÄùMΩ±ëîÅ•π•—•Ö∞ú∞(ÄÄÄÄÄÄÄÅëïâ•–ËÄ¿∞(ÄÄÄÄÄÄÄÅç…ïë•–ËÄ¿∞(ÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÅ…’ππ•πù}âÖ±ÖπçîËÅ9’µâï»°Ω¡ïπ•πù	Ö±Öπçîπ—Ω•·ïê†»§§∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄ∏∏π•πŸΩ•çïÃπµÖ¿†°•πŸΩ•çî§ÄÙ¯Ä°Ï(ÄÄÄÄÄÄÄÅëÖ—îËÅ•πŸΩ•çîπ•ÕÕ’ï}ëÖ—î∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅ•πŸΩ•çîπ•πŸΩ•çï}π’µâï»∞(ÄÄÄÄÄÄÄÅµΩŸïµïπ—}—Â¡îËÄù%9Y=%ú∞(ÄÄÄÄÄÄÄÅ±Öâï∞ËÅÅÖç—’…îÄëÌ•πŸΩ•çîπ•πŸΩ•çï}π’µâï…ÙëÌ……Ö‰π•Õ……Ö‰°•πŸΩ•çîπ•—ïµÃ§ÄòòÅ•πŸΩ•çîπ•—ïµÃπ±ïπù—†(ÄÄÄÄÄÄÄÄÄÄ¸ÅÄÄ¥ÄëÌ•πŸΩ•çîπ•—ïµÃπµÖ¿†°•—ï¥ËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯§ÄÙ¯ÅÄëÌ•—ï¥πëïÕç…•¡—•Ω∏ÅÒÅ•—ï¥π•—ïµ}—Â¡îÅÒÄù1•ùπîùÙÄëÌ9’µâï»°•—ï¥πÖµΩ’π–Ä¸¸Ä¿§π—Ω•·ïê†»•ıÄ§π©Ω•∏†úÄºÄú•ıÄ(ÄÄÄÄÄÄÄÄÄÄËÄúùıÄ∞(ÄÄÄÄÄÄÄÅëïâ•–ËÅ9’µâï»°•πŸΩ•çîπ—Ω—Ö∞Ä¸¸Ä¿§∞(ÄÄÄÄÄÄÄÅç…ïë•–ËÄ¿∞(ÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÅÕΩ’…çï}•êËÅ•πŸΩ•çîπ•ê∞(ÄÄÄÄÄÅÙ§§∞(ÄÄÄÄÄÄ∏∏π¡ÖÂµïπ—ÃπµÖ¿†°¡ÖÂµïπ–§ÄÙ¯Ä°Ï(ÄÄÄÄÄÄÄÅëÖ—îËÅ¡ÖÂµïπ–π¡ÖÂµïπ—}ëÖ—î∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅ¡ÖÂµïπ–π…ïçï•¡—}π’µâï»Ä¸¸Å¡ÖÂµïπ–π…ïôï…ïπçîÄ¸¸Å¡ÖÂµïπ–π•πŸΩ•çï}π’µâï»∞(ÄÄÄÄÄÄÄÅµΩŸïµïπ—}—Â¡îËÄùAe59Pú∞(ÄÄÄÄÄÄÄÅ±Öâï∞ËÅÅAÖ•ïµïπ–ÄëÌ¡ÖÂµïπ–π•πŸΩ•çï}π’µâï»Ä¸¸Å¡ÖÂµïπ–π…ïçï•¡—}π’µâï»Ä¸¸Å¡ÖÂµïπ–π…ïôï…ïπçîÄ¸¸ÅÄåëÌ¡ÖÂµïπ–π•ëıÅıÄ∞(ÄÄÄÄÄÄÄÅëïâ•–ËÄ¿∞(ÄÄÄÄÄÄÄÅç…ïë•–ËÅ9’µâï»°¡ÖÂµïπ–πÖµΩ’π–Ä¸¸Ä¿§∞(ÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÅÕΩ’…çï}•êËÅ¡ÖÂµïπ–π•ê∞(ÄÄÄÄÄÅÙ§§∞(ÄÄÄÄÄÄ∏∏π—ïπÖπ—…ïë•—ÃπµÖ¿†°ç…ïë•–§ÄÙ¯Ä°Ï(ÄÄÄÄÄÄÄÅëÖ—îËÅç…ïë•–π¡ÖÂµïπ—}ëÖ—î∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅç…ïë•–π…ïçï•¡—}π’µâï»Ä¸¸Åç…ïë•–π…ïôï…ïπçîÄ¸¸ÅÄåëÌç…ïë•–π•ëıÄ∞(ÄÄÄÄÄÄÄÅµΩŸïµïπ—}—Â¡îËÄùQ99Q}I%Pú∞(ÄÄÄÄÄÄÄÅ±Öâï∞ËÅÅÀ•ë•–Å±ΩçÖ—Ö•…îÄëÌç…ïë•–π…ïçï•¡—}π’µâï»Ä¸¸Åç…ïë•–π…ïôï…ïπçîÄ¸¸ÅÄåëÌç…ïë•–π•ëıÅıÄ∞(ÄÄÄÄÄÄÄÅëïâ•–ËÄ¿∞(ÄÄÄÄÄÄÄÅç…ïë•–ËÅ9’µâï»°ç…ïë•–πΩ…•ù•πÖ±}ÖµΩ’π–Ä¸¸Åç…ïë•–πÖµΩ’π–Ä¸¸Ä¿§∞(ÄÄÄÄÄÄÄÅç’……ïπç‰ËÅM—…•πú°ç…ïë•–πç’……ïπç‰Ä¸¸Åç’……ïπç‰§∞(ÄÄÄÄÄÄÄÅÕΩ’…çï}•êËÅç…ïë•–π•ê∞(ÄÄÄÄÄÅÙ§§∞(ÄÄÄÄÄÄ∏∏π—ïπÖπ—…ïë•—±±ΩçÖ—•ΩπÃπµÖ¿†°Ö±±ΩçÖ—•Ω∏§ÄÙ¯Ä°Ï(ÄÄÄÄÄÄÄÅëÖ—îËÅÖ±±ΩçÖ—•Ω∏πÖ±±ΩçÖ—•Ωπ}ëÖ—î∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅÖ±±ΩçÖ—•Ω∏π…ïçï•¡—}π’µâï»Ä¸¸ÅÖ±±ΩçÖ—•Ω∏πç…ïë•—}…ïôï…ïπçîÄ¸¸ÅÄåëÌÖ±±ΩçÖ—•Ω∏π•ëıÄ∞(ÄÄÄÄÄÄÄÅµΩŸïµïπ—}—Â¡îËÄùQ99Q}I%Q}11=Q%=8ú∞(ÄÄÄÄÄÄÄÅ±Öâï∞ËÅÅôôïç—Ö—•Ω∏ÅçÀ•ë•–ÅŸï…ÃÄëÌÖ±±ΩçÖ—•Ω∏π•πŸΩ•çï}π’µâï»Ä¸¸ÅÅôÖç—’…îÄåëÌÖ±±ΩçÖ—•Ω∏π•πŸΩ•çï}•ëıÅÙÄ†ëÌ9’µâï»°Ö±±ΩçÖ—•Ω∏πÖµΩ’π–Ä¸¸Ä¿§π—Ω•·ïê†»•ÙÄëÌÖ±±ΩçÖ—•Ω∏πç’……ïπç‰Ä¸¸Åç’……ïπçÂÙ•Ä∞(ÄÄÄÄÄÄÄÅëïâ•–ËÄ¿∞(ÄÄÄÄÄÄÄÅç…ïë•–ËÄ¿∞(ÄÄÄÄÄÄÄÅç’……ïπç‰ËÅM—…•πú°Ö±±ΩçÖ—•Ω∏πç’……ïπç‰Ä¸¸Åç’……ïπç‰§∞(ÄÄÄÄÄÄÄÅÕΩ’…çï}•êËÅÖ±±ΩçÖ—•Ω∏π•ê∞(ÄÄÄÄÄÄÄÅ•πôΩ…µÖ—•ΩπÖ±}ÖµΩ’π–ËÅ9’µâï»°Ö±±ΩçÖ—•Ω∏πÖµΩ’π–Ä¸¸Ä¿§∞(ÄÄÄÄÄÅÙ§§∞(ÄÄÄÄÄÄ∏∏π—ïπÖπ—…ïë•—Iïô’πëÃπµÖ¿†°…ïô’πê§ÄÙ¯Ä°Ï(ÄÄÄÄÄÄÄÅëÖ—îËÅ…ïô’πêπ…ïô’πë}ëÖ—î∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅ…ïô’πêπ…ïçï•¡—}π’µâï»Ä¸¸Å…ïô’πêπ…ïôï…ïπçîÄ¸¸ÅÄåëÌ…ïô’πêπ•ëıÄ∞(ÄÄÄÄÄÄÄÅµΩŸïµïπ—}—Â¡îËÄùQ99Q}I%Q}IU9ú∞(ÄÄÄÄÄÄÄÅ±Öâï∞ËÅÄëÌM—…•πú°…ïô’πêπÕ—Ö—’ÃÄ¸¸Äúú§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄù911úÄ¸Äùππ’±Ö—•Ω∏úÄËÄùIïµâΩ’…Õïµïπ–ùÙÅçÀ•ë•–Å±ΩçÖ—Ö•…îëÌ…ïô’πêπ…ïÖÕΩ∏Ä¸ÅÄÄ¥ÄëÌ…ïô’πêπ…ïÖÕΩπıÄÄËÄúùıÄ∞(ÄÄÄÄÄÄÄÅëïâ•–ËÅ9’µâï»°…ïô’πêπÖµΩ’π–Ä¸¸Ä¿§∞(ÄÄÄÄÄÄÄÅç…ïë•–ËÄ¿∞(ÄÄÄÄÄÄÄÅç’……ïπç‰ËÅM—…•πú°…ïô’πêπç’……ïπç‰Ä¸¸Åç’……ïπç‰§∞(ÄÄÄÄÄÄÄÅÕΩ’…çï}•êËÅ…ïô’πêπ•ê∞(ÄÄÄÄÄÅÙ§§∞(ÄÄÄÅtπÕΩ…–†°Ñ∞Åà§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅëÖ—ï•ôòÄÙÅπï‹ÅÖ—î°M—…•πú°ÑπëÖ—î§§πùï—Q•µî†§Ä¥Åπï‹ÅÖ—î°M—…•πú°àπëÖ—î§§πùï—Q•µî†§Ï(ÄÄÄÄÄÅ•òÄ°ëÖ—ï•ôòÄÑÙÙÄ¿§Å…ï—’…∏ÅëÖ—ï•ôòÏ(ÄÄÄÄÄÅ…ï—’…∏Å—°•ÃπÕ—Ö—ïµïπ—5ΩŸïµïπ—=…ëï»°M—…•πú°ÑπµΩŸïµïπ—}—Â¡î§§Ä¥Å—°•ÃπÕ—Ö—ïµïπ—5ΩŸïµïπ—=…ëï»°M—…•πú°àπµΩŸïµïπ—}—Â¡î§§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅ±ï–Å…’ππ•πúÄÙÅ9’µâï»°Ω¡ïπ•πù	Ö±ÖπçîÄ¸¸Ä¿§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃπµÖ¿†°…Ω‹∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ°•πëï‡ÄÙÙÙÄ¿ÄòòÅ…Ω‹πµΩŸïµïπ—}—Â¡îÄÙÙÙÄù=A9%9ú§Å…ï—’…∏Å…Ω‹Ï(ÄÄÄÄÄÅ…’ππ•πúÄ¨ÙÅ9’µâï»°…Ω‹πëïâ•–Ä¸¸Ä¿§Ä¥Å9’µâï»°…Ω‹πç…ïë•–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏÄ∏∏π…Ω‹∞Å…’ππ•πù}âÖ±ÖπçîËÅ9’µâï»°…’ππ•πúπ—Ω•·ïê†»§§ÅÙÏ(ÄÄÄÅÙ§Ï(ÄÅÙ((ÄÅÖÕÂπåÅÖŸÖ•±Öâ•±•—ÂIï¡Ω…–†§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅàπ•êÅLÅâ’•±ë•πù}•ê∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅ=U9P°‘π•ê§ËÈ%9PÅLÅ—Ω—Ö±}’π•—Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅ=U9P†®§Å%1QHÄ°]!IÅ‘πÕ—Ö—’ÃÄÙÄù=UA%ú§ËÈ%9PÅLÅΩçç’¡•ïë}’π•—Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅ=U9P†®§Å%1QHÄ°]!IÅ‘πÕ—Ö—’ÃÄÙÄùY9Pú§ËÈ%9PÅLÅŸÖçÖπ—}’π•—Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅ=U9P†®§Å%1QHÄ°]!IÅ‘πÕ—Ö—’ÃÄÙÄù5%9Q99ú§ËÈ%9PÅLÅµÖ•π—ïπÖπçï}’π•—Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅ=U9P†®§Å%1QHÄ°]!IÅ‘πÕ—Ö—’ÃÄÙÄù	1=-ú§ËÈ%9PÅLÅâ±Ωç≠ïë}’π•—Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°MU4°MÅ]!8Å‘πÕ—Ö—’ÃÄÙÄùY9PúÅQ!8Å‘πµΩπ—°±Â}…ïπ–Å1MÄ¿Å9§∞Ä¿§ËÈ1=PÅLÅŸÖçÖπ—}¡Ω—ïπ—•Ö±}…ïπ–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Å=U9P°‘π•ê§Ä¯Ä¿ÅQ!8ÅI=U9†°=U9P†®§Å%1QHÄ°]!IÅ‘πÕ—Ö—’ÃÄÙÄù=UA%ú§ËÈ9U5I%ÄºÅ=U9P°‘π•ê§ËÈ9U5I%§Ä®Äƒ¿¿∞Ä»§ËÈ1=PÅ1MÄ¿Å9ÅLÅΩçç’¡ÖπçÂ}…Ö—î(ÄÄÄÄÄÅI=4Åâ’•±ë•πùÃÅà(ÄÄÄÄÄÅ)=%8Å’π•—ÃÅ‘Å=8Å‘πâ’•±ë•πù}•êÄÙÅàπ•ê(ÄÄÄÄÄÅ]!IÅàπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Åàπëï±ï—ïë}Ö–Å%LÅ9U10Å9Å‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÅI=U@Å	dÅàπ•ê∞ÅàππÖµî(ÄÄÄÄÄÅ=IHÅ	dÅàππÖµî(ÄÄÄÅÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅâ’•±ë•πùÃËÅ…Ω›Ã∞(ÄÄÄÄÄÅ—Ω—Ö±ÃËÅÏ(ÄÄÄÄÄÄÄÅ—Ω—Ö±}’π•—ÃËÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π—Ω—Ö±}’π•—Ã§∞Ä¿§∞(ÄÄÄÄÄÄÄÅΩçç’¡•ïë}’π•—ÃËÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πΩçç’¡•ïë}’π•—Ã§∞Ä¿§∞(ÄÄÄÄÄÄÄÅŸÖçÖπ—}’π•—ÃËÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πŸÖçÖπ—}’π•—Ã§∞Ä¿§∞(ÄÄÄÄÄÄÄÅµÖ•π—ïπÖπçï}’π•—ÃËÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πµÖ•π—ïπÖπçï}’π•—Ã§∞Ä¿§∞(ÄÄÄÄÄÄÄÅâ±Ωç≠ïë}’π•—ÃËÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πâ±Ωç≠ïë}’π•—Ã§∞Ä¿§∞(ÄÄÄÄÄÄÄÅŸÖçÖπ—}¡Ω—ïπ—•Ö±}…ïπ–ËÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πŸÖçÖπ—}¡Ω—ïπ—•Ö±}…ïπ–§∞Ä¿§∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅΩŸï…ë’ïIï¡Ω…–°â’•±ë•πù%ê¸ËÅπ’µâï»∞Å—ïπÖπ—%ê¸ËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ§π•πŸΩ•çï}π’µâï»∞Å§πë’ï}ëÖ—î∞Å§πÕ—Ö—’Ã∞Å§π—Ω—Ö∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Ãπ¡Ö•ë}ÖµΩ’π–∞Ä¿§ËÈ1=PÅLÅ¡Ö•ë}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Ãπ…ïµÖ•π•πù}ÖµΩ’π–∞Å§π—Ω—Ö∞§ËÈ1=PÅLÅ…ïµÖ•π•πù}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=9P°–πô•…Õ—}πÖµî∞ÄúÄú∞Å–π±ÖÕ—}πÖµî§ÅLÅ—ïπÖπ—}πÖµî∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»(ÄÄÄÄÄÄÅI=4Å•πŸΩ•çïÃÅ§(ÄÄÄÄÄÄÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅ§π—ïπÖπ—}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅ§π’π•—}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅ§πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å•πŸΩ•çï}¡ÖÂµïπ—}Õ’µµÖ…‰ÅÃÅ=8ÅÃπ•πŸΩ•çï}•êÄÙÅ§π•ê(ÄÄÄÄÄÄÅ]!IÅ§πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Å§πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Å§πÕ—Ö—’ÃÄ¯ÄùA%ú(ÄÄÄÄÄÄÄÄÅ9Å§πë’ï}ëÖ—îÄÅUII9Q}Q(ÄÄÄÄÄÄÄÄÅ9Ä†ê»ËÈ%9PÅ%LÅ9U10Å=HÅàπ•êÄÙÄê»§(ÄÄÄÄÄÄÄÄÅ9Ä†êÃËÈ%9PÅ%LÅ9U10Å=HÅ–π•êÄÙÄêÃ§(ÄÄÄÄÄÄÅ=IHÅ	dÅ§πë’ï}ëÖ—î∞Å§π•πŸΩ•çï}π’µâï…Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Åâ’•±ë•πù%êÄ¸¸Åπ’±∞∞Å—ïπÖπ—%êÄ¸¸Åπ’±±t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ•πŸΩ•çïÃËÅ…Ω›Ã∞(ÄÄÄÄÄÅçΩ’π–ËÅ…Ω›Ãπ±ïπù—†∞(ÄÄÄÄÄÅ—Ω—Ö±}…ïµÖ•π•πúËÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π…ïµÖ•π•πù}ÖµΩ’π–§∞Ä¿§∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅï·¡Ω…—Iï¡Ω…–°—Â¡îËÅÕ—…•πú∞Å•ê¸ËÅπ’µâï»∞ÅÕ—Ö…–¸ËÅÕ—…•πú∞Åïπê¸ËÅÕ—…•πú§ÅÏ(ÄÄÄÅ•òÄ°—Â¡îÄÙÙÙÄùâ’•±ë•πúúÄòòÅ•ê§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å…ï¡Ω…–ÄÙÅÖ›Ö•–Å—°•Ãπâ’•±ë•πùIï¡Ω…–°•ê∞ÅÏÅÕ—Ö…–∞ÅïπêÅÙ§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏÅô•±ïπÖµîËÄù…Ö¡¡Ω…–µ•µµï’â±îπçÕÿú∞Å…Ω›ÃËÅl∏∏π…ï¡Ω…–π’π•—Ã∞Ä∏∏π…ï¡Ω…–π—ïπÖπ—ÕtÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°—Â¡îÄÙÙÙÄù—ïπÖπ–úÄòòÅ•ê§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å…ï¡Ω…–ÄÙÅÖ›Ö•–Å—°•Ãπ—ïπÖπ—Iï¡Ω…–°•ê∞ÅÏÅÕ—Ö…–∞ÅïπêÅÙ§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏÅô•±ïπÖµîËÄù…Ö¡¡Ω…–µ±ΩçÖ—Ö•…îπçÕÿú∞Å…Ω›ÃËÅl∏∏π…ï¡Ω…–π±ïÖÕïÃ∞Ä∏∏π…ï¡Ω…–π•πŸΩ•çïÃ∞Ä∏∏π…ï¡Ω…–π¡ÖÂµïπ—ÕtÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°—Â¡îÄÙÙÙÄù¡ÖÂµïπ—Ãú§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å…ï¡Ω…–ÄÙÅÖ›Ö•–Å—°•Ãπ¡ÖÂµïπ—ÕIï¡Ω…–°ÏÅÕ—Ö…–∞ÅïπêÅÙ§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏÅô•±ïπÖµîËÄù…Ö¡¡Ω…–µ¡Ö•ïµïπ—ÃπçÕÿú∞Å…Ω›ÃËÅ…ï¡Ω…–π¡ÖÂµïπ—Õ}…ïçï•ŸïêÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°—Â¡îÄÙÙÙÄùΩŸï…ë’îú§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å…ï¡Ω…–ÄÙÅÖ›Ö•–Å—°•ÃπΩŸï…ë’ïIï¡Ω…–†§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏÅô•±ïπÖµîËÄù…Ö¡¡Ω…–µ•µ¡ÖÂïÃπçÕÿú∞Å…Ω›ÃËÅ…ï¡Ω…–π•πŸΩ•çïÃÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å…ï¡Ω…–ÄÙÅÖ›Ö•–Å—°•ÃπÖŸÖ•±Öâ•±•—ÂIï¡Ω…–†§Ï(ÄÄÄÅ…ï—’…∏ÅÏÅô•±ïπÖµîËÄù…Ö¡¡Ω…–µë•Õ¡Ωπ•â•±•—îπçÕÿú∞Å…Ω›ÃËÅ…ï¡Ω…–πâ’•±ë•πùÃÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅçÖÕ°Iï¡Ω…–†§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕïÕÕ•ΩπÃÄÙÅÖ›Ö•–Å—°•Ãπô•πë±∞†ùçÖÕ°}ÕïÕÕ•ΩπÃú∞ÄùΩ¡ïπïë}Ö–ÅMú§Ï(ÄÄÄÅçΩπÕ–ÅµΩŸïµïπ—ÃÄÙÅÖ›Ö•–Å—°•ÃπçÖÕ°5ΩŸïµïπ—Ã†§Ï(ÄÄÄÅçΩπÕ–ÅâÂ’……ïπç‰ÄÙÅ=â©ïç–πŸÖ±’ïÃ†(ÄÄÄÄÄÅµΩŸïµïπ—Ãπ…ïë’çîÒIïçΩ…êÒÕ—…•πú∞ÅÏÅç’……ïπç‰ËÅÕ—…•πúÏÅÖµΩ’π—}•∏ËÅπ’µâï»ÏÅÖµΩ’π—}Ω’–ËÅπ’µâï»ÏÅâÖ±ÖπçîËÅπ’µâï»ÅÙ¯¯†°Öçå∞ÅµΩŸïµïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Åç’……ïπç‰ÄÙÅM—…•πú°µΩŸïµïπ–πç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÄÄÅÖççmç’……ïπçÂtÄ¸¸ÙÅÏÅç’……ïπç‰∞ÅÖµΩ’π—}•∏ËÄ¿∞ÅÖµΩ’π—}Ω’–ËÄ¿∞ÅâÖ±ÖπçîËÄ¿ÅÙÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅÖµΩ’π–ÄÙÅ9’µâï»°µΩŸïµïπ–πÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÄÄÅ•òÄ°µΩŸïµïπ–π—Â¡îÄÙÙÙÄù%8ú§ÅÖççmç’……ïπçÂtπÖµΩ’π—}•∏Ä¨ÙÅÖµΩ’π–Ï(ÄÄÄÄÄÄÄÅ•òÄ°µΩŸïµïπ–π—Â¡îÄÙÙÙÄù=UPú§ÅÖççmç’……ïπçÂtπÖµΩ’π—}Ω’–Ä¨ÙÅÖµΩ’π–Ï(ÄÄÄÄÄÄÄÅÖççmç’……ïπçÂtπâÖ±ÖπçîÄÙÅÖççmç’……ïπçÂtπÖµΩ’π—}•∏Ä¥ÅÖççmç’……ïπçÂtπÖµΩ’π—}Ω’–Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖçåÏ(ÄÄÄÄÄÅÙ∞ÅÌÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅÕïÕÕ•ΩπÃ∞(ÄÄÄÄÄÅµΩŸïµïπ—Ã∞(ÄÄÄÄÄÅ—Ω—Ö±}•∏ËÅµΩŸïµïπ—Ãπô•±—ï»†°¥§ÄÙ¯Å¥π—Â¡îÄÙÙÙÄù%8ú§π…ïë’çî†°Õ’¥∞Å¥§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°¥πÖµΩ’π–§∞Ä¿§∞(ÄÄÄÄÄÅ—Ω—Ö±}Ω’–ËÅµΩŸïµïπ—Ãπô•±—ï»†°¥§ÄÙ¯Å¥π—Â¡îÄÙÙÙÄù=UPú§π…ïë’çî†°Õ’¥∞Å¥§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°¥πÖµΩ’π–§∞Ä¿§∞(ÄÄÄÄÄÅâÂ}ç’……ïπç‰ËÅâÂ’……ïπç‰∞(ÄÄÄÄÄÅâÂ}çÖ—ïùΩ…‰ËÅ=â©ïç–πŸÖ±’ïÃ†(ÄÄÄÄÄÄÄÅµΩŸïµïπ—Ãπ…ïë’çîÒIïçΩ…êÒÕ—…•πú∞ÅÏÅçÖ—ïùΩ…‰ËÅÕ—…•πúÏÅÖµΩ’π–ËÅπ’µâï»ÅÙ¯¯†°Öçå∞ÅµΩŸïµïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅÖççmµΩŸïµïπ–πçÖ—ïùΩ…ÂtÄ¸¸ÙÅÏÅçÖ—ïùΩ…‰ËÅµΩŸïµïπ–πçÖ—ïùΩ…‰∞ÅÖµΩ’π–ËÄ¿ÅÙÏ(ÄÄÄÄÄÄÄÄÄÅÖççmµΩŸïµïπ–πçÖ—ïùΩ…ÂtπÖµΩ’π–Ä¨ÙÅ9’µâï»°µΩŸïµïπ–πÖµΩ’π–§Ï(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖçåÏ(ÄÄÄÄÄÄÄÅÙ∞ÅÌÙ§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅÕ—Ωç≠Iï¡Ω…–†§ÅÏ(ÄÄÄÅçΩπÕ–Å•—ïµÃÄÙÅÖ›Ö•–Å—°•ÃπÕ—Ωç≠%—ïµÃ†§Ï(ÄÄÄÅçΩπÕ–ÅµΩŸïµïπ—ÃÄÙÅÖ›Ö•–Å—°•ÃπÕ—Ωç≠5ΩŸïµïπ—Ã†§Ï(ÄÄÄÅçΩπÕ–Å•πŸïπ—Ω…•ïÃÄÙÅÖ›Ö•–Å—°•ÃπÕ—Ωç≠%πŸïπ—Ω…•ïÃ†§Ï(ÄÄÄÅçΩπÕ–ÅÖ±ï…—ÃÄÙÅÖ›Ö•–Å—°•ÃπÕ—Ωç≠±ï…—Ã†§Ï(ÄÄÄÅçΩπÕ–Å¡’…ç°ÖÕïÃÄÙÅÖ›Ö•–Å—°•ÃπÕ—Ωç≠A’…ç°ÖÕïÃ†§Ï(ÄÄÄÅçΩπÕ–ÅâÂÖ—ïùΩ…‰ÄÙÅ=â©ïç–πŸÖ±’ïÃ°•—ïµÃπ…ïë’çî†°ÖçåËÅIïçΩ…êÒÕ—…•πú∞ÅÏÅçÖ—ïùΩ…‰ËÅÕ—…•πúÏÅ≈’Öπ—•—‰ËÅπ’µâï»ÏÅŸÖ±’îËÅπ’µâï»ÅÙ¯∞Å•—ï¥§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÅM—…•πú°•—ï¥πçÖ—ïùΩ…‰Ä¸¸ÄùMÖπÃÅçÖ”•ùΩ…•îú§Ï(ÄÄÄÄÄÅÖççm≠ïÂtÄ¸¸ÙÅÏÅçÖ—ïùΩ…‰ËÅ≠ï‰∞Å≈’Öπ—•—‰ËÄ¿∞ÅŸÖ±’îËÄ¿ÅÙÏ(ÄÄÄÄÄÅÖççm≠ïÂtπ≈’Öπ—•—‰Ä¨ÙÅ9’µâï»°•—ï¥πç’……ïπ—}≈’Öπ—•—‰Ä¸¸Ä¿§Ï(ÄÄÄÄÄÅÖççm≠ïÂtπŸÖ±’îÄ¨ÙÅ9’µâï»°•—ï¥πç’……ïπ—}≈’Öπ—•—‰Ä¸¸Ä¿§Ä®Å9’µâï»°•—ï¥πÖŸï…Öùï}¡’…ç°ÖÕï}¡…•çîÄ¸¸Å•—ï¥π¡’…ç°ÖÕï}¡…•çîÄ¸¸Ä¿§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÖçåÏ(ÄÄÄÅÙ∞ÅÌÙ§§Ï(ÄÄÄÅçΩπÕ–ÅâÂM—Ω…îÄÙÅ=â©ïç–πŸÖ±’ïÃ°•—ïµÃπ…ïë’çî†°ÖçåËÅIïçΩ…êÒÕ—…•πú∞ÅÏÅÕ—Ω…îËÅÕ—…•πúÏÅ≈’Öπ—•—‰ËÅπ’µâï»ÏÅŸÖ±’îËÅπ’µâï»ÅÙ¯∞Å•—ï¥§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÅM—…•πú°•—ï¥πÕ—Ω…îÄ¸¸Äù9Ω∏Å…ïπÕï•ùª§ú§Ï(ÄÄÄÄÄÅÖççm≠ïÂtÄ¸¸ÙÅÏÅÕ—Ω…îËÅ≠ï‰∞Å≈’Öπ—•—‰ËÄ¿∞ÅŸÖ±’îËÄ¿ÅÙÏ(ÄÄÄÄÄÅÖççm≠ïÂtπ≈’Öπ—•—‰Ä¨ÙÅ9’µâï»°•—ï¥πç’……ïπ—}≈’Öπ—•—‰Ä¸¸Ä¿§Ï(ÄÄÄÄÄÅÖççm≠ïÂtπŸÖ±’îÄ¨ÙÅ9’µâï»°•—ï¥πç’……ïπ—}≈’Öπ—•—‰Ä¸¸Ä¿§Ä®Å9’µâï»°•—ï¥πÖŸï…Öùï}¡’…ç°ÖÕï}¡…•çîÄ¸¸Å•—ï¥π¡’…ç°ÖÕï}¡…•çîÄ¸¸Ä¿§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÖçåÏ(ÄÄÄÅÙ∞ÅÌÙ§§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ•—ïµÃ∞(ÄÄÄÄÄÅµΩŸïµïπ—Ã∞(ÄÄÄÄÄÅ•πŸïπ—Ω…•ïÃ∞(ÄÄÄÄÄÅÖ±ï…—Ã∞(ÄÄÄÄÄÅ¡’…ç°ÖÕïÃ∞(ÄÄÄÄÄÅâÂ}çÖ—ïùΩ…‰ËÅâÂÖ—ïùΩ…‰∞(ÄÄÄÄÄÅâÂ}Õ—Ω…îËÅâÂM—Ω…î∞(ÄÄÄÄÄÅ¡’…ç°ÖÕïÕ}âÂ}Õ’¡¡±•ï»ËÅ=â©ïç–πŸÖ±’ïÃ†(ÄÄÄÄÄÄÄÅ¡’…ç°ÖÕïÃπ…ïë’çî†°ÖçåËÅIïçΩ…êÒÕ—…•πú∞ÅÏÅÕ’¡¡±•ï»ËÅÕ—…•πúÏÅçΩ’π–ËÅπ’µâï»ÏÅÖµΩ’π–ËÅπ’µâï»ÏÅ¡Ö•êËÅπ’µâï»ÏÅΩ’—Õ—Öπë•πúËÅπ’µâï»ÅÙ¯∞Å¡’…ç°ÖÕî§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÅM—…•πú°¡’…ç°ÖÕîπÕ’¡¡±•ï…}πÖµîÄ¸¸Äù9Ω∏Å…ïπÕï•ùπîú§Ï(ÄÄÄÄÄÄÄÄÄÅÖççm≠ïÂtÄ¸¸ÙÅÏÅÕ’¡¡±•ï»ËÅ≠ï‰∞ÅçΩ’π–ËÄ¿∞ÅÖµΩ’π–ËÄ¿∞Å¡Ö•êËÄ¿∞ÅΩ’—Õ—Öπë•πúËÄ¿ÅÙÏ(ÄÄÄÄÄÄÄÄÄÅÖççm≠ïÂtπçΩ’π–Ä¨ÙÄƒÏ(ÄÄÄÄÄÄÄÄÄÅÖççm≠ïÂtπÖµΩ’π–Ä¨ÙÅ9’µâï»°¡’…ç°ÖÕîπ—Ω—Ö±}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÄÄÄÄÅÖççm≠ïÂtπ¡Ö•êÄ¨ÙÅ9’µâï»°¡’…ç°ÖÕîπ¡Ö•ë}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÄÄÄÄÅÖççm≠ïÂtπΩ’—Õ—Öπë•πúÄ¨ÙÅ9’µâï»°¡’…ç°ÖÕîπΩ’—Õ—Öπë•πù}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖçåÏ(ÄÄÄÄÄÄÄÅÙ∞ÅÌÙ§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ¡’…ç°ÖÕïÕ}âÂ}µΩπ—†ËÅ=â©ïç–πŸÖ±’ïÃ†(ÄÄÄÄÄÄÄÅ¡’…ç°ÖÕïÃπ…ïë’çî†°ÖçåËÅIïçΩ…êÒÕ—…•πú∞ÅÏÅ¡ï…•ΩêËÅÕ—…•πúÏÅÖµΩ’π–ËÅπ’µâï»ÏÅ¡Ö•êËÅπ’µâï»ÏÅçΩ’π–ËÅπ’µâï»ÅÙ¯∞Å¡’…ç°ÖÕî§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÅM—…•πú°¡’…ç°ÖÕîπ¡’…ç°ÖÕï}ëÖ—î§πÕ±•çî†¿∞Ä‹§Ï(ÄÄÄÄÄÄÄÄÄÅÖççm≠ïÂtÄ¸¸ÙÅÏÅ¡ï…•ΩêËÅ≠ï‰∞ÅÖµΩ’π–ËÄ¿∞Å¡Ö•êËÄ¿∞ÅçΩ’π–ËÄ¿ÅÙÏ(ÄÄÄÄÄÄÄÄÄÅÖççm≠ïÂtπÖµΩ’π–Ä¨ÙÅ9’µâï»°¡’…ç°ÖÕîπ—Ω—Ö±}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÄÄÄÄÅÖççm≠ïÂtπ¡Ö•êÄ¨ÙÅ9’µâï»°¡’…ç°ÖÕîπ¡Ö•ë}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÄÄÄÄÄÄÅÖççm≠ïÂtπçΩ’π–Ä¨ÙÄƒÏ(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖçåÏ(ÄÄÄÄÄÄÄÅÙ∞ÅÌÙ§∞(ÄÄÄÄÄÄ§πÕΩ…–†°Ñ∞Åà§ÄÙ¯ÅM—…•πú°Ñπ¡ï…•Ωê§π±ΩçÖ±ïΩµ¡Ö…î°M—…•πú°àπ¡ï…•Ωê§§§∞(ÄÄÄÄÄÅµÖ•π—ïπÖπçï}çΩπÕ’µ¡—•Ω∏ËÅµΩŸïµïπ—Ãπô•±—ï»†°µΩŸïµïπ–§ÄÙ¯ÅµΩŸïµïπ–πÕΩ’…çîÄÙÙÙÄù5%9Q99ú§∞(ÄÄÄÄÄÅ’πëï…}µ•π•µ’¥ËÅ•—ïµÃπô•±—ï»†°•—ï¥§ÄÙ¯Å•—ï¥πÕ—Ö—’ÃÄÙÙÙÄùQ%YúÄòòÅ9’µâï»°•—ï¥πç’……ïπ—}≈’Öπ—•—‰§ÄÙÅ9’µâï»°•—ï¥πµ•π•µ’µ}≈’Öπ—•—‰§ÄòòÅ9’µâï»°•—ï¥πç’……ïπ—}≈’Öπ—•—‰§Ä¯Ä¿§∞(ÄÄÄÄÄÅΩ’—}Ωô}Õ—Ωç¨ËÅ•—ïµÃπô•±—ï»†°•—ï¥§ÄÙ¯Å•—ï¥πÕ—Ö—’ÃÄÙÙÙÄùQ%YúÄòòÅ9’µâï»°•—ï¥πç’……ïπ—}≈’Öπ—•—‰§ÄÙÄ¿§∞(ÄÄÄÄÄÅ•πÖç—•ŸîËÅ•—ïµÃπô•±—ï»†°•—ï¥§ÄÙ¯Å•—ï¥πÕ—Ö—’ÃÄÑÙÙÄùQ%Yú§∞(ÄÄÄÄÄÅŸÖ±’Ö—•Ω∏ËÅ•—ïµÃπ…ïë’çî†°Õ’¥∞Å•—ï¥§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°•—ï¥πç’……ïπ—}≈’Öπ—•—‰§Ä®Å9’µâï»°•—ï¥πÖŸï…Öùï}¡’…ç°ÖÕï}¡…•çîÄ¸¸Å•—ï¥π¡’…ç°ÖÕï}¡…•çîÄ¸¸Ä¿§∞Ä¿§∞(ÄÄÄÄÄÅÕ’¡¡±•ï…}ëïâ–ËÅ¡’…ç°ÖÕïÃπ…ïë’çî†°Õ’¥∞Å¡’…ç°ÖÕî§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°¡’…ç°ÖÕîπΩ’—Õ—Öπë•πù}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§∞(ÄÄÄÄÄÅ¡ïπë•πù}…ïçï¡—•ΩπÃËÅ¡’…ç°ÖÕïÃπô•±—ï»†°¡’…ç°ÖÕî§ÄÙ¯Å¡’…ç°ÖÕîπ…ïçï¡—•Ωπ}Õ—Ö—’ÃÄÑÙÙÄùI%Yú§∞(ÄÄÄÄÄÅ’π¡Ö•ë}¡’…ç°ÖÕïÃËÅ¡’…ç°ÖÕïÃπô•±—ï»†°¡’…ç°ÖÕî§ÄÙ¯Å¡’…ç°ÖÕîπ¡ÖÂµïπ—}Õ—Ö—’ÃÄÑÙÙÄùA%ú§∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅÕ—ÖôôIï¡Ω…–°Õ—Ö…–ÄÙÄú»¿¿¿¥¿ƒ¥¿ƒú∞ÅïπêÄÙÄú»‰‰‰¥ƒ»¥Ãƒú∞ÅµΩπ—†¸ËÅπ’µâï»∞ÅÂïÖ»¸ËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–Åïµ¡±ΩÂïïÃÄÙÅÖ›Ö•–Å—°•Ãπô•πë±∞†ùïµ¡±ΩÂïïÃú∞Äù±ÖÕ—}πÖµî∞Åô•…Õ—}πÖµîú§Ï(ÄÄÄÅçΩπÕ–ÅÖëŸÖπçïÃÄÙÅÖ›Ö•–Å—°•ÃπÕÖ±Ö…ÂëŸÖπçïÃ†§Ï(ÄÄÄÅçΩπÕ–Å±ïÖŸïÃÄÙÅÖ›Ö•–Å—°•Ãπ±ïÖŸïÃ°Õ—Ö…–∞Åïπê§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂ…Ω±±ÃÄÙÅÖ›Ö•–Å—°•Ãπ¡ÖÂ…Ω±±Ã°ÏÅµΩπ—†∞ÅÂïÖ»ÅÙ§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅïµ¡±ΩÂïïÃ∞(ÄÄÄÄÄÅÖëŸÖπçïÃËÅÖëŸÖπçïÃπô•±—ï»†°ÖëŸÖπçî§ÄÙ¯ÅM—…•πú°ÖëŸÖπçîπÖëŸÖπçï}ëÖ—î§πÕ±•çî†¿∞Äƒ¿§Ä¯ÙÅÕ—Ö…–ÄòòÅM—…•πú°ÖëŸÖπçîπÖëŸÖπçï}ëÖ—î§πÕ±•çî†¿∞Äƒ¿§ÄÙÅïπê§∞(ÄÄÄÄÄÅ±ïÖŸïÃ∞(ÄÄÄÄÄÅ¡ÖÂ…Ω±±Ã∞(ÄÄÄÄÄÅÕ’µµÖ…‰ËÅÏ(ÄÄÄÄÄÄÄÅÖç—•Ÿï}ïµ¡±ΩÂïïÃËÅïµ¡±ΩÂïïÃπô•±—ï»†°ïµ¡±ΩÂïî§ÄÙ¯Åïµ¡±ΩÂïîπÕ—Ö—’ÃÄÙÙÙÄùQ%Yú§π±ïπù—†∞(ÄÄÄÄÄÄÄÅ•πÖç—•Ÿï}ïµ¡±ΩÂïïÃËÅïµ¡±ΩÂïïÃπô•±—ï»†°ïµ¡±ΩÂïî§ÄÙ¯Åïµ¡±ΩÂïîπÕ—Ö—’ÃÄÙÙÙÄù%9Q%Yú§π±ïπù—†∞(ÄÄÄÄÄÄÄÅÖëŸÖπçïÕ}—Ω—Ö∞ËÅÖëŸÖπçïÃπ…ïë’çî†°Õ’¥∞ÅÖëŸÖπçî§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°ÖëŸÖπçîπÖµΩ’π–§∞Ä¿§∞(ÄÄÄÄÄÄÄÅ¡ÖÂ…Ω±±}πï—}—Ω—Ö∞ËÅ¡ÖÂ…Ω±±Ãπ…ïë’çî†°Õ’¥∞Å¡ÖÂ…Ω±∞§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°¡ÖÂ…Ω±∞ππï—}ÕÖ±Ö…‰§∞Ä¿§∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅÖÕÂπåÅµÖ•π—ïπÖπçïIï¡Ω…–°ô•±—ï…ÃËÅÏÅÕ—Ö…–¸ËÅÕ—…•πúÏÅïπê¸ËÅÕ—…•πúÏÅâ’•±ë•πù%ê¸ËÅπ’µâï»ÏÅïµ¡±ΩÂïï%ê¸ËÅπ’µâï»ÅÙÄÙÅÌÙ§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕ—Ö…–ÄÙÅô•±—ï…ÃπÕ—Ö…–Ä¸¸Äú»¿¿¿¥¿ƒ¥¿ƒúÏ(ÄÄÄÅçΩπÕ–ÅïπêÄÙÅô•±—ï…ÃπïπêÄ¸¸Äú»‰‰‰¥ƒ»¥ÃƒúÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅµ»∏®∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=9P°îπô•…Õ—}πÖµî∞ÄúÄú∞Åîπ±ÖÕ—}πÖµî§ÅLÅ—ïç°π•ç•Öπ}πÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°ï·¿π—Ω—Ö±}ï·¡ïπÕïÃ∞Ä¿§ËÈ1=PÅLÅï·¡ïπÕïÕ}—Ω—Ö∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=1M°Õ—Ωç¨π—Ω—Ö±}Õ—Ωç≠}çΩÕ–∞Ä¿§ËÈ1=PÅLÅÕ—Ωç≠}çΩÕ—}—Ω—Ö∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Åµ»πë’ï}ëÖ—îÅ%LÅ9=PÅ9U10Å9Åµ»πÕ—Ö—’ÃÅ9=PÅ%8Ä†ùIM=1Yú∞ÄùY1%Qú∞Äù1=Mú∞Äù911ú§Å9Åµ»πë’ï}ëÖ—îÄÅ9=\†§ÅQ!8ÅQIUÅ1MÅ1MÅ9ÅLÅ•Õ}ΩŸï…ë’î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅMÅ]!8Åµ»π…ïÕΩ±Ÿïë}Ö–Å%LÅ9=PÅ9U10ÅQ!8ÅaQIP°A= ÅI=4Ä°µ»π…ïÕΩ±Ÿïë}Ö–Ä¥Åµ»π…ï¡Ω…—ïë}Ö–§§ÄºÄÃÿ¿¿Å1MÅ9U10Å9ÅLÅ…ïÕΩ±’—•Ωπ}°Ω’…Ã(ÄÄÄÄÄÄÅI=4ÅµÖ•π—ïπÖπçï}…ï≈’ïÕ—ÃÅµ»(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅµ»πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅµ»π’π•—}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Åïµ¡±ΩÂïïÃÅîÅ=8Åîπ•êÄÙÅµ»πÖÕÕ•ùπïë}ïµ¡±ΩÂïï}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Ä†(ÄÄÄÄÄÄÄÄÅM1PÅµÖ•π—ïπÖπçï}…ï≈’ïÕ—}•ê∞ÅMU4°ÖµΩ’π–§ÅLÅ—Ω—Ö±}ï·¡ïπÕïÃ(ÄÄÄÄÄÄÄÄÅI=4ÅµÖ•π—ïπÖπçï}ï·¡ïπÕïÃ(ÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê‘Å9Åëï±ï—ïë}Ö–Å%LÅ9U10Å9ÅÕ—Ö—’ÃÄ¯ÄùI)Qú(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅµÖ•π—ïπÖπçï}…ï≈’ïÕ—}•ê(ÄÄÄÄÄÄÄ§Åï·¿Å=8Åï·¿πµÖ•π—ïπÖπçï}…ï≈’ïÕ—}•êÄÙÅµ»π•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Ä†(ÄÄÄÄÄÄÄÄÅM1PÅµÖ•π—ïπÖπçï}…ï≈’ïÕ—}•ê∞ÅMU4°≈’Öπ—•—‰Ä®Å’π•—}¡…•çî§ÅLÅ—Ω—Ö±}Õ—Ωç≠}çΩÕ–(ÄÄÄÄÄÄÄÄÅI=4ÅÕ—Ωç≠}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê‘Å9Åëï±ï—ïë}Ö–Å%LÅ9U10Å9ÅµÖ•π—ïπÖπçï}…ï≈’ïÕ—}•êÅ%LÅ9=PÅ9U10(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅµÖ•π—ïπÖπçï}…ï≈’ïÕ—}•ê(ÄÄÄÄÄÄÄ§ÅÕ—Ωç¨Å=8ÅÕ—Ωç¨πµÖ•π—ïπÖπçï}…ï≈’ïÕ—}•êÄÙÅµ»π•ê(ÄÄÄÄÄÄÅ]!IÅµ»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê‘Å9Åµ»πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9Åµ»π…ï¡Ω…—ïë}Ö–ËÈQÅ	Q]8ÄêƒËÈQÅ9Äê»ËÈQ(ÄÄÄÄÄÄÄÄÅ9Ä†êÃËÈ%9PÅ%LÅ9U10Å=HÅµ»πâ’•±ë•πù}•êÄÙÄêÃ§(ÄÄÄÄÄÄÄÄÅ9Ä†ê–ËÈ%9PÅ%LÅ9U10Å=HÅµ»πÖÕÕ•ùπïë}ïµ¡±ΩÂïï}•êÄÙÄê–§(ÄÄÄÄÄÄÅ=IHÅ	dÅµ»π…ï¡Ω…—ïë}Ö–ÅMÄ∞(ÄÄÄÄÄÅmÕ—Ö…–∞Åïπê∞Åô•±—ï…Ãπâ’•±ë•πù%êÄ¸¸Åπ’±∞∞Åô•±—ï…Ãπïµ¡±ΩÂïï%êÄ¸¸Åπ’±∞∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅmÕ—Ωç≠ΩπÕ’µïê∞ÅµΩπ—°±Â·¡ïπÕïÕtÄÙÅÖ›Ö•–ÅA…Ωµ•ÕîπÖ±∞°l(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅÕ§πçΩëî∞ÅÕ§ππÖµî∞ÅMU4°Õ¥π≈’Öπ—•—‰§ËÈ1=PÅLÅ≈’Öπ—•—‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅMU4°Õ¥π≈’Öπ—•—‰Ä®ÅÕ¥π’π•—}¡…•çî§ËÈ1=PÅLÅ—Ω—Ö±}çΩÕ–(ÄÄÄÄÄÄÄÄÅI=4ÅÕ—Ωç≠}µΩŸïµïπ—ÃÅÕ¥(ÄÄÄÄÄÄÄÄÅ)=%8ÅÕ—Ωç≠}•—ïµÃÅÕ§Å=8ÅÕ§π•êÄÙÅÕ¥πÕ—Ωç≠}•—ïµ}•ê(ÄÄÄÄÄÄÄÄÅ)=%8ÅµÖ•π—ïπÖπçï}…ï≈’ïÕ—ÃÅµ»Å=8Åµ»π•êÄÙÅÕ¥πµÖ•π—ïπÖπçï}…ï≈’ïÕ—}•ê(ÄÄÄÄÄÄÄÄÅ]!IÅÕ¥πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÃÅ9ÅÕ¥πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ9Åµ»π…ï¡Ω…—ïë}Ö–ËÈQÅ	Q]8ÄêƒËÈQÅ9Äê»ËÈQ(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅÕ§π•ê∞ÅÕ§πçΩëî∞ÅÕ§ππÖµî(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅ≈’Öπ—•—‰ÅMÄ∞(ÄÄÄÄÄÄÄÅmÕ—Ö…–∞Åïπê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅQ=}!H°µîπï·¡ïπÕï}ëÖ—î∞Äùeeedµ54ú§ÅLÅµΩπ—†∞ÅMU4°µîπÖµΩ’π–§ËÈ1=PÅLÅÖµΩ’π–(ÄÄÄÄÄÄÄÄÅI=4ÅµÖ•π—ïπÖπçï}ï·¡ïπÕïÃÅµî(ÄÄÄÄÄÄÄÄÅ]!IÅµîπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÃÅ9Åµîπëï±ï—ïë}Ö–Å%LÅ9U10Å9ÅµîπÕ—Ö—’ÃÄ¯ÄùI)Qú(ÄÄÄÄÄÄÄÄÄÄÅ9Åµîπï·¡ïπÕï}ëÖ—îÅ	Q]8ÄêƒËÈQÅ9Äê»ËÈQ(ÄÄÄÄÄÄÄÄÅI=U@Å	dÅQ=}!H°µîπï·¡ïπÕï}ëÖ—î∞Äùeeedµ54ú§(ÄÄÄÄÄÄÄÄÅ=IHÅ	dÅµΩπ—°Ä∞(ÄÄÄÄÄÄÄÅmÕ—Ö…–∞Åïπê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§∞(ÄÄÄÅt§Ï(ÄÄÄÅçΩπÕ–ÅÕ’µµÖ…‰ÄÙÅÏ(ÄÄÄÄÄÅΩ¡ï∏ËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯ÄÖlù1=Mú∞Äù911ùtπ•πç±’ëïÃ°…Ω‹πÕ—Ö—’Ã§§π±ïπù—†∞(ÄÄÄÄÄÅ•π}¡…Ωù…ïÕÃËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯ÅlùMM%9ú∞Äù%9}AI=IMLú∞Äù=9}!=1ùtπ•πç±’ëïÃ°…Ω‹πÕ—Ö—’Ã§§π±ïπù—†∞(ÄÄÄÄÄÅ…ïÕΩ±ŸïêËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯ÅlùIM=1Yú∞ÄùY1%Qùtπ•πç±’ëïÃ°…Ω‹πÕ—Ö—’Ã§§π±ïπù—†∞(ÄÄÄÄÄÅç±ΩÕïêËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹πÕ—Ö—’ÃÄÙÙÙÄù1=Mú§π±ïπù—†∞(ÄÄÄÄÄÅ’…ùïπ–ËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹π¡…•Ω…•—‰ÄÙÙÙÄùUI9Pú§π±ïπù—†∞(ÄÄÄÄÄÅΩŸï…ë’îËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹π•Õ}ΩŸï…ë’î§π±ïπù—†∞(ÄÄÄÄÄÅçΩµ¡±ï—ïêËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯ÅlùIM=1Yú∞ÄùY1%Qú∞Äù1=Mùtπ•πç±’ëïÃ°…Ω‹πÕ—Ö—’Ã§§π±ïπù—†∞(ÄÄÄÄÄÅÖŸï…Öùï}…ïÕΩ±’—•Ωπ}°Ω’…ÃËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹π…ïÕΩ±’—•Ωπ}°Ω’…ÃÄÑÙÙÅπ’±∞§π…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹π…ïÕΩ±’—•Ωπ}°Ω’…Ã§∞Ä¿§ÄºÅ5Ö—†πµÖ‡°…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹π…ïÕΩ±’—•Ωπ}°Ω’…ÃÄÑÙÙÅπ’±∞§π±ïπù—†∞Äƒ§∞(ÄÄÄÄÄÅ—Ω—Ö±}çΩÕ–ËÅ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å…Ω‹§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°…Ω‹πï·¡ïπÕïÕ}—Ω—Ö∞§Ä¨Å9’µâï»°…Ω‹πÕ—Ωç≠}çΩÕ—}—Ω—Ö∞§∞Ä¿§∞(ÄÄÄÄÄÅ…ïÕΩ±’—•Ωπ}…Ö—îËÅ…Ω›Ãπ±ïπù—†Ä¸Å5Ö—†π…Ω’πê†°…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯ÅlùIM=1Yú∞ÄùY1%Qú∞Äù1=Mùtπ•πç±’ëïÃ°…Ω‹πÕ—Ö—’Ã§§π±ïπù—†ÄºÅ…Ω›Ãπ±ïπù—†§Ä®Äƒ¿¿§ÄËÄ¿∞(ÄÄÄÅÙÏ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ…ï≈’ïÕ—ÃËÅ…Ω›Ã∞(ÄÄÄÄÄÅâÂ}â’•±ë•πúËÅ=â©ïç–πŸÖ±’ïÃ°…Ω›Ãπ…ïë’çîÒIïçΩ…êÒÕ—…•πú∞ÅÏÅâ’•±ë•πù}πÖµîËÅÕ—…•πúÏÅçΩ’π–ËÅπ’µâï»ÏÅçΩÕ–ËÅπ’µâï»ÅÙ¯¯†°Öçå∞Å…Ω‹§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÅ…Ω‹πâ’•±ë•πù}πÖµîÄ¸¸Äù9Ω∏Å±ß§úÏ(ÄÄÄÄÄÄÄÅÖççm≠ïÂtÄ¸¸ÙÅÏÅâ’•±ë•πù}πÖµîËÅ≠ï‰∞ÅçΩ’π–ËÄ¿∞ÅçΩÕ–ËÄ¿ÅÙÏ(ÄÄÄÄÄÄÄÅÖççm≠ïÂtπçΩ’π–Ä¨ÙÄƒÏ(ÄÄÄÄÄÄÄÅÖççm≠ïÂtπçΩÕ–Ä¨ÙÅ9’µâï»°…Ω‹πï·¡ïπÕïÕ}—Ω—Ö∞§Ä¨Å9’µâï»°…Ω‹πÕ—Ωç≠}çΩÕ—}—Ω—Ö∞§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖçåÏ(ÄÄÄÄÄÅÙ∞ÅÌÙ§§∞(ÄÄÄÄÄÅâÂ}’π•–ËÅ=â©ïç–πŸÖ±’ïÃ°…Ω›Ãπ…ïë’çîÒIïçΩ…êÒÕ—…•πú∞ÅÏÅâ’•±ë•πù}πÖµîËÅÕ—…•πúÏÅ’π•—}π’µâï»ËÅÕ—…•πúÏÅçΩ’π–ËÅπ’µâï»ÏÅçΩÕ–ËÅπ’µâï»ÅÙ¯¯†°Öçå∞Å…Ω‹§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÅÄëÌ…Ω‹πâ’•±ë•πù}πÖµîÄ¸¸Äù9Ω∏Å±ß§ùÙÄºÄëÌ…Ω‹π’π•—}π’µâï»Ä¸¸ÄùMÖπÃÅ’π•”§ùıÄÏ(ÄÄÄÄÄÄÄÅÖççm≠ïÂtÄ¸¸ÙÅÏÅâ’•±ë•πù}πÖµîËÅ…Ω‹πâ’•±ë•πù}πÖµîÄ¸¸Äù9Ω∏Å±ß§ú∞Å’π•—}π’µâï»ËÅ…Ω‹π’π•—}π’µâï»Ä¸¸ÄùMÖπÃÅ’π•”§ú∞ÅçΩ’π–ËÄ¿∞ÅçΩÕ–ËÄ¿ÅÙÏ(ÄÄÄÄÄÄÄÅÖççm≠ïÂtπçΩ’π–Ä¨ÙÄƒÏ(ÄÄÄÄÄÄÄÅÖççm≠ïÂtπçΩÕ–Ä¨ÙÅ9’µâï»°…Ω‹πï·¡ïπÕïÕ}—Ω—Ö∞§Ä¨Å9’µâï»°…Ω‹πÕ—Ωç≠}çΩÕ—}—Ω—Ö∞§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖçåÏ(ÄÄÄÄÄÅÙ∞ÅÌÙ§§∞(ÄÄÄÄÄÅâÂ}—ïç°π•ç•Ö∏ËÅ=â©ïç–πŸÖ±’ïÃ°…Ω›Ãπ…ïë’çîÒIïçΩ…êÒÕ—…•πú∞ÅÏÅ—ïç°π•ç•Öπ}πÖµîËÅÕ—…•πúÏÅçΩ’π–ËÅπ’µâï»ÏÅÖŸù}°Ω’…ÃËÅπ’µâï»ÅÙ¯¯†°Öçå∞Å…Ω‹§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÅ…Ω‹π—ïç°π•ç•Öπ}πÖµîÄ¸¸Å…Ω‹πï·—ï…πÖ±}¡…ΩŸ•ëï»Ä¸¸Äù9Ω∏ÅÖôôïç”§úÏ(ÄÄÄÄÄÄÄÅÖççm≠ïÂtÄ¸¸ÙÅÏÅ—ïç°π•ç•Öπ}πÖµîËÅ≠ï‰∞ÅçΩ’π–ËÄ¿∞ÅÖŸù}°Ω’…ÃËÄ¿ÅÙÏ(ÄÄÄÄÄÄÄÅÖççm≠ïÂtπçΩ’π–Ä¨ÙÄƒÏ(ÄÄÄÄÄÄÄÅÖççm≠ïÂtπÖŸù}°Ω’…ÃÄ¨ÙÅ9’µâï»°…Ω‹π…ïÕΩ±’—•Ωπ}°Ω’…ÃÄ¸¸Ä¿§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖçåÏ(ÄÄÄÄÄÅÙ∞ÅÌÙ§§πµÖ¿†°…Ω‹§ÄÙ¯Ä°Ï(ÄÄÄÄÄÄÄÄ∏∏π…Ω‹∞(ÄÄÄÄÄÄÄÅÖŸù}°Ω’…ÃËÅ…Ω‹πçΩ’π–Ä¸Å…Ω‹πÖŸù}°Ω’…ÃÄºÅ…Ω‹πçΩ’π–ÄËÄ¿∞(ÄÄÄÄÄÄÄÅ—Ω—Ö±}çΩÕ–ËÅ…Ω›Ãπô•±—ï»†°ç’……ïπ–§ÄÙ¯Ä°ç’……ïπ–π—ïç°π•ç•Öπ}πÖµîÄ¸¸Åç’……ïπ–πï·—ï…πÖ±}¡…ΩŸ•ëï»Ä¸¸Äù9Ω∏ÅÖôôïç”§ú§ÄÙÙÙÅ…Ω‹π—ïç°π•ç•Öπ}πÖµî§π…ïë’çî†°Õ’¥∞Åç’……ïπ–§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°ç’……ïπ–πï·¡ïπÕïÕ}—Ω—Ö∞§Ä¨Å9’µâï»°ç’……ïπ–πÕ—Ωç≠}çΩÕ—}—Ω—Ö∞§∞Ä¿§∞(ÄÄÄÄÄÅÙ§§∞(ÄÄÄÄÄÅâÂ}çÖ—ïùΩ…‰ËÅ=â©ïç–πŸÖ±’ïÃ°…Ω›Ãπ…ïë’çîÒIïçΩ…êÒÕ—…•πú∞ÅÏÅçÖ—ïùΩ…‰ËÅÕ—…•πúÏÅçΩ’π–ËÅπ’µâï»ÏÅçΩÕ–ËÅπ’µâï»ÅÙ¯¯†°Öçå∞Å…Ω‹§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅÖççm…Ω‹πçÖ—ïùΩ…ÂtÄ¸¸ÙÅÏÅçÖ—ïùΩ…‰ËÅ…Ω‹πçÖ—ïùΩ…‰∞ÅçΩ’π–ËÄ¿∞ÅçΩÕ–ËÄ¿ÅÙÏ(ÄÄÄÄÄÄÄÅÖççm…Ω‹πçÖ—ïùΩ…ÂtπçΩ’π–Ä¨ÙÄƒÏ(ÄÄÄÄÄÄÄÅÖççm…Ω‹πçÖ—ïùΩ…ÂtπçΩÕ–Ä¨ÙÅ9’µâï»°…Ω‹πï·¡ïπÕïÕ}—Ω—Ö∞§Ä¨Å9’µâï»°…Ω‹πÕ—Ωç≠}çΩÕ—}—Ω—Ö∞§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖçåÏ(ÄÄÄÄÄÅÙ∞ÅÌÙ§§∞(ÄÄÄÄÄÅ’…ùïπ—}…ï≈’ïÕ—ÃËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹π¡…•Ω…•—‰ÄÙÙÙÄùUI9Pú§∞(ÄÄÄÄÄÅΩŸï…ë’ï}…ï≈’ïÕ—ÃËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹π•Õ}ΩŸï…ë’î§∞(ÄÄÄÄÄÅÕ—Ωç≠}çΩπÕ’µïêËÅÕ—Ωç≠ΩπÕ’µïêπ…Ω›Ã∞(ÄÄÄÄÄÅµΩπ—°±Â}ï·¡ïπÕïÃËÅµΩπ—°±Â·¡ïπÕïÃπ…Ω›Ã∞(ÄÄÄÄÄÅ…ïÕΩ±’—•Ωπ}—•µïÃËÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹π…ïÕΩ±’—•Ωπ}°Ω’…ÃÄÑÙÙÅπ’±∞§πµÖ¿†°…Ω‹§ÄÙ¯Ä°ÏÅ…ï≈’ïÕ—}π’µâï»ËÅ…Ω‹π…ï≈’ïÕ—}π’µâï»∞Å—•—±îËÅ…Ω‹π—•—±î∞Å—ïç°π•ç•Ö∏ËÅ…Ω‹π—ïç°π•ç•Öπ}πÖµîÄ¸¸Å…Ω‹πï·—ï…πÖ±}¡…ΩŸ•ëï»Ä¸¸Äù9Ω∏ÅÖôôïç”§ú∞Å…ïÕΩ±’—•Ωπ}°Ω’…ÃËÅ9’µâï»°…Ω‹π…ïÕΩ±’—•Ωπ}°Ω’…ÃÄ¸¸Ä¿§ÅÙ§§∞(ÄÄÄÄÄÅÕ’µµÖ…‰∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅç…ïÖ—ïM—Ωç≠5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅ•òÄ°âΩë‰πµÖ•π—ïπÖπçï}…ï≈’ïÕ—}•ê§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπÖÕÕï…—5Ö•π—ïπÖπçïM—Ö—’Ã°ç±•ïπ–∞Å9’µâï»°âΩë‰πµÖ•π—ïπÖπçï}…ï≈’ïÕ—}•ê§∞Ålù%9}AI=IMLùt§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å•—ï¥ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®ÅI=4ÅÕ—Ωç≠}•—ïµÃÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U10Å=HÅUAQÄ∞(ÄÄÄÄÄÅmâΩë‰πÕ—Ωç≠}•—ïµ}•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å•—ïµIΩ‹ÄÙÅ…ï≈’•…ïIΩ‹°•—ï¥π…Ω›Õl¡t∞ÄùM—Ωç¨Å•—ï¥ú§Ï(ÄÄÄÅ•òÄ°•—ïµIΩ‹πÕ—Ö—’ÃÄÑÙÙÄùQ%Yú§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù…—•ç±îÅÕ—Ωç¨Å•πÖç—•òú§Ï(ÄÄÄÅçΩπÕ–Å—Â¡îÄÙÅM—…•πú°âΩë‰π—Â¡îÄ¸¸Äù=UPú§Ï(ÄÄÄÅçΩπÕ–Å≈’Öπ—•—‰ÄÙÅ9’µâï»°âΩë‰π≈’Öπ—•—‰Ä¸¸Ä¿§Ï(ÄÄÄÅ•òÄ°≈’Öπ—•—‰ÄÙÄ¿§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1ÑÅ≈’Öπ—•”§ÅëΩ•–É©—…îÅ¡ΩÕ•—•Ÿîú§Ï(ÄÄÄÅçΩπÕ–ÅâïôΩ…îÄÙÅ9’µâï»°•—ïµIΩ‹πç’……ïπ—}≈’Öπ—•—‰§Ï(ÄÄÄÅçΩπÕ–ÅÕ•ù∏ÄÙÅlù%8ú∞Äù%9Y9Q=Ie}%8ú∞Äù%9Y9Q=Idùtπ•πç±’ëïÃ°—Â¡î§Ä¸ÄƒÄËÄ¥ƒÏ(ÄÄÄÅçΩπÕ–ÅÖô—ï»ÄÙÅâïôΩ…îÄ¨ÅÕ•ù∏Ä®Å≈’Öπ—•—‰Ï(ÄÄÄÅ•òÄ°Öô—ï»ÄÄ¿§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùM—Ωç¨Å•πÕ’ôô•ÕÖπ–ú§Ï(ÄÄÄÅçΩπÕ–Å’π•—A…•çîÄÙÅ9’µâï»°âΩë‰π’π•—}¡…•çîÄ¸¸ÅâΩë‰π¡’…ç°ÖÕï}¡…•çîÄ¸¸Å•—ïµIΩ‹πÖŸï…Öùï}¡’…ç°ÖÕï}¡…•çîÄ¸¸Å•—ïµIΩ‹π¡’…ç°ÖÕï}¡…•çîÄ¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅÕï≈’ïπçïA…ïô•‡ÄÙÅÕ•ù∏Ä¯Ä¿Ä¸Äù9PúÄËÅ—Â¡îÄÙÙÙÄù%9Y9Q=Ie}1=MLúÄ¸Äù%9Xµ1=MLúÄËÄùM=HúÏ(ÄÄÄÅçΩπÕ–ÅµΩŸïµïπ—9’µâï»ÄÙÅâΩë‰πµΩŸïµïπ—}π’µâï»Ä¸¸ÅÄëÌÕï≈’ïπçïA…ïô•·Ù¥ëÌπï‹ÅÖ—î†§πùï—’±±eïÖ»†•Ù¥ëÌM—…•πú°Ö—îππΩ‹†§§πÕ±•çî†¥ÿ•ıÄÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÕ—Ωç≠}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÄ°µΩŸïµïπ—}π’µâï»∞ÅÕ—Ωç≠}•—ïµ}•ê∞Å—Â¡î∞Å≈’Öπ—•—‰∞ÅµΩŸïµïπ—}ëÖ—î∞ÅÕΩ’…çî∞Å…ïôï…ïπçî∞ÅπΩ—ïÃ∞Åç…ïÖ—ïë}â‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê∞(ÄÄÄÄÄÄÄÅ’π•—}¡…•çî∞ÅÕ’¡¡±•ï»∞ÅëïÕ—•πÖ—•Ω∏∞Å≈’Öπ—•—Â}âïôΩ…î∞Å≈’Öπ—•—Â}Öô—ï»∞ÅµÖ•π—ïπÖπçï}…ïôï…ïπçî∞Å•πŸïπ—Ω…Â}çΩ’π—}•ê∞(ÄÄÄÄÄÄÄÅµÖ•π—ïπÖπçï}…ï≈’ïÕ—}•ê∞ÅÕ—Ωç≠}ëΩç’µïπ—}•ê∞Å…ïÖÕΩ∏∞ÅÖ——Öç°µïπ—}ô•±ï}πÖµî∞ÅÕ—Ωç≠}¡’…ç°ÖÕï}•ê∞ÅÕ—Ωç≠}¡’…ç°ÖÕï}…ïçï•¡—}•ê§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞Äê‡∞Äê‰∞Äêƒ¿∞Äêƒƒ∞Äêƒ»∞ÄêƒÃ∞Äêƒ–∞Äêƒ‘∞Äêƒÿ∞Äêƒ‹∞Äêƒ‡∞Äêƒ‰∞Äê»¿∞Äê»ƒ∞Äê»»∞Äê»Ã§(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅµΩŸïµïπ—9’µâï»∞(ÄÄÄÄÄÄÄÅâΩë‰πÕ—Ωç≠}•—ïµ}•ê∞(ÄÄÄÄÄÄÄÅ—Â¡î∞(ÄÄÄÄÄÄÄÅ≈’Öπ—•—‰∞(ÄÄÄÄÄÄÄÅâΩë‰πµΩŸïµïπ—}ëÖ—îÄ¸¸Åπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§∞(ÄÄÄÄÄÄÄÅâΩë‰πÕΩ’…çîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰π…ïôï…ïπçîÄ¸¸ÅµΩŸïµïπ—9’µâï»∞(ÄÄÄÄÄÄÄÅâΩë‰πçΩµµïπ–Ä¸¸ÅâΩë‰ππΩ—ïÃÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸ÅâΩë‰πç…ïÖ—ïë}â‰Ä¸¸Äƒ∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ’π•—A…•çî∞(ÄÄÄÄÄÄÄÅâΩë‰πÕ’¡¡±•ï»Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰πëïÕ—•πÖ—•Ω∏Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâïôΩ…î∞(ÄÄÄÄÄÄÄÅÖô—ï»∞(ÄÄÄÄÄÄÄÅâΩë‰πµÖ•π—ïπÖπçï}…ïôï…ïπçîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰π•πŸïπ—Ω…Â}çΩ’π—}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰πµÖ•π—ïπÖπçï}…ï≈’ïÕ—}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰πÕ—Ωç≠}ëΩç’µïπ—}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰π…ïÖÕΩ∏Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰πÖ——Öç°µïπ—}ô•±ï}πÖµîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰πÕ—Ωç≠}¡’…ç°ÖÕï}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰πÕ—Ωç≠}¡’…ç°ÖÕï}…ïçï•¡—}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÕ—Ωç≠}µΩŸïµïπ—}°•Õ—Ω…‰(ÄÄÄÄÄÄÄ°Õ—Ωç≠}µΩŸïµïπ—}•ê∞ÅÖç—•Ω∏∞ÅëïÕç…•¡—•Ω∏∞Å¡ï…ôΩ…µïë}â‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞ÄùIQú∞Äê»∞ÄêÃ∞Äê–•Ä∞(ÄÄÄÄÄÅm…Ω›Õl¡tπ•ê∞ÅÅ5Ω’Ÿïµïπ–ÅçÀß§Åëï¡’•ÃÄëÌâΩë‰π…ïôï…ïπçîÄ¸¸ÅµΩŸïµïπ—9’µâï…ıÄ∞Å—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Äƒ∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÖŸï…ÖùïA…•çîÄÙ(ÄÄÄÄÄÅÕ•ù∏Ä¯Ä¿ÄòòÅ’π•—A…•çîÄ¯Ä¿ÄòòÅÖô—ï»Ä¯Ä¿(ÄÄÄÄÄÄÄÄ¸Ä†°âïôΩ…îÄ®Å9’µâï»°•—ïµIΩ‹πÖŸï…Öùï}¡’…ç°ÖÕï}¡…•çîÄ¸¸Å•—ïµIΩ‹π¡’…ç°ÖÕï}¡…•çîÄ¸¸Ä¿§§Ä¨Ä°≈’Öπ—•—‰Ä®Å’π•—A…•çî§§ÄºÅÖô—ï»(ÄÄÄÄÄÄÄÄËÅ9’µâï»°•—ïµIΩ‹πÖŸï…Öùï}¡’…ç°ÖÕï}¡…•çîÄ¸¸Å•—ïµIΩ‹π¡’…ç°ÖÕï}¡…•çîÄ¸¸Ä¿§Ï(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅÕ—Ωç≠}•—ïµÃ(ÄÄÄÄÄÄÅMPÅç’……ïπ—}≈’Öπ—•—‰ÄÙÄê»∞(ÄÄÄÄÄÄÄÄÄÄÅÖŸï…Öùï}¡’…ç°ÖÕï}¡…•çîÄÙÄêÃ∞(ÄÄÄÄÄÄÄÄÄÄÅ¡’…ç°ÖÕï}¡…•çîÄÙÅMÅ]!8Äê–ËÈ9U5I%Ä¯Ä¿ÅQ!8Äê–Å1MÅ¡’…ç°ÖÕï}¡…•çîÅ9∞(ÄÄÄÄÄÄÄÄÄÄÅ’¡ëÖ—ïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê’Ä∞(ÄÄÄÄÄÅmâΩë‰πÕ—Ωç≠}•—ïµ}•ê∞ÅÖô—ï»∞ÅÖŸï…ÖùïA…•çî∞Å’π•—A…•çî∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅÖ›Ö•–Å—°•ÃπÕÂπçM—Ωç≠±ï…—Ã°ç±•ïπ–∞Å•—ïµIΩ‹∞ÅÖô—ï»§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡tÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÕÂπçM—Ωç≠±ï…—Ã°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å•—ï¥ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞Å≈’Öπ—•—‰ËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅΩ…ùÖπ•ÈÖ—•Ωπ%êÄÙÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§Ï(ÄÄÄÅçΩπÕ–Åµ•π•µ’¥ÄÙÅ9’µâï»°•—ï¥πµ•π•µ’µ}≈’Öπ—•—‰Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å±ïŸï∞ÄÙÅ≈’Öπ—•—‰ÄÙÄ¿Ä¸Äù=UQ}=}MQ=,úÄËÅ≈’Öπ—•—‰ÄÙÅµ•π•µ’¥Ä¸Äù1=]}MQ=,úÄËÅπ’±∞Ï(ÄÄÄÅ•òÄ†Ö±ïŸï∞§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅUAQÅÕ—Ωç≠}Ö±ï…—ÃÅMPÅ…ïÕΩ±Ÿïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÄÄÅ]!IÅÕ—Ωç≠}•—ïµ}•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Å…ïÕΩ±Ÿïë}Ö–Å%LÅ9U10Å9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÄÄÅm•—ï¥π•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅÕ—Ωç≠}Ö±ï…—ÃÅMPÅ…ïÕΩ±Ÿïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÅ]!IÅÕ—Ωç≠}•—ïµ}•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Å±ïŸï∞Ä¯ÄêÃ(ÄÄÄÄÄÄÄÄÅ9Å…ïÕΩ±Ÿïë}Ö–Å%LÅ9U10Å9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm•—ï¥π•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Å±ïŸï±t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅµïÕÕÖùîÄÙÅ±ïŸï∞ÄÙÙÙÄù=UQ}=}MQ=,ú(ÄÄÄÄÄÄ¸ÅÅ0ùÖ…—•ç±îÄëÌ•—ï¥ππÖµïÙÅïÕ–Åï∏Å…’¡—’…îÅëîÅÕ—Ωç¨πÄ(ÄÄÄÄÄÄËÅÅ0ùÖ…—•ç±îÄëÌ•—ï¥ππÖµïÙÅïÕ–ÅÕΩ’ÃÅ±îÅÕï’•∞ÅëîÅœ•ç’…•”§∏ÅM—Ωç¨ÅÖç—’ï∞ÄËÄëÌ≈’Öπ—•—ÂÙÄëÌ•—ï¥π’π•—Ù∏ÅMï’•∞ÄËÄëÌµ•π•µ’µÙπÄÏ(ÄÄÄÅçΩπÕ–Å…ïÕ¡ΩπÕ•â±îÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê∞ÅïµÖ•∞ÅI=4ÅÖ¡¡}’Õï…Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10Å9ÅÕ—Ö—’ÃÄÙÄùQ%Yú(ÄÄÄÄÄÄÄÄÅ9Å…Ω±îÅ%8Ä†ù5%8ú∞Äù=U9Q9Pú§(ÄÄÄÄÄÄÅ=IHÅ	dÅMÅ]!8Å…Ω±îÄÙÄù5%8úÅQ!8Ä¿Å1MÄƒÅ9∞Å•êÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅmΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å…ïç•¡•ïπ–ÄÙÅ…ïÕ¡ΩπÕ•â±îπ…Ω›Õl¡t¸πïµÖ•∞Ä¸¸ÄùIïÕ¡ΩπÕÖâ±îÅÕ—Ωç¨úÏ(ÄÄÄÅçΩπÕ–Åç…ïÖ—ïêÄÙÅmtÏ(ÄÄÄÅôΩ»Ä°çΩπÕ–Åç°Öππï∞ÅΩòÅlù%9QI90ú∞Äù5%0ú∞Äù]!QMA@ùt§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å•πÕï…—ïêÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÕ—Ωç≠}Ö±ï…—Ã(ÄÄÄÄÄÄÄÄÄ°Õ—Ωç≠}•—ïµ}•ê∞Å±ïŸï∞∞Å≈’Öπ—•—‰∞Åµ•π•µ’µ}≈’Öπ—•—‰∞Åç°Öππï∞∞Å…ïç•¡•ïπ–∞ÅµïÕÕÖùî∞ÅÕ—Ö—’Ã∞Åç…ïÖ—ïë}â‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞ÄùM%5U1Qú∞Äê‡∞Äê‰§(ÄÄÄÄÄÄÄÄÅ=8Å=91%PÅ<Å9=Q!%9ÅIQUI9%9Å•ëÄ∞(ÄÄÄÄÄÄÄÅm•—ï¥π•ê∞Å±ïŸï∞∞Å≈’Öπ—•—‰∞Åµ•π•µ’¥∞Åç°Öππï∞∞Åç°Öππï∞ÄÙÙÙÄù%9QI90úÄ¸Åπ’±∞ÄËÅ…ïç•¡•ïπ–∞ÅµïÕÕÖùî∞(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Äƒ∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ•òÄ°•πÕï…—ïêπ…Ω›Õl¡t§Åç…ïÖ—ïêπ¡’Õ†°ç°Öππï∞§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ç…ïÖ—ïêπ•πç±’ëïÃ†ù%9QI90ú§§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅπΩ—•ô•çÖ—•ΩπÃ(ÄÄÄÄÄÄÄÄÄ°’Õï…}•ê∞Å—•—±î∞ÅµïÕÕÖùî∞Å¡…•Ω…•—‰∞ÅÕΩ’…çî∞Å…ï±Ö—ïë}ïπ—•—Â}—Â¡î∞Å…ï±Ö—ïë}ïπ—•—Â}•ê∞(ÄÄÄÄÄÄÄÄÄÅ±•π≠}¡Ö—†∞Åç…ïÖ—ïë}â‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÄÄÅM1PÅÖ‘π•ê∞Äêƒ∞Äê»∞ÄêÃ∞ÄùMQ=,ú∞ÄùMQ=-}%Q4ú∞Äê–∞Äê‘∞Äêÿ∞Äê‹(ÄÄÄÄÄÄÄÄÅI=4ÅÖ¡¡}’Õï…ÃÅÖ‘(ÄÄÄÄÄÄÄÄÅ]!IÅÖ‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê‹Å9ÅÖ‘πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ9ÅÖ‘π…Ω±îÅ%8Ä†ù5%8ú∞Äù=U9Q9Pú§(ÄÄÄÄÄÄÄÄÅ1%5%PÄ’Ä∞(ÄÄÄÄÄÄÄÅm±ïŸï∞ÄÙÙÙÄù=UQ}=}MQ=,úÄ¸ÄùI’¡—’…îÅëîÅÕ—Ωç¨úÄËÄùM—Ωç¨ÅÕΩ’ÃÅÕï’•∞ú∞ÅµïÕÕÖùî∞(ÄÄÄÄÄÄÄÄÄÅ±ïŸï∞ÄÙÙÙÄù=UQ}=}MQ=,úÄ¸ÄùI%Q%0úÄËÄù!% ú∞Å•—ï¥π•ê∞ÅÄΩÕ—Ωç¨ºëÌ•—ï¥π•ëıÄ∞(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Äƒ∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ç…ïÖ—ïêπ•πç±’ëïÃ†ù5%0ú§§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅïµÖ•±}±ΩùÃ(ÄÄÄÄÄÄÄÄÄ°…ïç•¡•ïπ–∞ÅÕ’â©ïç–∞ÅµïÕÕÖùî∞ÅÕ—Ö—’Ã∞Å…ï±Ö—ïë}ïπ—•—Â}—Â¡î∞Å…ï±Ö—ïë}ïπ—•—Â}•ê∞ÅÕïπ—}Ö–∞Åç…ïÖ—ïë}â‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞ÄùM%5U1Qú∞ÄùMQ=-}%Q4ú∞Äê–∞Å9=\†§∞Äê‘∞Äêÿ•Ä∞(ÄÄÄÄÄÄÄÅm…ïç•¡•ïπ–∞Å±ïŸï∞ÄÙÙÙÄù=UQ}=}MQ=,úÄ¸ÄùI’¡—’…îÅëîÅÕ—Ωç¨úÄËÄùM—Ωç¨ÅÕΩ’ÃÅÕï’•∞ú∞ÅµïÕÕÖùî∞(ÄÄÄÄÄÄÄÄÄÅ•—ï¥π•ê∞Å—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Äƒ∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ç…ïÖ—ïêπ•πç±’ëïÃ†ù]!QMA@ú§§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<Å›°Ö—ÕÖ¡¡}±ΩùÃ(ÄÄÄÄÄÄÄÄÄ°…ïç•¡•ïπ–∞ÅµïÕÕÖùî∞ÅÕ—Ö—’Ã∞Å…ï±Ö—ïë}ïπ—•—Â}—Â¡î∞Å…ï±Ö—ïë}ïπ—•—Â}•ê∞ÅÕïπ—}Ö–∞Åç…ïÖ—ïë}â‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄùM%5U1Qú∞ÄùMQ=-}%Q4ú∞ÄêÃ∞Å9=\†§∞Äê–∞Äê‘•Ä∞(ÄÄÄÄÄÄÄÅm…ïç•¡•ïπ–∞ÅµïÕÕÖùî∞Å•—ï¥π•ê∞Å—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Äƒ∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅç…ïÖ—ï5Ö•π—ïπÖπçïÕÕ•ùπµïπ—Ωµµ’π•çÖ—•ΩπÃ°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å…ï≈’ïÕ–ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅ•òÄ†ÖâΩë‰πïµ¡±ΩÂïï}•ê§Å…ï—’…∏Ï(ÄÄÄÅçΩπÕ–ÅçΩπ—Öç–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅîπïµÖ•∞∞Åîπ¡°Ωπî∞ÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=9P°–πô•…Õ—}πÖµî∞ÄúÄú∞Å–π±ÖÕ—}πÖµî§ÅLÅ—ïπÖπ—}πÖµî(ÄÄÄÄÄÄÅI=4Åïµ¡±ΩÂïïÃÅî(ÄÄÄÄÄÄÅ1PÅ)=%8ÅµÖ•π—ïπÖπçï}…ï≈’ïÕ—ÃÅµ»Å=8Åµ»π•êÄÙÄêƒÅ9Åµ»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÃ(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅµ»πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅµ»π’π•—}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅµ»π—ïπÖπ—}•ê(ÄÄÄÄÄÄÅ]!IÅîπ•êÄÙÄê»Å9ÅîπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÃÅ9Åîπëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm…ï≈’ïÕ–π•ê∞ÅâΩë‰πïµ¡±ΩÂïï}•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å—ïç°π•ç•Ö∏ÄÙÅçΩπ—Öç–π…Ω›Õl¡tÏ(ÄÄÄÅ•òÄ†Ö—ïç°π•ç•Ö∏§Å…ï—’…∏Ï(ÄÄÄÅçΩπÕ–ÅµïÕÕÖùîÄÙÅl(ÄÄÄÄÄÅÄëÌ…ï≈’ïÕ–π…ï≈’ïÕ—}π’µâï…ÙÄ¥ÄëÌ…ï≈’ïÕ–π—•—±ïıÄ∞(ÄÄÄÄÄÅ—ïç°π•ç•Ö∏πâ’•±ë•πù}πÖµîÄ¸ÅÅ%µµï’â±îËÄëÌ—ïç°π•ç•Ö∏πâ’•±ë•πù}πÖµïıÄÄËÅπ’±∞∞(ÄÄÄÄÄÅ—ïç°π•ç•Ö∏π’π•—}π’µâï»Ä¸ÅÅUπ•”§ËÄëÌ—ïç°π•ç•Ö∏π’π•—}π’µâï…ıÄÄËÅπ’±∞∞(ÄÄÄÄÄÅ—ïç°π•ç•Ö∏π—ïπÖπ—}πÖµîÄ¸ÅÅ1ΩçÖ—Ö•…îËÄëÌ—ïç°π•ç•Ö∏π—ïπÖπ—}πÖµïıÄÄËÅπ’±∞∞(ÄÄÄÄÄÅÅA…•Ω…•”§ËÄëÌ…ï≈’ïÕ–π¡…•Ω…•—ÂıÄ∞(ÄÄÄÄÄÅâΩë‰π¡±Öππïë}ëÖ—îÄ¸ÅÅAÀ•Ÿ’îËÄëÌâΩë‰π¡±Öππïë}ëÖ—ïÙÄëÌâΩë‰π¡±Öππïë}—•µîÄ¸¸ÄúùıÄÄËÅπ’±∞∞(ÄÄÄÄÄÅâΩë‰ππΩ—ïÃÄ¸ÅÅΩµµïπ—Ö•…îËÄëÌâΩë‰ππΩ—ïÕıÄÄËÅπ’±∞∞(ÄÄÄÅtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†ùq∏ú§Ï(ÄÄÄÅçΩπÕ–ÅΩ…ùÖπ•ÈÖ—•Ωπ%êÄÙÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§Ï(ÄÄÄÅçΩπÕ–Åç…ïÖ—ïë	‰ÄÙÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸ÄƒÏ(ÄÄÄÅ•òÄ°—ïç°π•ç•Ö∏πïµÖ•∞§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅπΩ—•ô•çÖ—•ΩπÃ(ÄÄÄÄÄÄÄÄÄ°’Õï…}•ê∞Å—•—±î∞ÅµïÕÕÖùî∞Å¡…•Ω…•—‰∞ÅÕΩ’…çî∞Å…ï±Ö—ïë}ïπ—•—Â}—Â¡î∞Å…ï±Ö—ïë}ïπ—•—Â}•ê∞Å±•π≠}¡Ö—†∞Åç…ïÖ—ïë}â‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÄÄÅY1ULÄ†(ÄÄÄÄÄÄÄÄÄÄÄ°M1PÅÖ‘π•êÅI=4ÅÖ¡¡}’Õï…ÃÅÖ‘Å]!IÅÖ‘πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê‹Å9ÅÖ‘πëï±ï—ïë}Ö–Å%LÅ9U10Å9Å1=]H°Ö‘πïµÖ•∞§ÄÙÅ1=]H†ê‡§Å1%5%PÄƒ§∞(ÄÄÄÄÄÄÄÄÄÄÄê»∞ÄêÃ∞Äê–∞Äù5%9Q99ú∞ÄùµÖ•π—ïπÖπçï}…ï≈’ïÕ–ú∞Äêƒ∞Äê‘∞Äêÿ∞Äê‹(ÄÄÄÄÄÄÄÄÄ•Ä∞(ÄÄÄÄÄÄÄÅm…ï≈’ïÕ–π•ê∞ÅÅôôïç—Ö—•Ω∏ÄëÌ…ï≈’ïÕ–π…ï≈’ïÕ—}π’µâï…ıÄ∞ÅµïÕÕÖùî∞Å…ï≈’ïÕ–π¡…•Ω…•—‰ÄÙÙÙÄùUI9PúÄ¸ÄùI%Q%0úÄËÄù9=I50ú∞ÅÄΩµÖ•π—ïπÖπçîºëÌ…ï≈’ïÕ–π•ëıÄ∞Åç…ïÖ—ïë	‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ê∞Å—ïç°π•ç•Ö∏πïµÖ•±t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅïµÖ•±}±ΩùÃ(ÄÄÄÄÄÄÄÄÄ°…ïç•¡•ïπ–∞ÅÕ’â©ïç–∞ÅµïÕÕÖùî∞ÅÕ—Ö—’Ã∞Å¡…ΩŸ•ëï…}…ïÕ¡ΩπÕî∞Å…ï±Ö—ïë}ïπ—•—Â}—Â¡î∞Å…ï±Ö—ïë}ïπ—•—Â}•ê∞ÅÕïπ—}Ö–∞Åç…ïÖ—ïë}â‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞ÄùM%5U1Qú∞Äê–∞ÄùµÖ•π—ïπÖπçï}…ï≈’ïÕ–ú∞Äê‘∞Å9=\†§∞Äêÿ∞Äê‹•Ä∞(ÄÄÄÄÄÄÄÅm—ïç°π•ç•Ö∏πïµÖ•∞∞ÅÅôôïç—Ö—•Ω∏ÄëÌ…ï≈’ïÕ–π…ï≈’ïÕ—}π’µâï…ıÄ∞ÅµïÕÕÖùî∞Å)M=8πÕ—…•πù•ô‰°ÏÅ¡…ΩŸ•ëï»ËÄù1=1}M%5U1Q=HúÅÙ§∞Å…ï≈’ïÕ–π•ê∞Åç…ïÖ—ïë	‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°—ïç°π•ç•Ö∏π¡°Ωπî§ÅÏ(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Å—Öâ±îÅΩòÅlùÕµÕ}±ΩùÃú∞Äù›°Ö—ÕÖ¡¡}±ΩùÃùt§ÅÏ(ÄÄÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÄëÌ—Öâ±ïÙ(ÄÄÄÄÄÄÄÄÄÄÄ°…ïç•¡•ïπ–∞ÅµïÕÕÖùî∞ÅÕ—Ö—’Ã∞Å¡…ΩŸ•ëï…}…ïÕ¡ΩπÕî∞Å…ï±Ö—ïë}ïπ—•—Â}—Â¡î∞Å…ï±Ö—ïë}ïπ—•—Â}•ê∞ÅÕïπ—}Ö–∞Åç…ïÖ—ïë}â‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄùM%5U1Qú∞ÄêÃ∞ÄùµÖ•π—ïπÖπçï}…ï≈’ïÕ–ú∞Äê–∞Å9=\†§∞Äê‘∞Äêÿ•Ä∞(ÄÄÄÄÄÄÄÄÄÅm—ïç°π•ç•Ö∏π¡°Ωπî∞ÅµïÕÕÖùî∞Å)M=8πÕ—…•πù•ô‰°ÏÅ¡…ΩŸ•ëï»ËÄù1=1}M%5U1Q=HúÅÙ§∞Å…ï≈’ïÕ–π•ê∞Åç…ïÖ—ïë	‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÅÙ((ÄÅÖÕÂπåÅÕïπë5Ö•π—ïπÖπçïΩµµ’π•çÖ—•Ω∏°•êËÅπ’µâï»∞Åç°Öππï∞ËÅÕ—…•πú∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅ…ï—’…∏Å—°•Ãπëàπ—…ÖπÕÖç—•Ω∏°ÖÕÂπåÄ°ç±•ïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å…ï≈’ïÕ–ÄÙÅÖ›Ö•–Å—°•Ãπùï—5Ö•π—ïπÖπçïΩµµ’π•çÖ—•ΩπΩπ—ï·–°ç±•ïπ–∞Å•ê§Ï(ÄÄÄÄÄÅçΩπÕ–ÅçΩµµ’π•çÖ—•Ωπ°Öππï∞ÄÙÅM—…•πú°ç°Öππï∞Ä¸¸Äúú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅçΩπÕ–Å—Ö…ùï–ÄÙÅM—…•πú°âΩë‰π—Ö…ùï–Ä¸¸ÄùQ99Pú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅ•òÄ†Ölù5%0ú∞ÄùM5Lú∞Äù]!QMA@ùtπ•πç±’ëïÃ°çΩµµ’π•çÖ—•Ωπ°Öππï∞§§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùÖπÖ∞ÅëîÅçΩµµ’π•çÖ—•Ω∏Å•πŸÖ±•ëîú§Ï(ÄÄÄÄÄÅçΩπÕ–Å…ïç•¡•ïπ–ÄÙ(ÄÄÄÄÄÄÄÅ—Ö…ùï–ÄÙÙÙÄùQ!9%%8ú(ÄÄÄÄÄÄÄÄÄÄ¸ÅçΩµµ’π•çÖ—•Ωπ°Öππï∞ÄÙÙÙÄù5%0ú(ÄÄÄÄÄÄÄÄÄÄÄÄ¸Å…ï≈’ïÕ–π—ïç°π•ç•Öπ}ïµÖ•∞(ÄÄÄÄÄÄÄÄÄÄÄÄËÅ…ï≈’ïÕ–π—ïç°π•ç•Öπ}¡°Ωπî(ÄÄÄÄÄÄÄÄÄÄËÅçΩµµ’π•çÖ—•Ωπ°Öππï∞ÄÙÙÙÄù5%0ú(ÄÄÄÄÄÄÄÄÄÄÄÄ¸Å…ï≈’ïÕ–π—ïπÖπ—}ïµÖ•∞(ÄÄÄÄÄÄÄÄÄÄÄÄËÅ…ï≈’ïÕ–π—ïπÖπ—}¡°ΩπîÏ(ÄÄÄÄÄÅ•òÄ†Ö…ïç•¡•ïπ–§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°—Ö…ùï–ÄÙÙÙÄùQ!9%%8úÄ¸ÄùΩΩ…ëΩπª•îÅ—ïç°π•ç•ï∏ÅÖâÕïπ—îúÄËÄùΩΩ…ëΩπª•îÅ±ΩçÖ—Ö•…îÅÖâÕïπ—îú§Ï(ÄÄÄÄÄÅçΩπÕ–ÅµïÕÕÖùîÄÙÅâΩë‰πµïÕÕÖùîÄ¸ÅM—…•πú°âΩë‰πµïÕÕÖùî§ÄËÅ—°•ÃπëïôÖ’±—5Ö•π—ïπÖπçï5ïÕÕÖùî°çΩµµ’π•çÖ—•Ωπ°Öππï∞∞Å…ï≈’ïÕ–∞ÅM—…•πú°âΩë‰πïŸïπ–Ä¸¸ÄùUAQú§§Ï(ÄÄÄÄÄÅçΩπÕ–Å…ïÕ’±–ÄÙÅÖ›Ö•–Å—°•ÃπÕïπëΩµµ’π•çÖ—•Ω∏°çΩµµ’π•çÖ—•Ωπ°Öππï∞∞ÅÏ(ÄÄÄÄÄÄÄÅ…ïç•¡•ïπ–∞(ÄÄÄÄÄÄÄÅÕ’â©ïç–ËÅçΩµµ’π•çÖ—•Ωπ°Öππï∞ÄÙÙÙÄù5%0úÄ¸ÅÄëÌ…ï≈’ïÕ–π…ï≈’ïÕ—}π’µâï…ÙÄ¥ÄëÌ…ï≈’ïÕ–π—•—±ïıÄÄËÅ’πëïô•πïê∞(ÄÄÄÄÄÄÄÅµïÕÕÖùî∞(ÄÄÄÄÄÄÄÅ…ï±Ö—ïë}ïπ—•—Â}—Â¡îËÄùµÖ•π—ïπÖπçï}…ï≈’ïÕ–ú∞(ÄÄÄÄÄÄÄÅ…ï±Ö—ïë}ïπ—•—Â}•êËÅ•ê∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅÖ›Ö•–Å—°•ÃπÖëë5Ö•π—ïπÖπçïQ•µï±•πî°ç±•ïπ–∞Å•ê∞Äù=55U9%Q%=8ú∞ÅÅΩµµ’π•çÖ—•Ω∏ÄëÌçΩµµ’π•çÖ—•Ωπ°Öππï±ıÄ∞ÅÄëÌ—Ö…ùï–ÄÙÙÙÄùQ!9%%8úÄ¸ÄùQïç°π•ç•ï∏úÄËÄù1ΩçÖ—Ö•…îùÙÅçΩπ—Öç”•Ä§Ï(ÄÄÄÄÄÅ…ï—’…∏Å…ïÕ’±–Ï(ÄÄÄÅÙ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÖÕÕï…—5Ö•π—ïπÖπçïM—Ö—’Ã°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å•êËÅπ’µâï»∞ÅÖ±±Ω›ïêËÅÕ—…•πùmt§ÅÏ(ÄÄÄÅçΩπÕ–Åç’……ïπ–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅÕ—Ö—’ÃÅI=4ÅµÖ•π—ïπÖπçï}…ï≈’ïÕ—Ã(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U10Å=HÅUAQÄ∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å…ï≈’ïÕ–ÄÙÅ…ï≈’•…ïIΩ‹°ç’……ïπ–π…Ω›Õl¡t∞Äù5Ö•π—ïπÖπçîÅ…ï≈’ïÕ–ú§Ï(ÄÄÄÅ•òÄ†ÖÖ±±Ω›ïêπ•πç±’ëïÃ°M—…•πú°…ï≈’ïÕ–πÕ—Ö—’Ã§§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Åç—•Ω∏Å•µ¡ΩÕÕ•â±îÅ¡Ω’»Å’πîÅµÖ•π—ïπÖπçîÅÖ‘ÅÕ—Ö—’–ÄëÌ…ï≈’ïÕ–πÕ—Ö—’ÕıÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å…ï≈’ïÕ–Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπΩ—•ôÂ5Ö•π—ïπÖπçïIïÕΩ±’—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å•êËÅπ’µâï»∞ÅïŸïπ–ËÄùIM=1YúÅÄù1=Mú∞ÅçΩµµïπ–¸ËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–Å…ï≈’ïÕ–ÄÙÅÖ›Ö•–Å—°•Ãπùï—5Ö•π—ïπÖπçïΩµµ’π•çÖ—•ΩπΩπ—ï·–°ç±•ïπ–∞Å•ê§Ï(ÄÄÄÅçΩπÕ–Å©ΩâÃËÅ……Ö‰ÒA…Ωµ•ÕîÒ’π≠πΩ›∏¯¯ÄÙÅmtÏ(ÄÄÄÅ•òÄ°…ï≈’ïÕ–π—ïπÖπ—}ïµÖ•∞§ÅÏ(ÄÄÄÄÄÅ©ΩâÃπ¡’Õ†°—°•ÃπÕïπëΩµµ’π•çÖ—•Ω∏†ù5%0ú∞ÅÏ(ÄÄÄÄÄÄÄÅ…ïç•¡•ïπ–ËÅ…ï≈’ïÕ–π—ïπÖπ—}ïµÖ•∞∞(ÄÄÄÄÄÄÄÅÕ’â©ïç–ËÅÄëÌ…ï≈’ïÕ–π…ï≈’ïÕ—}π’µâï…ÙÄ¥ÄëÌïŸïπ–ÄÙÙÙÄùIM=1YúÄ¸Äù%π—ï…Ÿïπ—•Ω∏Å…ïÕΩ±’îúÄËÄù%π—ï…Ÿïπ—•Ω∏Åç±Ω—’…ïîùıÄ∞(ÄÄÄÄÄÄÄÅµïÕÕÖùîËÅ—°•ÃπëïôÖ’±—5Ö•π—ïπÖπçï5ïÕÕÖùî†ù5%0ú∞Å…ï≈’ïÕ–∞ÅïŸïπ–∞ÅçΩµµïπ–§∞(ÄÄÄÄÄÄÄÅ…ï±Ö—ïë}ïπ—•—Â}—Â¡îËÄùµÖ•π—ïπÖπçï}…ï≈’ïÕ–ú∞(ÄÄÄÄÄÄÄÅ…ï±Ö—ïë}ïπ—•—Â}•êËÅ•ê∞(ÄÄÄÄÄÅÙ§§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°…ï≈’ïÕ–π—ïπÖπ—}¡°Ωπî§ÅÏ(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Åç°Öππï∞ÅΩòÅlùM5Lú∞Äù]!QMA@ùt§ÅÏ(ÄÄÄÄÄÄÄÅ©ΩâÃπ¡’Õ†°—°•ÃπÕïπëΩµµ’π•çÖ—•Ω∏°ç°Öππï∞∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅ…ïç•¡•ïπ–ËÅ…ï≈’ïÕ–π—ïπÖπ—}¡°Ωπî∞(ÄÄÄÄÄÄÄÄÄÅµïÕÕÖùîËÅ—°•ÃπëïôÖ’±—5Ö•π—ïπÖπçï5ïÕÕÖùî°ç°Öππï∞∞Å…ï≈’ïÕ–∞ÅïŸïπ–∞ÅçΩµµïπ–§∞(ÄÄÄÄÄÄÄÄÄÅ…ï±Ö—ïë}ïπ—•—Â}—Â¡îËÄùµÖ•π—ïπÖπçï}…ï≈’ïÕ–ú∞(ÄÄÄÄÄÄÄÄÄÅ…ï±Ö—ïë}ïπ—•—Â}•êËÅ•ê∞(ÄÄÄÄÄÄÄÅÙ§§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅÖ›Ö•–ÅA…Ωµ•ÕîπÖ±∞°©ΩâÃ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅùï—5Ö•π—ïπÖπçïΩµµ’π•çÖ—•ΩπΩπ—ï·–°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å•êËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅµ»π•ê∞Åµ»π…ï≈’ïÕ—}π’µâï»∞Åµ»π—•—±î∞Åµ»π¡…•Ω…•—‰∞Åµ»πÕ—Ö—’Ã∞Åµ»πë’ï}ëÖ—î∞Åµ»π…ïÕΩ±Ÿïë}Ö–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅàππÖµîÅLÅâ’•±ë•πù}πÖµî∞Å‘ππ’µâï»ÅLÅ’π•—}π’µâï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=9P°–πô•…Õ—}πÖµî∞ÄúÄú∞Å–π±ÖÕ—}πÖµî§ÅLÅ—ïπÖπ—}πÖµî∞Å–πïµÖ•∞ÅLÅ—ïπÖπ—}ïµÖ•∞∞Å–π¡°ΩπîÅLÅ—ïπÖπ—}¡°Ωπî∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=9P°îπô•…Õ—}πÖµî∞ÄúÄú∞Åîπ±ÖÕ—}πÖµî§ÅLÅ—ïç°π•ç•Öπ}πÖµî∞ÅîπïµÖ•∞ÅLÅ—ïç°π•ç•Öπ}ïµÖ•∞∞Åîπ¡°ΩπîÅLÅ—ïç°π•ç•Öπ}¡°Ωπî(ÄÄÄÄÄÄÅI=4ÅµÖ•π—ïπÖπçï}…ï≈’ïÕ—ÃÅµ»(ÄÄÄÄÄÄÅ1PÅ)=%8Åâ’•±ë•πùÃÅàÅ=8Åàπ•êÄÙÅµ»πâ’•±ë•πù}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å’π•—ÃÅ‘Å=8Å‘π•êÄÙÅµ»π’π•—}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Å—ïπÖπ—ÃÅ–Å=8Å–π•êÄÙÅµ»π—ïπÖπ—}•ê(ÄÄÄÄÄÄÅ1PÅ)=%8Åïµ¡±ΩÂïïÃÅîÅ=8Åîπ•êÄÙÅµ»πÖÕÕ•ùπïë}ïµ¡±ΩÂïï}•ê(ÄÄÄÄÄÄÅ]!IÅµ»π•êÄÙÄêƒÅ9Åµ»πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åµ»πëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞Äù5Ö•π—ïπÖπçîÅ…ï≈’ïÕ–ú§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅëïôÖ’±—5Ö•π—ïπÖπçï5ïÕÕÖùî°ç°Öππï∞ËÅÕ—…•πú∞Å…ï≈’ïÕ–ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞ÅïŸïπ–ËÅÕ—…•πú∞ÅçΩµµïπ–¸ËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–Åô…Öùµïπ—ÃÄÙÅl(ÄÄÄÄÄÅÄëÌ…ï≈’ïÕ–π…ï≈’ïÕ—}π’µâï…ÙÄ¥ÄëÌ…ï≈’ïÕ–π—•—±ïıÄ∞(ÄÄÄÄÄÅ…ï≈’ïÕ–πâ’•±ë•πù}πÖµîÄ¸ÅÅ%µµï’â±îËÄëÌ…ï≈’ïÕ–πâ’•±ë•πù}πÖµïıÄÄËÅπ’±∞∞(ÄÄÄÄÄÅ…ï≈’ïÕ–π’π•—}π’µâï»Ä¸ÅÅUπ•”§ËÄëÌ…ï≈’ïÕ–π’π•—}π’µâï…ıÄÄËÅπ’±∞∞(ÄÄÄÄÄÅÅA…•Ω…•”§ËÄëÌ…ï≈’ïÕ–π¡…•Ω…•—ÂıÄ∞(ÄÄÄÄÄÅÅM—Ö—’–ËÄëÌ…ï≈’ïÕ–πÕ—Ö—’ÕıÄ∞(ÄÄÄÄÄÅ…ï≈’ïÕ–π—ïç°π•ç•Öπ}πÖµîÄ¸ÅÅQïç°π•ç•ï∏ËÄëÌ…ï≈’ïÕ–π—ïç°π•ç•Öπ}πÖµïıÄÄËÅπ’±∞∞(ÄÄÄÄÄÅïŸïπ–ÄÙÙÙÄùIM=1Yú(ÄÄÄÄÄÄÄÄ¸ÅÅÖ—îÅÀ•ÕΩ±’—•Ω∏ËÄëÌ…ï≈’ïÕ–π…ïÕΩ±Ÿïë}Ö–Ä¸ÅM—…•πú°…ï≈’ïÕ–π…ïÕΩ±Ÿïë}Ö–§πÕ±•çî†¿∞Äƒ¿§ÄËÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿•ıÄ(ÄÄÄÄÄÄÄÄËÅ…ï≈’ïÕ–πë’ï}ëÖ—î(ÄÄÄÄÄÄÄÄÄÄ¸ÅÅÖ—îÅ¡À•Ÿ’îËÄëÌM—…•πú°…ï≈’ïÕ–πë’ï}ëÖ—î§πÕ±•çî†¿∞Äƒ¿•ıÄ(ÄÄÄÄÄÄÄÄÄÄËÅπ’±∞∞(ÄÄÄÄÄÅçΩµµïπ–Ä¸ÅÅΩµµïπ—Ö•…îËÄëÌçΩµµïπ—ıÄÄËÅπ’±∞∞(ÄÄÄÅtπô•±—ï»°	ΩΩ±ïÖ∏§Ï(ÄÄÄÅ…ï—’…∏Åç°Öππï∞ÄÙÙÙÄù5%0úÄ¸ÅÅ	Ωπ©Ω’»±q∏ëÌô…Öùµïπ—Ãπ©Ω•∏†ùq∏ú•ıÄÄËÅô…Öùµïπ—Ãπ©Ω•∏†úÅÄú§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅç…ïÖ—ï]Ω…≠ô±Ω›%πÕ—Öπçï%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–Å—Â¡îÄÙÅM—…•πú°âΩë‰π—Â¡îÄ¸¸ÄùUMQ=4ú§Ï(ÄÄÄÅçΩπÕ–Åëïô•π•—•Ω∏ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®ÅI=4Å›Ω…≠ô±Ω›}ëïô•π•—•ΩπÃ(ÄÄÄÄÄÄÅ]!IÅ—Â¡îÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅ•êÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅm—Â¡î∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Åëïô•π•—•Ωπ%êÄÙÅëïô•π•—•Ω∏π…Ω›Õl¡t¸π•êÄ¸¸Åπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<Å›Ω…≠ô±Ω›}•πÕ—ÖπçïÃ(ÄÄÄÄÄÄÄ°›Ω…≠ô±Ω›}ëïô•π•—•Ωπ}•ê∞Å—Â¡î∞Åïπ—•—Â}—Â¡î∞Åïπ—•—Â}•ê∞Å—•—±î∞Å…ï≈’ïÕ—ï…}•ê∞ÅÕ—Ö—’Ã∞ÅçΩµµïπ–∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞ÄùA9%9ú∞Äê‹∞Äê‡§(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅëïô•π•—•Ωπ%ê∞(ÄÄÄÄÄÄÄÅ—Â¡î∞(ÄÄÄÄÄÄÄÅâΩë‰πïπ—•—Â}—Â¡îÄ¸¸Å—Â¡î∞(ÄÄÄÄÄÄÄÅâΩë‰πïπ—•—Â}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰π—•—±îÄ¸¸ÅÄëÌ—Â¡ïÙÄåëÌâΩë‰πïπ—•—Â}•êÄ¸¸ÄúùıÄ∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸ÅâΩë‰π…ï≈’ïÕ—ï…}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰πçΩµµïπ–Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÕ—ï¡ÃÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®ÅI=4Å›Ω…≠ô±Ω›}Õ—ï¡}ëïô•π•—•ΩπÃ(ÄÄÄÄÄÄÅ]!IÅ›Ω…≠ô±Ω›}ëïô•π•—•Ωπ}•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅÕ—ï¡}Ω…ëï…Ä∞(ÄÄÄÄÄÅmëïô•π•—•Ωπ%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÕ—ï¡IΩ›ÃÄÙÅÕ—ï¡Ãπ…Ω›Ãπ±ïπù—†Ä¸ÅÕ—ï¡Ãπ…Ω›ÃÄËÅmÏÅÕ—ï¡}Ω…ëï»ËÄƒ∞ÅπÖµîËÄùYÖ±•ëÖ—•Ω∏ú∞ÅÖ¡¡…ΩŸï…}…Ω±îËÄù%IQ=Hú∞ÅÖ¡¡…ΩŸï…}’Õï…}•êËÅπ’±∞ÅıtÏ(ÄÄÄÅôΩ»Ä°çΩπÕ–ÅÕ—ï¿ÅΩòÅÕ—ï¡IΩ›Ã§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<Å›Ω…≠ô±Ω›}Õ—ï¡Ã(ÄÄÄÄÄÄÄÄÄ°›Ω…≠ô±Ω›}•πÕ—Öπçï}•ê∞ÅÕ—ï¡}Ω…ëï»∞ÅπÖµî∞ÅÖ¡¡…ΩŸï…}…Ω±î∞ÅÖ¡¡…ΩŸï…}’Õï…}•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ•Ä∞(ÄÄÄÄÄÄÄÅm…Ω›Õl¡tπ•ê∞ÅÕ—ï¿πÕ—ï¡}Ω…ëï»∞ÅÕ—ï¿ππÖµî∞ÅÕ—ï¿πÖ¡¡…ΩŸï…}…Ω±î∞ÅÕ—ï¿πÖ¡¡…ΩŸï…}’Õï…}•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅÖ›Ö•–Å—°•ÃπÖëë]Ω…≠ô±Ω›ç—•Ω∏°ç±•ïπ–∞Å…Ω›Õl¡tπ•ê∞ÄùIQú∞ÅâΩë‰πçΩµµïπ–Ä¸ÅM—…•πú°âΩë‰πçΩµµïπ–§ÄËÄù]Ω…≠ô±Ω‹ÅçÀß§ú§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡tÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÖëë]Ω…≠ô±Ω›ç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å›Ω…≠ô±Ω›%πÕ—Öπçï%êËÅπ’µâï»∞ÅÖç—•Ω∏ËÅÕ—…•πú∞ÅçΩµµïπ–¸ËÅÕ—…•πú§ÅÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<Å›Ω…≠ô±Ω›}Öç—•ΩπÃÄ°›Ω…≠ô±Ω›}•πÕ—Öπçï}•ê∞ÅÖç—•Ω∏∞ÅçΩµµïπ–∞ÅÖç—ïë}â‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘•Ä∞(ÄÄÄÄÄÅm›Ω…≠ô±Ω›%πÕ—Öπçï%ê∞ÅÖç—•Ω∏∞ÅçΩµµïπ–Ä¸¸Åπ’±∞∞Å—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Äƒ∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅïπÕ’…ï]Ω…≠ô±Ω›M—ï¡Öπç–°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å›Ω…≠ô±Ω›%πÕ—Öπçï%êËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ›Ã∏®(ÄÄÄÄÄÄÅI=4Å›Ω…≠ô±Ω›}Õ—ï¡ÃÅ›Ã(ÄÄÄÄÄÄÅ)=%8Å›Ω…≠ô±Ω›}•πÕ—ÖπçïÃÅ›§Å=8Å›§π•êÄÙÅ›Ãπ›Ω…≠ô±Ω›}•πÕ—Öπçï}•ê(ÄÄÄÄÄÄÅ]!IÅ›Ãπ›Ω…≠ô±Ω›}•πÕ—Öπçï}•êÄÙÄêƒÅ9Å›ÃπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Å›§πÕ—Ö—’ÃÄÙÄùA9%9úÅ9Å›ÃπÕ—Ö—’ÃÄÙÄùA9%9ú(ÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅm›Ω…≠ô±Ω›%πÕ—Öπçï%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅÕ—ï¿ÄÙÅ…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞Äù]Ω…≠ô±Ω‹ÅÕ—ï¿ú§Ï(ÄÄÄÅ•òÄ°Õ—ï¿πÖ¡¡…ΩŸï…}’Õï…}•êÄòòÅ9’µâï»°Õ—ï¿πÖ¡¡…ΩŸï…}’Õï…}•ê§ÄÑÙÙÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùYΩ’ÃÅπîÅ¡Ω’ŸïËÅ¡ÖÃÅŸÖ±•ëï»Åçï——îÉ•—Ö¡îú§Ï(ÄÄÄÅ•òÄ°Õ—ï¿πÖ¡¡…ΩŸï…}…Ω±îÄòòÅÕ—ï¿πÖ¡¡…ΩŸï…}…Ω±îÄÑÙÙÅ—°•ÃπçΩπ—ï·–π’Õï»†§¸π…Ω±î§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùK—±îÅÖ¡¡…ΩâÖ—ï’»Å…ï≈’•Ãú§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅïπÕ’…ï]Ω…≠ô±Ω›¡¡…ΩŸïê°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å›Ω…≠ô±Ω›%πÕ—Öπçï%ê¸ËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅ•òÄ†Ö›Ω…≠ô±Ω›%πÕ—Öπçï%ê§Å…ï—’…∏Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅÕ—Ö—’ÃÅI=4Å›Ω…≠ô±Ω›}•πÕ—ÖπçïÃÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm›Ω…≠ô±Ω›%πÕ—Öπçï%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å›Ω…≠ô±Ω‹ÄÙÅ…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞Äù]Ω…≠ô±Ω‹ú§Ï(ÄÄÄÅ•òÄ°›Ω…≠ô±Ω‹πÕ—Ö—’ÃÄÙÙÙÄùI)Qú§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù]Ω…≠ô±Ω‹Å…ï©ï”§ËÅÖç—•Ω∏Åâ±Ω≈◊•îú§Ï(ÄÄÄÅ•òÄ°›Ω…≠ô±Ω‹πÕ—Ö—’ÃÄÑÙÙÄùAAI=Yú§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù]Ω…≠ô±Ω‹Åï∏ÅÖ——ïπ—îËÅÖç—•Ω∏Åâ±Ω≈◊•îú§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÖëë5Ö•π—ïπÖπçïQ•µï±•πî°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅµÖ•π—ïπÖπçïIï≈’ïÕ—%êËÅπ’µâï»∞ÅïŸïπ—QÂ¡îËÅÕ—…•πú∞Å—•—±îËÅÕ—…•πú∞Åëï—Ö•±Ã¸ËÅÕ—…•πú§ÅÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅµÖ•π—ïπÖπçï}—•µï±•πîÄ°µÖ•π—ïπÖπçï}…ï≈’ïÕ—}•ê∞ÅïŸïπ—}—Â¡î∞Å—•—±î∞Åëï—Ö•±Ã∞Åç…ïÖ—ïë}â‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ•Ä∞(ÄÄÄÄÄÅmµÖ•π—ïπÖπçïIï≈’ïÕ—%ê∞ÅïŸïπ—QÂ¡î∞Å—•—±î∞Åëï—Ö•±ÃÄ¸¸Åπ’±∞∞Å—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Äƒ∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅΩ¡ïπMïÕÕ•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰°ÅM1PÄ®ÅI=4ÅçÖÕ°}ÕïÕÕ•ΩπÃÅ]!IÅÕ—Ö—’ÃÄÙÄù=A8úÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10Å=IHÅ	dÅΩ¡ïπïë}Ö–ÅMÅ1%5%PÄ≈Ä∞Ål(ÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÅt§Ï(ÄÄÄÅ•òÄ†Ö…Ω›Õl¡t§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù’ç’πîÅçÖ•ÕÕîÅΩ’Ÿï…—îú§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡tÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅïπÕ’…ï9Ω1ïÖÕïΩπô±•ç–°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å’π•—%êËÅπ’µâï»∞ÅÕ—Ö…—Ö—îËÅÕ—…•πú∞ÅïπëÖ—îËÅÕ—…•πúÅÅπ’±∞∞Å•ùπΩ…ïë1ïÖÕï%ê¸ËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•êÅI=4Å±ïÖÕïÃ(ÄÄÄÄÄÄÅ]!IÅ’π•—}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9ÅÖ…ç°•Ÿïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9ÅÕ—Ö—’ÃÄÙÄùQ%Yú(ÄÄÄÄÄÄÄÄÅ9Ä†ê‘ËÈ%9PÅ%LÅ9U10Å=HÅ•êÄ¯Äê‘§(ÄÄÄÄÄÄÄÄÅ9ÅëÖ—ï…Öπùî°Õ—Ö…—}ëÖ—î∞Å=1M°ïπë}ëÖ—î∞Äú»‰‰‰¥ƒ»¥ÃƒúËÈQ§∞Äùmtú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄòòÅëÖ—ï…Öπùî†êÃËÈQ∞Å=1M†ê–ËÈQ∞Äú»‰‰‰¥ƒ»¥ÃƒúËÈQ§∞Äùmtú§(ÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅm’π•—%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅÕ—Ö…—Ö—î∞ÅïπëÖ—î∞Å•ùπΩ…ïë1ïÖÕï%êÄ¸¸Åπ’±±t∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°…Ω›Õl¡t§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùU∏ÅâÖ•∞ÅÖç—•òÅï·•Õ—îÅì•´ÄÅÕ’»Åçï——îÅ’π•”§Å¡Ω’»Åçï——îÅ√•…•Ωëîú§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÖç—•ŸÖ—ï1ïÖÕï%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å•êËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–Å±ïÖÕîÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®ÅI=4Å±ïÖÕïÃÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U10Å9ÅÖ…ç°•Ÿïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å…Ω‹ÄÙÅ…ï≈’•…ïIΩ‹°±ïÖÕîπ…Ω›Õl¡t∞Äù1ïÖÕîú§Ï(ÄÄÄÅÖ›Ö•–Å—°•ÃπïπÕ’…ï9Ω1ïÖÕïΩπô±•ç–°ç±•ïπ–∞Å9’µâï»°…Ω‹π’π•—}•ê§∞Å…Ω‹πÕ—Ö…—}ëÖ—î∞Å…Ω‹πïπë}ëÖ—î∞Å•ê§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅ±ïÖÕïÃ(ÄÄÄÄÄÄÅMPÅÕ—Ö—’ÃÄÙÄùQ%Yú∞ÅÖç—•ŸÖ—ïë}Ö–ÄÙÅ=1M°Öç—•ŸÖ—ïë}Ö–∞Å9=\†§§∞Å’¡ëÖ—ïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»ÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†ùUAQÅ’π•—ÃÅMPÅÕ—Ö—’ÃÄÙÄêƒÅ]!IÅ•êÄÙÄê»Å9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÃÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10ú∞Ål(ÄÄÄÄÄÄù=UA%ú∞(ÄÄÄÄÄÅ…Ω‹π’π•—}•ê∞(ÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÅt§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡tÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅùïπï…Ö—ï%µµïë•Ö—ï%π•—•Ö±Iïπ—%πŸΩ•çï%ô9ïïëïê°±ïÖÕï%êËÅπ’µâï»§ÅÏ(ÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å…ïÕ’±–ÄÙÅÖ›Ö•–Å—°•ÃπÖ’—ΩµÖ—•ΩπÕMï…Ÿ•çîπùïπï…Ö—ï%µµïë•Ö—ï%π•—•Ö±Iïπ—%πŸΩ•çïΩ…1ïÖÕî°±ïÖÕï%ê§Ï(ÄÄÄÄÄÅ•òÄ°…ïÕ’±–πÕ—Ö—’ÃÄÙÙÙÄùMUMLú§ÅÏ(ÄÄÄÄÄÄÄÅ—°•Ãπ±Ωùùï»π±Ωú°Å%µµïë•Ö—îÅ•π•—•Ö∞Å…ïπ–Å•πŸΩ•çîÅùïπï…Ö—ïêÅôΩ»Å±ïÖÕîÄëÌ±ïÖÕï%ëÙËÄëÌ…ïÕ’±–π•πŸΩ•çï}π’µâï…ıÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙÅçÖ—ç†Ä°ï……Ω»§ÅÏ(ÄÄÄÄÄÅ—°•Ãπ±Ωùùï»πï……Ω»†(ÄÄÄÄÄÄÄÅÅ%µµïë•Ö—îÅ•π•—•Ö∞Å…ïπ–Å•πŸΩ•çîÅôÖ•±ïêÅôΩ»Å±ïÖÕîÄëÌ±ïÖÕï%ëÙËÄëÌï……Ω»Å•πÕ—ÖπçïΩòÅ……Ω»Ä¸Åï……Ω»πµïÕÕÖùîÄËÅM—…•πú°ï……Ω»•ıÄ∞(ÄÄÄÄÄÄÄÅï……Ω»Å•πÕ—ÖπçïΩòÅ……Ω»Ä¸Åï……Ω»πÕ—Öç¨ÄËÅ’πëïô•πïê∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÕ°Ω’±ëïπï…Ö—ï%µµïë•Ö—ï%π•—•Ö±Iïπ—%πŸΩ•çïô—ï…1ïÖÕïU¡ëÖ—î†(ÄÄÄÅç’……ïπ–ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞(ÄÄÄÅπΩ…µÖ±•ÈïêËÅÏÅÕ—Ö—’ÃËÅÕ—…•πúÏÅÕ—Ö…—Ö—îËÅÕ—…•πúÅÙ∞(ÄÄÄÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞(ÄÄ§ÅÏ(ÄÄÄÅ•òÄ°M—…•πú°πΩ…µÖ±•ÈïêπÕ—Ö—’ÃÄ¸¸Äúú§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÄùQ%Yú§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å¡…ïŸ•Ω’ÕM—Ö—’ÃÄÙÅM—…•πú°ç’……ïπ–πÕ—Ö—’ÃÄ¸¸Äúú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ°¡…ïŸ•Ω’ÕM—Ö—’ÃÄÑÙÙÄùQ%Yú§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏Å—…’îÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†Ö=â©ïç–π¡…Ω—Ω—Â¡îπ°ÖÕ=›πA…Ω¡ï…—‰πçÖ±∞°âΩë‰∞ÄùÕ—Ö…—}ëÖ—îú§§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅM—…•πú°ç’……ïπ–πÕ—Ö…—}ëÖ—îÄ¸¸Äúú§πÕ±•çî†¿∞Äƒ¿§ÄÑÙÙÅπΩ…µÖ±•ÈïêπÕ—Ö…—Ö—îÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ’¡Õï…—1ïÖÕï’Ö…Öπ—ïî°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å±ïÖÕï%êËÅπ’µâï»∞Åù’Ö…Öπ—ïîËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–ÅÖµΩ’π–ÄÙÅ9’µâï»°ù’Ö…Öπ—ïîπÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å¡Ö•ëµΩ’π–ÄÙÅ9’µâï»°ù’Ö…Öπ—ïîπ¡Ö•ë}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ö—’ÃÄÙÅM—…•πú°ù’Ö…Öπ—ïîπÕ—Ö—’ÃÄ¸¸Ä°¡Ö•ëµΩ’π–Ä¯ÙÅÖµΩ’π–ÄòòÅÖµΩ’π–Ä¯Ä¿Ä¸ÄùA%úÄËÅ¡Ö•ëµΩ’π–Ä¯Ä¿Ä¸ÄùAIQ%0úÄËÄù9=Q}A%ú§§Ï(ÄÄÄÅ•òÄ°Ö›Ö•–Å—°•Ãπ—Öâ±ï·•Õ—Ã†ù±ïÖÕï}ù’Ö…Öπ—ïïÃú§§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<Å±ïÖÕï}ù’Ö…Öπ—ïïÃÄ°±ïÖÕï}•ê∞ÅÖµΩ’π–∞Å¡Ö•ë}ÖµΩ’π–∞Å¡ÖÂµïπ—}ëÖ—î∞ÅÕ—Ö—’Ã∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ§(ÄÄÄÄÄÄÄÄÅ=8Å=91%PÄ°±ïÖÕï}•ê§Å<ÅUAQÅMP(ÄÄÄÄÄÄÄÄÄÄÅÖµΩ’π–ÄÙÅa1UπÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÅ¡Ö•ë}ÖµΩ’π–ÄÙÅa1Uπ¡Ö•ë}ÖµΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}ëÖ—îÄÙÅa1Uπ¡ÖÂµïπ—}ëÖ—î∞(ÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—’ÃÄÙÅa1UπÕ—Ö—’Ã∞(ÄÄÄÄÄÄÄÄÄÄÅ’¡ëÖ—ïë}Ö–ÄÙÅ9=\†•Ä∞(ÄÄÄÄÄÄÄÅm±ïÖÕï%ê∞ÅÖµΩ’π–∞Å¡Ö•ëµΩ’π–∞Åù’Ö…Öπ—ïîπ¡ÖÂµïπ—}ëÖ—îÄ¸¸Åπ’±∞∞ÅÕ—Ö—’Ã∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅ±ïÖÕïÃ(ÄÄÄÄÄÄÅMPÅ…ïπ—Ö±}ù’Ö…Öπ—ïï}ÖµΩ’π–ÄÙÄê»∞(ÄÄÄÄÄÄÄÄÄÄÅ…ïπ—Ö±}ù’Ö…Öπ—ïï}¡Ö•êÄÙÄêÃ∞(ÄÄÄÄÄÄÄÄÄÄÅ…ïπ—Ö±}ù’Ö…Öπ—ïï}¡ÖÂµïπ—}ëÖ—îÄÙÄê–∞(ÄÄÄÄÄÄÄÄÄÄÅ…ïπ—Ö±}ù’Ö…Öπ—ïï}Õ—Ö—’ÃÄÙÄê‘∞(ÄÄÄÄÄÄÄÄÄÄÅ’¡ëÖ—ïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêŸÄ∞(ÄÄÄÄÄÅm±ïÖÕï%ê∞ÅÖµΩ’π–∞Å¡Ö•ëµΩ’π–∞Åù’Ö…Öπ—ïîπ¡ÖÂµïπ—}ëÖ—îÄ¸¸Åπ’±∞∞ÅÕ—Ö—’Ã∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ±ïÖÕï’Ö…Öπ—ïï%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å±ïÖÕï%êËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®ÅI=4Å±ïÖÕï}ù’Ö…Öπ—ïïÃÅ]!IÅ±ïÖÕï}•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm±ïÖÕï%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡tÄ¸¸Åπ’±∞Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—M—Ωç≠A’…ç°ÖÕï9’µâï»°ç±•ïπ–ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰°ÅM1PÅ¡ù}ÖëŸ•ÕΩ…Â}·Öç—}±Ωç¨°°ÖÕ°—ï·–†êƒ§•Ä∞ÅmÅÕ—Ωç¨µ¡’…ç°ÖÕî¥ëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ıÅt§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°5`°9U11%°…ïùï·¡}…ï¡±Öçî°¡’…ç°ÖÕï}π’µâï»∞Äùmx¿¥Âtú∞Äúú∞Äùúú§∞Äúú§ËÈ%9P§∞Ä¿§Ä¨ÄƒÅLÅŸÖ±’î(ÄÄÄÄÄÄÅI=4ÅÕ—Ωç≠}¡’…ç°ÖÕïÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê≈Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÅA<¥ëÌM—…•πú°…Ω›Õl¡t¸πŸÖ±’îÄ¸¸Äƒ§π¡ÖëM—Ö…–†ÿ∞Äú¿ú•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—M—Ωç≠Iïçï•¡—9’µâï»°ç±•ïπ–ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰°ÅM1PÅ¡ù}ÖëŸ•ÕΩ…Â}·Öç—}±Ωç¨°°ÖÕ°—ï·–†êƒ§•Ä∞ÅmÅÕ—Ωç¨µ…ïçï•¡–¥ëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ıÅt§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°5`°9U11%°…ïùï·¡}…ï¡±Öçî°…ïçï•¡—}π’µâï»∞Äùmx¿¥Âtú∞Äúú∞Äùúú§∞Äúú§ËÈ%9P§∞Ä¿§Ä¨ÄƒÅLÅŸÖ±’î(ÄÄÄÄÄÄÅI=4ÅÕ—Ωç≠}¡’…ç°ÖÕï}…ïçï•¡—Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê≈Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÅ	H¥ëÌM—…•πú°…Ω›Õl¡t¸πŸÖ±’îÄ¸¸Äƒ§π¡ÖëM—Ö…–†ÿ∞Äú¿ú•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπΩ…µÖ±•ÈïM—Ωç≠A’…ç°ÖÕï1•πïÃ°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å±•πïÃËÅ……Ö‰ÒIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯¯§ÅÏ(ÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•ÈïêËÅ……Ö‰ÒIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯¯ÄÙÅmtÏ(ÄÄÄÅçΩπÕ–Åô•…Õ—1•πï	Â%—ïµ%êÄÙÅπï‹Å5Ö¿Òπ’µâï»∞Åπ’µâï»¯†§Ï(ÄÄÄÅôΩ»Ä°±ï–Å•πëï‡ÄÙÄ¿ÏÅ•πëï‡ÄÅ±•πïÃπ±ïπù—†ÏÅ•πëï‡Ä¨ÙÄƒ§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å±•πîÄÙÅ±•πïÕm•πëï·tÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕ—Ωç≠%—ïµ%êÄÙÅ9’µâï»°±•πîπÕ—Ωç≠}•—ïµ}•êÄ¸¸Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å≈’Öπ—•—‰ÄÙÅ9’µâï»°±•πîπ≈’Öπ—•—‰Ä¸¸Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å’π•—A…•çîÄÙÅ9’µâï»°±•πîπ’π•—}¡…•çîÄ¸¸Ä¿§Ï(ÄÄÄÄÄÅ•òÄ†ÖÕ—Ωç≠%—ïµ%êÅÒÅ≈’Öπ—•—‰ÄÙÄ¿§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Å1•ùπîÄëÌ•πëï‡Ä¨Ä≈ÙËÅÖ…—•ç±îÅΩ‘Å≈’Öπ—•—îÅ•πŸÖ±•ëïÄ§Ï(ÄÄÄÄÄÅçΩπÕ–Åô•…Õ—1•πîÄÙÅô•…Õ—1•πï	Â%—ïµ%êπùï–°Õ—Ωç≠%—ïµ%ê§Ï(ÄÄÄÄÄÅ•òÄ°ô•…Õ—1•πî§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Ï(ÄÄÄÄÄÄÄÄÄÅçΩëîËÄùAUI!M}%Q5}UA1%Qú∞(ÄÄÄÄÄÄÄÄÄÅµïÕÕÖùîËÅÅï–ÅÖ…—•ç±îÅïÕ–Åëï©ÑÅ¡…ïÕïπ–ÅÑÅ±ÑÅ±•ùπîÄëÌô•…Õ—1•πïÙ∏ÅYï’•±±ïËÅµΩë•ô•ï»Å±ÑÅ≈’Öπ—•—îÅÕ’»Åçï——îÅ±•ùπîÅÖ‘Å±•ï‘ÅëîÅ∞ùÖ©Ω’—ï»Å’πîÅÕïçΩπëîÅôΩ•ÃπÄ∞(ÄÄÄÄÄÄÄÄÄÅÕ—Ωç≠}•—ïµ}•êËÅÕ—Ωç≠%—ïµ%ê∞(ÄÄÄÄÄÄÄÄÄÅô•…Õ—}±•πîËÅô•…Õ—1•πî∞(ÄÄÄÄÄÄÄÄÄÅë’¡±•çÖ—ï}±•πîËÅ•πëï‡Ä¨Äƒ∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅô•…Õ—1•πï	Â%—ïµ%êπÕï–°Õ—Ωç≠%—ïµ%ê∞Å•πëï‡Ä¨Äƒ§Ï(ÄÄÄÄÄÅçΩπÕ–Å•—ï¥ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅ•ê∞ÅπÖµî∞ÅÕ—Ö—’ÃÅI=4ÅÕ—Ωç≠}•—ïµÃÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÄÄÅmÕ—Ωç≠%—ïµ%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅçΩπÕ–Å•—ïµIΩ‹ÄÙÅ…ï≈’•…ïIΩ‹°•—ï¥π…Ω›Õl¡t∞ÅÅ…—•ç±îÅ±•ùπîÄëÌ•πëï‡Ä¨Ä≈ıÄ§Ï(ÄÄÄÄÄÅ•òÄ°•—ïµIΩ‹πÕ—Ö—’ÃÄÑÙÙÄùQ%Yú§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Å1•ùπîÄëÌ•πëï‡Ä¨Ä≈ÙËÅÖ…—•ç±îÅ•πÖç—•ôÄ§Ï(ÄÄÄÄÄÅπΩ…µÖ±•Èïêπ¡’Õ†°Ï(ÄÄÄÄÄÄÄÅÕ—Ωç≠}•—ïµ}•êËÅÕ—Ωç≠%—ïµ%ê∞(ÄÄÄÄÄÄÄÅ≈’Öπ—•—‰∞(ÄÄÄÄÄÄÄÅ’π•—}¡…•çîËÅ’π•—A…•çî∞(ÄÄÄÄÄÄÄÅ±•πï}—Ω—Ö∞ËÅ≈’Öπ—•—‰Ä®Å’π•—A…•çî∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅπΩ…µÖ±•ÈïêÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ…ïô…ïÕ°M—Ωç≠A’…ç°ÖÕïM—Ö—’Ã°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å¡’…ç°ÖÕï%êËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–Å±•πïÃÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ≈’Öπ—•—‰∞Å…ïçï•Ÿïë}≈’Öπ—•—‰ÅI=4ÅÕ—Ωç≠}¡’…ç°ÖÕï}±•πïÃ(ÄÄÄÄÄÄÅ]!IÅÕ—Ωç≠}¡’…ç°ÖÕï}•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm¡’…ç°ÖÕï%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å¡’…ç°ÖÕîÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ—Ω—Ö±}ÖµΩ’π–∞Å¡Ö•ë}ÖµΩ’π–∞Å…ïçï•Ÿïë}Ö–∞Å…ïçï•Ÿïë}â‰ÅI=4ÅÕ—Ωç≠}¡’…ç°ÖÕïÃ(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm¡’…ç°ÖÕï%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å¡’…ç°ÖÕïIΩ‹ÄÙÅ…ï≈’•…ïIΩ‹°¡’…ç°ÖÕîπ…Ω›Õl¡t∞ÄùM—Ωç¨Å¡’…ç°ÖÕîú§Ï(ÄÄÄÅçΩπÕ–Å—Ω—Ö±=…ëï…ïêÄÙÅ±•πïÃπ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å±•πî§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°±•πîπ≈’Öπ—•—‰Ä¸¸Ä¿§∞Ä¿§Ï(ÄÄÄÅçΩπÕ–Å—Ω—Ö±Iïçï•ŸïêÄÙÅ±•πïÃπ…Ω›Ãπ…ïë’çî†°Õ’¥∞Å±•πî§ÄÙ¯ÅÕ’¥Ä¨Å9’µâï»°±•πîπ…ïçï•Ÿïë}≈’Öπ—•—‰Ä¸¸Ä¿§∞Ä¿§Ï(ÄÄÄÅçΩπÕ–Å…ïçï¡—•ΩπM—Ö—’ÃÄÙÅ—Ω—Ö±Iïçï•ŸïêÄÙÄ¿Ä¸ÄùA9%9úÄËÅ—Ω—Ö±Iïçï•ŸïêÄ¯ÙÅ—Ω—Ö±=…ëï…ïêÄ¸ÄùI%YúÄËÄùAIQ%0úÏ(ÄÄÄÅçΩπÕ–ÅΩ’—Õ—Öπë•πùµΩ’π–ÄÙÅ5Ö—†πµÖ‡°9’µâï»°¡’…ç°ÖÕïIΩ‹π—Ω—Ö±}ÖµΩ’π–Ä¸¸Ä¿§Ä¥Å9’µâï»°¡’…ç°ÖÕïIΩ‹π¡Ö•ë}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§Ï(ÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—M—Ö—’ÃÄÙÅΩ’—Õ—Öπë•πùµΩ’π–ÄÙÄ¿ÄòòÅ9’µâï»°¡’…ç°ÖÕïIΩ‹π—Ω—Ö±}ÖµΩ’π–Ä¸¸Ä¿§Ä¯Ä¿Ä¸ÄùA%úÄËÅ9’µâï»°¡’…ç°ÖÕïIΩ‹π¡Ö•ë}ÖµΩ’π–Ä¸¸Ä¿§Ä¯Ä¿Ä¸ÄùAIQ%0úÄËÄùU9A%úÏ(ÄÄÄÅçΩπÕ–Å¡’…ç°ÖÕïM—Ö—’ÃÄÙÅ…ïçï¡—•ΩπM—Ö—’ÃÄÙÙÙÄùI%YúÄòòÅ¡ÖÂµïπ—M—Ö—’ÃÄÙÙÙÄùA%úÄ¸Äù1=MúÄËÄù=A8úÏ(ÄÄÄÅçΩπÕ–Å…ïçï•Ÿïë—YÖ±’îÄÙ(ÄÄÄÄÄÅ…ïçï¡—•ΩπM—Ö—’ÃÄÙÙÙÄùI%Yú(ÄÄÄÄÄÄÄÄ¸Å¡’…ç°ÖÕïIΩ‹π…ïçï•Ÿïë}Ö–Ä¸¸Åπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§(ÄÄÄÄÄÄÄÄËÅπ’±∞Ï(ÄÄÄÅçΩπÕ–Å…ïçï•Ÿïë	ÂYÖ±’îÄÙ(ÄÄÄÄÄÅ…ïçï¡—•ΩπM—Ö—’ÃÄÙÙÙÄùI%Yú(ÄÄÄÄÄÄÄÄ¸Å¡’…ç°ÖÕïIΩ‹π…ïçï•Ÿïë}â‰Ä¸¸Ä°—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Äƒ§(ÄÄÄÄÄÄÄÄËÅπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅÕ—Ωç≠}¡’…ç°ÖÕïÃ(ÄÄÄÄÄÄÅMPÅ…ïçï¡—•Ωπ}Õ—Ö—’ÃÄÙÄê»∞(ÄÄÄÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}Õ—Ö—’ÃÄÙÄêÃ∞(ÄÄÄÄÄÄÄÄÄÄÅΩ’—Õ—Öπë•πù}ÖµΩ’π–ÄÙÄê–∞(ÄÄÄÄÄÄÄÄÄÄÅ¡’…ç°ÖÕï}Õ—Ö—’ÃÄÙÄê‘∞(ÄÄÄÄÄÄÄÄÄÄÅ…ïçï•Ÿïë}Ö–ÄÙÄêÿ∞(ÄÄÄÄÄÄÄÄÄÄÅ…ïçï•Ÿïë}â‰ÄÙÄê‹∞(ÄÄÄÄÄÄÄÄÄÄÅ’¡ëÖ—ïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê‡(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ¡’…ç°ÖÕï%ê∞(ÄÄÄÄÄÄÄÅ…ïçï¡—•ΩπM—Ö—’Ã∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—M—Ö—’Ã∞(ÄÄÄÄÄÄÄÅΩ’—Õ—Öπë•πùµΩ’π–∞(ÄÄÄÄÄÄÄÅ¡’…ç°ÖÕïM—Ö—’Ã∞(ÄÄÄÄÄÄÄÅ…ïçï•Ÿïë—YÖ±’î∞(ÄÄÄÄÄÄÄÅ…ïçï•Ÿïë	ÂYÖ±’î∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡tÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—M’¡¡±•ï…Ωëî°ç±•ïπ–ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰°ÅM1PÅ¡ù}ÖëŸ•ÕΩ…Â}·Öç—}±Ωç¨°°ÖÕ°—ï·–†êƒ§•Ä∞ÅmÅÕ’¡¡±•ï»¥ëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ıÅt§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°5`°9U11%°…ïùï·¡}…ï¡±Öçî°Õ’¡¡±•ï…}çΩëî∞Äùmx¿¥Âtú∞Äúú∞Äùúú§∞Äúú§ËÈ%9P§∞Ä¿§Ä¨ÄƒÅLÅŸÖ±’î(ÄÄÄÄÄÄÅI=4ÅÕ’¡¡±•ï…Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê≈Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÅMU@¥ëÌM—…•πú°…Ω›Õl¡t¸πŸÖ±’îÄ¸¸Äƒ§π¡ÖëM—Ö…–†‘∞Äú¿ú•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ…ï≈’•…ïM’¡¡±•ï»°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅÕ’¡¡±•ï…%êËÅπ’µâï»§ÅÏ(ÄÄÄÅ•òÄ†ÖÕ’¡¡±•ï…%ê§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùMï±ïç—•ΩππïËÅ’∏ÅôΩ’…π•ÕÕï’»∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®(ÄÄÄÄÄÄÅI=4ÅÕ’¡¡±•ï…Ã(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U10Å9ÅÕ—Ö—’ÃÄÙÄùQ%YùÄ∞(ÄÄÄÄÄÅmÕ’¡¡±•ï…%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞ÄùM’¡¡±•ï»ú§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ…ïçï•ŸïM—Ωç≠A’…ç°ÖÕï%πQ…ÖπÕÖç—•Ω∏†(ÄÄÄÅç±•ïπ–ËÅAΩΩ±±•ïπ–∞(ÄÄÄÅ¡’…ç°ÖÕïIΩ‹ËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯∞(ÄÄÄÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞(ÄÄÄÅ±Ωç≠ïë1•πïÃ¸ËÅ……Ö‰ÒIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯¯∞(ÄÄ§ÅÏ(ÄÄÄÅ•òÄ°M—…•πú°¡’…ç°ÖÕïIΩ‹π…ïçï¡—•Ωπ}Õ—Ö—’ÃÄ¸¸Äúú§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄùI%Yú§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ùï–ÅÖç°Ö–ÅÑÅëï©ÑÅï—îÅ…ïçï¡—•Ωππîú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å¡’…ç°ÖÕï1•πïÃÄÙÅ±Ωç≠ïë1•πïÃ(ÄÄÄÄÄÄ¸ÅÏÅ…Ω›ÃËÅ±Ωç≠ïë1•πïÃÅÙ(ÄÄÄÄÄÄËÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÄÄÅÅM1PÅÕ¡∞∏®∞ÅÕ§ππÖµîÅLÅ•—ïµ}πÖµî(ÄÄÄÄÄÄÄÄÄÄÅI=4ÅÕ—Ωç≠}¡’…ç°ÖÕï}±•πïÃÅÕ¡∞(ÄÄÄÄÄÄÄÄÄÄÅ)=%8ÅÕ—Ωç≠}•—ïµÃÅÕ§Å=8ÅÕ§π•êÄÙÅÕ¡∞πÕ—Ωç≠}•—ïµ}•ê(ÄÄÄÄÄÄÄÄÄÄÅ]!IÅÕ¡∞πÕ—Ωç≠}¡’…ç°ÖÕï}•êÄÙÄêƒÅ9ÅÕ¡∞πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9ÅÕ¡∞πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÅ=IHÅ	dÅÕ¡∞π•ê(ÄÄÄÄÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÄÄÄÄÅm¡’…ç°ÖÕïIΩ‹π•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å±•πïÃÄÙÅ……Ö‰π•Õ……Ö‰°âΩë‰π±•πïÃ§Ä¸Ä°âΩë‰π±•πïÃÅÖÃÅ……Ö‰ÒIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯¯§ÄËÅmtÏ(ÄÄÄÅçΩπÕ–Å±•πïÕ	Â%êÄÙÅπï‹Å5Ö¿Òπ’µâï»∞ÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯¯°¡’…ç°ÖÕï1•πïÃπ…Ω›ÃπµÖ¿†°±•πî§ÄÙ¯Åm9’µâï»°±•πîπ•ê§∞Å±•πït§§Ï(ÄÄÄÅçΩπÕ–Å…ïçï•¡—9’µâï»ÄÙÅÖ›Ö•–Å—°•Ãππï·—M—Ωç≠Iïçï•¡—9’µâï»°ç±•ïπ–§Ï(ÄÄÄÅçΩπÕ–Å…ïçï•¡–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÕ—Ωç≠}¡’…ç°ÖÕï}…ïçï•¡—Ã(ÄÄÄÄÄÄÄ°Õ—Ωç≠}¡’…ç°ÖÕï}•ê∞Å…ïçï•¡—}π’µâï»∞Å…ïçï•¡—}ëÖ—î∞Å…ïçï•Ÿï…}πÖµî∞ÅÕ—Ω…î∞ÅπΩ—ïÃ∞Åç…ïÖ—ïë}â‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞Äê‡§(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ¡’…ç°ÖÕïIΩ‹π•ê∞(ÄÄÄÄÄÄÄÅ…ïçï•¡—9’µâï»∞(ÄÄÄÄÄÄÄÅâΩë‰π…ïçï•¡—}ëÖ—îÄ¸¸Åπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§∞(ÄÄÄÄÄÄÄÅâΩë‰π…ïçï•Ÿï…}πÖµîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰πÕ—Ω…îÄ¸¸Å¡’…ç°ÖÕïIΩ‹πÕ—Ω…îÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰ππΩ—ïÃÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Äƒ∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï((ÄÄÄÅôΩ»Ä°±ï–Å•πëï‡ÄÙÄ¿ÏÅ•πëï‡ÄÅ±•πïÃπ±ïπù—†ÏÅ•πëï‡Ä¨ÙÄƒ§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åïπ—…‰ÄÙÅ±•πïÕm•πëï·tÏ(ÄÄÄÄÄÅçΩπÕ–Å¡’…ç°ÖÕï1•πï%êÄÙÅ9’µâï»°ïπ—…‰πÕ—Ωç≠}¡’…ç°ÖÕï}±•πï}•êÄ¸¸Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å≈’Öπ—•—ÂIïçï•ŸïêÄÙÅ9’µâï»°ïπ—…‰π≈’Öπ—•—Â}…ïçï•ŸïêÄ¸¸Ä¿§Ï(ÄÄÄÄÄÅ•òÄ†Ö¡’…ç°ÖÕï1•πï%êÅÒÅ≈’Öπ—•—ÂIïçï•ŸïêÄÙÄ¿§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Å1•ùπîÄëÌ•πëï‡Ä¨Ä≈ÙËÅ≈’Öπ—•—îÅ…ïç’îÅ•πŸÖ±•ëïÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅçΩπÕ–Å¡’…ç°ÖÕï1•πîÄÙÅ±•πïÕ	Â%êπùï–°¡’…ç°ÖÕï1•πï%ê§Ï(ÄÄÄÄÄÅ•òÄ†Ö¡’…ç°ÖÕï1•πî§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Å1•ùπîÄëÌ•πëï‡Ä¨Ä≈ÙËÅÖ…—•ç±îÅÖç°Ö–Å•π—…Ω’ŸÖâ±ïÄ§Ï(ÄÄÄÄÄÅçΩπÕ–Å…ïµÖ•π•πúÄÙÅ9’µâï»°¡’…ç°ÖÕï1•πîπ≈’Öπ—•—‰§Ä¥Å9’µâï»°¡’…ç°ÖÕï1•πîπ…ïçï•Ÿïë}≈’Öπ—•—‰Ä¸¸Ä¿§Ï(ÄÄÄÄÄÅ•òÄ°≈’Öπ—•—ÂIïçï•ŸïêÄ¯Å…ïµÖ•π•πú§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Å1•ùπîÄëÌ•πëï‡Ä¨Ä≈ÙËÅ≈’Öπ—•—îÅ…ïç’îÅÕ’¡ï…•ï’…îÅÖ‘Å…ïÕ—îÅÑÅ…ïçïŸΩ•»Ä†ëÌ…ïµÖ•π•πùÙ•Ä§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÕ—Ωç≠}¡’…ç°ÖÕï}…ïçï•¡—}±•πïÃ(ÄÄÄÄÄÄÄÄÄ°Õ—Ωç≠}¡’…ç°ÖÕï}…ïçï•¡—}•ê∞ÅÕ—Ωç≠}¡’…ç°ÖÕï}±•πï}•ê∞ÅÕ—Ωç≠}•—ïµ}•ê∞Å≈’Öπ—•—Â}…ïçï•Ÿïê∞Å’π•—}¡…•çî∞Å±•πï}—Ω—Ö∞∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹•Ä∞(ÄÄÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÄÄÅ…ïçï•¡–π…Ω›Õl¡tπ•ê∞(ÄÄÄÄÄÄÄÄÄÅ¡’…ç°ÖÕï1•πï%ê∞(ÄÄÄÄÄÄÄÄÄÅ¡’…ç°ÖÕï1•πîπÕ—Ωç≠}•—ïµ}•ê∞(ÄÄÄÄÄÄÄÄÄÅ≈’Öπ—•—ÂIïçï•Ÿïê∞(ÄÄÄÄÄÄÄÄÄÅ¡’…ç°ÖÕï1•πîπ’π•—}¡…•çî∞(ÄÄÄÄÄÄÄÄÄÅ≈’Öπ—•—ÂIïçï•ŸïêÄ®Å9’µâï»°¡’…ç°ÖÕï1•πîπ’π•—}¡…•çîÄ¸¸Ä¿§∞(ÄÄÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅt∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅUAQÅÕ—Ωç≠}¡’…ç°ÖÕï}±•πïÃ(ÄÄÄÄÄÄÄÄÅMPÅ…ïçï•Ÿïë}≈’Öπ—•—‰ÄÙÅ…ïçï•Ÿïë}≈’Öπ—•—‰Ä¨ÄêÃ∞Å’¡ëÖ—ïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅÕ—Ωç≠}¡’…ç°ÖÕï}•êÄÙÄê»Å9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê—Ä∞(ÄÄÄÄÄÄÄÅm¡’…ç°ÖÕï1•πï%ê∞Å¡’…ç°ÖÕïIΩ‹π•ê∞Å≈’Öπ—•—ÂIïçï•Ÿïê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÖ›Ö•–Å—°•Ãπç…ïÖ—ïM—Ωç≠5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÄÄÅÕ—Ωç≠}•—ïµ}•êËÅ¡’…ç°ÖÕï1•πîπÕ—Ωç≠}•—ïµ}•ê∞(ÄÄÄÄÄÄÄÅ—Â¡îËÄù%8ú∞(ÄÄÄÄÄÄÄÅ≈’Öπ—•—‰ËÅ≈’Öπ—•—ÂIïçï•Ÿïê∞(ÄÄÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—îËÅ…ïçï•¡–π…Ω›Õl¡tπ…ïçï•¡—}ëÖ—î∞(ÄÄÄÄÄÄÄÅÕΩ’…çîËÄùAUI!M}I%APú∞(ÄÄÄÄÄÄÄÅ…ïôï…ïπçîËÅ…ïçï•¡—9’µâï»∞(ÄÄÄÄÄÄÄÅπΩ—ïÃËÅâΩë‰ππΩ—ïÃÄ¸¸ÅÅIïçï¡—•Ω∏ÅÖç°Ö–ÄëÌ¡’…ç°ÖÕïIΩ‹π¡’…ç°ÖÕï}π’µâï…ıÄ∞(ÄÄÄÄÄÄÄÅ’π•—}¡…•çîËÅ9’µâï»°¡’…ç°ÖÕï1•πîπ’π•—}¡…•çîÄ¸¸Ä¿§∞(ÄÄÄÄÄÄÄÅÕ—Ωç≠}¡’…ç°ÖÕï}•êËÅ¡’…ç°ÖÕïIΩ‹π•ê∞(ÄÄÄÄÄÄÄÅÕ—Ωç≠}¡’…ç°ÖÕï}…ïçï•¡—}•êËÅ…ïçï•¡–π…Ω›Õl¡tπ•ê∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ((ÄÄÄÅÖ›Ö•–Å—°•Ãπ…ïô…ïÕ°M—Ωç≠A’…ç°ÖÕïM—Ö—’Ã°ç±•ïπ–∞Å9’µâï»°¡’…ç°ÖÕïIΩ‹π•ê§§Ï(ÄÄÄÅÖ›Ö•–Å—°•ÃπÖëëM—Ωç≠A’…ç°ÖÕïQ•µï±•πî°ç±•ïπ–∞Å9’µâï»°¡’…ç°ÖÕïIΩ‹π•ê§∞ÄùI%APú∞ÄùIïçï¡—•Ω∏ÅëîÅµÖ…ç°Öπë•ÕïÃú∞ÅÅ	Ω∏ÄëÌ…ïçï•¡—9’µâï…ÙÅïπ…ïù•Õ—…ïÄ§Ï(ÄÄÄÅ…ï—’…∏Å…ïçï•¡–π…Ω›Õl¡tÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅŸÖ±•ëÖ—ïA’…ç°ÖÕï——Öç°µïπ—•±î°ô•±îËÅÏÅµ•µï—Â¡îËÅÕ—…•πúÏÅÕ•ÈîËÅπ’µâï»ÅÙ§ÅÏ(ÄÄÄÅ•òÄ°9’µâï»°ô•±îπÕ•ÈîÄ¸¸Ä¿§Ä¯Äƒ¿Ä®Äƒ¿»–Ä®Äƒ¿»–§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅô•ç°•ï»ÅπîÅ¡ï’–Å¡ÖÃÅëï¡ÖÕÕï»Äƒ¿Å5ºú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Åµ•µïQÂ¡îÄÙÅM—…•πú°ô•±îπµ•µï—Â¡îÄ¸¸Äúú§π—Ω1Ω›ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ†Ö—°•ÃπÖ±±Ω›ïëA’…ç°ÖÕï——Öç°µïπ—5•µïQÂ¡ïÃπ°ÖÃ°µ•µïQÂ¡î§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùΩ…µÖ–ÅëîÅô•ç°•ï»ÅπΩ∏ÅÖ’—Ω…•Õîú§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ¡’…ç°ÖÕï——Öç°µïπ—M—Ω…ÖùïAÖ—†°¡’…ç°ÖÕï%êËÅπ’µâï»∞Åô•±ï9ÖµîËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–Å—•µïÕ—Öµ¿ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§π…ï¡±Öçî†Ωl¥ÈtΩú∞Äúú§π…ï¡±Öçî†ΩpπqëÏÕıhêº∞Äùhú§Ï(ÄÄÄÅ…ï—’…∏ÅÅ¡’…ç°ÖÕïÃºëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙºëÌ¡’…ç°ÖÕï%ëÙºëÌ—•µïÕ—Öµ¡Ù¥ëÌ—°•ÃπÕÖπ•—•ÈïM—Ω…Öùï•±ï9Öµî°ô•±ï9Öµî•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ’¡±ΩÖëA’…ç°ÖÕï——Öç°µïπ—QΩM—Ω…Öùî°Õ—Ω…ÖùïAÖ—†ËÅÕ—…•πú∞Åô•±îËÅÏÅµ•µï—Â¡îËÅÕ—…•πúÏÅâ’ôôï»ËÅ	’ôôï»ÅÙ§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅÕ’¡ÖâÖÕïU…∞∞ÅÕï…Ÿ•çïIΩ±ï-ï‰ÅÙÄÙÅ—°•ÃπÕ—Ω…ÖùïΩπô•ú†§Ï(ÄÄÄÅçΩπÕ–Å…ïÕ¡ΩπÕîÄÙÅÖ›Ö•–Åôï—ç†°ÄëÌÕ’¡ÖâÖÕïU…±ÙΩÕ—Ω…ÖùîΩÿƒΩΩâ©ïç–ºëÌ—°•Ãπ¡’…ç°ÖÕï——Öç°µïπ—M—Ω…Öùï	’ç≠ï—ÙºëÌ—°•ÃπïπçΩëïM—Ω…ÖùïAÖ—†°Õ—Ω…ÖùïAÖ—†•ıÄ∞ÅÏ(ÄÄÄÄÄÅµï—°ΩêËÄùA=MPú∞(ÄÄÄÄÄÅ°ïÖëï…ÃËÅÏ(ÄÄÄÄÄÄÄÅ’—°Ω…•ÈÖ—•Ω∏ËÅÅ	ïÖ…ï»ÄëÌÕï…Ÿ•çïIΩ±ï-ïÂıÄ∞(ÄÄÄÄÄÄÄÅÖ¡•≠ï‰ËÅÕï…Ÿ•çïIΩ±ï-ï‰∞(ÄÄÄÄÄÄÄÄù‡µ’¡Õï…–úËÄùôÖ±Õîú∞(ÄÄÄÄÄÄÄÄùçΩπ—ïπ–µ—Â¡îúËÅô•±îπµ•µï—Â¡î∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅâΩë‰ËÅô•±îπâ’ôôï»πâ’ôôï»πÕ±•çî°ô•±îπâ’ôôï»πâÂ—ï=ôôÕï–∞Åô•±îπâ’ôôï»πâÂ—ï=ôôÕï–Ä¨Åô•±îπâ’ôôï»πâÂ—ï1ïπù—†§ÅÖÃÅ……ÖÂ	’ôôï»∞(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†Ö…ïÕ¡ΩπÕîπΩ¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åëï—Ö•±ÃÄÙÅÖ›Ö•–Å…ïÕ¡ΩπÕîπ—ï·–†§Ï(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°ëï—Ö•±ÃÅÒÅÅ%µ¡ΩÕÕ•â±îÅëîÅ—ï±ïŸï…Õï»Å±ÑÅ¡•ïçîÅ©Ω•π—îÄ†ëÌ…ïÕ¡ΩπÕîπÕ—Ö—’ÕÙ•Ä§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅëï±ï—ïA’…ç°ÖÕï——Öç°µïπ—M—Ω…Öùî°Õ—Ω…ÖùïAÖ—†ËÅÕ—…•πú§ÅÏ(ÄÄÄÅ•òÄ†Ö—°•Ãπ°ÖÕM—Ω…ÖùïΩπô•ú†§§Å…ï—’…∏Ï(ÄÄÄÅçΩπÕ–ÅÏÅÕ’¡ÖâÖÕïU…∞∞ÅÕï…Ÿ•çïIΩ±ï-ï‰ÅÙÄÙÅ—°•ÃπÕ—Ω…ÖùïΩπô•ú†§Ï(ÄÄÄÅçΩπÕ–Å…ïÕ¡ΩπÕîÄÙÅÖ›Ö•–Åôï—ç†°ÄëÌÕ’¡ÖâÖÕïU…±ÙΩÕ—Ω…ÖùîΩÿƒΩΩâ©ïç–ºëÌ—°•Ãπ¡’…ç°ÖÕï——Öç°µïπ—M—Ω…Öùï	’ç≠ï—ÙºëÌ—°•ÃπïπçΩëïM—Ω…ÖùïAÖ—†°Õ—Ω…ÖùïAÖ—†•ıÄ∞ÅÏ(ÄÄÄÄÄÅµï—°ΩêËÄù1Qú∞(ÄÄÄÄÄÅ°ïÖëï…ÃËÅÏ(ÄÄÄÄÄÄÄÅ’—°Ω…•ÈÖ—•Ω∏ËÅÅ	ïÖ…ï»ÄëÌÕï…Ÿ•çïIΩ±ï-ïÂıÄ∞(ÄÄÄÄÄÄÄÅÖ¡•≠ï‰ËÅÕï…Ÿ•çïIΩ±ï-ï‰∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†Ö…ïÕ¡ΩπÕîπΩ¨ÄòòÅ…ïÕ¡ΩπÕîπÕ—Ö—’ÃÄÑÙÙÄ–¿–§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åëï—Ö•±ÃÄÙÅÖ›Ö•–Å…ïÕ¡ΩπÕîπ—ï·–†§Ï(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°ëï—Ö•±ÃÅÒÅÅ%µ¡ΩÕÕ•â±îÅëîÅÕ’¡¡…•µï»Å±ÑÅ¡•ïçîÅ©Ω•π—îÄ†ëÌ…ïÕ¡ΩπÕîπÕ—Ö—’ÕÙ•Ä§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅëΩ›π±ΩÖëA’…ç°ÖÕï——Öç°µïπ—M—Ω…Öùî°Õ—Ω…ÖùïAÖ—†ËÅÕ—…•πú∞Åô•±ï9ÖµîËÅÕ—…•πú∞Åµ•µïQÂ¡îËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅÕ’¡ÖâÖÕïU…∞∞ÅÕï…Ÿ•çïIΩ±ï-ï‰ÅÙÄÙÅ—°•ÃπÕ—Ω…ÖùïΩπô•ú†§Ï(ÄÄÄÅçΩπÕ–Å…ïÕ¡ΩπÕîÄÙÅÖ›Ö•–Åôï—ç†°ÄëÌÕ’¡ÖâÖÕïU…±ÙΩÕ—Ω…ÖùîΩÿƒΩΩâ©ïç–ºëÌ—°•Ãπ¡’…ç°ÖÕï——Öç°µïπ—M—Ω…Öùï	’ç≠ï—ÙºëÌ—°•ÃπïπçΩëïM—Ω…ÖùïAÖ—†°Õ—Ω…ÖùïAÖ—†•ıÄ∞ÅÏ(ÄÄÄÄÄÅ°ïÖëï…ÃËÅÏ(ÄÄÄÄÄÄÄÅ’—°Ω…•ÈÖ—•Ω∏ËÅÅ	ïÖ…ï»ÄëÌÕï…Ÿ•çïIΩ±ï-ïÂıÄ∞(ÄÄÄÄÄÄÄÅÖ¡•≠ï‰ËÅÕï…Ÿ•çïIΩ±ï-ï‰∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†Ö…ïÕ¡ΩπÕîπΩ¨§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°ÅA•ïçîÅ©Ω•π—îÅ•π—…Ω’ŸÖâ±îÄ†ëÌ…ïÕ¡ΩπÕîπÕ—Ö—’ÕÙ•Ä§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅâ’ôôï»ËÅ	’ôôï»πô…Ω¥°Ö›Ö•–Å…ïÕ¡ΩπÕîπÖ……ÖÂ	’ôôï»†§§∞(ÄÄÄÄÄÅµ•µïQÂ¡îËÅ…ïÕ¡ΩπÕîπ°ïÖëï…Ãπùï–†ùçΩπ—ïπ–µ—Â¡îú§Ä¸¸Åµ•µïQÂ¡îÄ¸¸ÄùÖ¡¡±•çÖ—•Ω∏ΩΩç—ï–µÕ—…ïÖ¥ú∞(ÄÄÄÄÄÅëΩ›π±ΩÖë9ÖµîËÅô•±ï9Öµî∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÖëëM—Ωç≠A’…ç°ÖÕïQ•µï±•πî°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å¡’…ç°ÖÕï%êËÅπ’µâï»∞ÅïŸïπ—QÂ¡îËÅÕ—…•πú∞Å—•—±îËÅÕ—…•πú∞Åëï—Ö•±Ã¸ËÅÕ—…•πú§ÅÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÕ—Ωç≠}¡’…ç°ÖÕï}—•µï±•πî(ÄÄÄÄÄÄÄ°Õ—Ωç≠}¡’…ç°ÖÕï}•ê∞ÅïŸïπ—}—Â¡î∞Å—•—±î∞Åëï—Ö•±Ã∞Åç…ïÖ—ïë}â‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ•Ä∞(ÄÄÄÄÄÅm¡’…ç°ÖÕï%ê∞ÅïŸïπ—QÂ¡î∞Å—•—±î∞Åëï—Ö•±ÃÄ¸¸Åπ’±∞∞Å—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Äƒ∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ…ïçΩ…ëM—Ωç≠A’…ç°ÖÕïAÖÂµïπ—%πQ…ÖπÕÖç—•Ω∏†(ÄÄÄÅç±•ïπ–ËÅAΩΩ±±•ïπ–∞(ÄÄÄÅ¡’…ç°ÖÕï%êËÅπ’µâï»∞(ÄÄÄÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞(ÄÄÄÅ…ïô…ïÕ°M—Ö—’ÃÄÙÅ—…’î∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–Å¡’…ç°ÖÕîÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®ÅI=4ÅÕ—Ωç≠}¡’…ç°ÖÕïÃ(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=HÅUAQÄ∞(ÄÄÄÄÄÅm¡’…ç°ÖÕï%ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å¡’…ç°ÖÕïIΩ‹ÄÙÅ…ï≈’•…ïIΩ‹°¡’…ç°ÖÕîπ…Ω›Õl¡t∞ÄùM—Ωç¨Å¡’…ç°ÖÕîú§Ï(ÄÄÄÅçΩπÕ–ÅÖµΩ’π–ÄÙÅ9’µâï»°âΩë‰πÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅ•òÄ°ÖµΩ’π–ÄÙÄ¿§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅµΩπ—Öπ–Åë‘Å¡Ö•ïµïπ–ÅôΩ’…π•ÕÕï’»ÅëΩ•–Åï—…îÅ¡ΩÕ•—•òú§Ï(ÄÄÄÅçΩπÕ–ÅΩ’—Õ—Öπë•πúÄÙÅ5Ö—†πµÖ‡°9’µâï»°¡’…ç°ÖÕïIΩ‹π—Ω—Ö±}ÖµΩ’π–Ä¸¸Ä¿§Ä¥Å9’µâï»°¡’…ç°ÖÕïIΩ‹π¡Ö•ë}ÖµΩ’π–Ä¸¸Ä¿§∞Ä¿§Ï(ÄÄÄÅ•òÄ°ÖµΩ’π–Ä¯ÅΩ’—Õ—Öπë•πú§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Å1îÅ¡Ö•ïµïπ–Åëï¡ÖÕÕîÅ±îÅÕΩ±ëîÅ…ïÕ—Öπ–Ä†ëÌΩ’—Õ—Öπë•πúπ—Ω•·ïê†»•ÙÅUM•Ä§Ï(ÄÄÄÅçΩπÕ–ÅçÖÕ°5ΩŸïµïπ–ÄÙÅÖ›Ö•–Å—°•Ãπç…ïÖ—ïÖÕ°5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞ÅÏ(ÄÄÄÄÄÅ—Â¡îËÄù=UPú∞(ÄÄÄÄÄÅçÖ—ïùΩ…‰ËÄùMQ=-}AUI!Mú∞(ÄÄÄÄÄÅÖµΩ’π–∞(ÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—îËÅâΩë‰π¡ÖÂµïπ—}ëÖ—îÄ¸¸Åπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§∞(ÄÄÄÄÄÅÕ’¡¡±•ï»ËÅ¡’…ç°ÖÕïIΩ‹πÕ’¡¡±•ï…}πÖµî∞(ÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÅâΩë‰ππΩ—ïÃÄ¸¸ÅÅAÖ•ïµïπ–ÅôΩ’…π•ÕÕï’»ÄëÌ¡’…ç°ÖÕïIΩ‹π¡’…ç°ÖÕï}π’µâï…ıÄ∞(ÄÄÄÄÄÅ±Öâï∞ËÅÅç°Ö–ÅÕ—Ωç¨ÄëÌ¡’…ç°ÖÕïIΩ‹π¡’…ç°ÖÕï}π’µâï…ıÄ∞(ÄÄÄÄÄÅ…ïôï…ïπçîËÅâΩë‰π…ïôï…ïπçîÄ¸¸Å¡’…ç°ÖÕïIΩ‹π¡’…ç°ÖÕï}π’µâï»∞(ÄÄÄÄÄÅÕ—Ωç≠}¡’…ç°ÖÕï}•êËÅ¡’…ç°ÖÕï%ê∞(ÄÄÄÅÙ§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÕ—Ωç≠}¡’…ç°ÖÕï}¡ÖÂµïπ—Ã(ÄÄÄÄÄÄÄ°Õ—Ωç≠}¡’…ç°ÖÕï}•ê∞Å¡ÖÂµïπ—}ëÖ—î∞ÅÖµΩ’π–∞Å¡ÖÂµïπ—}µï—°Ωê∞Å…ïôï…ïπçî∞ÅπΩ—ïÃ∞ÅçÖÕ°}µΩŸïµïπ—}•ê∞Åç…ïÖ—ïë}â‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞Äê‡∞Äê‰§(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ¡’…ç°ÖÕï%ê∞(ÄÄÄÄÄÄÄÅâΩë‰π¡ÖÂµïπ—}ëÖ—îÄ¸¸Åπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§∞(ÄÄÄÄÄÄÄÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÅâΩë‰π¡ÖÂµïπ—}µï—°ΩêÄ¸¸Å¡’…ç°ÖÕïIΩ‹π¡ÖÂµïπ—}µï—°ΩêÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰π…ïôï…ïπçîÄ¸¸Å¡’…ç°ÖÕïIΩ‹π¡’…ç°ÖÕï}π’µâï»∞(ÄÄÄÄÄÄÄÅâΩë‰ππΩ—ïÃÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅçÖÕ°5ΩŸïµïπ–π•ê∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Äƒ∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅÕ—Ωç≠}¡’…ç°ÖÕïÃ(ÄÄÄÄÄÄÅMPÅ¡Ö•ë}ÖµΩ’π–ÄÙÅ¡Ö•ë}ÖµΩ’π–Ä¨Äê»∞(ÄÄÄÄÄÄÄÄÄÄÅ’¡ëÖ—ïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêÕÄ∞(ÄÄÄÄÄÅm¡’…ç°ÖÕï%ê∞ÅÖµΩ’π–∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°…ïô…ïÕ°M—Ö—’Ã§ÅÏ(ÄÄÄÄÄÅÖ›Ö•–Å—°•Ãπ…ïô…ïÕ°M—Ωç≠A’…ç°ÖÕïM—Ö—’Ã°ç±•ïπ–∞Å¡’…ç°ÖÕï%ê§Ï(ÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÅçΩπÕ–Å¡Ö•ëµΩ’π–ÄÙÅ9’µâï»°¡’…ç°ÖÕïIΩ‹π¡Ö•ë}ÖµΩ’π–Ä¸¸Ä¿§Ä¨ÅÖµΩ’π–Ï(ÄÄÄÄÄÅçΩπÕ–ÅΩ’—Õ—Öπë•πùµΩ’π–ÄÙÅ5Ö—†πµÖ‡°9’µâï»°¡’…ç°ÖÕïIΩ‹π—Ω—Ö±}ÖµΩ’π–Ä¸¸Ä¿§Ä¥Å¡Ö•ëµΩ’π–∞Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡ÖÂµïπ—M—Ö—’ÃÄÙÅΩ’—Õ—Öπë•πùµΩ’π–ÄÙÄ¿ÄòòÅ9’µâï»°¡’…ç°ÖÕïIΩ‹π—Ω—Ö±}ÖµΩ’π–Ä¸¸Ä¿§Ä¯Ä¿Ä¸ÄùA%úÄËÅ¡Ö•ëµΩ’π–Ä¯Ä¿Ä¸ÄùAIQ%0úÄËÄùU9A%úÏ(ÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅUAQÅÕ—Ωç≠}¡’…ç°ÖÕïÃ(ÄÄÄÄÄÄÄÄÅMPÅ¡ÖÂµïπ—}Õ—Ö—’ÃÄÙÄê»∞ÅΩ’—Õ—Öπë•πù}ÖµΩ’π–ÄÙÄêÃ∞Å’¡ëÖ—ïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê—Ä∞(ÄÄÄÄÄÄÄÅm¡’…ç°ÖÕï%ê∞Å¡ÖÂµïπ—M—Ö—’Ã∞ÅΩ’—Õ—Öπë•πùµΩ’π–∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÏÄ∏∏π…Ω›Õl¡t∞ÅçÖÕ°}µΩŸïµïπ—}•êËÅçÖÕ°5ΩŸïµïπ–π•êÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•ÈïYÖ…•Öâ±ïÃ°ŸÖ±’îËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅ•òÄ°……Ö‰π•Õ……Ö‰°ŸÖ±’î§§Å…ï—’…∏Å)M=8πÕ—…•πù•ô‰°ŸÖ±’î§Ï(ÄÄÄÅ•òÄ°—Â¡ïΩòÅŸÖ±’îÄÙÙÙÄùÕ—…•πúú§ÅÏ(ÄÄÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å¡Ö…ÕïêÄÙÅ)M=8π¡Ö…Õî°ŸÖ±’î§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Å)M=8πÕ—…•πù•ô‰°……Ö‰π•Õ……Ö‰°¡Ö…Õïê§Ä¸Å¡Ö…ÕïêÄËÅmt§Ï(ÄÄÄÄÄÅÙÅçÖ—ç†ÅÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏Å)M=8πÕ—…•πù•ô‰°ŸÖ±’îπÕ¡±•–†ú∞ú§πµÖ¿†°•—ï¥§ÄÙ¯Å•—ï¥π—…•¥†§§πô•±—ï»°	ΩΩ±ïÖ∏§§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å)M=8πÕ—…•πù•ô‰°mt§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅΩâ©ïç—YÖ±’î°ŸÖ±’îËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅ•òÄ†ÖŸÖ±’î§Å…ï—’…∏ÅÌÙÏ(ÄÄÄÅ•òÄ°—Â¡ïΩòÅŸÖ±’îÄÙÙÙÄùÕ—…•πúú§ÅÏ(ÄÄÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏Å)M=8π¡Ö…Õî°ŸÖ±’î§ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯Ï(ÄÄÄÄÄÅÙÅçÖ—ç†ÅÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÌÙÏ(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°—Â¡ïΩòÅŸÖ±’îÄÙÙÙÄùΩâ©ïç–ú§Å…ï—’…∏ÅŸÖ±’îÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯Ï(ÄÄÄÅ…ï—’…∏ÅÌÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ±ΩùQÖâ±ïΩ»°ç°Öππï∞ËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÅç°Öππï∞π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ°≠ï‰ÄÙÙÙÄù5%0ú§Å…ï—’…∏ÄùïµÖ•±}±ΩùÃúÏ(ÄÄÄÅ•òÄ°≠ï‰ÄÙÙÙÄùM5Lú§Å…ï—’…∏ÄùÕµÕ}±ΩùÃúÏ(ÄÄÄÅ•òÄ°≠ï‰ÄÙÙÙÄù]!QMA@ú§Å…ï—’…∏Äù›°Ö—ÕÖ¡¡}±ΩùÃúÏ(ÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùÖπÖ∞ÅπΩ∏ÅÕ’¡¡Ω…—îú§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÖç—•ŸïQïµ¡±Ö—î°çΩëîËÅÕ—…•πú∞Åç°Öππï∞ËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®ÅI=4ÅµïÕÕÖùï}—ïµ¡±Ö—ïÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10Å9ÅÕ—Ö—’ÃÄÙÄùQ%YúÅ9ÅçΩëîÄÙÄê»Å9Åç°Öππï∞ÄÙÄêÕÄ∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅçΩëî∞Åç°Öππï∞π—ΩU¡¡ï…ÖÕî†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞Äù5ïÕÕÖùîÅ—ïµ¡±Ö—îú§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ…ïπëï…Qïµ¡±Ö—î°—ïµ¡±Ö—îËÅÕ—…•πú∞ÅŸÖ…•Öâ±ïÃËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅ…ï—’…∏Å—ïµ¡±Ö—îπ…ï¡±Öçî†ΩqÌqÌqÃ®°mÑµÈµh¿¥Â}t¨•qÃ©qıqÙΩú∞Ä°|∞Å≠ï‰§ÄÙ¯ÅM—…•πú°ŸÖ…•Öâ±ïÕm≠ïÂtÄ¸¸Äúú§§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•Èï1ïÖÕïAÖÂ±ΩÖê°âΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞ÅΩ¡—•ΩπÃ¸ËÅÏÅ…ï≈’•…ï	’Õ•πïÕÕç—•Ÿ•—‰¸ËÅâΩΩ±ïÖ∏ÏÅôΩ…çï%π•—•Ö±’Ö…Öπ—ïïUπ¡Ö•ê¸ËÅâΩΩ±ïÖ∏ÅÙ§ÅÏ(ÄÄÄÅçΩπÕ–Å—ïπÖπ—%êÄÙÅ9’µâï»°âΩë‰π—ïπÖπ—}•êÄ¸¸ÅâΩë‰π—ïπÖπ—%êÄ¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å’π•—%êÄÙÅ9’µâï»°âΩë‰π’π•—}•êÄ¸¸ÅâΩë‰π’π•—%êÄ¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ö…—Ö—îÄÙÅ—°•ÃππΩ…µÖ±•Èï1ïÖÕïAÖÂ±ΩÖëÖ—î°âΩë‰πÕ—Ö…—}ëÖ—î∞ÄùÕ—Ö…—}ëÖ—îú∞Å—…’î§Ï(ÄÄÄÅçΩπÕ–ÅïπëÖ—ïYÖ±’îÄÙÅ—°•ÃππΩ…µÖ±•Èï1ïÖÕïAÖÂ±ΩÖëÖ—î°âΩë‰πïπë}ëÖ—î∞Äùïπë}ëÖ—îú§Ï(ÄÄÄÅ•òÄ†Ö—ïπÖπ—%ê§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1ΩçÖ—Ö•…îÅ…ï≈’•Ãú§Ï(ÄÄÄÅ•òÄ†Ö’π•—%ê§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùUπ•—îÅ…ï≈’•Õîú§Ï(ÄÄÄÅ•òÄ†ÖÕ—Ö…—Ö—î§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùÖ—îÅëîÅëïâ’–Å…ï≈’•Õîú§Ï((ÄÄÄÅçΩπÕ–ÅµΩπ—°±ÂIïπ–ÄÙÅ9’µâï»°âΩë‰πµΩπ—°±Â}…ïπ–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅµÖ•π—ïπÖπçïïïµΩ’π–ÄÙÅ9’µâï»°âΩë‰πµÖ•π—ïπÖπçï}ôïï}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅµΩπ—°±ÂMÂπë•çµΩ’π–ÄÙÅ9’µâï»°âΩë‰πµΩπ—°±Â}ÕÂπë•ç}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅΩ—°ï…°Ö…ùïÕµΩ’π–ÄÙÅ9’µâï»°âΩë‰πΩ—°ï…}ç°Ö…ùïÕ}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïï5Ωπ—°ÃÄÙÅ9’µâï»°âΩë‰πù’Ö…Öπ—ïï}µΩπ—°ÃÄ¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å…ïπ—’Ö…Öπ—ïï	ÖÕïµΩ’π–ÄÙÅµΩπ—°±ÂIïπ–Ä¨ÅµÖ•π—ïπÖπçïïïµΩ’π–Ï(ÄÄÄÅçΩπÕ–Å±ïÖÕïQΩ—Ö±µΩ’π–ÄÙÅµΩπ—°±ÂIïπ–Ä¨ÅµÖ•π—ïπÖπçïïïµΩ’π–Ä¨ÅµΩπ—°±ÂMÂπë•çµΩ’π–Ä¨ÅΩ—°ï…°Ö…ùïÕµΩ’π–Ï(ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïïµΩ’π–ÄÙÅ…ïπ—’Ö…Öπ—ïï	ÖÕïµΩ’π–Ä®Åù’Ö…Öπ—ïï5Ωπ—°ÃÏ(ÄÄÄÅçΩπÕ–ÅôΩ…çï%π•—•Ö±’Ö…Öπ—ïïUπ¡Ö•êÄÙÅΩ¡—•ΩπÃ¸πôΩ…çï%π•—•Ö±’Ö…Öπ—ïïUπ¡Ö•êÄÙÙÙÅ—…’îÏ(ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïïAÖ•êÄÙÅôΩ…çï%π•—•Ö±’Ö…Öπ—ïïUπ¡Ö•êÄ¸Ä¿ÄËÅ9’µâï»°âΩë‰π…ïπ—Ö±}ù’Ö…Öπ—ïï}¡Ö•êÄ¸¸ÅâΩë‰πù’Ö…Öπ—ïï}¡Ö•êÄ¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å±ïÖÕïUÕÖùîÄÙÅ—°•ÃππΩ…µÖ±•Èï1ïÖÕïUÕÖùïΩëî°âΩë‰π±ïÖÕï}’ÕÖùî§Ï(ÄÄÄÅçΩπÕ–Å±ïÖÕïç—•Ÿ•—ÂïÕç…•¡—•Ω∏ÄÙÅâΩë‰π±ïÖÕï}Öç—•Ÿ•—Â}ëïÕç…•¡—•Ω∏Ä¸ÅM—…•πú°âΩë‰π±ïÖÕï}Öç—•Ÿ•—Â}ëïÕç…•¡—•Ω∏§π—…•¥†§ÄËÅπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅçΩπ—…Öç—9Ω—îÄÙÅ—°•ÃππΩ…µÖ±•Èï=¡—•ΩπÖ±5’±—•±•πïQï·–°âΩë‰πçΩπ—…Öç—}πΩ—î§Ï(ÄÄÄÅçΩπÕ–Åâ•±±•πù…ï≈’ïπçÂ5Ωπ—°ÃÄÙÅ—°•ÃππΩ…µÖ±•Èï1ïÖÕï	•±±•πù…ï≈’ïπç‰°âΩë‰πâ•±±•πù}ô…ï≈’ïπçÂ}µΩπ—°Ã§Ï(ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïïAÖÂµïπ—Ö—ïYÖ±’îÄÙÅôΩ…çï%π•—•Ö±’Ö…Öπ—ïïUπ¡Ö•ê(ÄÄÄÄÄÄ¸Åπ’±∞(ÄÄÄÄÄÄËÅ—°•ÃππΩ…µÖ±•Èï1ïÖÕïAÖÂ±ΩÖëÖ—î°âΩë‰π…ïπ—Ö±}ù’Ö…Öπ—ïï}¡ÖÂµïπ—}ëÖ—îÄ¸¸ÅâΩë‰πù’Ö…Öπ—ïï}¡ÖÂµïπ—}ëÖ—î∞Äù…ïπ—Ö±}ù’Ö…Öπ—ïï}¡ÖÂµïπ—}ëÖ—îú§Ï(ÄÄÄÅçΩπÕ–Å…Ö›’Ö…Öπ—ïïM—Ö—’ÃÄÙÅôΩ…çï%π•—•Ö±’Ö…Öπ—ïïUπ¡Ö•êÄ¸Äù9=Q}A%úÄËÅM—…•πú°âΩë‰π…ïπ—Ö±}ù’Ö…Öπ—ïï}Õ—Ö—’ÃÄ¸¸ÅâΩë‰πù’Ö…Öπ—ïï}Õ—Ö—’ÃÄ¸¸Äúú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïï5Ö…≠ïëAÖ•êÄÙÅ…Ö›’Ö…Öπ—ïïM—Ö—’ÃÄÙÙÙÄùA%úÅÒÅù’Ö…Öπ—ïïAÖ•êÄ¯Ä¿Ï((ÄÄÄÅçΩπÕ–Å…ï≈’•…ï	’Õ•πïÕÕç—•Ÿ•—‰ÄÙÅΩ¡—•ΩπÃ¸π…ï≈’•…ï	’Õ•πïÕÕç—•Ÿ•—‰Ä¸¸Å—…’îÏ(ÄÄÄÅ•òÄ°…ï≈’•…ï	’Õ•πïÕÕç—•Ÿ•—‰ÄòòÄ°±ïÖÕïUÕÖùîÄÙÙÙÄù=55I%0úÅÒÅ±ïÖÕïUÕÖùîÄÙÙÙÄùAI=MM%=90úÅÒÅ±ïÖÕïUÕÖùîÄÙÙÙÄù5%aú§ÄòòÄÖ±ïÖÕïç—•Ÿ•—ÂïÕç…•¡—•Ω∏§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†âç—•Ÿ•—îÅΩ‘ÅëïÕ—•πÖ—•Ω∏ÅëïÃÅ±•ï’‡Å…ï≈’•Õîà§Ï(ÄÄÄÅÙ((ÄÄÄÅ•òÄ°ù’Ö…Öπ—ïï5Ö…≠ïëAÖ•êÄòòÄÖù’Ö…Öπ—ïïAÖÂµïπ—Ö—ïYÖ±’î§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùÖ—îÅëîÅ¡Ö•ïµïπ–ÅëîÅ±ÑÅùÖ…Öπ—•îÅ…ï≈’•Õîú§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïïAÖÂµïπ—Ö—îÄÙÅù’Ö…Öπ—ïï5Ö…≠ïëAÖ•êÄ¸Åù’Ö…Öπ—ïïAÖÂµïπ—Ö—ïYÖ±’îÄËÅπ’±∞Ï(ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïïM—Ö—’ÃÄÙÅù’Ö…Öπ—ïï5Ö…≠ïëAÖ•ê(ÄÄÄÄÄÄ¸Ä°ù’Ö…Öπ—ïïAÖ•êÄ¯ÙÅù’Ö…Öπ—ïïµΩ’π–Ä¸ÄùA%úÄËÄùAIQ%0ú§(ÄÄÄÄÄÄËÄù9=Q}A%úÏ((ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ—ïπÖπ—%ê∞(ÄÄÄÄÄÅ’π•—%ê∞(ÄÄÄÄÄÅÕ—Ö…—Ö—î∞(ÄÄÄÄÄÅïπëÖ—îËÅïπëÖ—ïYÖ±’î∞(ÄÄÄÄÄÅµΩπ—°±ÂIïπ–∞(ÄÄÄÄÄÅµÖ•π—ïπÖπçïïïµΩ’π–∞(ÄÄÄÄÄÅµΩπ—°±ÂMÂπë•çµΩ’π–∞(ÄÄÄÄÄÅΩ—°ï…°Ö…ùïÕµΩ’π–∞(ÄÄÄÄÄÅ±ïÖÕïQΩ—Ö±µΩ’π–∞(ÄÄÄÄÄÅù’Ö…Öπ—ïï5Ωπ—°Ã∞(ÄÄÄÄÄÅù’Ö…Öπ—ïïµΩ’π–∞(ÄÄÄÄÄÅù’Ö…Öπ—ïïAÖ•êËÅù’Ö…Öπ—ïï5Ö…≠ïëAÖ•êÄ¸Åù’Ö…Öπ—ïïAÖ•êÄËÄ¿∞(ÄÄÄÄÄÅù’Ö…Öπ—ïïAÖÂµïπ—Ö—î∞(ÄÄÄÄÄÅù’Ö…Öπ—ïïM—Ö—’Ã∞(ÄÄÄÄÄÅπΩ—•çï5Ωπ—°ÃËÅ9’µâï»°âΩë‰ππΩ—•çï}µΩπ—°ÃÄ¸¸Ä¿§∞(ÄÄÄÄÄÅÕ•ùπÖ—’…ïA±ÖçîËÅâΩë‰πÕ•ùπÖ—’…ï}¡±ÖçîÄ¸ÅM—…•πú°âΩë‰πÕ•ùπÖ—’…ï}¡±Öçî§π—…•¥†§ÄËÅπ’±∞∞(ÄÄÄÄÄÅÕ•ùπÖ—’…ïÖ—îËÅ—°•ÃππΩ…µÖ±•Èï1ïÖÕïAÖÂ±ΩÖëÖ—î°âΩë‰πÕ•ùπÖ—’…ï}ëÖ—î∞ÄùÕ•ùπÖ—’…ï}ëÖ—îú§∞(ÄÄÄÄÄÅ±ïÖÕïUÕÖùî∞(ÄÄÄÄÄÅ±ïÖÕïç—•Ÿ•—ÂïÕç…•¡—•Ω∏∞(ÄÄÄÄÄÅçΩπ—…Öç—Qïµ¡±Ö—ïΩëîËÅ—°•Ãπ…ïÕΩ±Ÿï1ïÖÕïQïµ¡±Ö—ïΩëïΩ…Aï…Õ•Õ—ïπçî°±ïÖÕïUÕÖùî∞ÅâΩë‰πçΩπ—…Öç—}—ïµ¡±Ö—ï}çΩëî§∞(ÄÄÄÄÄÅçΩπ—…Öç—•±ï9ÖµîËÅâΩë‰πçΩπ—…Öç—}ô•±ï}πÖµîÄ¸ÅM—…•πú°âΩë‰πçΩπ—…Öç—}ô•±ï}πÖµî§π—…•¥†§ÄËÅπ’±∞∞(ÄÄÄÄÄÅçΩπ—…Öç—•±ïU…∞ËÅâΩë‰πçΩπ—…Öç—}ô•±ï}’…∞Ä¸ÅM—…•πú°âΩë‰πçΩπ—…Öç—}ô•±ï}’…∞§π—…•¥†§ÄËÅπ’±∞∞(ÄÄÄÄÄÅπΩ—ïÃËÅâΩë‰ππΩ—ïÃÄ¸ÅM—…•πú°âΩë‰ππΩ—ïÃ§ÄËÅπ’±∞∞(ÄÄÄÄÄÅçΩπ—…Öç—9Ω—î∞(ÄÄÄÄÄÅâ•±±•πù…ï≈’ïπçÂ5Ωπ—°Ã∞(ÄÄÄÄÄÅÕ—Ö—’ÃËÅM—…•πú°âΩë‰πÕ—Ö—’ÃÄ¸¸ÄùIPú§∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•Èï1ïÖÕï	•±±•πù…ï≈’ïπç‰°ŸÖ±’îËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅçΩπÕ–Å…Ö‹ÄÙÅŸÖ±’îÄÙÙÙÅ’πëïô•πïêÅÒÅŸÖ±’îÄÙÙÙÅπ’±∞ÅÒÅŸÖ±’îÄÙÙÙÄúúÄ¸ÄƒÄËÅ9’µâï»°ŸÖ±’î§Ï(ÄÄÄÅ•òÄ†Ö9’µâï»π•Õ%π—ïùï»°…Ö‹§ÅÒÅ…Ö‹ÄÄƒÅÒÅ…Ö‹Ä¯Äƒ»§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùAï…•Ωë•ç•—îÅëîÅ¡Ö•ïµïπ–Åë‘Å±ΩÂï»Å•πŸÖ±•ëîú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å…Ö‹Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•Èï=¡—•ΩπÖ±5’±—•±•πïQï·–°ŸÖ±’îËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅ•òÄ°ŸÖ±’îÄÙÙÙÅ’πëïô•πïêÅÒÅŸÖ±’îÄÙÙÙÅπ’±∞§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•ÈïêÄÙÅM—…•πú°ŸÖ±’î§π…ï¡±Öçî†Ωq…q∏Ωú∞Äùq∏ú§π…ï¡±Öçî†Ωq»Ωú∞Äùq∏ú§π—…•¥†§Ï(ÄÄÄÅ…ï—’…∏ÅπΩ…µÖ±•ÈïêÄ¸ÅπΩ…µÖ±•ÈïêÄËÅπ’±∞Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•Èï1ïÖÕïAÖÂ±ΩÖëÖ—î°ŸÖ±’îËÅ’π≠πΩ›∏∞Åô•ï±ë9ÖµîËÅÕ—…•πú∞Å…ï≈’•…ïêÄÙÅôÖ±Õî§ÅÏ(ÄÄÄÅ•òÄ°ŸÖ±’îÄÙÙÙÅ’πëïô•πïêÅÒÅŸÖ±’îÄÙÙÙÅπ’±∞ÅÒÅŸÖ±’îÄÙÙÙÄúú§ÅÏ(ÄÄÄÄÄÅ•òÄ°…ï≈’•…ïê§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°ÅÖ—îÅ…ï≈’•ÕîÅ¡Ω’»ÄëÌô•ï±ë9ÖµïıÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏Åπ’±∞Ï(ÄÄÄÅÙ((ÄÄÄÅ•òÄ°ŸÖ±’îÅ•πÕ—ÖπçïΩòÅÖ—î§ÅÏ(ÄÄÄÄÄÅ•òÄ°9’µâï»π•Õ9Ö8°ŸÖ±’îπùï—Q•µî†§§§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°ÅÖ—îÅ•πŸÖ±•ëîÅ¡Ω’»ÄëÌô•ï±ë9ÖµïıÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ…ï—’…∏ÅŸÖ±’îπ—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Å…Ö‹ÄÙÅM—…•πú°ŸÖ±’î§π—…•¥†§Ï(ÄÄÄÅ•òÄ†Ö…Ö‹§ÅÏ(ÄÄÄÄÄÅ•òÄ°…ï≈’•…ïê§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°ÅÖ—îÅ…ï≈’•ÕîÅ¡Ω’»ÄëÌô•ï±ë9ÖµïıÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏Åπ’±∞Ï(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Å•ÕΩÖ—îÄÙÄΩyqëÏ—ÙµqëÏ…ÙµqëÏ…Ùºπï·ïå°…Ö‹§¸πl¡tÏ(ÄÄÄÅ•òÄ°•ÕΩÖ—î§Å…ï—’…∏Å•ÕΩÖ—îÏ((ÄÄÄÅçΩπÕ–Å¡Ö…ÕïêÄÙÅπï‹ÅÖ—î°…Ö‹§Ï(ÄÄÄÅ•òÄ°9’µâï»π•Õ9Ö8°¡Ö…Õïêπùï—Q•µî†§§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°ÅÖ—îÅ•πŸÖ±•ëîÅ¡Ω’»ÄëÌô•ï±ë9ÖµïıÄ§Ï(ÄÄÄÅÙ((ÄÄÄÅ…ï—’…∏Å¡Ö…Õïêπ—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÖç—•Ÿï1ïÖÕïΩπ—…Öç—Qïµ¡±Ö—î°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅçΩëîËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®(ÄÄÄÄÄÄÅI=4Å±ïÖÕï}çΩπ—…Öç—}—ïµ¡±Ö—ïÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅçΩëîÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å•Õ}Öç—•ŸîÄÙÅQIU(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅŸï…Õ•Ω∏ÅM∞Å•êÅM(ÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅçΩëït∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ†Ö…Ω›Õl¡t§ÅÏ(ÄÄÄÅÕ›•—ç†Ä°M—…•πú°çΩëî§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§§ÅÏ(ÄÄÄÄÄÄÄÅçÖÕîÄù1M}=55I%0úË(ÄÄÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†â1îÅµΩì°±îÅëîÅçΩπ—…Ö–ÅçΩµµï…ç•Ö∞Å∏ùïÕ–Å¡ÖÃÅçΩπô•ù’À§Å¡Ω’»Åçï——îÅΩ…ùÖπ•ÕÖ—•Ω∏∏à§Ï(ÄÄÄÄÄÄÄÅçÖÕîÄù1M}AI=MM%=90úË(ÄÄÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†â1îÅµΩì°±îÅëîÅçΩπ—…Ö–Å¡…ΩôïÕÕ•Ωππï∞Å∏ùïÕ–Å¡ÖÃÅçΩπô•ù’À§Å¡Ω’»Åçï——îÅΩ…ùÖπ•ÕÖ—•Ω∏∏à§Ï(ÄÄÄÄÄÄÄÅçÖÕîÄù1M}5%aúË(ÄÄÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†â1îÅµΩì°±îÅëîÅçΩπ—…Ö–Åµ•·—îÅ∏ùïÕ–Å¡ÖÃÅçΩπô•ù’À§Å¡Ω’»Åçï——îÅΩ…ùÖπ•ÕÖ—•Ω∏∏à§Ï(ÄÄÄÄÄÄÄÅçÖÕîÄù1M}IM%9Q%0úË(ÄÄÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†â1îÅµΩì°±îÅëîÅçΩπ—…Ö–ÅÀ•Õ•ëïπ—•ï∞Å∏ùïÕ–Å¡ÖÃÅçΩπô•ù’À§Å¡Ω’»Åçï——îÅΩ…ùÖπ•ÕÖ—•Ω∏∏à§Ï(ÄÄÄÄÄÄÄÅëïôÖ’±–Ë(ÄÄÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Å’ç’∏ÅµΩëï±îÅëîÅçΩπ—…Ö–ÅÖç—•òÄëÌçΩëïÙÅ∏ùïÕ–ÅçΩπô•ù’…îÅ¡Ω’»Å∞ùΩ…ùÖπ•ÕÖ—•Ω∏ÄëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙπÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡tÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÖç—•Ÿï1ïÖÕïΩπ—…Öç—Qïµ¡±Ö—ïYï…Õ•Ω∏°çΩëîËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅŸï…Õ•Ω∏(ÄÄÄÄÄÄÅI=4Å±ïÖÕï}çΩπ—…Öç—}—ïµ¡±Ö—ïÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅçΩëîÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Å•Õ}Öç—•ŸîÄÙÅQIU(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅ=IHÅ	dÅŸï…Õ•Ω∏ÅM∞Å•êÅM(ÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅçΩëït∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡t¸πŸï…Õ•Ω∏Ä¸¸Åπ’±∞Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ—Öâ±ï!ÖÕΩ±’µ∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å—Öâ±ï9ÖµîËÅÕ—…•πú∞ÅçΩ±’µπ9ÖµîËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄƒ(ÄÄÄÄÄÄÅI=4Å•πôΩ…µÖ—•Ωπ}Õç°ïµÑπçΩ±’µπÃ(ÄÄÄÄÄÄÅ]!IÅ—Öâ±ï}Õç°ïµÑÄÙÄù¡’â±•åú(ÄÄÄÄÄÄÄÄÅ9Å—Öâ±ï}πÖµîÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅçΩ±’µπ}πÖµîÄÙÄê»(ÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅm—Öâ±ï9Öµî∞ÅçΩ±’µπ9Öµït∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏°…Ω›Õl¡t§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ—Öâ±ï·•Õ—Ã°—Öâ±ï9ÖµîËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄƒ(ÄÄÄÄÄÄÅI=4Å•πôΩ…µÖ—•Ωπ}Õç°ïµÑπ—Öâ±ïÃ(ÄÄÄÄÄÄÅ]!IÅ—Öâ±ï}Õç°ïµÑÄÙÄù¡’â±•åú(ÄÄÄÄÄÄÄÄÅ9Å—Öâ±ï}πÖµîÄÙÄêƒ(ÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅm—Öâ±ï9Öµït∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏°…Ω›Õl¡t§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅçΩ±’µπ·•Õ—Ã°—Öâ±ï9ÖµîËÅÕ—…•πú∞ÅçΩ±’µπ9ÖµîËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄƒ(ÄÄÄÄÄÄÅI=4Å•πôΩ…µÖ—•Ωπ}Õç°ïµÑπçΩ±’µπÃ(ÄÄÄÄÄÄÅ]!IÅ—Öâ±ï}Õç°ïµÑÄÙÄù¡’â±•åú(ÄÄÄÄÄÄÄÄÅ9Å—Öâ±ï}πÖµîÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅçΩ±’µπ}πÖµîÄÙÄê»(ÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅm—Öâ±ï9Öµî∞ÅçΩ±’µπ9Öµït∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏°…Ω›Õl¡t§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅΩ¡—•ΩπÖ±Ω±’µπ·¡…ïÕÕ•Ω∏°—Öâ±ï9ÖµîËÅÕ—…•πú∞ÅçΩ±’µπ9ÖµîËÅÕ—…•πú∞ÅÖ±•ÖÃËÅÕ—…•πú§ÅÏ(ÄÄÄÅ…ï—’…∏Ä°Ö›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã°—Öâ±ï9Öµî∞ÅçΩ±’µπ9Öµî§§Ä¸ÅÄëÌÖ±•ÖÕÙ∏ëÌçΩ±’µπ9ÖµïıÄÄËÄù9U10úÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅΩ¡—•ΩπÖ±Ω±’µπMï±ïç—Ã°—Öâ±ï9ÖµîËÅÕ—…•πú∞ÅçΩ±’µπ9ÖµïÃËÅÕ—…•πùmt∞ÅÖ±•ÖÃËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–Åïπ—…•ïÃÄÙÅÖ›Ö•–ÅA…Ωµ•ÕîπÖ±∞°çΩ±’µπ9ÖµïÃπµÖ¿°ÖÕÂπåÄ°çΩ±’µπ9Öµî§ÄÙ¯Ål(ÄÄÄÄÄÅçΩ±’µπ9Öµî∞(ÄÄÄÄÄÄ°Ö›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã°—Öâ±ï9Öµî∞ÅçΩ±’µπ9Öµî§§Ä¸ÅÄëÌÖ±•ÖÕÙ∏ëÌçΩ±’µπ9ÖµïÙÅLÄëÌçΩ±’µπ9ÖµïıÄÄËÅÅ9U10ÅLÄëÌçΩ±’µπ9ÖµïıÄ∞(ÄÄÄÅtÅÖÃÅçΩπÕ–§§Ï(ÄÄÄÅ…ï—’…∏Å=â©ïç–πô…Ωµπ—…•ïÃ°ïπ—…•ïÃ§ÅÖÃÅIïçΩ…êÒÕ—…•πú∞ÅÕ—…•πú¯Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ…ïÕΩ±Ÿï1ïÖÕïQïµ¡±Ö—ïΩëïΩ…UÕÖùî°ŸÖ±’îËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅÕ›•—ç†Ä°—°•ÃππΩ…µÖ±•Èï1ïÖÕïUÕÖùïΩëî°ŸÖ±’î§§ÅÏ(ÄÄÄÄÄÅçÖÕîÄù=55I%0úË(ÄÄÄÄÄÄÄÅ…ï—’…∏Äù1M}=55I%0úÏ(ÄÄÄÄÄÅçÖÕîÄùAI=MM%=90úË(ÄÄÄÄÄÄÄÅ…ï—’…∏Äù1M}AI=MM%=90úÏ(ÄÄÄÄÄÅçÖÕîÄù5%aúË(ÄÄÄÄÄÄÄÅ…ï—’…∏Äù1M}5%aúÏ(ÄÄÄÄÄÅçÖÕîÄùIM%9Q%0úË(ÄÄÄÄÄÅëïôÖ’±–Ë(ÄÄÄÄÄÄÄÅ…ï—’…∏Äù1M}IM%9Q%0úÏ(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ…ïÕΩ±Ÿï1ïÖÕïQïµ¡±Ö—ïΩëïΩ…Aï…Õ•Õ—ïπçî°’ÕÖùîËÅÕ—…•πú∞Åï·¡±•ç•—YÖ±’îËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅçΩπÕ–ÅµÖ¡¡ïëΩëîÄÙÅ—°•Ãπ…ïÕΩ±Ÿï1ïÖÕïQïµ¡±Ö—ïΩëïΩ…UÕÖùî°’ÕÖùî§Ï(ÄÄÄÅ•òÄ°µÖ¡¡ïëΩëî§Å…ï—’…∏ÅµÖ¡¡ïëΩëîÏ(ÄÄÄÅçΩπÕ–Åï·¡±•ç•—ΩëîÄÙÅï·¡±•ç•—YÖ±’îÄ¸ÅM—…•πú°ï·¡±•ç•—YÖ±’î§π—…•¥†§ÄËÄúúÏ(ÄÄÄÅ…ï—’…∏Åï·¡±•ç•—ΩëîÅÒÅπ’±∞Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅµ•ÕÕ•πù1ïÖÕïQïµ¡±Ö—ï5ïÕÕÖùî°’ÕÖùîËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅÕ›•—ç†Ä°—°•ÃππΩ…µÖ±•Èï1ïÖÕïUÕÖùïΩëî°’ÕÖùî§§ÅÏ(ÄÄÄÄÄÅçÖÕîÄù=55I%0úË(ÄÄÄÄÄÄÄÅ…ï—’…∏Äâ1îÅµΩì°±îÅëîÅçΩπ—…Ö–ÅçΩµµï…ç•Ö∞Å∏ùïÕ–Å¡ÖÃÅçΩπô•ù’À§Å¡Ω’»Åçï——îÅΩ…ùÖπ•ÕÖ—•Ω∏∏àÏ(ÄÄÄÄÄÅçÖÕîÄùAI=MM%=90úË(ÄÄÄÄÄÄÄÅ…ï—’…∏Äâ1îÅµΩì°±îÅëîÅçΩπ—…Ö–Å¡…ΩôïÕÕ•Ωππï∞Å∏ùïÕ–Å¡ÖÃÅçΩπô•ù’À§Å¡Ω’»Åçï——îÅΩ…ùÖπ•ÕÖ—•Ω∏∏àÏ(ÄÄÄÄÄÅçÖÕîÄù5%aúË(ÄÄÄÄÄÄÄÅ…ï—’…∏Äâ’ç’∏ÅµΩì°±îÅëîÅçΩπ—…Ö–Åµ•·—îÅ∏ùïÕ–ÅïπçΩ…îÅçΩπô•ù’À§Å¡Ω’»Åçï——îÅΩ…ùÖπ•ÕÖ—•Ω∏∏àÏ(ÄÄÄÄÄÅçÖÕîÄùIM%9Q%0úË(ÄÄÄÄÄÅëïôÖ’±–Ë(ÄÄÄÄÄÄÄÅ…ï—’…∏Äâ1îÅµΩì°±îÅëîÅçΩπ—…Ö–ÅÀ•Õ•ëïπ—•ï∞Å∏ùïÕ–Å¡ÖÃÅçΩπô•ù’À§Å¡Ω’»Åçï——îÅΩ…ùÖπ•ÕÖ—•Ω∏∏àÏ(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ±ïÖÕïAëôXÂπÖâ±ïê†§ÅÏ(ÄÄÄÅ…ï—’…∏ÅM—…•πú°¡…ΩçïÕÃπïπÿπ1M}A}XÂ}9	1Ä¸¸Äù—…’îú§π—…•¥†§π—Ω1Ω›ï…ÖÕî†§ÄÑÙÙÄùôÖ±ÕîúÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ±Ωù1ïÖÕïAëôX‰°Õ—ï¿ËÅÕ—…•πú∞Å¡ÖÂ±ΩÖêËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅ—°•Ãπ±Ωùùï»π±Ωú°Åm1M}A}XÂtÄëÌÕ—ï¡ÙÄëÌ)M=8πÕ—…•πù•ô‰°¡ÖÂ±ΩÖê•ıÄ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅµÖ¡1ïÖÕïAëôXÂ……Ω»°ï……Ω»ËÅÖπ‰§ÅÏ(ÄÄÄÅ•òÄ°ï……Ω»Å•πÕ—ÖπçïΩòÅ!——¡·çï¡—•Ω∏§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏Åï……Ω»Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å¡ï…Õ•Õ—……Ω»ÄÙÅπï‹Å%π—ï…πÖ±Mï…Ÿï………Ω…·çï¡—•Ω∏°Ï(ÄÄÄÄÄÅçΩëîËÄùA}9IQ%=9}AIM%MQ}%1ú∞(ÄÄÄÄÄÅµïÕÕÖùîËÅï……Ω»¸πµïÕÕÖùîÅÒÄù1ïÖÕîÅAÅùïπï…Ö—•Ω∏ÅôÖ•±ïêú∞(ÄÄÄÅÙ§Ï(ÄÄÄÄ°¡ï…Õ•Õ—……Ω»ÅÖÃÅÖπ‰§πçÖ’ÕîÄÙÅï……Ω»Ï(ÄÄÄÅ…ï—’…∏Å¡ï…Õ•Õ—……Ω»Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅâ’•±ë1ïÖÕïΩπ—…Öç—MπÖ¡Õ°Ω–°±ïÖÕîËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯∞ÅçΩµ¡Öπ‰ËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯∞Åùïπï…Ö—ïë–ÄÙÅπï‹ÅÖ—î†§§ÅÏ(ÄÄÄÅçΩπÕ–Å—Ω—Ö±5Ωπ—°±‰ÄÙÅ9’µâï»°±ïÖÕîπ±ïÖÕï}—Ω—Ö±}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïï5Ωπ—°ÃÄÙÅ9’µâï»°±ïÖÕîπù’Ö…Öπ—ïï}µΩπ—°ÃÄ¸¸ÅçΩµ¡Öπ‰πëïôÖ’±—}ù’Ö…Öπ—ïï}µΩπ—°ÃÄ¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïïµΩ’π–ÄÙÅ9’µâï»°±ïÖÕîπ…ïπ—Ö±}ù’Ö…Öπ—ïï}ÖµΩ’π–Ä¸¸Å±ïÖÕîπù’Ö…Öπ—ïî¸πÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å…ïπ—µΩ’π–ÄÙÅ9’µâï»°±ïÖÕîπµΩπ—°±Â}…ïπ–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅµÖ•π—ïπÖπçïïïµΩ’π–ÄÙÅ9’µâï»°±ïÖÕîπµÖ•π—ïπÖπçï}ôïï}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–ÅçΩπ—…Öç—9Ω—îÄÙÅ—°•ÃππΩ…µÖ±•Èï=¡—•ΩπÖ±5’±—•±•πïQï·–°±ïÖÕîπçΩπ—…Öç—}πΩ—î§Ï(ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïï	ÖÕïµΩ’π–ÄÙÅ…ïπ—µΩ’π–Ä¨ÅµÖ•π—ïπÖπçïïïµΩ’π–Ï(ÄÄÄÅçΩπÕ–Åë’…Ö—•Ωπ5Ωπ—°ÃÄÙÅ—°•Ãπ±ïÖÕï’…Ö—•Ωπ5Ωπ—°Ã°±ïÖÕîπÕ—Ö…—}ëÖ—î∞Å±ïÖÕîπïπë}ëÖ—î§ÅÒÅ9’µâï»°çΩµ¡Öπ‰πëïôÖ’±—}±ïÖÕï}ë’…Ö—•Ωπ}µΩπ—°ÃÄ¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å’ÕÖùïΩëîÄÙÅ—°•ÃππΩ…µÖ±•Èï1ïÖÕïUÕÖùïΩëî°±ïÖÕîπ±ïÖÕï}’ÕÖùîÄ¸¸ÅçΩµ¡Öπ‰πëïôÖ’±—}±ïÖÕï}’ÕÖùîÄ¸¸Å±ïÖÕîπ’ÕÖùï}—Â¡î§Ï(ÄÄÄÅçΩπÕ–Å’ÕÖùï1Öâï∞ÄÙÅ—°•Ãπ±ïÖÕïUÕÖùï1Öâï∞°’ÕÖùïΩëî§Ï(ÄÄÄÅçΩπÕ–ÅÖç—•Ÿ•—ÂïÕç…•¡—•Ω∏ÄÙÅM—…•πú°±ïÖÕîπ±ïÖÕï}Öç—•Ÿ•—Â}ëïÕç…•¡—•Ω∏Ä¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅçΩπÕ–ÅëïÕ—•πÖ—•ΩπA°…ÖÕîÄÙÅÖç—•Ÿ•—ÂïÕç…•¡—•Ω∏(ÄÄÄÄÄÄ¸ÅÅ1ïÃÅ±•ï’‡Å±Ω◊•ÃÅÕΩπ–Åï·ç±’Õ•Ÿïµïπ–ÅëïÕ—•ª•ÃÉÄÅ∞ùï·ï…ç•çîÅëîÄëÌ’ÕÖùïΩëîÄÙÙÙÄù=55I%0úÄ¸Äâ∞ùÖç—•Ÿ•”§ÅçΩµµï…ç•Ö±îàÄËÅ’ÕÖùïΩëîÄÙÙÙÄùAI=MM%=90úÄ¸Äâ∞ùÖç—•Ÿ•”§Å¡…ΩôïÕÕ•Ωππï±±îàÄËÅ’ÕÖùïΩëîÄÙÙÙÄù5%aúÄ¸Äâ∞ùÖç—•Ÿ•”§Åµ•·—îàÄËÄâ∞ù’ÕÖùîâÙÅì•ç±ÖÀ•îÅ¡Ö»Å±îÅA…ïπï’»ÄËÄëÌÖç—•Ÿ•—ÂïÕç…•¡—•ΩπÙπÄ(ÄÄÄÄÄÄËÅÅ1ïÃÅ±•ï’‡Å±Ω◊•ÃÅÕΩπ–ÅëïÕ—•ª•ÃÉÄÅ’∏Å’ÕÖùîÄëÌ’ÕÖùï1Öâï∞π—Ω1Ω›ï…ÖÕî†•ÙπÄÏ(ÄÄÄÅçΩπÕ–Å•ÕΩµ¡ÖπÂQïπÖπ–ÄÙÅM—…•πú°±ïÖÕîπ—ïπÖπ—}—Â¡îÄ¸¸ÄùA!eM%0ú§ÄÙÙÙÄù=5A9dúÏ(ÄÄÄÅçΩπÕ–Åâïë…ΩΩµΩ’π–ÄÙÅ9’µâï»°±ïÖÕîπâïë…ΩΩµÕ}çΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å¡Ö…≠•πùΩ’π–ÄÙÅ9’µâï»°±ïÖÕîπ¡Ö…≠•πù}Õ¡ÖçïÕ}çΩ’π–Ä¸¸Ä°±ïÖÕîπ°ÖÕ}¡Ö…≠•πúÄ¸ÄƒÄËÄ¿§§Ï(ÄÄÄÅçΩπÕ–Å±ïÕÕΩ…9ÖµîÄÙÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}±ïùÖ±}πÖµîÄ¸¸ÅçΩµ¡Öπ‰π±ïùÖ±}πÖµîÄ¸¸ÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}πÖµîÄ¸¸Äù9ÅA…Ω¡ï…—‰ÅI@úÏ(ÄÄÄÅçΩπÕ–Å…ï¡…ïÕïπ—Ö—•Ÿï’±±9ÖµîÄÙÅmçΩµ¡Öπ‰π±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}πÖµïtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†úÄú§π—…•¥†§Ï(ÄÄÄÅçΩπÕ–Å—ïπÖπ—Iï¡…ïÕïπ—Ö—•ŸîÄÙÅl(ÄÄÄÄÄÅ±ïÖÕîπ±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}πÖµî∞(ÄÄÄÄÄÅ±ïÖÕîπ…ï¡…ïÕïπ—Ö—•Ÿï}¡ΩÕ—}πÖµî∞(ÄÄÄÄÄÅ±ïÖÕîπ…ï¡…ïÕïπ—Ö—•Ÿï}ô•…Õ—}πÖµî∞(ÄÄÄÅtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†úÄú§π—…•¥†§Ï(ÄÄÄÅçΩπÕ–Å—ïπÖπ—’±±9ÖµîÄÙÅm±ïÖÕîπô•…Õ—}πÖµî∞Å±ïÖÕîπ±ÖÕ—}πÖµî∞Å±ïÖÕîπ¡ΩÕ—}πÖµïtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†úÄú§π—…•¥†§Ï(ÄÄÄÅçΩπÕ–Åâ’•±ë•πùëë…ïÕÕAÖ…—ÃÄÙÅm±ïÖÕîπâ’•±ë•πù}Öëë…ïÕÃ∞Å±ïÖÕîπâ’•±ë•πù}çΩµµ’πî∞Å±ïÖÕîπâ’•±ë•πù}πï•ù°âΩ…°ΩΩê∞Å±ïÖÕîπâ’•±ë•πù}ç•—Âtπô•±—ï»°	ΩΩ±ïÖ∏§Ï(ÄÄÄÅçΩπÕ–ÅçΩµ¡ÖπÂëë…ïÕÕAÖ…—ÃÄÙÅmçΩµ¡Öπ‰πçΩµ¡ÖπÂ}Öëë…ïÕÃÄ¸¸ÅçΩµ¡Öπ‰πÖëë…ïÕÃÄ¸¸Äúú∞ÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}çΩµµ’πîÄ¸¸Äúú∞ÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}ç•—‰Ä¸¸Äúú∞ÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}çΩ’π—…‰Ä¸¸Äúùtπô•±—ï»°	ΩΩ±ïÖ∏§Ï(ÄÄÄÅçΩπÕ–Å—ïπÖπ—ëë…ïÕÕAÖ…—ÃÄÙÅm±ïÖÕîπ—ïπÖπ—}Öëë…ïÕÃÄ¸¸Äúú∞Å±ïÖÕîπ—ïπÖπ—}çΩµµ’πîÄ¸¸Äúú∞Å±ïÖÕîπ—ïπÖπ—}ç•—‰Ä¸¸Äúú∞Å±ïÖÕîπ—ïπÖπ—}çΩ’π—…‰Ä¸¸Äúùtπô•±—ï»°	ΩΩ±ïÖ∏§Ï(ÄÄÄÅçΩπÕ–Å¡°ÂÕ•çÖ±A…ïÕïπ—Ö—•Ω∏ÄÙÅl(ÄÄÄÄÄÅÅ5ΩπÕ•ï’»Ω5ÖëÖµîÄëÌ—ïπÖπ—’±±9ÖµîÅÒÅ±ïÖÕîπ—ïπÖπ—}πÖµïıÄ∞(ÄÄÄÄÄÅ±ïÖÕîπ•ë}ëΩç’µïπ—}—Â¡îÄ¸ÅÅ—•—’±Ö•…îÅëîÅ±ÑÅ¡•ïçîÅêù•ëïπ—•—îÄëÌ±ïÖÕîπ•ë}ëΩç’µïπ—}—Â¡ïıÄÄËÅπ’±∞∞(ÄÄÄÄÄÅ±ïÖÕîπ•ë}π’µâï»Ä¸ÅÅπ’µï…ºÄëÌ±ïÖÕîπ•ë}π’µâï…ıÄÄËÅπ’±∞∞(ÄÄÄÄÄÅ±ïÖÕîπ—ïπÖπ—}Öëë…ïÕÃÄ¸ÅÅëΩµ•ç•±•î°î§ÅÑÄëÌ±ïÖÕîπ—ïπÖπ—}Öëë…ïÕÕıÄÄËÅπ’±∞∞(ÄÄÄÄÄÅ±ïÖÕîπ—ïπÖπ—}çΩµµ’πîÄ¸ÅÅçΩµµ’πîÄëÌ±ïÖÕîπ—ïπÖπ—}çΩµµ’πïıÄÄËÅπ’±∞∞(ÄÄÄÄÄÅ±ïÖÕîπ—ïπÖπ—}ç•—‰Ä¸ÅÅŸ•±±îÄëÌ±ïÖÕîπ—ïπÖπ—}ç•—ÂıÄÄËÅπ’±∞∞(ÄÄÄÄÄÅ±ïÖÕîπ—ïπÖπ—}çΩ’π—…‰Ä¸ÅÅ¡ÖÂÃÄëÌ±ïÖÕîπ—ïπÖπ—}çΩ’π—…ÂıÄÄËÅπ’±∞∞(ÄÄÄÅtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†ú∞Äú§Ï(ÄÄÄÅçΩπÕ–ÅçΩµ¡ÖπÂA…ïÕïπ—Ö—•Ω∏ÄÙÅl(ÄÄÄÄÄÅÄëÌ±ïÖÕîπçΩµ¡ÖπÂ}πÖµîÅÒÅ±ïÖÕîπ—ïπÖπ—}πÖµîÅÒÄúùÙ∞ÄëÌ±ïÖÕîπ±ïùÖ±}ôΩ…¥ÅÒÄúùÙÄºÅ•πÕç…•—îÅÖ‘ÅIïù•Õ—…îÅë‘ÅΩµµï…çîÅï–Åë‘ÅÀ•ë•–Å5Ωâ•±•ï»ÅëîÅ±ÑÅY•±±îÅëîÅ-•πÕ°ÖÕÑÅÕΩ’ÃÅ±îÅπ’∑•…ºÅI4ÄËÄëÌ±ïÖÕîπ…çç¥ÅÒÄúùÙ∞ÅÖ•πÕ§Å≈◊äeÖ‘ÅIïù•Õ—…îÅë‘Å5•π•Õ”°…îÅëîÅ≥äeçΩπΩµ•îÅ9Ö—•ΩπÖ±îÅÕΩ’ÃÅ±îÅπ’∑•…ºÅ%ê∏Å9Ö–∏ÄËÄëÌ±ïÖÕîππÖ—•ΩπÖ±}•ë}π’µâï»ÅÒÄúùÙ∞ÅëΩπ–Å±îÅMß°ùîÅÕΩç•Ö∞ÅïÕ–ÅÕ•Ã∞ÄëÌ±ïÖÕîπ—ïπÖπ—}Öëë…ïÕÃÅÒÄúùÙÅëÖπÃÅ±ÑÅΩµµ’πîÅëîÄëÌ±ïÖÕîπ—ïπÖπ—}çΩµµ’πîÅÒÄúùÙ∞ÉÄÄëÌ±ïÖÕîπ—ïπÖπ—}ç•—‰ÅÒÄúùÙÅï∏ÅK•¡’â±•≈’îÅ•µΩç…Ö—•≈’îÅë‘ÅΩπùºÅ•ç§Å…ï¡À•Õïπ”•îÅ¡Ö»Å5ΩπÕ•ï’»ÄëÌ—ïπÖπ—Iï¡…ïÕïπ—Ö—•ŸîÅÒÄúùÙÅÕΩ∏ÄëÌ±ïÖÕîπ±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}…Ω±îÅÒÄúùÙÌÄ∞(ÄÄÄÅtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†úÄú§Ï(ÄÄÄÅçΩπÕ–ÅÖ¡Ö…—µïπ—1Öâï∞ÄÙÅ±ïÖÕîπ•Õ}ô’…π•Õ°ïêÄ¸Äù5ï’â≥§úÄËÄù9Ω∏Å5ï’â≥§úÏ(ÄÄÄÅçΩπÕ–Å—ïπÖπ—A°ÂÕ•çÖ±9Ω—îÄÙÄúúÏ(ÄÄÄÅçΩπÕ–ÅÕ•ùπÖ—’…ïÖ—îÄÙÅ±ïÖÕîπÕ•ùπÖ—’…ï}ëÖ—î(ÄÄÄÄÄÄ¸Å—°•ÃπôΩ…µÖ—Ö—î°±ïÖÕîπÕ•ùπÖ—’…ï}ëÖ—î§(ÄÄÄÄÄÄËÅôΩ…µÖ—Ö—ï%πQ•µïiΩπî°ùïπï…Ö—ïë–∞Äùô…•çÑΩ-•πÕ°ÖÕÑú§Ï(ÄÄÄÅçΩπÕ–Å±ïÖÕïM—Ö…—Ö—îÄÙÅ—°•ÃπôΩ…µÖ—Ö—î°±ïÖÕîπÕ—Ö…—}ëÖ—î§Ï(ÄÄÄÅçΩπÕ–Å±ïÖÕïπëÖ—îÄÙÅ—°•ÃπôΩ…µÖ—Ö—î°±ïÖÕîπïπë}ëÖ—î§ÅÒÅ—°•ÃπôΩ…µÖ—Ö—î°πï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§§Ï(ÄÄÄÅçΩπÕ–ÅΩ—°ï…°Ö…ùïÕµΩ’π–ÄÙÅ9’µâï»°±ïÖÕîπΩ—°ï…}ç°Ö…ùïÕ}ÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Å…ïπ—	…ïÖ≠ëΩ›∏ÄÙÅl(ÄÄÄÄÄÅ…ïπ—µΩ’π–Ä¯Ä¿Ä¸ÅÉäàÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°…ïπ—µΩ’π–•ÙÅUMÅ±ΩÂï»ÅëîÅâÖÕïÄÄËÅπ’±∞∞(ÄÄÄÄÄÅµÖ•π—ïπÖπçïïïµΩ’π–Ä¯Ä¿Ä¸ÅÉäàÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°µÖ•π—ïπÖπçïïïµΩ’π–•ÙÅUMÅô…Ö•ÃÅêùïπ—…ï—•ïπÄÄËÅπ’±∞∞(ÄÄÄÄÄÅ9’µâï»°±ïÖÕîπµΩπ—°±Â}ÕÂπë•ç}ÖµΩ’π–Ä¸¸Ä¿§Ä¯Ä¿Ä¸ÅÉäàÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°±ïÖÕîπµΩπ—°±Â}ÕÂπë•ç}ÖµΩ’π–•ÙÅUMÅÕÂπë•çÄÄËÅπ’±∞∞(ÄÄÄÄÄÅΩ—°ï…°Ö…ùïÕµΩ’π–Ä¯Ä¿Ä¸ÅÉäàÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°Ω—°ï…°Ö…ùïÕµΩ’π–•ÙÅUMÅÖ’—…ïÃÅç°Ö…ùïÕÄÄËÅπ’±∞∞(ÄÄÄÅtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†ùq∏ú§Ï(ÄÄÄÅçΩπÕ–Å±ïÖÕï’…Ö—•ΩπQï·–ÄÙÅë’…Ö—•Ωπ5Ωπ—°ÃÄ¯Ä¿Ä¸ÅÄëÌë’…Ö—•Ωπ5Ωπ—°ÕÙÅµΩ•ÕÄÄËÄùë’…ïîÅï∏ÅçΩ’…ÃúÏ(ÄÄÄÅçΩπÕ–Åâïë…ΩΩµΩ’π—Qï·–ÄÙÅ—°•Ãπô…ïπç°9’µâï…]Ω…ê°âïë…ΩΩµΩ’π–§Ï(ÄÄÄÅçΩπÕ–ÅµΩπ—°±ÂMïç—•Ωπ1•πïÃÄÙÅl(ÄÄÄÄÄÅÅ1îÅ±ΩÂï»ÅµïπÕ’ï∞Åë‘Å±ΩçÖ∞ÅïÕ–ÅçΩπÕ—•—◊§ÅëîÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°—Ω—Ö±5Ωπ—°±‰•ÙÅUMÅ±îÅµΩ•ÃÅëΩπ–ÄÈÄ∞(ÄÄÄÄÄÅ…ïπ—µΩ’π–Ä¯Ä¿Ä¸ÅÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°…ïπ—µΩ’π–•ÙÅUMÅ±ΩÂï»ÅëîÅâÖÕïÄÄËÅπ’±∞∞(ÄÄÄÄÄÅµÖ•π—ïπÖπçïïïµΩ’π–Ä¯Ä¿Ä¸ÅÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°µÖ•π—ïπÖπçïïïµΩ’π–•ÙÅUMÅô…Ö•ÃÅêùïπ—…ï—•ïπÄÄËÅπ’±∞∞(ÄÄÄÄÄÅ9’µâï»°±ïÖÕîπµΩπ—°±Â}ÕÂπë•ç}ÖµΩ’π–Ä¸¸Ä¿§Ä¯Ä¿Ä¸ÅÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°±ïÖÕîπµΩπ—°±Â}ÕÂπë•ç}ÖµΩ’π–•ÙÅUMÅÕÂπë•çÄÄËÅπ’±∞∞(ÄÄÄÄÄÅΩ—°ï…°Ö…ùïÕµΩ’π–Ä¯Ä¿Ä¸ÅÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°Ω—°ï…°Ö…ùïÕµΩ’π–•ÙÅUMÅÖ’—…ïÃÅç°Ö…ùïÕÄÄËÅπ’±∞∞(ÄÄÄÅtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†ùq∏ú§Ï(ÄÄÄÅçΩπÕ–Åù’Ö…Öπ—ïïMïç—•Ω∏ÄÙÅÅ1ÑÅùÖ…Öπ—•îÅ±ΩçÖ—•ŸîÉ•≈’•ŸÖ’–ÉÄÄëÌù’Ö…Öπ—ïï5Ωπ—°ÕÙÅµΩ•ÃÄ†ÙÄ†ëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°…ïπ—µΩ’π–•ÙÄ¨ÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°µÖ•π—ïπÖπçïïïµΩ’π–•Ù§Å‡ÄëÌù’Ö…Öπ—ïï5Ωπ—°ÕÙ•ÄÏ(ÄÄÄÅçΩπÕ–ÅÖ’—…ïÕ°Ö…ùïÕ1•ùπîÄÙÅΩ—°ï…°Ö…ùïÕµΩ’π–Ä¯Ä¿Ä¸ÅÄ¥Å’—…ïÃÅç°Ö…ùïÃÄËÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°Ω—°ï…°Ö…ùïÕµΩ’π–•ÙÅUMÄÄËÄúúÏ(ÄÄÄÅçΩπÕ–Å±Öπë±Ω…ëM•ù±îÄÙÅM—…•πú°çΩµ¡Öπ‰πçΩµ¡ÖπÂ}Öç…ΩπÂ¥Ä¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅçΩπÕ–Å±Öπë±Ω…ë1ïùÖ±Ω…¥ÄÙÅM—…•πú°çΩµ¡Öπ‰πçΩµ¡ÖπÂ}±ïùÖ±}ôΩ…¥Ä¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅçΩπÕ–Å—ïπÖπ—1ïùÖ±Ω…¥ÄÙÅM—…•πú°±ïÖÕîπ±ïùÖ±}ôΩ…¥Ä¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅçΩπÕ–Å—ïπÖπ—Ωµ¡ÖπÂ9ÖµîÄÙÅM—…•πú°±ïÖÕîπçΩµ¡ÖπÂ}πÖµîÄ¸¸Å±ïÖÕîπ—ïπÖπ—}πÖµîÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅçΩπÕ–ÅπΩµâ…ïAÖ…≠•πùÕA°…ÖÕîÄÙÅ¡Ö…≠•πùΩ’π–Ä¯Ä¿(ÄÄÄÄÄÄ¸ÅÅU∏Å—Ω—Ö∞ÅëîÄëÌ¡Ö…≠•πùΩ’π—ÙÅïµ¡±Öçïµïπ–°Ã§ÅëîÅ¡Ö…≠•πúÅïÕ–ÅÀ•Õï…€§ÅÖ‘ÅA…ïπï’»πÄ(ÄÄÄÄÄÄËÄù’ç’∏Åïµ¡±Öçïµïπ–ÅëîÅ¡Ö…≠•πúÅªäeïÕ–ÅÀ•Õï…€§ÅÖ‘Å—•—…îÅë‘Å¡À•Õïπ–ÅâÖ•∞∞ÅÕÖ’òÅÖççΩ…êÅçΩπ—…Ö•…îÉ•ç…•–ÅëïÃÅAÖ…—•ïÃ∏úÏ(ÄÄÄÅçΩπÕ–Å—ïπÖπ—%ëïπ—•ô•çÖ—•ΩπAÖ…Öù…Ö¡†ÄÙÅ•ÕΩµ¡ÖπÂQïπÖπ–(ÄÄÄÄÄÄ¸ÅÉ
+¨ÄëÌ—ïπÖπ—Ωµ¡ÖπÂ9ÖµïÙëÌ—ïπÖπ—1ïùÖ±Ω…¥Ä¸ÅÄ∞ÄëÌ—ïπÖπ—1ïùÖ±Ω…µıÄÄËÄúùÙëÌ±ïÖÕîπ…çç¥Ä¸ÅÄ∞Å•µµÖ—…•ç’≥•îÅÖ‘ÅIïù•Õ—…îÅë‘ÅΩµµï…çîÅï–Åë‘ÅÀ•ë•–Å5Ωâ•±•ï»ÅÕΩ’ÃÅ±îÅπ’∑•…ºÄëÌ±ïÖÕîπ…ççµıÄÄËÄúùÙëÌ±ïÖÕîππÖ—•ΩπÖ±}•ë}π’µâï»Ä¸ÅÄ∞Åïπ…ïù•Õ—À•îÉÄÅ≥äe%ëïπ—•ô•çÖ—•Ω∏Å9Ö—•ΩπÖ±îÅÕΩ’ÃÅ±îÅπ’∑•…ºÄëÌ±ïÖÕîππÖ—•ΩπÖ±}•ë}π’µâï…ıÄÄËÄúùÙëÌ—ïπÖπ—ëë…ïÕÕAÖ…—Ãπ±ïπù—†Ä¸ÅÄ∞ÅëΩπ–Å±îÅÕß°ùîÅÕΩç•Ö∞ÅïÕ–É•—Öâ±§ÉÄÄëÌ—ïπÖπ—ëë…ïÕÕAÖ…—Ãπ©Ω•∏†ú∞Äú•ıÄÄËÄúùÙëÌ—ïπÖπ—Iï¡…ïÕïπ—Ö—•ŸîÄ¸ÅÄ∞Å…ï¡À•Õïπ”•îÅ¡Ö»ÄëÌ—ïπÖπ—Iï¡…ïÕïπ—Ö—•ŸïıÄÄËÄúùÙëÌ±ïÖÕîπ±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}…Ω±îÄ¸ÅÄ∞ÅÖù•ÕÕÖπ–Åï∏Å≈’Ö±•”§ÅëîÄëÌ±ïÖÕîπ±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}…Ω±ïıÄÄËÄúùÙÉ
+ÌÄ(ÄÄÄÄÄÄËÅÉ
+¨Å5ΩπÕ•ï’»Ω5ÖëÖµîÄëÌ—ïπÖπ—’±±9ÖµîÅÒÅ±ïÖÕîπ—ïπÖπ—}πÖµïÙëÌ±ïÖÕîπ•ë}ëΩç’µïπ—}—Â¡îÄ¸ÅÄ∞Å—•—’±Ö•…îÅëîÄëÌ±ïÖÕîπ•ë}ëΩç’µïπ—}—Â¡ïıÄÄËÄúùÙëÌ±ïÖÕîπ•ë}π’µâï»Ä¸ÅÄÅπ’∑•…ºÄëÌ±ïÖÕîπ•ë}π’µâï…ıÄÄËÄúùÙëÌ—ïπÖπ—ëë…ïÕÕAÖ…—Ãπ±ïπù—†Ä¸ÅÄ∞ÅëΩµ•ç•±ß§°î§ÉÄÄëÌ—ïπÖπ—ëë…ïÕÕAÖ…—Ãπ©Ω•∏†ú∞Äú•ıÄÄËÄúùÙÉ
+ÌÄÏ((ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ191=I}95ËÅ±ïÕÕΩ…9Öµî∞(ÄÄÄÄÄÅ191=I}I=9e4ËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}Öç…ΩπÂ¥Ä¸¸Äúú∞(ÄÄÄÄÄÅ191=I}11}=I4ËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}±ïùÖ±}ôΩ…¥Ä¸¸Äúú∞(ÄÄÄÄÄÅ191=I}I4ËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}…çç¥Ä¸¸Äúú∞(ÄÄÄÄÄÅ191=I}9Q%=91}%ËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}πÖ—•ΩπÖ±}•êÄ¸¸Äúú∞(ÄÄÄÄÄÅ191=I}Qa}%ËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}—Ö·}•êÄ¸¸Äúú∞(ÄÄÄÄÄÅ191=I}IMLËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}Öëë…ïÕÃÄ¸¸ÅçΩµ¡Öπ‰πÖëë…ïÕÃÄ¸¸Äúú∞(ÄÄÄÄÄÅ191=I}=55U9ËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}çΩµµ’πîÄ¸¸Äúú∞(ÄÄÄÄÄÅ191=I}%QdËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}ç•—‰Ä¸¸Äúú∞(ÄÄÄÄÄÅ191=I}=U9QIdËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}çΩ’π—…‰Ä¸¸Äúú∞(ÄÄÄÄÄÅ191=I}IAIM9QQ%Y}95ËÅ…ï¡…ïÕïπ—Ö—•Ÿï’±±9Öµî∞(ÄÄÄÄÄÅ191=I}IAIM9QQ%YËÅ…ï¡…ïÕïπ—Ö—•Ÿï’±±9Öµî∞(ÄÄÄÄÄÅ191=I}IAIM9QQ%Y}%Y%1%QdËÅçΩµ¡Öπ‰π±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}ç•Ÿ•±•—‰Ä¸¸Äúú∞(ÄÄÄÄÄÅ191=I}IAIM9QQ%Y}Q%Q1ËÅçΩµ¡Öπ‰π±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}—•—±îÄ¸¸Äúú∞(ÄÄÄÄÄÅ191=I}AIM9QQ%=8ËÅl(ÄÄÄÄÄÄÄÅ±ïÕÕΩ…9Öµî∞(ÄÄÄÄÄÄÄÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}±ïùÖ±}ôΩ…¥Ä¸ÅÄëÌçΩµ¡Öπ‰πçΩµ¡ÖπÂ}±ïùÖ±}ôΩ…µıÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}…çç¥Ä¸ÅÅI4ÄëÌçΩµ¡Öπ‰πçΩµ¡ÖπÂ}…ççµıÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}πÖ—•ΩπÖ±}•êÄ¸ÅÅ%Å9Ö–ÄëÌçΩµ¡Öπ‰πçΩµ¡ÖπÂ}πÖ—•ΩπÖ±}•ëıÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄ°çΩµ¡Öπ‰πçΩµ¡ÖπÂ}Öëë…ïÕÃÄ¸¸ÅçΩµ¡Öπ‰πÖëë…ïÕÃ§Ä¸ÅÅÖë…ïÕÕîÄëÌçΩµ¡Öπ‰πçΩµ¡ÖπÂ}Öëë…ïÕÃÄ¸¸ÅçΩµ¡Öπ‰πÖëë…ïÕÕıÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÅ…ï¡…ïÕïπ—Ö—•Ÿï’±±9ÖµîÄ¸ÅÅ…ï¡…ïÕïπ—ïîÅ¡Ö»ÄëÌ…ï¡…ïÕïπ—Ö—•Ÿï’±±9ÖµïıÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÅçΩµ¡Öπ‰π±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}—•—±îÄ¸ÅÅï∏Å≈’Ö±•—îÅëîÄëÌçΩµ¡Öπ‰π±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}—•—±ïıÄÄËÅπ’±∞∞(ÄÄÄÄÄÅtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†ú∞Äú§∞(ÄÄÄÄÄÅQ99Q}95ËÅ•ÕΩµ¡ÖπÂQïπÖπ–Ä¸Ä°±ïÖÕîπçΩµ¡ÖπÂ}πÖµîÄ¸¸Å±ïÖÕîπ—ïπÖπ—}πÖµî§ÄËÄ°—ïπÖπ—’±±9ÖµîÅÒÅ±ïÖÕîπ—ïπÖπ—}πÖµî§∞(ÄÄÄÄÄÅQ99Q}%Y%1%QdËÅ±ïÖÕîπç•Ÿ•±•—‰Ä¸¸Äúú∞(ÄÄÄÄÄÅQ99Q}11}=I4ËÅ±ïÖÕîπ±ïùÖ±}ôΩ…¥Ä¸¸Äúú∞(ÄÄÄÄÄÅQ99Q}I4ËÅ±ïÖÕîπ…çç¥Ä¸¸Äúú∞(ÄÄÄÄÄÅQ99Q}%ËÅ±ïÖÕîππÖ—•ΩπÖ±}•ë}π’µâï»Ä¸¸Å±ïÖÕîπ•ë}π’µâï»Ä¸¸Äúú∞(ÄÄÄÄÄÅQ99Q}IMLËÅ±ïÖÕîπ—ïπÖπ—}Öëë…ïÕÃÄ¸¸Äúú∞(ÄÄÄÄÄÅQ99Q}=55U9ËÅ±ïÖÕîπ—ïπÖπ—}çΩµµ’πîÄ¸¸Äúú∞(ÄÄÄÄÄÅQ99Q}%QdËÅ±ïÖÕîπ—ïπÖπ—}ç•—‰Ä¸¸Äúú∞(ÄÄÄÄÄÅQ99Q}=U9QIdËÅ±ïÖÕîπ—ïπÖπ—}çΩ’π—…‰Ä¸¸Äúú∞(ÄÄÄÄÄÅQ99Q}IAIM9QQ%Y}95ËÅ—ïπÖπ—Iï¡…ïÕïπ—Ö—•Ÿî∞(ÄÄÄÄÄÅQ99Q}IAIM9QQ%Y}%Y%1%QdËÅ±ïÖÕîπ±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}ç•Ÿ•±•—‰Ä¸¸Äúú∞(ÄÄÄÄÄÅQ99Q}IAIM9QQ%Y}Q%Q1ËÅ±ïÖÕîπ±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}…Ω±îÄ¸¸Äúú∞(ÄÄÄÄÄÅQ99Q}AIM9QQ%=8ËÅ•ÕΩµ¡ÖπÂQïπÖπ–Ä¸ÅçΩµ¡ÖπÂA…ïÕïπ—Ö—•Ω∏ÄËÅ¡°ÂÕ•çÖ±A…ïÕïπ—Ö—•Ω∏∞(ÄÄÄÄÄÅQ99Q}A!eM%1}9=QËÅ—ïπÖπ—A°ÂÕ•çÖ±9Ω—î∞(ÄÄÄÄÄÅ	U%1%9}95ËÅ±ïÖÕîπâ’•±ë•πù}πÖµîÄ¸¸Äúú∞(ÄÄÄÄÄÅ	U%1%9}IMLËÅ±ïÖÕîπâ’•±ë•πù}Öëë…ïÕÃÄ¸¸Äúú∞(ÄÄÄÄÄÅ	U%1%9}=55U9ËÅ±ïÖÕîπâ’•±ë•πù}çΩµµ’πîÄ¸¸Äúú∞(ÄÄÄÄÄÅ	U%1%9}9%!	=I!==ËÅ±ïÖÕîπâ’•±ë•πù}πï•ù°âΩ…°ΩΩêÄ¸¸Äúú∞(ÄÄÄÄÄÅ	U%1%9}%QdËÅ±ïÖÕîπâ’•±ë•πù}ç•—‰Ä¸¸Äúú∞(ÄÄÄÄÄÅU9%Q}9U5	HËÅ±ïÖÕîπ’π•—}π’µâï»Ä¸¸Äúú∞(ÄÄÄÄÄÅU9%Q}UI9%M!%9ËÅÖ¡Ö…—µïπ—1Öâï∞∞(ÄÄÄÄÄÅAIQ59Q}1	0ËÅÖ¡Ö…—µïπ—1Öâï∞∞(ÄÄÄÄÄÅ	I==5}=U9PËÅM—…•πú°âïë…ΩΩµΩ’π–§∞(ÄÄÄÄÄÅAI-%9}=U9PËÅM—…•πú°¡Ö…≠•πùΩ’π–§∞(ÄÄÄÄÄÅ	I==5}=U9Q}QaPËÅâïë…ΩΩµΩ’π—Qï·–∞(ÄÄÄÄÄÅMQIQ}QËÅ±ïÖÕïM—Ö…—Ö—î∞(ÄÄÄÄÄÅ9}QËÅ±ïÖÕïπëÖ—î∞(ÄÄÄÄÄÅ1M}UIQ%=9}QaPËÅ±ïÖÕï’…Ö—•ΩπQï·–∞(ÄÄÄÄÄÅ9=Q%}5=9Q!LËÅM—…•πú°±ïÖÕîππΩ—•çï}µΩπ—°ÃÄ¸¸ÅçΩµ¡Öπ‰πëïôÖ’±—}πΩ—•çï}µΩπ—°ÃÄ¸¸Ä¿§∞(ÄÄÄÄÄÅ5=9Q!1e}I9PËÅ—°•ÃπôΩ…µÖ—5Ωπï‰°±ïÖÕîπµΩπ—°±Â}…ïπ–§∞(ÄÄÄÄÄÅ5%9Q99}5=U9PËÅ—°•ÃπôΩ…µÖ—5Ωπï‰°±ïÖÕîπµÖ•π—ïπÖπçï}ôïï}ÖµΩ’π–§∞(ÄÄÄÄÄÅMe9%}5=U9PËÅ—°•ÃπôΩ…µÖ—5Ωπï‰°±ïÖÕîπµΩπ—°±Â}ÕÂπë•ç}ÖµΩ’π–§∞(ÄÄÄÄÄÅ=Q!I}!IM}5=U9PËÅ—°•ÃπôΩ…µÖ—5Ωπï‰°±ïÖÕîπΩ—°ï…}ç°Ö…ùïÕ}ÖµΩ’π–§∞(ÄÄÄÄÄÅ=Q!I}!IM}1%9ËÅΩ—°ï…°Ö…ùïÕµΩ’π–Ä¯Ä¿Ä¸ÅÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°Ω—°ï…°Ö…ùïÕµΩ’π–•ÙÅUMÅÖ’—…ïÃÅç°Ö…ùïÕÄÄËÄúú∞(ÄÄÄÄÄÅ=9QIQ}9=QËÅçΩπ—…Öç—9Ω—îÄ¸¸Äúú∞(ÄÄÄÄÄÅ5=9Q!1e}MQ%=8ËÅµΩπ—°±ÂMïç—•Ωπ1•πïÃ∞(ÄÄÄÄÄÅI9Q}	I-=]8ËÅ…ïπ—	…ïÖ≠ëΩ›∏∞(ÄÄÄÄÄÅ5=9Q!1e}Q=Q0ËÅ—°•ÃπôΩ…µÖ—5Ωπï‰°—Ω—Ö±5Ωπ—°±‰§∞(ÄÄÄÄÄÅ5=9Q!1e}Q=Q1}I\ËÅ—°•ÃπôΩ…µÖ—5Ωπï‰°—Ω—Ö±5Ωπ—°±‰§∞(ÄÄÄÄÄÅUII9dËÄùUMú∞(ÄÄÄÄÄÅUI9Q}5=9Q!LËÅM—…•πú°ù’Ö…Öπ—ïï5Ωπ—°Ã§∞(ÄÄÄÄÄÅUI9Q}Q=Q0ËÅ—°•ÃπôΩ…µÖ—5Ωπï‰°ù’Ö…Öπ—ïïµΩ’π–§∞(ÄÄÄÄÄÅUI9Q}MQ%=8ËÅù’Ö…Öπ—ïïMïç—•Ω∏∞(ÄÄÄÄÄÅ9IQ}PËÅùïπï…Ö—ïë–π—Ω%M=M—…•πú†§∞(ÄÄÄÄÄÅM%9QUI}A1ËÅ±ïÖÕîπÕ•ùπÖ—’…ï}¡±ÖçîÄ¸¸ÅçΩµ¡Öπ‰πëïôÖ’±—}Õ•ùπÖ—’…ï}¡±ÖçîÄ¸¸ÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}ç•—‰Ä¸¸Äù-•πÕ°ÖÕÑú∞(ÄÄÄÄÄÅM%9QUI}QËÅÕ•ùπÖ—’…ïÖ—î∞(ÄÄÄÄÄÅ1M}II9ËÅ—°•Ãπ±ïÖÕïIïôï…ïπçïΩëî°±ïÖÕîπ•ê§∞(ÄÄÄÄÄÅçΩµ¡ÖπÂ}¡°ΩπîËÅçΩµ¡Öπ‰π¡°ΩπîÄ¸¸ÅçΩµ¡Öπ‰π¡…•µÖ…Â}¡°ΩπîÄ¸¸Äúú∞(ÄÄÄÄÄÅçΩµ¡ÖπÂ}ïµÖ•∞ËÅçΩµ¡Öπ‰πïµÖ•∞Ä¸¸ÅçΩµ¡Öπ‰π¡…•µÖ…Â}ïµÖ•∞Ä¸¸Äúú∞(ÄÄÄÄÄÅçΩµ¡ÖπÂ}±ΩùΩ}ô•±ï}’…∞ËÅçΩµ¡Öπ‰π±ΩùΩ}ô•±ï}’…∞Ä¸¸ÅçΩµ¡Öπ‰π±ΩùΩ}’…∞Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅçΩµ¡ÖπÂ}Õ•ùπÖ—’…ï}ô•±ï}’…∞ËÅçΩµ¡Öπ‰πÕ•ùπÖ—’…ï}ô•±ï}’…∞Ä¸¸ÅçΩµ¡Öπ‰πÕ•ùπÖ—’…ï}’…∞Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅçΩµ¡ÖπÂ}Õ—Öµ¡}ô•±ï}’…∞ËÅçΩµ¡Öπ‰πÕ—Öµ¡}ô•±ï}’…∞Ä¸¸ÅçΩµ¡Öπ‰πÕ—Öµ¡}’…∞Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅâÖ•±±ï’»ËÅÏ(ÄÄÄÄÄÄÄÅ…Ö•ÕΩπ}ÕΩç•Ö±îËÅ±ïÕÕΩ…9Öµî∞(ÄÄÄÄÄÄÄÅÕ•ù±îËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}Öç…ΩπÂ¥Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅÕ•ù±ï}¡°…ÖÕîËÅ±Öπë±Ω…ëM•ù±îÄ¸ÅÄÄ†ëÌ±Öπë±Ω…ëM•ù±ïÙ•ÄÄËÄúú∞(ÄÄÄÄÄÄÄÅôΩ…µï}©’…•ë•≈’îËÅ±Öπë±Ω…ë1ïùÖ±Ω…¥∞(ÄÄÄÄÄÄÄÅôΩ…µï}©’…•ë•≈’ï}¡°…ÖÕîËÅ±Öπë±Ω…ë1ïùÖ±Ω…¥Ä¸ÅÄëÌ±Öπë±Ω…ë1ïùÖ±Ω…µÙÅÄÄËÄúú∞(ÄÄÄÄÄÄÄÅ…çç¥ËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}…çç¥Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅ•ëïπ—•ô•çÖ—•Ωπ}πÖ—•ΩπÖ±îËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}πÖ—•ΩπÖ±}•êÄ¸¸Äúú∞(ÄÄÄÄÄÄÄÅπ’µï…Ω}ô•ÕçÖ∞ËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}—Ö·}•êÄ¸¸Äúú∞(ÄÄÄÄÄÄÄÅÖë…ïÕÕîËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}Öëë…ïÕÃÄ¸¸ÅçΩµ¡Öπ‰πÖëë…ïÕÃÄ¸¸Äúú∞(ÄÄÄÄÄÄÄÅÖë…ïÕÕï}çΩµ¡±ï—îËÅçΩµ¡ÖπÂëë…ïÕÕAÖ…—Ãπ©Ω•∏†ú∞Äú§∞(ÄÄÄÄÄÄÄÅçΩµµ’πîËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}çΩµµ’πîÄ¸¸Äúú∞(ÄÄÄÄÄÄÄÅŸ•±±îËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}ç•—‰Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅ¡ÖÂÃËÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}çΩ’π—…‰Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅ…ï¡…ïÕïπ—Öπ—}πΩ¥ËÅ…ï¡…ïÕïπ—Ö—•Ÿï’±±9Öµî∞(ÄÄÄÄÄÄÄÅ…ï¡…ïÕïπ—Öπ—}ç•Ÿ•±•—îËÅçΩµ¡Öπ‰π±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}ç•Ÿ•±•—‰Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅ…ï¡…ïÕïπ—Öπ—}ôΩπç—•Ω∏ËÅçΩµ¡Öπ‰π±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}—•—±îÄ¸¸Äúú∞(ÄÄÄÄÄÄÄÅÕ•ùπÖ—’…ï}πΩ¥ËÅ…ï¡…ïÕïπ—Ö—•Ÿï’±±9ÖµîÅÒÅ±ïÕÕΩ…9Öµî∞(ÄÄÄÄÄÄÄÅ¡…ïÕïπ—Ö—•Ω∏ËÅl(ÄÄÄÄÄÄÄÄÄÅ±ïÕÕΩ…9Öµî∞(ÄÄÄÄÄÄÄÄÄÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}±ïùÖ±}ôΩ…¥Ä¸ÅÄëÌçΩµ¡Öπ‰πçΩµ¡ÖπÂ}±ïùÖ±}ôΩ…µıÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}…çç¥Ä¸ÅÅI4ÄëÌçΩµ¡Öπ‰πçΩµ¡ÖπÂ}…ççµıÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}πÖ—•ΩπÖ±}•êÄ¸ÅÅ%Å9Ö–ÄëÌçΩµ¡Öπ‰πçΩµ¡ÖπÂ}πÖ—•ΩπÖ±}•ëıÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÄ°çΩµ¡Öπ‰πçΩµ¡ÖπÂ}Öëë…ïÕÃÄ¸¸ÅçΩµ¡Öπ‰πÖëë…ïÕÃ§Ä¸ÅÅÖë…ïÕÕîÄëÌçΩµ¡Öπ‰πçΩµ¡ÖπÂ}Öëë…ïÕÃÄ¸¸ÅçΩµ¡Öπ‰πÖëë…ïÕÕıÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ…ï¡…ïÕïπ—Ö—•Ÿï’±±9ÖµîÄ¸ÅÅ…ï¡…ïÕïπ—ïîÅ¡Ö»ÄëÌ…ï¡…ïÕïπ—Ö—•Ÿï’±±9ÖµïıÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅçΩµ¡Öπ‰π±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}—•—±îÄ¸ÅÅï∏Å≈’Ö±•—îÅëîÄëÌçΩµ¡Öπ‰π±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}—•—±ïıÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÅtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†ú∞Äú§∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅ±ΩçÖ—Ö•…îËÅÏ(ÄÄÄÄÄÄÄÅ—Â¡îËÅ•ÕΩµ¡ÖπÂQïπÖπ–Ä¸ÄùAIM=99}5=I1úÄËÄùAIM=99}A!eM%EUú∞(ÄÄÄÄÄÄÄÅç•Ÿ•±•—îËÅ±ïÖÕîπç•Ÿ•±•—‰Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅπΩµ}çΩµ¡±ï–ËÅ—ïπÖπ—’±±9ÖµîÅÒÅ±ïÖÕîπ—ïπÖπ—}πÖµî∞(ÄÄÄÄÄÄÄÅ…Ö•ÕΩπ}ÕΩç•Ö±îËÅ±ïÖÕîπçΩµ¡ÖπÂ}πÖµîÄ¸¸Äúú∞(ÄÄÄÄÄÄÄÅôΩ…µï}©’…•ë•≈’îËÅ±ïÖÕîπ±ïùÖ±}ôΩ…¥Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅ…çç¥ËÅ±ïÖÕîπ…çç¥Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅ•ëïπ—•ô•çÖ—•Ωπ}πÖ—•ΩπÖ±îËÅ±ïÖÕîππÖ—•ΩπÖ±}•ë}π’µâï»Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅ—Â¡ï}¡•ïçï}•ëïπ—•—îËÅ±ïÖÕîπ•ë}ëΩç’µïπ—}—Â¡îÄ¸¸Äúú∞(ÄÄÄÄÄÄÄÅπ’µï…Ω}¡•ïçï}•ëïπ—•—îËÅ±ïÖÕîπ•ë}π’µâï»Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅÖë…ïÕÕîËÅ±ïÖÕîπ—ïπÖπ—}Öëë…ïÕÃÄ¸¸Äúú∞(ÄÄÄÄÄÄÄÅÖë…ïÕÕï}çΩµ¡±ï—îËÅ—ïπÖπ—ëë…ïÕÕAÖ…—Ãπ©Ω•∏†ú∞Äú§∞(ÄÄÄÄÄÄÄÅçΩµµ’πîËÅ±ïÖÕîπ—ïπÖπ—}çΩµµ’πîÄ¸¸Äúú∞(ÄÄÄÄÄÄÄÅŸ•±±îËÅ±ïÖÕîπ—ïπÖπ—}ç•—‰Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅ¡ÖÂÃËÅ±ïÖÕîπ—ïπÖπ—}çΩ’π—…‰Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅ…ï¡…ïÕïπ—Öπ—}πΩ¥ËÅ—ïπÖπ—Iï¡…ïÕïπ—Ö—•Ÿî∞(ÄÄÄÄÄÄÄÅ…ï¡…ïÕïπ—Öπ—}πΩµ}çΩµ¡±ï–ËÅ—ïπÖπ—Iï¡…ïÕïπ—Ö—•Ÿî∞(ÄÄÄÄÄÄÄÅ…ï¡…ïÕïπ—Öπ—}ç•Ÿ•±•—îËÅ±ïÖÕîπ±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}ç•Ÿ•±•—‰Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅ…ï¡…ïÕïπ—Öπ—}ôΩπç—•Ω∏ËÅ±ïÖÕîπ±ïùÖ±}…ï¡…ïÕïπ—Ö—•Ÿï}…Ω±îÄ¸¸Äúú∞(ÄÄÄÄÄÄÄÅÕ•ùπÖ—’…ï}πΩ¥ËÅ•ÕΩµ¡ÖπÂQïπÖπ–Ä¸Ä°±ïÖÕîπçΩµ¡ÖπÂ}πÖµîÄ¸¸Å±ïÖÕîπ—ïπÖπ—}πÖµî§ÄËÄ°—ïπÖπ—’±±9ÖµîÅÒÅ±ïÖÕîπ—ïπÖπ—}πÖµî§∞(ÄÄÄÄÄÄÄÅ¡Ö…Öù…Ö¡°ï}•ëïπ—•ô•çÖ—•Ω∏ËÅ—ïπÖπ—%ëïπ—•ô•çÖ—•ΩπAÖ…Öù…Ö¡†∞(ÄÄÄÄÄÄÄÅ¡…ïÕïπ—Ö—•Ω∏ËÅ•ÕΩµ¡ÖπÂQïπÖπ–Ä¸ÅçΩµ¡ÖπÂA…ïÕïπ—Ö—•Ω∏ÄËÅ¡°ÂÕ•çÖ±A…ïÕïπ—Ö—•Ω∏∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅâ•ï∏ËÅÏ(ÄÄÄÄÄÄÄÅπ’µï…Ω}’π•—îËÅ±ïÖÕîπ’π•—}π’µâï»Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅ•µµï’â±îËÅ±ïÖÕîπâ’•±ë•πù}πÖµîÄ¸¸Äúú∞(ÄÄÄÄÄÄÄÅÖë…ïÕÕîËÅ±ïÖÕîπâ’•±ë•πù}Öëë…ïÕÃÄ¸¸Äúú∞(ÄÄÄÄÄÄÄÅçΩµµ’πîËÅ±ïÖÕîπâ’•±ë•πù}çΩµµ’πîÄ¸¸Äúú∞(ÄÄÄÄÄÄÄÅ≈’Ö…—•ï»ËÅ±ïÖÕîπâ’•±ë•πù}πï•ù°âΩ…°ΩΩêÄ¸¸Äúú∞(ÄÄÄÄÄÄÄÅŸ•±±îËÅ±ïÖÕîπâ’•±ë•πù}ç•—‰Ä¸¸Äúú∞(ÄÄÄÄÄÄÄÅπΩµâ…ï}ç°Öµâ…ïÃËÅM—…•πú°âïë…ΩΩµΩ’π–§∞(ÄÄÄÄÄÄÄÅπΩµâ…ï}¡Ö…≠•πùÃËÅM—…•πú°¡Ö…≠•πùΩ’π–§∞(ÄÄÄÄÄÄÄÅπΩµâ…ï}¡Ö…≠•πùÕ}¡°…ÖÕîËÅπΩµâ…ïAÖ…≠•πùÕA°…ÖÕî∞(ÄÄÄÄÄÄÄÅµï’â±ï}±Öâï∞ËÅ±ïÖÕîπ•Õ}ô’…π•Õ°ïêÄ¸Äù5ï’â±îúÄËÄù9Ω∏Åµï’â±îú∞(ÄÄÄÄÄÄÄÅÖ¡¡Ö…—ïµïπ—}±Öâï∞ËÅÖ¡Ö…—µïπ—1Öâï∞∞(ÄÄÄÄÄÄÄÅ’ÕÖùîËÅ’ÕÖùï1Öâï∞∞(ÄÄÄÄÄÄÄÅÖë…ïÕÕï}çΩµ¡±ï—îËÅâ’•±ë•πùëë…ïÕÕAÖ…—Ãπ©Ω•∏†ú∞Äú§∞(ÄÄÄÄÄÄÄÅëïÕç…•¡—•Ωπ}ëï—Ö•∞ËÅl(ÄÄÄÄÄÄÄÄÄÅÅ∞ù’π•—îÄëÌ±ïÖÕîπ’π•—}π’µâï»Ä¸¸ÄúùıÄπ—…•¥†§∞(ÄÄÄÄÄÄÄÄÄÅ±ïÖÕîπÕ’…ôÖçï}Ö…ïÑÄ¸ÅÄëÌ±ïÖÕîπÕ’…ôÖçï}Ö…ïÖÙÅ¥…ÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅâïë…ΩΩµΩ’π–Ä¸ÅÄëÌâïë…ΩΩµΩ’π—ÙÅç°Öµâ…î°Ã•ÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅM—…•πú°¡Ö…≠•πùΩ’π–§ÄÑÙÙÄú¿ú(ÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÄëÌ¡Ö…≠•πùΩ’π—ÙÅ¡Ö…≠•πú°Ã•Ä(ÄÄÄÄÄÄÄÄÄÄÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅ±ïÖÕîπ•Õ}ô’…π•Õ°ïêÄ¸Äùµï’â±ïîúÄËÄùπΩ∏Åµï’â±ïîú∞(ÄÄÄÄÄÄÄÅtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†ú∞Äú§∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅâÖ•∞ËÅÏ(ÄÄÄÄÄÄÄÅëÖ—ï}ëïâ’–ËÅ±ïÖÕïM—Ö…—Ö—î∞(ÄÄÄÄÄÄÄÅëÖ—ï}ô•∏ËÅ±ïÖÕïπëÖ—î∞(ÄÄÄÄÄÄÄÅë’…ïï}—ï·—îËÅ±ïÖÕï’…Ö—•ΩπQï·–∞(ÄÄÄÄÄÄÄÅ¡…ïÖŸ•Õ}µΩ•ÃËÅM—…•πú°±ïÖÕîππΩ—•çï}µΩπ—°ÃÄ¸¸ÅçΩµ¡Öπ‰πëïôÖ’±—}πΩ—•çï}µΩπ—°ÃÄ¸¸Ä¿§∞(ÄÄÄÄÄÄÄÅ±ΩÂï…}âÖÕîËÅ—°•ÃπôΩ…µÖ—5Ωπï‰°±ïÖÕîπµΩπ—°±Â}…ïπ–§∞(ÄÄÄÄÄÄÄÅ±ΩÂï…}âÖÕï}ôΩ…µÖ—îËÅÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°±ïÖÕîπµΩπ—°±Â}…ïπ–•ÙÅUMÄ∞(ÄÄÄÄÄÄÄÅô…Ö•Õ}ïπ—…ï—•ï∏ËÅ—°•ÃπôΩ…µÖ—5Ωπï‰°±ïÖÕîπµÖ•π—ïπÖπçï}ôïï}ÖµΩ’π–§∞(ÄÄÄÄÄÄÄÅô…Ö•Õ}ïπ—…ï—•ïπ}ôΩ…µÖ—îËÅÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°±ïÖÕîπµÖ•π—ïπÖπçï}ôïï}ÖµΩ’π–•ÙÅUMÄ∞(ÄÄÄÄÄÄÄÅô…Ö•Õ}ÕÂπë•åËÅ—°•ÃπôΩ…µÖ—5Ωπï‰°±ïÖÕîπµΩπ—°±Â}ÕÂπë•ç}ÖµΩ’π–§∞(ÄÄÄÄÄÄÄÅô…Ö•Õ}ÕÂπë•ç}ôΩ…µÖ—îËÅÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°±ïÖÕîπµΩπ—°±Â}ÕÂπë•ç}ÖµΩ’π–•ÙÅUMÄ∞(ÄÄÄÄÄÄÄÅÖ’—…ïÕ}ç°Ö…ùïÃËÅ—°•ÃπôΩ…µÖ—5Ωπï‰°±ïÖÕîπΩ—°ï…}ç°Ö…ùïÕ}ÖµΩ’π–§∞(ÄÄÄÄÄÄÄÅÖ’—…ïÕ}ç°Ö…ùïÕ}ôΩ…µÖ—îËÅÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°±ïÖÕîπΩ—°ï…}ç°Ö…ùïÕ}ÖµΩ’π–•ÙÅUMÄ∞(ÄÄÄÄÄÄÄÅÖ’—…ïÕ}ç°Ö…ùïÕ}±•ùπîËÅÖ’—…ïÕ°Ö…ùïÕ1•ùπî∞(ÄÄÄÄÄÄÄÅ±ΩÂï…}—Ω—Ö∞ËÅ—°•ÃπôΩ…µÖ—5Ωπï‰°—Ω—Ö±5Ωπ—°±‰§∞(ÄÄÄÄÄÄÄÅ±ΩÂï…}—Ω—Ö±}ôΩ…µÖ—îËÅÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°—Ω—Ö±5Ωπ—°±‰•ÙÅUMÄ∞(ÄÄÄÄÄÄÄÅùÖ…Öπ—•ï}πΩµâ…ï}µΩ•ÃËÅM—…•πú°ù’Ö…Öπ—ïï5Ωπ—°Ã§∞(ÄÄÄÄÄÄÄÅùÖ…Öπ—•ï}µΩπ—Öπ–ËÅ—°•ÃπôΩ…µÖ—5Ωπï‰°ù’Ö…Öπ—ïïµΩ’π–§∞(ÄÄÄÄÄÄÄÅùÖ…Öπ—•ï}µΩπ—Öπ—}ôΩ…µÖ—îËÅÄëÌ—°•ÃπôΩ…µÖ—5Ωπï‰°ù’Ö…Öπ—ïïµΩ’π–•ÙÅUMÄ∞(ÄÄÄÄÄÄÄÅùÖ…Öπ—•ï}âÖÕï}µΩπ—Öπ–ËÅ—°•ÃπôΩ…µÖ—5Ωπï‰°ù’Ö…Öπ—ïï	ÖÕïµΩ’π–§∞(ÄÄÄÄÄÄÄÅëïŸ•ÕîËÄùUMú∞(ÄÄÄÄÄÄÄÅ±•ï’}Õ•ùπÖ—’…îËÅ±ïÖÕîπÕ•ùπÖ—’…ï}¡±ÖçîÄ¸¸ÅçΩµ¡Öπ‰πëïôÖ’±—}Õ•ùπÖ—’…ï}¡±ÖçîÄ¸¸ÅçΩµ¡Öπ‰πçΩµ¡ÖπÂ}ç•—‰Ä¸¸Äù-•πÕ°ÖÕÑú∞(ÄÄÄÄÄÄÄÅëÖ—ï}Õ•ùπÖ—’…îËÅÕ•ùπÖ—’…ïÖ—î∞(ÄÄÄÄÄÄÄÅ’ÕÖùï}±Öâï∞ËÅ’ÕÖùï1Öâï∞∞(ÄÄÄÄÄÄÄÅ’ÕÖùï}±Öâï±}’¡¡ï»ËÅ’ÕÖùï1Öâï∞π—ΩU¡¡ï…ÖÕî†§∞(ÄÄÄÄÄÄÄÅ’ÕÖùï}±Öâï±}±Ω›ï»ËÅ’ÕÖùï1Öâï∞π—Ω1Ω›ï…ÖÕî†§∞(ÄÄÄÄÄÄÄÅÖç—•Ÿ•—ï}ëïÕ—•πÖ—•Ω∏ËÅÖç—•Ÿ•—ÂïÕç…•¡—•Ω∏∞(ÄÄÄÄÄÄÄÅëïÕ—•πÖ—•Ωπ}¡°…ÖÕîËÅëïÕ—•πÖ—•ΩπA°…ÖÕî∞(ÄÄÄÄÄÄÄÅπΩ—ï}çΩπ—…Ö–ËÅçΩπ—…Öç—9Ω—î∞(ÄÄÄÄÄÄÄÅ—Â¡ï}çΩπ—…Ö–ËÅ±ïÖÕîπçΩπ—…Öç—}—ïµ¡±Ö—ï}çΩëîÄ¸¸ÅçΩµ¡Öπ‰πëïôÖ’±—}çΩπ—…Öç—}—ïµ¡±Ö—ï}çΩëîÄ¸¸Äù1M}IM%9Q%0ú∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•Èï1ïÖÕïUÕÖùïΩëî°ŸÖ±’îËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•ÈïêÄÙÅM—…•πú°ŸÖ±’îÄ¸¸Äúú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ°πΩ…µÖ±•ÈïêÄÙÙÙÄù=55I%0ú§Å…ï—’…∏Äù=55I%0úÏ(ÄÄÄÅ•òÄ°πΩ…µÖ±•ÈïêÄÙÙÙÄùAI=MM%=90úÅÒÅπΩ…µÖ±•ÈïêÄÙÙÙÄùAI=MM%=990ú§Å…ï—’…∏ÄùAI=MM%=90úÏ(ÄÄÄÅ•òÄ°πΩ…µÖ±•ÈïêÄÙÙÙÄù5%aúÅÒÅπΩ…µÖ±•ÈïêÄÙÙÙÄù5%aQú§Å…ï—’…∏Äù5%aúÏ(ÄÄÄÅ…ï—’…∏ÄùIM%9Q%0úÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ±ïÖÕïUÕÖùï1Öâï∞°ŸÖ±’îËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅÕ›•—ç†Ä°—°•ÃππΩ…µÖ±•Èï1ïÖÕïUÕÖùïΩëî°ŸÖ±’î§§ÅÏ(ÄÄÄÄÄÅçÖÕîÄù=55I%0úË(ÄÄÄÄÄÄÄÅ…ï—’…∏ÄùΩµµï…ç•Ö∞úÏ(ÄÄÄÄÄÅçÖÕîÄùAI=MM%=90úË(ÄÄÄÄÄÄÄÅ…ï—’…∏ÄùA…ΩôïÕÕ•Ωππï∞úÏ(ÄÄÄÄÄÅçÖÕîÄù5%aúË(ÄÄÄÄÄÄÄÅ…ï—’…∏Äù5•·—îúÏ(ÄÄÄÄÄÅçÖÕîÄùIM%9Q%0úË(ÄÄÄÄÄÅëïôÖ’±–Ë(ÄÄÄÄÄÄÄÅ…ï—’…∏ÄùK•Õ•ëïπ—•ï∞úÏ(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ±ïÖÕï’…Ö—•Ωπ5Ωπ—°Ã°Õ—Ö…—YÖ±’î¸ËÅÕ—…•πú∞ÅïπëYÖ±’î¸ËÅÕ—…•πúÅÅπ’±∞§ÅÏ(ÄÄÄÅ•òÄ†ÖÕ—Ö…—YÖ±’î§Å…ï—’…∏Ä¿Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ö…–ÄÙÅπï‹ÅÖ—î°Õ—Ö…—YÖ±’î§Ï(ÄÄÄÅçΩπÕ–ÅïπêÄÙÅπï‹ÅÖ—î°ïπëYÖ±’îÄ¸¸Åπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§§Ï(ÄÄÄÅçΩπÕ–ÅµΩπ—°ÃÄÙÄ°ïπêπùï—’±±eïÖ»†§Ä¥ÅÕ—Ö…–πùï—’±±eïÖ»†§§Ä®Äƒ»Ä¨Åïπêπùï—5Ωπ—††§Ä¥ÅÕ—Ö…–πùï—5Ωπ—††§Ï(ÄÄÄÅ…ï—’…∏Å5Ö—†πµÖ‡°µΩπ—°Ã∞Ä¿§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅôΩ…µÖ—5Ωπï‰°ŸÖ±’îËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅ…ï—’…∏Å9’µâï»°ŸÖ±’îÄ¸¸Ä¿§π—Ω1ΩçÖ±ïM—…•πú†ùô»µHú∞ÅÏ(ÄÄÄÄÄÅµ•π•µ’µ…Öç—•Ωπ•ù•—ÃËÄ»∞(ÄÄÄÄÄÅµÖ·•µ’µ…Öç—•Ωπ•ù•—ÃËÄ»∞(ÄÄÄÅÙ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅô…ïπç°9’µâï…]Ω…ê°ŸÖ±’îËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•ÈïêÄÙÅ5Ö—†πµÖ‡†¿∞Å5Ö—†πô±ΩΩ»°9’µâï»°ŸÖ±’îÄ¸¸Ä¿§§§Ï(ÄÄÄÅçΩπÕ–Åë•ç—•ΩπÖ…‰ËÅIïçΩ…êÒπ’µâï»∞ÅÕ—…•πú¯ÄÙÅÏ(ÄÄÄÄÄÄ¿ËÄùiï…ºú∞(ÄÄÄÄÄÄƒËÄùU∏ú∞(ÄÄÄÄÄÄ»ËÄùï’‡ú∞(ÄÄÄÄÄÄÃËÄùQ…Ω•Ãú∞(ÄÄÄÄÄÄ–ËÄùE’Ö—…îú∞(ÄÄÄÄÄÄ‘ËÄù•πƒú∞(ÄÄÄÄÄÄÿËÄùM•‡ú∞(ÄÄÄÄÄÄ‹ËÄùMï¡–ú∞(ÄÄÄÄÄÄ‡ËÄù!’•–ú∞(ÄÄÄÄÄÄ‰ËÄù9ï’òú∞(ÄÄÄÄÄÄƒ¿ËÄù•‡ú∞(ÄÄÄÅÙÏ(ÄÄÄÅ…ï—’…∏Åë•ç—•ΩπÖ…ÂmπΩ…µÖ±•ÈïëtÄ¸¸ÅM—…•πú°πΩ…µÖ±•Èïê§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅôΩ…µÖ—Ö—î°ŸÖ±’î¸ËÅÕ—…•πúÅÅπ’±∞§ÅÏ(ÄÄÄÅ•òÄ†ÖŸÖ±’î§Å…ï—’…∏ÄúúÏ(ÄÄÄÅçΩπÕ–Å•ÕΩÖ—îÄÙÄΩx°qëÏ—Ù§¥°qëÏ…Ù§¥°qëÏ…Ù§ºπï·ïå°M—…•πú°ŸÖ±’î§§Ï(ÄÄÄÅ•òÄ°•ÕΩÖ—î§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÄëÌ•ÕΩÖ—ïlÕuÙºëÌ•ÕΩÖ—ïl…uÙºëÌ•ÕΩÖ—ïl≈uıÄÏ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅëÖ—îÄÙÅπï‹ÅÖ—î°ŸÖ±’î§Ï(ÄÄÄÅ•òÄ°9’µâï»π•Õ9Ö8°ëÖ—îπùï—Q•µî†§§§Å…ï—’…∏ÅM—…•πú°ŸÖ±’î§Ï(ÄÄÄÅ…ï—’…∏ÅëÖ—îπ—Ω1ΩçÖ±ïÖ—ïM—…•πú†ùô»µHú∞ÅÏÅ—•µïiΩπîËÄùô…•çÑΩ-•πÕ°ÖÕÑúÅÙ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÕ±’ù•ô‰°ŸÖ±’îËÅÕ—…•πú§ÅÏ(ÄÄÄÅ…ï—’…∏ÅŸÖ±’î(ÄÄÄÄÄÄππΩ…µÖ±•Èî†ù9ú§(ÄÄÄÄÄÄπ…ï¡±Öçî†Ωmq‘¿Ã¿¿µq‘¿ÃŸôtΩú∞Äúú§(ÄÄÄÄÄÄπ…ï¡±Öçî†ΩmyÑµÈµh¿¥Ât¨Ωú∞Äù|ú§(ÄÄÄÄÄÄπ…ï¡±Öçî†Ωy|≠Ò|¨êΩú∞Äúú§(ÄÄÄÄÄÄπÕ±•çî†¿∞Ä‡¿§ÅÒÄùëΩç’µïπ–úÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ±ïÖÕïIïôï…ïπçïΩëî°•êËÅπ’µâï»§ÅÏ(ÄÄÄÅ…ï—’…∏ÅÅ¥ëÌM—…•πú°•ê§π¡ÖëM—Ö…–†ÿ∞Äú¿ú•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ±ïÖÕïIïôï…ïπçïΩëï…Ωµ9’µâï»°ŸÖ±’îËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅçΩπÕ–Åπ’µï…•åÄÙÅ9’µâï»°ŸÖ±’î§Ï(ÄÄÄÅ•òÄ°9’µâï»π•Õ%π—ïùï»°π’µï…•å§ÄòòÅπ’µï…•åÄ¯Ä¿§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÅ¥ëÌM—…•πú°π’µï…•å§π¡ÖëM—Ö…–†ÿ∞Äú¿ú•ıÄÏ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Äù	Ö•±}ÕÖπÕ}…ïôï…ïπçîúÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—1ïÖÕï9’µâï»°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%êËÅπ’µâï»§ÅÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†ùM1PÅ¡ù}ÖëŸ•ÕΩ…Â}·Öç—}±Ωç¨°°ÖÕ°—ï·–†êƒ§§ú∞ÅmÅ±ïÖÕîµπ’µâï»¥ëÌΩ…ùÖπ•ÈÖ—•Ωπ%ëıÅt§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅIQMP†(ÄÄÄÄÄÄÄÄÅ=1M°5`°±ïÖÕï}π’µâï»§∞Ä¿§∞(ÄÄÄÄÄÄÄÄÅ=U9P†®§Å%1QHÄ°]!IÅ±ïÖÕï}π’µâï»Å%LÅ9U10§(ÄÄÄÄÄÄÄ§Ä¨ÄƒÅLÅŸÖ±’î(ÄÄÄÄÄÄÅI=4Å±ïÖÕïÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê≈Ä∞(ÄÄÄÄÄÅmΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å9’µâï»°…Ω›Õl¡t¸πŸÖ±’îÄ¸¸Äƒ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÖ…ç°•Ÿï1ïÖÕï%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å•êËÅπ’µâï»∞Å…ïÖÕΩ∏¸ËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅΩ…ùÖπ•ÈÖ—•Ωπ%êÄÙÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§Ï(ÄÄÄÅçΩπÕ–ÅÖ…ç°•ŸïIïÖÕΩ∏ÄÙÅM—…•πú°…ïÖÕΩ∏Ä¸¸Äúú§π—…•¥†§ÅÒÄù…ç°•ŸÖùîÅëïô•π•—•òúÏ(ÄÄÄÅçΩπÕ–Å±ïÖÕïIïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê(ÄÄÄÄÄÄÅI=4Å±ïÖÕïÃ(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9=PÅ9U10(ÄÄÄÄÄÄÄÄÅ9ÅÖ…ç°•Ÿïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï≈’•…ïIΩ‹°±ïÖÕïIïÕ’±–π…Ω›Õl¡t∞Äù1ïÖÕîú§Ï(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅUAQÅ±ïÖÕïÃ(ÄÄÄÄÄÄÅMPÅëï±ï—ïë}Ö–ÄÙÅ9U10∞(ÄÄÄÄÄÄÄÄÄÄÅëï±ï—ïë}â‰ÄÙÅ9U10∞(ÄÄÄÄÄÄÄÄÄÄÅëï±ï—•Ωπ}…ïÖÕΩ∏ÄÙÅ9U10∞(ÄÄÄÄÄÄÄÄÄÄÅÖ…ç°•Ÿïë}Ö–ÄÙÅ9=\†§∞(ÄÄÄÄÄÄÄÄÄÄÅÖ…ç°•Ÿïë}â‰ÄÙÄê»∞(ÄÄÄÄÄÄÄÄÄÄÅÖ…ç°•Ÿï}…ïÖÕΩ∏ÄÙÄêÃ∞(ÄÄÄÄÄÄÄÄÄÄÅ’¡ëÖ—ïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê—Ä∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞ÅÖ…ç°•ŸïIïÖÕΩ∏∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅÖ›Ö•–Å—°•Ãπ›…•—ï1ïÖÕï’ë•–°ç±•ïπ–∞Äù1M}I!%Yú∞Å•ê∞ÅÏÅÖ…ç°•Ÿï}…ïÖÕΩ∏ËÅÖ…ç°•ŸïIïÖÕΩ∏ÅÙ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ±ïÖÕïï±ï—•Ωπ%µ¡Öç—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å•êËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅΩ…ùÖπ•ÈÖ—•Ωπ%êÄÙÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§Ï(ÄÄÄÅçΩπÕ–Å±ïÖÕïIïÕ’±–ÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ•ê∞ÅÕ—Ö—’Ã∞Åëï±ï—ïë}Ö–∞ÅÖ…ç°•Ÿïë}Ö–(ÄÄÄÄÄÄÅI=4Å±ïÖÕïÃ(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê…Ä∞(ÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å±ïÖÕîÄÙÅ…ï≈’•…ïIΩ‹°±ïÖÕïIïÕ’±–π…Ω›Õl¡t∞Äù1ïÖÕîú§ÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÄ(ÄÄÄÄÄÄÄÅ]%Q Å•πŸΩ•çï}•ëÃÅLÄ†(ÄÄÄÄÄÄÄÄÄÅM1PÅ•ê(ÄÄÄÄÄÄÄÄÄÅI=4Å•πŸΩ•çïÃ(ÄÄÄÄÄÄÄÄÄÅ]!IÅ±ïÖÕï}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÄÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÅ¡ÖÂµïπ—}•ëÃÅLÄ†(ÄÄÄÄÄÄÄÄÄÅM1PÅ%MQ%9PÅ¿π•ê(ÄÄÄÄÄÄÄÄÄÅI=4Å¡ÖÂµïπ—ÃÅ¿(ÄÄÄÄÄÄÄÄÄÅ1PÅ)=%8Å¡ÖÂµïπ—}Ö±±ΩçÖ—•ΩπÃÅ¡Ñ(ÄÄÄÄÄÄÄÄÄÄÄÅ=8Å¡Ñπ¡ÖÂµïπ—}•êÄÙÅ¿π•ê(ÄÄÄÄÄÄÄÄÄÄÅ9Å¡ÑπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÅ9Å¡Ñπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÅ]!IÅ¿πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÄÅ9Å¿πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÄÅ9Ä†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¿π•πŸΩ•çï}•êÅ%8Ä°M1PÅ•êÅI=4Å•πŸΩ•çï}•ëÃ§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=HÅ¡Ñπ•πŸΩ•çï}•êÅ%8Ä°M1PÅ•êÅI=4Å•πŸΩ•çï}•ëÃ§(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅM1P(ÄÄÄÄÄÄÄÄÄÄ°M1PÅ=U9P†®§ËÈ%9PÅI=4Å•πŸΩ•çï}•ëÃ§ÅLÅ•πŸΩ•çïÕ}çΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄ°M1PÅ=U9P†®§ËÈ%9PÅI=4Å¡ÖÂµïπ—}•ëÃ§ÅLÅ¡ÖÂµïπ—Õ}çΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄ†(ÄÄÄÄÄÄÄÄÄÄÄÅM1PÅ=U9P†®§ËÈ%9P(ÄÄÄÄÄÄÄÄÄÄÄÅI=4ÅçÖÕ°}µΩŸïµïπ—ÃÅç¥(ÄÄÄÄÄÄÄÄÄÄÄÅ]!IÅç¥πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9Åç¥πëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9Ä†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅç¥π•πŸΩ•çï}•êÅ%8Ä°M1PÅ•êÅI=4Å•πŸΩ•çï}•ëÃ§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ=HÅç¥π¡ÖÂµïπ—}•êÅ%8Ä°M1PÅ•êÅI=4Å¡ÖÂµïπ—}•ëÃ§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄ§ÅLÅçÖÕ°}µΩŸïµïπ—Õ}çΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄ†(ÄÄÄÄÄÄÄÄÄÄÄÅM1PÅ=U9P†®§ËÈ%9P(ÄÄÄÄÄÄÄÄÄÄÄÅI=4Å±ïÖÕï}ù’Ö…Öπ—ïïÃÅú(ÄÄÄÄÄÄÄÄÄÄÄÅ]!IÅúπ±ïÖÕï}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅúπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9Åúπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄ§ÅLÅù’Ö…Öπ—ïïÕ}çΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄ†(ÄÄÄÄÄÄÄÄÄÄÄÅM1PÅ=U9P†®§ËÈ%9P(ÄÄÄÄÄÄÄÄÄÄÄÅI=4Å±ïÖÕï}ëΩç’µïπ—ÃÅê(ÄÄÄÄÄÄÄÄÄÄÄÅ]!IÅêπ±ïÖÕï}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅêπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9Åêπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄ§ÅLÅëΩç’µïπ—Õ}çΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄ†(ÄÄÄÄÄÄÄÄÄÄÄÅM1PÅ=U9P†®§ËÈ%9P(ÄÄÄÄÄÄÄÄÄÄÄÅI=4Å±ïÖÕï}çΩπ—…Öç—}ùïπï…Ö—•ΩπÃÅçú(ÄÄÄÄÄÄÄÄÄÄÄÅ]!IÅçúπ±ïÖÕï}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9ÅçúπΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9Åçúπëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÄÄ§ÅLÅçΩπ—…Öç—}ùïπï…Ö—•ΩπÕ}çΩ’π–(ÄÄÄÄÄÅÄ∞(ÄÄÄÄÄÅm•ê∞ÅΩ…ùÖπ•ÈÖ—•Ωπ%ët∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅçΩ’π—ÃÄÙÅ…Ω›Õl¡tÄ¸¸ÅÌÙÏ(ÄÄÄÅçΩπÕ–Åëï¡ïπëïπç•ïÃÄÙÅl(ÄÄÄÄÄÅÏÅ—Â¡îËÄù•πŸΩ•çïÃú∞ÅçΩ’π–ËÅ9’µâï»°çΩ’π—Ãπ•πŸΩ•çïÕ}çΩ’π–Ä¸¸Ä¿§ÅÙ∞(ÄÄÄÄÄÅÏÅ—Â¡îËÄù¡ÖÂµïπ—Ãú∞ÅçΩ’π–ËÅ9’µâï»°çΩ’π—Ãπ¡ÖÂµïπ—Õ}çΩ’π–Ä¸¸Ä¿§ÅÙ∞(ÄÄÄÄÄÅÏÅ—Â¡îËÄùçÖÕ°}µΩŸïµïπ—Ãú∞ÅçΩ’π–ËÅ9’µâï»°çΩ’π—ÃπçÖÕ°}µΩŸïµïπ—Õ}çΩ’π–Ä¸¸Ä¿§ÅÙ∞(ÄÄÄÄÄÅÏÅ—Â¡îËÄù±ïÖÕï}ù’Ö…Öπ—ïïÃú∞ÅçΩ’π–ËÅ9’µâï»°çΩ’π—Ãπù’Ö…Öπ—ïïÕ}çΩ’π–Ä¸¸Ä¿§ÅÙ∞(ÄÄÄÄÄÅÏÅ—Â¡îËÄù±ïÖÕï}ëΩç’µïπ—Ãú∞ÅçΩ’π–ËÅ9’µâï»°çΩ’π—ÃπëΩç’µïπ—Õ}çΩ’π–Ä¸¸Ä¿§ÅÙ∞(ÄÄÄÄÄÅÏÅ—Â¡îËÄù±ïÖÕï}çΩπ—…Öç—}ùïπï…Ö—•ΩπÃú∞ÅçΩ’π–ËÅ9’µâï»°çΩ’π—ÃπçΩπ—…Öç—}ùïπï…Ö—•ΩπÕ}çΩ’π–Ä¸¸Ä¿§ÅÙ∞(ÄÄÄÅtπô•±—ï»†°ïπ—…‰§ÄÙ¯Åïπ—…‰πçΩ’π–Ä¯Ä¿§Ï(ÄÄÄÅçΩπÕ–Å°ÖÕ•πÖπç•Ö±!•Õ—Ω…‰ÄÙÅëï¡ïπëïπç•ïÃπÕΩµî†°ïπ—…‰§ÄÙ¯(ÄÄÄÄÄÅïπ—…‰π—Â¡îÄÙÙÙÄù•πŸΩ•çïÃú(ÄÄÄÄÄÅÒÅïπ—…‰π—Â¡îÄÙÙÙÄù¡ÖÂµïπ—Ãú(ÄÄÄÄÄÅÒÅïπ—…‰π—Â¡îÄÙÙÙÄùçÖÕ°}µΩŸïµïπ—Ãú(ÄÄÄÄÄÅÒÅïπ—…‰π—Â¡îÄÙÙÙÄù±ïÖÕï}ù’Ö…Öπ—ïïÃú∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ±ïÖÕï}•êËÅ•ê∞(ÄÄÄÄÄÅ±ïÖÕï}Õ—Ö—’ÃËÅM—…•πú°±ïÖÕîπÕ—Ö—’ÃÄ¸¸Äúú§∞(ÄÄÄÄÄÅëï±ï—ïë}Ö–ËÅ±ïÖÕîπëï±ï—ïë}Ö–Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅÖ…ç°•Ÿïë}Ö–ËÅ±ïÖÕîπÖ…ç°•Ÿïë}Ö–Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅçÖπ!Ö…ëï±ï—îËÅëï¡ïπëïπç•ïÃπ±ïπù—†ÄÙÙÙÄ¿∞(ÄÄÄÄÄÅ°ÖÕ•πÖπç•Ö±!•Õ—Ω…‰∞(ÄÄÄÄÄÅëï¡ïπëïπç•ïÃ∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ›…•—ï1ïÖÕï’ë•–°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅÖç—•Ω∏ËÅÕ—…•πú∞Å±ïÖÕï%êËÅπ’µâï»∞Åµï—ÖëÖ—ÑËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÖ’ë•—}±ΩùÃÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å’Õï…}•ê∞ÅÖç—•Ω∏∞Å…ïÕΩ’…çî∞Å…ïÕΩ’…çï}•ê∞Åµï—°Ωê∞Å¡Ö—†∞ÅÕ—Ö—’Õ}çΩëî∞Åµï—ÖëÖ—Ñ§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äù±ïÖÕïÃú∞Äê–∞ÄùAQ ú∞Äê‘∞Ä»¿¿∞Äêÿ•Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅÖç—•Ω∏∞(ÄÄÄÄÄÄÄÅM—…•πú°±ïÖÕï%ê§∞(ÄÄÄÄÄÄÄÅÄΩÖ¡§Ω±ïÖÕïÃºëÌ±ïÖÕï%ëıÄ∞(ÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°µï—ÖëÖ—Ñ§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅâ’•±ë1ïÖÕïAëô•±ï9Öµî°±ïÖÕï%êËÅπ’µâï»∞ÅçΩπ—…Öç—%êËÅπ’µâï»∞Å—ïµ¡±Ö—ïYï…Õ•Ω∏ËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–Å±ïÖÕïIïôï…ïπçîÄÙÅ—°•Ãπ±ïÖÕïIïôï…ïπçïΩëî°±ïÖÕï%ê§Ï(ÄÄÄÅçΩπÕ–Åô•±ï9ÖµîÄÙÅÄëÌ±ïÖÕïIïôï…ïπçïÙµëÌçΩπ—…Öç—%ëÙµXëÌ—ïµ¡±Ö—ïYï…Õ•ΩπÙπ¡ëôÄÏ(ÄÄÄÅ…ï—’…∏Åô•±ï9Öµîπ±ïπù—†ÄÙÄ‘¿Ä¸Åô•±ï9ÖµîÄËÅÅ±ïÖÕî¥ëÌ±ïÖÕï%ëÙµëÌçΩπ—…Öç—%ëÙµXëÌ—ïµ¡±Ö—ïYï…Õ•ΩπÙπ¡ëôÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅç…ïÖ—ïïôÖ’±—Ωµ¡ÖπÂMï——•πùÃ†§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅçΩµ¡ÖπÂ}Õï——•πùÃÄ†(ÄÄÄÄÄÄÄÄÅΩ…ùÖπ•ÈÖ—•Ωπ}•ê∞ÅçΩµ¡ÖπÂ}πÖµî∞Å±ïùÖ±}πÖµî∞ÅçΩµ¡ÖπÂ}±ïùÖ±}πÖµî∞ÅÖëë…ïÕÃ∞ÅçΩµ¡ÖπÂ}Öëë…ïÕÃ∞ÅçΩµ¡ÖπÂ}ç•—‰∞ÅçΩµ¡ÖπÂ}çΩ’π—…‰∞(ÄÄÄÄÄÄÄÄÅç’……ïπç‰∞Å±Öπù’Öùî∞Å—•µïÈΩπî∞Å•πŸΩ•çï}ôΩΩ—ï»∞Å•πŸΩ•çï}âΩ——Ωµ}—ï·–∞(ÄÄÄÄÄÄÄÄÅëïôÖ’±—}±ïÖÕï}ë’…Ö—•Ωπ}µΩπ—°Ã∞ÅëïôÖ’±—}πΩ—•çï}µΩπ—°Ã∞ÅëïôÖ’±—}ù’Ö…Öπ—ïï}µΩπ—°Ã∞(ÄÄÄÄÄÄÄÄÅëïôÖ’±—}Õ•ùπÖ—’…ï}¡±Öçî∞ÅëïôÖ’±—}±ïÖÕï}’ÕÖùî∞ÅëïôÖ’±—}çΩπ—…Öç—}—ïµ¡±Ö—ï}çΩëî∞Åç…ïÖ—ïë}â‰(ÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÅY1ULÄ†(ÄÄÄÄÄÄÄÄÄêƒ∞ÄùïµºÅA…Ω¡ï…—‰ÅI@ú∞ÄùïµºÅA…Ω¡ï…—‰ÅI@ú∞ÄùïµºÅA…Ω¡ï…—‰ÅI@ú∞Äú»»ÅŸïπ’îÅëïÃÉ%ç’…•ïÃú∞Äú»»ÅŸïπ’îÅëïÃÉ%ç’…•ïÃú∞Äù-•πÕ°ÖÕÑú∞ÄùIú∞(ÄÄÄÄÄÄÄÄÄùUMú∞Äùô»ú∞Äùô…•çÑΩ-•πÕ°ÖÕÑú∞Äù5ï…ç§Å¡Ω’»ÅŸΩ—…îÅçΩπô•Öπçî∏ú∞ÄùÖç—’…îÅùïπï…ïîÅ¡Ö»ÅA…Ω¡ï…—‰ÅI@∏ú∞(ÄÄÄÄÄÄÄÄÄƒ»∞Äƒ∞ÄÃ∞Äù-•πÕ°ÖÕÑú∞ÄùIM%9Q%0ú∞Äù1M}IM%9Q%0ú∞Äê»(ÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÅ=8Å=91%PÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê§Å<ÅUAQÅMPÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÅa1UπΩ…ùÖπ•ÈÖ—•Ωπ}•ê(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞Å—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Ä≈t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡tÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅçΩµ¡ÖπÂMï——•πùÕIÖ‹†§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®(ÄÄÄÄÄÄÅI=4ÅçΩµ¡ÖπÂ}Õï——•πùÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡tÄ¸¸Åπ’±∞Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅçΩµ¡ÖπÂMï——•πùÕIΩ‹°…Ω‹ËÅIïçΩ…êÒÕ—…•πú∞ÅÖπ‰¯§ÅÏ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄ∏∏π…Ω‹∞(ÄÄÄÄÄÅ±ΩùΩ}ô•±ï}πÖµîËÅ…Ω‹π±ΩùΩ}ô•±ï}πÖµîÄ¸¸Å—°•Ãπ±ïùÖçÂ•±ï9Öµî°…Ω‹π±ΩùΩ}’…∞§∞(ÄÄÄÄÄÅ±ΩùΩ}ô•±ï}’…∞ËÅ…Ω‹π±ΩùΩ}ô•±ï}’…∞Ä¸¸Å…Ω‹π±ΩùΩ}’…∞Ä¸¸Ä°…Ω‹π±ΩùΩ}ô•±ï}πÖµîÄ¸Å—°•ÃπçΩµ¡ÖπÂ•±ïIΩ’—î†ù±Ωùºú§ÄËÅπ’±∞§∞(ÄÄÄÄÄÅÕ•ùπÖ—’…ï}ô•±ï}πÖµîËÅ…Ω‹πÕ•ùπÖ—’…ï}ô•±ï}πÖµîÄ¸¸Å—°•Ãπ±ïùÖçÂ•±ï9Öµî°…Ω‹πÕ•ùπÖ—’…ï}’…∞§∞(ÄÄÄÄÄÅÕ•ùπÖ—’…ï}ô•±ï}’…∞Ë(ÄÄÄÄÄÄÄÅ…Ω‹πÕ•ùπÖ—’…ï}ô•±ï}’…∞Ä¸¸Å…Ω‹πÕ•ùπÖ—’…ï}’…∞Ä¸¸Ä°…Ω‹πÕ•ùπÖ—’…ï}ô•±ï}πÖµîÄ¸Å—°•ÃπçΩµ¡ÖπÂ•±ïIΩ’—î†ùÕ•ùπÖ—’…îú§ÄËÅπ’±∞§∞(ÄÄÄÄÄÅÕ—Öµ¡}ô•±ï}πÖµîËÅ…Ω‹πÕ—Öµ¡}ô•±ï}πÖµîÄ¸¸Å—°•Ãπ±ïùÖçÂ•±ï9Öµî°…Ω‹πÕ—Öµ¡}’…∞§∞(ÄÄÄÄÄÅÕ—Öµ¡}ô•±ï}’…∞ËÅ…Ω‹πÕ—Öµ¡}ô•±ï}’…∞Ä¸¸Å…Ω‹πÕ—Öµ¡}’…∞Ä¸¸Ä°…Ω‹πÕ—Öµ¡}ô•±ï}πÖµîÄ¸Å—°•ÃπçΩµ¡ÖπÂ•±ïIΩ’—î†ùÕ—Öµ¿ú§ÄËÅπ’±∞§∞(ÄÄÄÄÄÅ±ΩùΩ}’…∞ËÅ…Ω‹π±ΩùΩ}’…∞Ä¸¸Å…Ω‹π±ΩùΩ}ô•±ï}’…∞Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅÕ•ùπÖ—’…ï}’…∞ËÅ…Ω‹πÕ•ùπÖ—’…ï}’…∞Ä¸¸Å…Ω‹πÕ•ùπÖ—’…ï}ô•±ï}’…∞Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅÕ—Öµ¡}’…∞ËÅ…Ω‹πÕ—Öµ¡}’…∞Ä¸¸Å…Ω‹πÕ—Öµ¡}ô•±ï}’…∞Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅçΩµ¡ÖπÂ}±ïùÖ±}πÖµï}…ïÕΩ±ŸïêËÅ…Ω‹πçΩµ¡ÖπÂ}±ïùÖ±}πÖµîÄ¸¸Å…Ω‹π±ïùÖ±}πÖµîÄ¸¸Å…Ω‹πçΩµ¡ÖπÂ}πÖµîÄ¸¸Äúú∞(ÄÄÄÄÄÅçΩµ¡ÖπÂ}Öëë…ïÕÕ}…ïÕΩ±ŸïêËÅ…Ω‹πçΩµ¡ÖπÂ}Öëë…ïÕÃÄ¸¸Å…Ω‹πÖëë…ïÕÃÄ¸¸Äúú∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•ÈïΩµ¡ÖπÂ•±ï-•πê°≠•πêËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•ÈïêÄÙÅM—…•πú°≠•πêÄ¸¸Äúú§π—…•¥†§π—Ω1Ω›ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ†Ö—°•ÃπÖ±±Ω›ïëΩµ¡ÖπÂ•±ï-•πëÃπ°ÖÃ°πΩ…µÖ±•Èïê§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùQÂ¡îÅëîÅô•ç°•ï»Å•πŸÖ±•ëîú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅπΩ…µÖ±•ÈïêÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅçΩµ¡ÖπÂ•±ïIΩ’—î°≠•πêËÅÕ—…•πú§ÅÏ(ÄÄÄÅ…ï—’…∏ÅÄΩÖ¡§ΩÕï——•πùÃΩçΩµ¡Öπ‰µô•±ïÃºëÌ≠•πëıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅçΩµ¡ÖπÂM—Ω…ÖùïAÖ—†°≠•πêËÅÕ—…•πú∞Åô•±ï9ÖµîËÅÕ—…•πú§ÅÏ(ÄÄÄÅ…ï—’…∏ÅÅçΩµ¡Öπ‰ºëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙºëÌ≠•πëÙºëÌ—°•ÃπÕÖπ•—•ÈïM—Ω…Öùï•±ï9Öµî°ô•±ï9Öµî•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÕÖπ•—•ÈïM—Ω…Öùï•±ï9Öµî°ô•±ï9ÖµîËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅâÖÕîÄÙÅM—…•πú°ô•±ï9ÖµîÄ¸¸Äúú§π…ï¡±Öçî†ΩmqpΩtΩú∞Äù|ú§π—…•¥†§Ï(ÄÄÄÅ…ï—’…∏ÅâÖÕîπ…ï¡±Öçî†ΩqÃ¨Ωú∞Äù|ú§π…ï¡±Öçî†ΩmyÑµÈµh¿¥Â|∏µtΩú∞Äù|ú§ÅÒÄùô•±îúÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅΩ…•ù•πÖ±•±ï9Öµî°ô•±ï9ÖµîËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–Å—…•µµïêÄÙÅM—…•πú°ô•±ï9ÖµîÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅ…ï—’…∏Å—…•µµïêÅÒÄùô•±îúÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ±ïùÖçÂ•±ï9Öµî°ŸÖ±’îËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅ•òÄ†ÖŸÖ±’î§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅçΩπÕ–Å—ï·–ÄÙÅM—…•πú°ŸÖ±’î§π—…•¥†§Ï(ÄÄÄÅ•òÄ†Ö—ï·–§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅçΩπÕ–Å±ÖÕ–ÄÙÅ—ï·–πÕ¡±•–†ú¸ú•l¡tπÕ¡±•–†úºú§π¡Ω¿†§¸π—…•¥†§Ï(ÄÄÄÅ…ï—’…∏Å±ÖÕ–ÅÒÅπ’±∞Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÕ—Ω…ÖùïΩπô•ú†§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕ’¡ÖâÖÕïU…∞ÄÙÅ¡…ΩçïÕÃπïπÿπMUA	M}UI0Ï(ÄÄÄÅçΩπÕ–ÅÕï…Ÿ•çïIΩ±ï-ï‰ÄÙÅ¡…ΩçïÕÃπïπÿπMUA	M}MIY%}I=1}-dÏ(ÄÄÄÅ•òÄ†ÖÕ’¡ÖâÖÕïU…∞ÅÒÄÖÕï…Ÿ•çïIΩ±ï-ï‰§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùΩπô•ù’…Ö—•Ω∏ÅM’¡ÖâÖÕîÅµÖπ≈’Öπ—îú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅÕ’¡ÖâÖÕïU…∞ËÅÕ’¡ÖâÖÕïU…∞π…ï¡±Öçî†Ωpºêº∞Äúú§∞(ÄÄÄÄÄÅÕï…Ÿ•çïIΩ±ï-ï‰∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ°ÖÕM—Ω…ÖùïΩπô•ú†§ÅÏ(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏°¡…ΩçïÕÃπïπÿπMUA	M}UI0ÄòòÅ¡…ΩçïÕÃπïπÿπMUA	M}MIY%}I=1}-d§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅŸÖ±•ëÖ—ïΩµ¡ÖπÂ•±î°ô•±îËÅÏÅµ•µï—Â¡îËÅÕ—…•πúÏÅÕ•ÈîËÅπ’µâï»ÅÙ§ÅÏ(ÄÄÄÅ•òÄ°ô•±îπÕ•ÈîÄ¯Ä‘Ä®Äƒ¿»–Ä®Äƒ¿»–§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅô•ç°•ï»ÅπîÅ¡ï’–Å¡ÖÃÅëï¡ÖÕÕï»Ä‘Å5ºú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Åµ•µïQÂ¡îÄÙÅM—…•πú°ô•±îπµ•µï—Â¡îÄ¸¸Äúú§π—Ω1Ω›ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ†Ö—°•ÃπÖ±±Ω›ïëΩµ¡ÖπÂ•±ï5•µïQÂ¡ïÃπ°ÖÃ°µ•µïQÂ¡î§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùΩ…µÖ–ÅëîÅô•ç°•ï»ÅπΩ∏ÅÖ’—Ω…•Õîú§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ’¡±ΩÖëQΩΩµ¡ÖπÂM—Ω…Öùî°≠•πêËÅÕ—…•πú∞Åô•±ï9ÖµîËÅÕ—…•πú∞Åô•±îËÅÏÅµ•µï—Â¡îËÅÕ—…•πúÏÅâ’ôôï»ËÅ	’ôôï»ÅÙ§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅÕ’¡ÖâÖÕïU…∞∞ÅÕï…Ÿ•çïIΩ±ï-ï‰ÅÙÄÙÅ—°•ÃπÕ—Ω…ÖùïΩπô•ú†§Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ω…ÖùïAÖ—†ÄÙÅ—°•ÃπçΩµ¡ÖπÂM—Ω…ÖùïAÖ—†°≠•πê∞Åô•±ï9Öµî§Ï(ÄÄÄÅçΩπÕ–Å…ïÕ¡ΩπÕîÄÙÅÖ›Ö•–Åôï—ç†°ÄëÌÕ’¡ÖâÖÕïU…±ÙΩÕ—Ω…ÖùîΩÿƒΩΩâ©ïç–ºëÌ—°•ÃπçΩµ¡ÖπÂM—Ω…Öùï	’ç≠ï—ÙºëÌ—°•ÃπïπçΩëïM—Ω…ÖùïAÖ—†°Õ—Ω…ÖùïAÖ—†•ıÄ∞ÅÏ(ÄÄÄÄÄÅµï—°ΩêËÄùA=MPú∞(ÄÄÄÄÄÅ°ïÖëï…ÃËÅÏ(ÄÄÄÄÄÄÄÅ’—°Ω…•ÈÖ—•Ω∏ËÅÅ	ïÖ…ï»ÄëÌÕï…Ÿ•çïIΩ±ï-ïÂıÄ∞(ÄÄÄÄÄÄÄÅÖ¡•≠ï‰ËÅÕï…Ÿ•çïIΩ±ï-ï‰∞(ÄÄÄÄÄÄÄÄù‡µ’¡Õï…–úËÄù—…’îú∞(ÄÄÄÄÄÄÄÄùçΩπ—ïπ–µ—Â¡îúËÅô•±îπµ•µï—Â¡î∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅâΩë‰ËÅô•±îπâ’ôôï»πâ’ôôï»πÕ±•çî°ô•±îπâ’ôôï»πâÂ—ï=ôôÕï–∞Åô•±îπâ’ôôï»πâÂ—ï=ôôÕï–Ä¨Åô•±îπâ’ôôï»πâÂ—ï1ïπù—†§ÅÖÃÅ……ÖÂ	’ôôï»∞(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†Ö…ïÕ¡ΩπÕîπΩ¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åëï—Ö•±ÃÄÙÅÖ›Ö•–Å…ïÕ¡ΩπÕîπ—ï·–†§Ï(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°ëï—Ö•±ÃÅÒÅÅ%µ¡ΩÕÕ•â±îÅëîÅ—ï±ïŸï…Õï»Å±îÅô•ç°•ï»Ä†ëÌ…ïÕ¡ΩπÕîπÕ—Ö—’ÕÙ•Ä§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅëï±ï—ï…ΩµΩµ¡ÖπÂM—Ω…Öùî°≠•πêËÅÕ—…•πú∞Åô•±ï9ÖµîËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅÕ’¡ÖâÖÕïU…∞∞ÅÕï…Ÿ•çïIΩ±ï-ï‰ÅÙÄÙÅ—°•ÃπÕ—Ω…ÖùïΩπô•ú†§Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ω…ÖùïAÖ—†ÄÙÅ—°•ÃπçΩµ¡ÖπÂM—Ω…ÖùïAÖ—†°≠•πê∞Åô•±ï9Öµî§Ï(ÄÄÄÅçΩπÕ–Å…ïÕ¡ΩπÕîÄÙÅÖ›Ö•–Åôï—ç†°ÄëÌÕ’¡ÖâÖÕïU…±ÙΩÕ—Ω…ÖùîΩÿƒΩΩâ©ïç–ºëÌ—°•ÃπçΩµ¡ÖπÂM—Ω…Öùï	’ç≠ï—ÙºëÌ—°•ÃπïπçΩëïM—Ω…ÖùïAÖ—†°Õ—Ω…ÖùïAÖ—†•ıÄ∞ÅÏ(ÄÄÄÄÄÅµï—°ΩêËÄù1Qú∞(ÄÄÄÄÄÅ°ïÖëï…ÃËÅÏ(ÄÄÄÄÄÄÄÅ’—°Ω…•ÈÖ—•Ω∏ËÅÅ	ïÖ…ï»ÄëÌÕï…Ÿ•çïIΩ±ï-ïÂıÄ∞(ÄÄÄÄÄÄÄÅÖ¡•≠ï‰ËÅÄëÌÕï…Ÿ•çïIΩ±ï-ïÂıÄ∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†Ö…ïÕ¡ΩπÕîπΩ¨ÄòòÅ…ïÕ¡ΩπÕîπÕ—Ö—’ÃÄÑÙÙÄ–¿–§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åëï—Ö•±ÃÄÙÅÖ›Ö•–Å…ïÕ¡ΩπÕîπ—ï·–†§Ï(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°ëï—Ö•±ÃÅÒÅÅ%µ¡ΩÕÕ•â±îÅëîÅÕ’¡¡…•µï»Å±îÅô•ç°•ï»Ä†ëÌ…ïÕ¡ΩπÕîπÕ—Ö—’ÕÙ•Ä§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅëΩ›π±ΩÖëΩµ¡ÖπÂM—Ω…Öùî°≠•πêËÅÕ—…•πú∞Åô•±ï9ÖµîËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅÕ’¡ÖâÖÕïU…∞∞ÅÕï…Ÿ•çïIΩ±ï-ï‰ÅÙÄÙÅ—°•ÃπÕ—Ω…ÖùïΩπô•ú†§Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ω…ÖùïAÖ—†ÄÙÅ—°•ÃπçΩµ¡ÖπÂM—Ω…ÖùïAÖ—†°≠•πê∞Åô•±ï9Öµî§Ï(ÄÄÄÅçΩπÕ–Å…ïÕ¡ΩπÕîÄÙÅÖ›Ö•–Åôï—ç†°ÄëÌÕ’¡ÖâÖÕïU…±ÙΩÕ—Ω…ÖùîΩÿƒΩΩâ©ïç–ºëÌ—°•ÃπçΩµ¡ÖπÂM—Ω…Öùï	’ç≠ï—ÙºëÌ—°•ÃπïπçΩëïM—Ω…ÖùïAÖ—†°Õ—Ω…ÖùïAÖ—†•ıÄ∞ÅÏ(ÄÄÄÄÄÅ°ïÖëï…ÃËÅÏ(ÄÄÄÄÄÄÄÅ’—°Ω…•ÈÖ—•Ω∏ËÅÅ	ïÖ…ï»ÄëÌÕï…Ÿ•çïIΩ±ï-ïÂıÄ∞(ÄÄÄÄÄÄÄÅÖ¡•≠ï‰ËÅÕï…Ÿ•çïIΩ±ï-ï‰∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†Ö…ïÕ¡ΩπÕîπΩ¨§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Å•ç°•ï»Å•π—…Ω’ŸÖâ±îÄ†ëÌ…ïÕ¡ΩπÕîπÕ—Ö—’ÕÙ•Ä§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Åâ’ôôï»ÄÙÅ	’ôôï»πô…Ω¥°Ö›Ö•–Å…ïÕ¡ΩπÕîπÖ……ÖÂ	’ôôï»†§§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅâ’ôôï»∞(ÄÄÄÄÄÅµ•µïQÂ¡îËÅ…ïÕ¡ΩπÕîπ°ïÖëï…Ãπùï–†ùçΩπ—ïπ–µ—Â¡îú§Ä¸¸ÄùÖ¡¡±•çÖ—•Ω∏ΩΩç—ï–µÕ—…ïÖ¥ú∞(ÄÄÄÄÄÅëΩ›π±ΩÖë9ÖµîËÅô•±ï9Öµî∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ±ïÖÕïΩπ—…Öç—Ω›π±ΩÖëIΩ’—î°±ïÖÕï%êËÅπ’µâï»∞ÅçΩπ—…Öç—%êËÅπ’µâï»§ÅÏ(ÄÄÄÅ…ï—’…∏ÅÄΩÖ¡§Ω±ïÖÕïÃºëÌ±ïÖÕï%ëÙΩçΩπ—…Öç—ÃºëÌçΩπ—…Öç—%ëÙΩëΩ›π±ΩÖëÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ±ïÖÕïΩπ—…Öç—M—Ω…ÖùïAÖ—†°±ïÖÕï%êËÅπ’µâï»∞ÅçΩπ—…Öç—%êËÅπ’µâï»∞Å—ïµ¡±Ö—ïYï…Õ•Ω∏ËÅπ’µâï»∞Åùïπï…Ö—ïë–ËÅÖ—î∞Åô•±ï9ÖµîËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–Å—•µïÕ—Öµ¿ÄÙÅùïπï…Ö—ïë–π—Ω%M=M—…•πú†§π…ï¡±Öçî†Ωl¥ÈtΩú∞Äúú§π…ï¡±Öçî†ΩpπqëÏÕıhêº∞Äùhú§Ï(ÄÄÄÅ…ï—’…∏ÅÅçΩπ—…Öç—ÃºëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙΩ±ïÖÕïÃºëÌ±ïÖÕï%ëÙΩçΩπ—…Öç–¥ëÌçΩπ—…Öç—%ëÙµÿëÌ—ïµ¡±Ö—ïYï…Õ•ΩπÙ¥ëÌ—•µïÕ—Öµ¡Ù¥ëÌ—°•ÃπÕÖπ•—•ÈïM—Ω…Öùï•±ï9Öµî°ô•±ï9Öµî•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ±ïùÖçÂ1ïÖÕïΩπ—…Öç—M—Ω…ÖùïAÖ—†°±ïÖÕï%êËÅπ’µâï»∞ÅçΩπ—…Öç—%êËÅπ’µâï»∞Åô•±ï9ÖµîËÅÕ—…•πú§ÅÏ(ÄÄÄÅ…ï—’…∏ÅÅ±ïÖÕïÃºëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙΩçΩπ—…Öç—ÃºëÌ±ïÖÕï%ëÙºëÌçΩπ—…Öç—%ëÙºëÌ—°•ÃπÕÖπ•—•ÈïM—Ω…Öùï•±ï9Öµî°ô•±ï9Öµî•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅô•πë1ïÖÕïΩπ—…Öç—M—Ω…ÖùïAÖ—°	ÂA…ïô•‡†(ÄÄÄÅ±ïÖÕï%êËÅπ’µâï»∞(ÄÄÄÅçΩπ—…Öç—%êËÅπ’µâï»∞(ÄÄÄÅ—ïµ¡±Ö—ïYï…Õ•Ω∏ËÅπ’µâï»∞(ÄÄÄÅô•±ï9ÖµîËÅÕ—…•πú∞(ÄÄ§ÅÏ(ÄÄÄÅ•òÄ†Ö—°•Ãπ°ÖÕM—Ω…ÖùïΩπô•ú†§§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅÏÅÕ’¡ÖâÖÕïU…∞∞ÅÕï…Ÿ•çïIΩ±ï-ï‰ÅÙÄÙÅ—°•ÃπÕ—Ω…ÖùïΩπô•ú†§Ï(ÄÄÄÅçΩπÕ–ÅôΩ±ëï»ÄÙÅÅçΩπ—…Öç—ÃºëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ÙΩ±ïÖÕïÃºëÌ±ïÖÕï%ëıÄÏ(ÄÄÄÅçΩπÕ–Å…ïÕ¡ΩπÕîÄÙÅÖ›Ö•–Åôï—ç†°ÄëÌÕ’¡ÖâÖÕïU…±ÙΩÕ—Ω…ÖùîΩÿƒΩΩâ©ïç–Ω±•Õ–ºëÌ—°•Ãπ±ïÖÕïΩπ—…Öç—M—Ω…Öùï	’ç≠ï—ıÄ∞ÅÏ(ÄÄÄÄÄÅµï—°ΩêËÄùA=MPú∞(ÄÄÄÄÄÅ°ïÖëï…ÃËÅÏ(ÄÄÄÄÄÄÄÅ’—°Ω…•ÈÖ—•Ω∏ËÅÅ	ïÖ…ï»ÄëÌÕï…Ÿ•çïIΩ±ï-ïÂıÄ∞(ÄÄÄÄÄÄÄÅÖ¡•≠ï‰ËÅÕï…Ÿ•çïIΩ±ï-ï‰∞(ÄÄÄÄÄÄÄÄùçΩπ—ïπ–µ—Â¡îúËÄùÖ¡¡±•çÖ—•Ω∏Ω©ÕΩ∏ú∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅâΩë‰ËÅ)M=8πÕ—…•πù•ô‰°Ï(ÄÄÄÄÄÄÄÅ¡…ïô•‡ËÅôΩ±ëï»∞(ÄÄÄÄÄÄÄÅ±•µ•–ËÄƒ¿¿∞(ÄÄÄÄÄÄÄÅΩôôÕï–ËÄ¿∞(ÄÄÄÄÄÄÄÅÕΩ…—	‰ËÅÏÅçΩ±’µ∏ËÄùπÖµîú∞ÅΩ…ëï»ËÄùëïÕåúÅÙ∞(ÄÄÄÄÄÅÙ§∞(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†Ö…ïÕ¡ΩπÕîπΩ¨§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏Åπ’±∞Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅΩâ©ïç—ÃÄÙÄ°Ö›Ö•–Å…ïÕ¡ΩπÕîπ©ÕΩ∏†§§ÅÖÃÅ……Ö‰ÒÏÅπÖµî¸ËÅÕ—…•πúÏÅ’¡ëÖ—ïë}Ö–¸ËÅÕ—…•πúÏÅç…ïÖ—ïë}Ö–¸ËÅÕ—…•πúÅÙ¯ÅÅπ’±∞Ï(ÄÄÄÅçΩπÕ–Å¡…ïô•‡ÄÙÅÅçΩπ—…Öç–¥ëÌçΩπ—…Öç—%ëÙµÿëÌ—ïµ¡±Ö—ïYï…Õ•ΩπÙµÄÏ(ÄÄÄÅçΩπÕ–ÅÕÖπ•—•Èïë•±ï9ÖµîÄÙÅ—°•ÃπÕÖπ•—•ÈïM—Ω…Öùï•±ï9Öµî°ô•±ï9Öµî§Ï(ÄÄÄÅçΩπÕ–ÅçÖπë•ëÖ—ïÃÄÙÄ°Ωâ©ïç—ÃÄ¸¸Åmt§(ÄÄÄÄÄÄπô•±—ï»†°ïπ—…‰§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅπÖµîÄÙÅM—…•πú°ïπ—…‰¸ππÖµîÄ¸¸Äúú§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅπÖµîπÕ—Ö…—Õ]•—†°¡…ïô•‡§ÄòòÅπÖµîπ—Ω1Ω›ï…ÖÕî†§πïπëÕ]•—††úπ¡ëòú§Ï(ÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄπÕΩ…–†°±ïô–∞Å…•ù°–§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å±ïô—Ö—îÄÙÅπï‹ÅÖ—î°M—…•πú°±ïô–π’¡ëÖ—ïë}Ö–Ä¸¸Å±ïô–πç…ïÖ—ïë}Ö–Ä¸¸Äúú§§πùï—Q•µî†§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–Å…•ù°—Ö—îÄÙÅπï‹ÅÖ—î°M—…•πú°…•ù°–π’¡ëÖ—ïë}Ö–Ä¸¸Å…•ù°–πç…ïÖ—ïë}Ö–Ä¸¸Äúú§§πùï—Q•µî†§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Å…•ù°—Ö—îÄ¥Å±ïô—Ö—îÏ(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅçΩπÕ–Åï·Öç—5Ö—ç†ÄÙÅçÖπë•ëÖ—ïÃπô•πê†°ïπ—…‰§ÄÙ¯ÅM—…•πú°ïπ—…‰ππÖµî§πïπëÕ]•—†°Ä¥ëÌÕÖπ•—•Èïë•±ï9ÖµïıÄ§§Ï(ÄÄÄÅçΩπÕ–ÅÕï±ïç—ïêÄÙÅï·Öç—5Ö—ç†Ä¸¸ÅçÖπë•ëÖ—ïÕl¡tÏ(ÄÄÄÅ…ï—’…∏ÅÕï±ïç—ïêÄ¸ÅÄëÌôΩ±ëï…ÙºëÌM—…•πú°Õï±ïç—ïêππÖµî•ıÄÄËÅπ’±∞Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ’¡±ΩÖë1ïÖÕïΩπ—…Öç—Ωç·QΩM—Ω…Öùî°Õ—Ω…ÖùïAÖ—†ËÅÕ—…•πú∞Åâ’ôôï»ËÅ	’ôôï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅÕ’¡ÖâÖÕïU…∞∞ÅÕï…Ÿ•çïIΩ±ï-ï‰ÅÙÄÙÅ—°•ÃπÕ—Ω…ÖùïΩπô•ú†§Ï(ÄÄÄÅçΩπÕ–Å…ïÕ¡ΩπÕîÄÙÅÖ›Ö•–Åôï—ç†°ÄëÌÕ’¡ÖâÖÕïU…±ÙΩÕ—Ω…ÖùîΩÿƒΩΩâ©ïç–ºëÌ—°•Ãπ±ïÖÕïΩπ—…Öç—M—Ω…Öùï	’ç≠ï—ÙºëÌ—°•ÃπïπçΩëïM—Ω…ÖùïAÖ—†°Õ—Ω…ÖùïAÖ—†•ıÄ∞ÅÏ(ÄÄÄÄÄÅµï—°ΩêËÄùA=MPú∞(ÄÄÄÄÄÅ°ïÖëï…ÃËÅÏ(ÄÄÄÄÄÄÄÅ’—°Ω…•ÈÖ—•Ω∏ËÅÅ	ïÖ…ï»ÄëÌÕï…Ÿ•çïIΩ±ï-ïÂıÄ∞(ÄÄÄÄÄÄÄÅÖ¡•≠ï‰ËÅÕï…Ÿ•çïIΩ±ï-ï‰∞(ÄÄÄÄÄÄÄÄùçΩπ—ïπ–µ—Â¡îúËÄùÖ¡¡±•çÖ—•Ω∏ΩŸπêπΩ¡ïπ·µ±ôΩ…µÖ—ÃµΩôô•çïëΩç’µïπ–π›Ω…ë¡…ΩçïÕÕ•πùµ∞πëΩç’µïπ–ú∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅâΩë‰ËÅâ’ôôï»πâ’ôôï»πÕ±•çî°â’ôôï»πâÂ—ï=ôôÕï–∞Åâ’ôôï»πâÂ—ï=ôôÕï–Ä¨Åâ’ôôï»πâÂ—ï1ïπù—†§ÅÖÃÅ……ÖÂ	’ôôï»∞(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†Ö…ïÕ¡ΩπÕîπΩ¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åëï—Ö•±ÃÄÙÅÖ›Ö•–Å…ïÕ¡ΩπÕîπ—ï·–†§Ï(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°ëï—Ö•±ÃÅÒÅÅ%µ¡ΩÕÕ•â±îÅëîÅ—ï±ïŸï…Õï»Å±îÅçΩπ—…Ö–Å]Ω…êÄ†ëÌ…ïÕ¡ΩπÕîπÕ—Ö—’ÕÙ•Ä§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ’¡±ΩÖë1ïÖÕïΩπ—…Öç—AëôQΩM—Ω…Öùî°Õ—Ω…ÖùïAÖ—†ËÅÕ—…•πú∞Åâ’ôôï»ËÅ	’ôôï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅÕ’¡ÖâÖÕïU…∞∞ÅÕï…Ÿ•çïIΩ±ï-ï‰ÅÙÄÙÅ—°•ÃπÕ—Ω…ÖùïΩπô•ú†§Ï(ÄÄÄÅçΩπÕ–Å…ïÕ¡ΩπÕîÄÙÅÖ›Ö•–Åôï—ç†°ÄëÌÕ’¡ÖâÖÕïU…±ÙΩÕ—Ω…ÖùîΩÿƒΩΩâ©ïç–ºëÌ—°•Ãπ±ïÖÕïΩπ—…Öç—M—Ω…Öùï	’ç≠ï—ÙºëÌ—°•ÃπïπçΩëïM—Ω…ÖùïAÖ—†°Õ—Ω…ÖùïAÖ—†•ıÄ∞ÅÏ(ÄÄÄÄÄÅµï—°ΩêËÄùA=MPú∞(ÄÄÄÄÄÅ°ïÖëï…ÃËÅÏ(ÄÄÄÄÄÄÄÅ’—°Ω…•ÈÖ—•Ω∏ËÅÅ	ïÖ…ï»ÄëÌÕï…Ÿ•çïIΩ±ï-ïÂıÄ∞(ÄÄÄÄÄÄÄÅÖ¡•≠ï‰ËÅÕï…Ÿ•çïIΩ±ï-ï‰∞(ÄÄÄÄÄÄÄÄùçΩπ—ïπ–µ—Â¡îúËÅ1M}A}5%5}QeA∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅâΩë‰ËÅâ’ôôï»πâ’ôôï»πÕ±•çî°â’ôôï»πâÂ—ï=ôôÕï–∞Åâ’ôôï»πâÂ—ï=ôôÕï–Ä¨Åâ’ôôï»πâÂ—ï1ïπù—†§ÅÖÃÅ……ÖÂ	’ôôï»∞(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†Ö…ïÕ¡ΩπÕîπΩ¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åëï—Ö•±ÃÄÙÅÖ›Ö•–Å…ïÕ¡ΩπÕîπ—ï·–†§Ï(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Ï(ÄÄÄÄÄÄÄÅçΩëîËÄùA}MQ=I}UA1=}%1ú∞(ÄÄÄÄÄÄÄÅµïÕÕÖùîËÅëï—Ö•±ÃÅÒÅÅ%µ¡ΩÕÕ•â±îÅëîÅ—ï±ïŸï…Õï»Å±îÅçΩπ—…Ö–ÅAÄ†ëÌ…ïÕ¡ΩπÕîπÕ—Ö—’ÕÙ•Ä∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅëï±ï—ïU¡±ΩÖëïë1ïÖÕïΩπ—…Öç—M—Ω…Öùî°Õ—Ω…ÖùïAÖ—†ËÅÕ—…•πú§ÅÏ(ÄÄÄÅ•òÄ†Ö—°•Ãπ°ÖÕM—Ω…ÖùïΩπô•ú†§§Å…ï—’…∏Ï(ÄÄÄÅçΩπÕ–ÅÏÅÕ’¡ÖâÖÕïU…∞∞ÅÕï…Ÿ•çïIΩ±ï-ï‰ÅÙÄÙÅ—°•ÃπÕ—Ω…ÖùïΩπô•ú†§Ï(ÄÄÄÅçΩπÕ–Å…ïÕ¡ΩπÕîÄÙÅÖ›Ö•–Åôï—ç†°ÄëÌÕ’¡ÖâÖÕïU…±ÙΩÕ—Ω…ÖùîΩÿƒΩΩâ©ïç–ºëÌ—°•Ãπ±ïÖÕïΩπ—…Öç—M—Ω…Öùï	’ç≠ï—ÙºëÌ—°•ÃπïπçΩëïM—Ω…ÖùïAÖ—†°Õ—Ω…ÖùïAÖ—†•ıÄ∞ÅÏ(ÄÄÄÄÄÅµï—°ΩêËÄù1Qú∞(ÄÄÄÄÄÅ°ïÖëï…ÃËÅÏ(ÄÄÄÄÄÄÄÅ’—°Ω…•ÈÖ—•Ω∏ËÅÅ	ïÖ…ï»ÄëÌÕï…Ÿ•çïIΩ±ï-ïÂıÄ∞(ÄÄÄÄÄÄÄÅÖ¡•≠ï‰ËÅÕï…Ÿ•çïIΩ±ï-ï‰∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†Ö…ïÕ¡ΩπÕîπΩ¨ÄòòÅ…ïÕ¡ΩπÕîπÕ—Ö—’ÃÄÑÙÙÄ–¿–§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åëï—Ö•±ÃÄÙÅÖ›Ö•–Å…ïÕ¡ΩπÕîπ—ï·–†§Ï(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°Ï(ÄÄÄÄÄÄÄÅçΩëîËÄùA}MQ=I}=IA!9}19UA}%1ú∞(ÄÄÄÄÄÄÄÅµïÕÕÖùîËÅëï—Ö•±ÃÅÒÅÅ%µ¡ΩÕÕ•â±îÅëîÅÕ’¡¡…•µï»Å±îÅçΩπ—…Ö–ÅAÅΩ…¡°ï±•∏Ä†ëÌ…ïÕ¡ΩπÕîπÕ—Ö—’ÕÙ•Ä∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅëΩ›π±ΩÖë1ïÖÕïΩπ—…Öç—M—Ω…Öùî°Õ—Ω…ÖùïAÖ—†ËÅÕ—…•πú∞Åô•±ï9ÖµîËÅÕ—…•πú∞ÅôÖ±±âÖç≠5•µïQÂ¡îÄÙÄùÖ¡¡±•çÖ—•Ω∏ΩŸπêπΩ¡ïπ·µ±ôΩ…µÖ—ÃµΩôô•çïëΩç’µïπ–π›Ω…ë¡…ΩçïÕÕ•πùµ∞πëΩç’µïπ–ú§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅÕ’¡ÖâÖÕïU…∞∞ÅÕï…Ÿ•çïIΩ±ï-ï‰ÅÙÄÙÅ—°•ÃπÕ—Ω…ÖùïΩπô•ú†§Ï(ÄÄÄÅçΩπÕ–Å…ïÕ¡ΩπÕîÄÙÅÖ›Ö•–Åôï—ç†°ÄëÌÕ’¡ÖâÖÕïU…±ÙΩÕ—Ω…ÖùîΩÿƒΩΩâ©ïç–ºëÌ—°•Ãπ±ïÖÕïΩπ—…Öç—M—Ω…Öùï	’ç≠ï—ÙºëÌ—°•ÃπïπçΩëïM—Ω…ÖùïAÖ—†°Õ—Ω…ÖùïAÖ—†•ıÄ∞ÅÏ(ÄÄÄÄÄÅ°ïÖëï…ÃËÅÏ(ÄÄÄÄÄÄÄÅ’—°Ω…•ÈÖ—•Ω∏ËÅÅ	ïÖ…ï»ÄëÌÕï…Ÿ•çïIΩ±ï-ïÂıÄ∞(ÄÄÄÄÄÄÄÅÖ¡•≠ï‰ËÅÕï…Ÿ•çïIΩ±ï-ï‰∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†Ö…ïÕ¡ΩπÕîπΩ¨§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°ÅΩπ—…Ö–Å]Ω…êÅ•π—…Ω’ŸÖâ±îÄ†ëÌ…ïÕ¡ΩπÕîπÕ—Ö—’ÕÙ•Ä§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Åâ’ôôï»ÄÙÅ	’ôôï»πô…Ω¥°Ö›Ö•–Å…ïÕ¡ΩπÕîπÖ……ÖÂ	’ôôï»†§§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅâ’ôôï»∞(ÄÄÄÄÄÅµ•µïQÂ¡îËÅ…ïÕ¡ΩπÕîπ°ïÖëï…Ãπùï–†ùçΩπ—ïπ–µ—Â¡îú§Ä¸¸ÅôÖ±±âÖç≠5•µïQÂ¡î∞(ÄÄÄÄÄÅëΩ›π±ΩÖë9ÖµîËÅô•±ï9Öµî∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ¡ï…Õ•Õ—1ïÖÕïΩπ—…Öç—Ωç‡†(ÄÄÄÅ±ïÖÕï%êËÅπ’µâï»∞(ÄÄÄÅçΩπ—…Öç—%êËÅπ’µâï»∞(ÄÄÄÅ—ïµ¡±Ö—ïYï…Õ•Ω∏ËÅπ’µâï»∞(ÄÄÄÅùïπï…Ö—ïë–ËÅÖ—î∞(ÄÄÄÅô•±ï9ÖµîËÅÕ—…•πú∞(ÄÄÄÅâ’ôôï»ËÅ	’ôôï»∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕ—Ω…ÖùïAÖ—†ÄÙÅ—°•Ãπ±ïÖÕïΩπ—…Öç—M—Ω…ÖùïAÖ—†°±ïÖÕï%ê∞ÅçΩπ—…Öç—%ê∞Å—ïµ¡±Ö—ïYï…Õ•Ω∏∞Åùïπï…Ö—ïë–∞Åô•±ï9Öµî§Ï(ÄÄÄÅ•òÄ†Ö—°•Ãπ°ÖÕM—Ω…ÖùïΩπô•ú†§§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅô•±ï9Öµî∞(ÄÄÄÄÄÄÄÅÕ—Ω…ÖùïAÖ—†∞(ÄÄÄÄÄÄÄÅµ•µïQÂ¡îËÄùÖ¡¡±•çÖ—•Ω∏ΩŸπêπΩ¡ïπ·µ±ôΩ…µÖ—ÃµΩôô•çïëΩç’µïπ–π›Ω…ë¡…ΩçïÕÕ•πùµ∞πëΩç’µïπ–ú∞(ÄÄÄÄÄÄÄÅô•±ïU…∞ËÅÅëÖ—ÑÈÖ¡¡±•çÖ—•Ω∏ΩŸπêπΩ¡ïπ·µ±ôΩ…µÖ—ÃµΩôô•çïëΩç’µïπ–π›Ω…ë¡…ΩçïÕÕ•πùµ∞πëΩç’µïπ–ÌâÖÕîÿ–∞ëÌâ’ôôï»π—ΩM—…•πú†ùâÖÕîÿ–ú•ıÄ∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅÖ›Ö•–Å—°•Ãπ’¡±ΩÖë1ïÖÕïΩπ—…Öç—Ωç·QΩM—Ω…Öùî°Õ—Ω…ÖùïAÖ—†∞Åâ’ôôï»§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅô•±ï9Öµî∞(ÄÄÄÄÄÅÕ—Ω…ÖùïAÖ—†∞(ÄÄÄÄÄÅµ•µïQÂ¡îËÄùÖ¡¡±•çÖ—•Ω∏ΩŸπêπΩ¡ïπ·µ±ôΩ…µÖ—ÃµΩôô•çïëΩç’µïπ–π›Ω…ë¡…ΩçïÕÕ•πùµ∞πëΩç’µïπ–ú∞(ÄÄÄÄÄÅô•±ïU…∞ËÅ—°•Ãπ±ïÖÕïΩπ—…Öç—Ω›π±ΩÖëIΩ’—î°±ïÖÕï%ê∞ÅçΩπ—…Öç—%ê§∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ¡ï…Õ•Õ—1ïÖÕïΩπ—…Öç—Aëò†(ÄÄÄÅ±ïÖÕï%êËÅπ’µâï»∞(ÄÄÄÅçΩπ—…Öç—%êËÅπ’µâï»∞(ÄÄÄÅ—ïµ¡±Ö—ïYï…Õ•Ω∏ËÅπ’µâï»∞(ÄÄÄÅùïπï…Ö—ïë–ËÅÖ—î∞(ÄÄÄÅô•±ï9ÖµîËÅÕ—…•πú∞(ÄÄÄÅâ’ôôï»ËÅ	’ôôï»∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕ—Ω…ÖùïAÖ—†ÄÙÅ—°•Ãπ±ïÖÕïΩπ—…Öç—M—Ω…ÖùïAÖ—†°±ïÖÕï%ê∞ÅçΩπ—…Öç—%ê∞Å—ïµ¡±Ö—ïYï…Õ•Ω∏∞Åùïπï…Ö—ïë–∞Åô•±ï9Öµî§Ï(ÄÄÄÅ•òÄ†Ö—°•Ãπ°ÖÕM—Ω…ÖùïΩπô•ú†§§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅô•±ï9Öµî∞(ÄÄÄÄÄÄÄÅÕ—Ω…ÖùïAÖ—†∞(ÄÄÄÄÄÄÄÅµ•µïQÂ¡îËÅ1M}A}5%5}QeA∞(ÄÄÄÄÄÄÄÅô•±ïU…∞ËÅÅëÖ—ÑËëÌ1M}A}5%5}QeAÙÌâÖÕîÿ–∞ëÌâ’ôôï»π—ΩM—…•πú†ùâÖÕîÿ–ú•ıÄ∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅÖ›Ö•–Å—°•Ãπ’¡±ΩÖë1ïÖÕïΩπ—…Öç—AëôQΩM—Ω…Öùî°Õ—Ω…ÖùïAÖ—†∞Åâ’ôôï»§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅô•±ï9Öµî∞(ÄÄÄÄÄÅÕ—Ω…ÖùïAÖ—†∞(ÄÄÄÄÄÅµ•µïQÂ¡îËÅ1M}A}5%5}QeA∞(ÄÄÄÄÄÅô•±ïU…∞ËÅ—°•Ãπ±ïÖÕïΩπ—…Öç—Ω›π±ΩÖëIΩ’—î°±ïÖÕï%ê∞ÅçΩπ—…Öç—%ê§∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅëÖ—ÖU…±•±î°ô•±ïU…∞ËÅÕ—…•πú∞Åô•±ï9ÖµîËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅµÖ—ç†ÄÙÅô•±ïU…∞πµÖ—ç††ΩyëÖ—ÑË°mxÌt¨§ÌâÖÕîÿ–∞†∏¨§êº§Ï(ÄÄÄÅ•òÄ†ÖµÖ—ç†§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùΩç’µïπ–Å•πŸÖ±•ëîú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅâ’ôôï»ËÅ	’ôôï»πô…Ω¥°µÖ—ç°l…t∞ÄùâÖÕîÿ–ú§∞(ÄÄÄÄÄÅµ•µïQÂ¡îËÅµÖ—ç°l≈t∞(ÄÄÄÄÄÅëΩ›π±ΩÖë9ÖµîËÅô•±ï9Öµî∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅïπçΩëïM—Ω…ÖùïAÖ—†°¡Ö—†ËÅÕ—…•πú§ÅÏ(ÄÄÄÅ…ï—’…∏Å¡Ö—†πÕ¡±•–†úºú§πµÖ¿†°Õïùµïπ–§ÄÙ¯ÅïπçΩëïUI%Ωµ¡Ωπïπ–°Õïùµïπ–§§π©Ω•∏†úºú§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÖ’ë•—IïÖê°Öç—•Ω∏ËÅÕ—…•πú∞Å…ïÕΩ’…çîËÅÕ—…•πú∞Å…ïÕΩ’…çï%êËÅÕ—…•πú§ÅÏ(ÄÄÄÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÖ’ë•—}±ΩùÃÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å’Õï…}•ê∞ÅÖç—•Ω∏∞Å…ïÕΩ’…çî∞Å…ïÕΩ’…çï}•ê∞Åµï—°Ωê∞Å¡Ö—†∞ÅÕ—Ö—’Õ}çΩëî∞Åµï—ÖëÖ—Ñ§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞ÄùPú∞Äêÿ∞Ä»¿¿∞Äê‹•Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅÖç—•Ω∏∞(ÄÄÄÄÄÄÄÅ…ïÕΩ’…çî∞(ÄÄÄÄÄÄÄÅ…ïÕΩ’…çï%ê∞(ÄÄÄÄÄÄÄÅÄΩÖ¡§ºëÌ…ïÕΩ’…çïÙºëÌ…ïÕΩ’…çï%ëıÄ∞(ÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°ÏÅ…ïÕï…ŸïêËÅ—…’îÅÙ§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅç…ïÖ—ïÖÕ°5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕïÕÕ•Ω∏ÄÙÅÖ›Ö•–Å—°•ÃπΩ¡ïπMïÕÕ•Ω∏°ç±•ïπ–§Ï(ÄÄÄÅçΩπÕ–Å—Â¡îÄÙÅM—…•πú°âΩë‰π—Â¡îÄ¸¸Äù=UPú§Ï(ÄÄÄÅçΩπÕ–ÅçÖ—ïùΩ…‰ÄÙÅM—…•πú°âΩë‰πçÖ—ïùΩ…‰Ä¸¸Ä°—Â¡îÄÙÙÙÄù%8úÄ¸Äù=Q!I}%9=5úÄËÄù=Q!I}aA9Mú§§Ï(ÄÄÄÅçΩπÕ–Å¡•ïçï9’µâï»ÄÙÅâΩë‰π¡•ïçï}π’µâï»Ä¸¸ÅÖ›Ö•–Å—°•Ãππï·—ÖÕ°A•ïçï9’µâï»°ç±•ïπ–∞Å—Â¡î§Ï(ÄÄÄÅçΩπÕ–Åç’……ïπç‰ÄÙÅM—…•πú°âΩë‰πç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅçΩπÕ–Åï·ç°ÖπùïIÖ—ïUÕïêÄÙÅ9’µâï»°âΩë‰πï·ç°Öπùï}…Ö—ï}’ÕïêÄ¸¸Ä¿§ÅÒÅπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅÖµΩ’π–ÄÙÅ9’µâï»°âΩë‰πÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Åï≈’•ŸÖ±ïπ—UÕêÄÙÅ9’µâï»°âΩë‰πï≈’•ŸÖ±ïπ—}’ÕêÄ¸¸Ä°ç’……ïπç‰ÄÙÙÙÄùúÄòòÅï·ç°ÖπùïIÖ—ïUÕïêÄ¸ÅÖµΩ’π–ÄºÅï·ç°ÖπùïIÖ—ïUÕïêÄËÅÖµΩ’π–§§Ï(ÄÄÄÅçΩπÕ–ÅÕ’¡¡Ω…—ÕA•ïçï9’µâï»ÄÙÅÖ›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}µΩŸïµïπ—Ãú∞Äù¡•ïçï}π’µâï»ú§Ï(ÄÄÄÅçΩπÕ–ÅÕ’¡¡Ω…—ÕM—Ωç≠A’…ç°ÖÕï%êÄÙÅÖ›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}µΩŸïµïπ—Ãú∞ÄùÕ—Ωç≠}¡’…ç°ÖÕï}•êú§Ï(ÄÄÄÅçΩπÕ–ÅÕ’¡¡Ω…—Õ’……ïπçÂ•ï±ëÃÄÙÅÖ›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}µΩŸïµïπ—Ãú∞Äùç’……ïπç‰ú§(ÄÄÄÄÄÅÒÅÖ›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}µΩŸïµïπ—Ãú∞Äùï·ç°Öπùï}…Ö—ï}’Õïêú§(ÄÄÄÄÄÅÒÅÖ›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}µΩŸïµïπ—Ãú∞Äùï·ç°Öπùï}…Ö—ï}ëÖ—îú§(ÄÄÄÄÄÅÒÅÖ›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}µΩŸïµïπ—Ãú∞Äùï≈’•ŸÖ±ïπ—}’Õêú§Ï(ÄÄÄÅçΩπÕ–Å•πÕï…—Ω±’µπÃÄÙÅl(ÄÄÄÄÄÄùçÖÕ°}ÕïÕÕ•Ωπ}•êú∞(ÄÄÄÄÄÄù—Â¡îú∞(ÄÄÄÄÄÄù±Öâï∞ú∞(ÄÄÄÄÄÄùçÖ—ïùΩ…‰ú∞(ÄÄÄÄÄÄùÖµΩ’π–ú∞(ÄÄÄÄÄÄùµΩŸïµïπ—}ëÖ—îú∞(ÄÄÄÄÄÄù¡ÖÂµïπ—}•êú∞(ÄÄÄÄÄÄù•πŸΩ•çï}•êú∞(ÄÄÄÄÄÄù—ïπÖπ—}•êú∞(ÄÄÄÄÄÄùïµ¡±ΩÂïï}•êú∞(ÄÄÄÄÄÄùÕ’¡¡±•ï»ú∞(ÄÄÄÄÄÄùëïÕç…•¡—•Ω∏ú∞(ÄÄÄÄÄÄù…ïôï…ïπçîú∞(ÄÄÄÄÄÄùÖ——Öç°µïπ—}ô•±ï}πÖµîú∞(ÄÄÄÄÄÄùÖ——Öç°µïπ—}ô•±ï}’…∞ú∞(ÄÄÄÄÄÄùç…ïÖ—ïë}â‰ú∞(ÄÄÄÄÄÄùΩ…ùÖπ•ÈÖ—•Ωπ}•êú∞(ÄÄÄÅtÏ(ÄÄÄÅ•òÄ°Õ’¡¡Ω…—ÕA•ïçï9’µâï»§ÅÏ(ÄÄÄÄÄÅ•πÕï…—Ω±’µπÃπÕ¡±•çî†ƒ∞Ä¿∞Äù¡•ïçï}π’µâï»ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Õ’¡¡Ω…—ÕM—Ωç≠A’…ç°ÖÕï%ê§ÅÏ(ÄÄÄÄÄÅ•πÕï…—Ω±’µπÃπÕ¡±•çî°•πÕï…—Ω±’µπÃπ•πëï·=ò†ùç…ïÖ—ïë}â‰ú§∞Ä¿∞ÄùÕ—Ωç≠}¡’…ç°ÖÕï}•êú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å•πÕï…—YÖ±’ïÃËÅ’π≠πΩ›πmtÄÙÅl(ÄÄÄÄÄÅÕïÕÕ•Ω∏π•ê∞(ÄÄÄÄÄÅ—Â¡î∞(ÄÄÄÄÄÅM—…•πú°âΩë‰π±Öâï∞Ä¸¸ÅâΩë‰πëïÕç…•¡—•Ω∏Ä¸¸ÅâΩë‰πçÖ—ïùΩ…‰Ä¸¸Äù5Ω’Ÿïµïπ–ÅëîÅçÖ•ÕÕîú§∞(ÄÄÄÄÄÅçÖ—ïùΩ…‰∞(ÄÄÄÄÄÅ9’µâï»°âΩë‰πÖµΩ’π–Ä¸¸Ä¿§∞(ÄÄÄÄÄÅâΩë‰πµΩŸïµïπ—}ëÖ—îÄ¸¸Åπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§∞(ÄÄÄÄÄÅâΩë‰π¡ÖÂµïπ—}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅâΩë‰π•πŸΩ•çï}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅâΩë‰π—ïπÖπ—}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅâΩë‰πïµ¡±ΩÂïï}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅâΩë‰πÕ’¡¡±•ï»Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅâΩë‰πëïÕç…•¡—•Ω∏Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅâΩë‰π…ïôï…ïπçîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅâΩë‰πÖ——Öç°µïπ—}ô•±ï}πÖµîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅâΩë‰πÖ——Öç°µïπ—}ô•±ï}’…∞Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸ÅâΩë‰πç…ïÖ—ïë}â‰Ä¸¸Äƒ∞(ÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÅtÏ(ÄÄÄÅ•òÄ°Õ’¡¡Ω…—ÕA•ïçï9’µâï»§ÅÏ(ÄÄÄÄÄÅ•πÕï…—YÖ±’ïÃπÕ¡±•çî†ƒ∞Ä¿∞Å¡•ïçï9’µâï»§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Õ’¡¡Ω…—ÕM—Ωç≠A’…ç°ÖÕï%ê§ÅÏ(ÄÄÄÄÄÅ•πÕï…—YÖ±’ïÃπÕ¡±•çî°•πÕï…—YÖ±’ïÃπ±ïπù—†Ä¥Ä»∞Ä¿∞ÅâΩë‰πÕ—Ωç≠}¡’…ç°ÖÕï}•êÄ¸¸Åπ’±∞§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†°âΩë‰π—…ïÖÕ’…Â}—…ÖπÕôï…}•êÄ¸¸Åπ’±∞§ÄÑÙÙÅπ’±∞ÄòòÅÖ›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}µΩŸïµïπ—Ãú∞Äù—…ïÖÕ’…Â}—…ÖπÕôï…}•êú§§ÅÏ(ÄÄÄÄÄÅ•πÕï…—Ω±’µπÃπ¡’Õ††ù—…ïÖÕ’…Â}—…ÖπÕôï…}•êú§Ï(ÄÄÄÄÄÅ•πÕï…—YÖ±’ïÃπ¡’Õ†°9’µâï»°âΩë‰π—…ïÖÕ’…Â}—…ÖπÕôï…}•êÄ¸¸Ä¿§ÅÒÅπ’±∞§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å¡±Öçï°Ω±ëï…ÃÄÙÅ•πÕï…—YÖ±’ïÃπµÖ¿†°|∞Å•πëï‡§ÄÙ¯ÅÄêëÌ•πëï‡Ä¨Ä≈ıÄ§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅçÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÄ†ëÌ•πÕï…—Ω±’µπÃπ©Ω•∏†ú∞Äú•Ù§(ÄÄÄÄÄÄÅY1ULÄ†ëÌ¡±Öçï°Ω±ëï…Ãπ©Ω•∏†ú∞Äú•Ù§(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅ•πÕï…—YÖ±’ïÃ∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°Õ’¡¡Ω…—Õ’……ïπçÂ•ï±ëÃ§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å’¡ëÖ—ïMï—ÃËÅÕ—…•πùmtÄÙÅmtÏ(ÄÄÄÄÄÅçΩπÕ–Å’¡ëÖ—ïYÖ±’ïÃËÅ’π≠πΩ›πmtÄÙÅm…Ω›Õl¡tπ•ëtÏ(ÄÄÄÄÄÅ•òÄ°Ö›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}µΩŸïµïπ—Ãú∞Äùç’……ïπç‰ú§§ÅÏ(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïYÖ±’ïÃπ¡’Õ†°ç’……ïπç‰§Ï(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïMï—Ãπ¡’Õ†°Åç’……ïπç‰ÄÙÄêëÌ’¡ëÖ—ïYÖ±’ïÃπ±ïπù—°ıÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°Ö›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}µΩŸïµïπ—Ãú∞Äùï·ç°Öπùï}…Ö—ï}’Õïêú§§ÅÏ(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïYÖ±’ïÃπ¡’Õ†°ï·ç°ÖπùïIÖ—ïUÕïê§Ï(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïMï—Ãπ¡’Õ†°Åï·ç°Öπùï}…Ö—ï}’ÕïêÄÙÄêëÌ’¡ëÖ—ïYÖ±’ïÃπ±ïπù—°ıÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°Ö›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}µΩŸïµïπ—Ãú∞Äùï·ç°Öπùï}…Ö—ï}ëÖ—îú§§ÅÏ(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïYÖ±’ïÃπ¡’Õ†°âΩë‰πï·ç°Öπùï}…Ö—ï}ëÖ—îÄ¸¸Åπ’±∞§Ï(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïMï—Ãπ¡’Õ†°Åï·ç°Öπùï}…Ö—ï}ëÖ—îÄÙÄêëÌ’¡ëÖ—ïYÖ±’ïÃπ±ïπù—°ıÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°Ö›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}µΩŸïµïπ—Ãú∞Äùï≈’•ŸÖ±ïπ—}’Õêú§§ÅÏ(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïYÖ±’ïÃπ¡’Õ†°ï≈’•ŸÖ±ïπ—UÕê§Ï(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïMï—Ãπ¡’Õ†°Åï≈’•ŸÖ±ïπ—}’ÕêÄÙÄêëÌ’¡ëÖ—ïYÖ±’ïÃπ±ïπù—°ıÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°’¡ëÖ—ïMï—Ãπ±ïπù—†Ä¯Ä¿§ÅÏ(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïYÖ±’ïÃπ¡’Õ†°—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§§Ï(ÄÄÄÄÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÄÄÄÄÅÅUAQÅçÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÄÄÄÄÅMPÄëÌ’¡ëÖ—ïMï—Ãπ©Ω•∏†ú∞Äú•Ù(ÄÄÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêëÌ’¡ëÖ—ïYÖ±’ïÃπ±ïπù—°ıÄ∞(ÄÄÄÄÄÄÄÄÄÅ’¡ëÖ—ïYÖ±’ïÃ∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å…ïô…ïÕ°ïêÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄ®(ÄÄÄÄÄÄÅI=4ÅçÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÅm…Ω›Õl¡tπ•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…ïô…ïÕ°ïêπ…Ω›Õl¡tÄ¸¸Å…Ω›Õl¡tÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅç…ïÖ—ï’Ö…Öπ—ïïÖÕ°5ΩŸïµïπ—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–Åç’……ïπç‰ÄÙÅM—…•πú°âΩë‰πç’……ïπç‰Ä¸¸ÄùUMú§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅçΩπÕ–Åï·ç°ÖπùïIÖ—ïUÕïêÄÙÅ9’µâï»°âΩë‰πï·ç°Öπùï}…Ö—ï}’ÕïêÄ¸¸Ä¿§ÅÒÅπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅÖµΩ’π–ÄÙÅ9’µâï»°âΩë‰πÖµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅçΩπÕ–Åï≈’•ŸÖ±ïπ—UÕêÄÙÅ9’µâï»°âΩë‰πï≈’•ŸÖ±ïπ—}’ÕêÄ¸¸Ä°ç’……ïπç‰ÄÙÙÙÄùúÄòòÅï·ç°ÖπùïIÖ—ïUÕïêÄ¸ÅÖµΩ’π–ÄºÅï·ç°ÖπùïIÖ—ïUÕïêÄËÅÖµΩ’π–§§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<Åù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞ÅµΩŸïµïπ—}—Â¡î∞Å—Â¡î∞ÅÖµΩ’π–∞Åç’……ïπç‰∞Åï·ç°Öπùï}…Ö—ï}’Õïê∞Åï·ç°Öπùï}…Ö—ï}ëÖ—î∞Åï≈’•ŸÖ±ïπ—}’Õê∞(ÄÄÄÄÄÄÄÅµΩŸïµïπ—}ëÖ—î∞Å±ïÖÕï}•ê∞Å±ïÖÕï}ù’Ö…Öπ—ïï}•ê∞Å¡ÖÂµïπ—}•ê∞Å—ïπÖπ—}•ê∞Å…ïôï…ïπçî∞Å…ïÖÕΩ∏∞ÅπΩ—ïÃ∞Åç…ïÖ—ïë}â‰§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äê–∞Äê‘∞Äêÿ∞Äê‹∞Äê‡∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄê‰∞Äêƒ¿∞Äêƒƒ∞Äêƒ»∞ÄêƒÃ∞Äêƒ–∞Äêƒ‘∞Äêƒÿ∞Äêƒ‹§(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅM—…•πú°âΩë‰πµΩŸïµïπ—}—Â¡îÄ¸¸ÄùI9Qe}aA9Mú§∞(ÄÄÄÄÄÄÄÅM—…•πú°âΩë‰π—Â¡îÄ¸¸Äù=UPú§∞(ÄÄÄÄÄÄÄÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÅç’……ïπç‰∞(ÄÄÄÄÄÄÄÅï·ç°ÖπùïIÖ—ïUÕïê∞(ÄÄÄÄÄÄÄÅâΩë‰πï·ç°Öπùï}…Ö—ï}ëÖ—îÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅ9’µâï»π•Õ•π•—î°ï≈’•ŸÖ±ïπ—UÕê§Ä¸Å9’µâï»°ï≈’•ŸÖ±ïπ—UÕêπ—Ω•·ïê†»§§ÄËÅÖµΩ’π–∞(ÄÄÄÄÄÄÄÅâΩë‰πµΩŸïµïπ—}ëÖ—îÄ¸¸Åπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§∞(ÄÄÄÄÄÄÄÅâΩë‰π±ïÖÕï}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰π±ïÖÕï}ù’Ö…Öπ—ïï}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰π¡ÖÂµïπ—}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰π—ïπÖπ—}•êÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰π…ïôï…ïπçîÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰π…ïÖÕΩ∏Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅâΩë‰ππΩ—ïÃÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Äƒ∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡tÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅù’Ö…Öπ—ïïÖÕ°]°ï…î°ô•±—ï…ÃËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÄÙÅÌÙ§ÅÏ(ÄÄÄÅçΩπÕ–ÅŸÖ±’ïÃËÅ’π≠πΩ›πmtÄÙÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•tÏ(ÄÄÄÅçΩπÕ–Åç±Ö’ÕïÃÄÙÅlùùç¥πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒú∞Äùùç¥πëï±ï—ïë}Ö–Å%LÅ9U10ùtÏ(ÄÄÄÅçΩπÕ–ÅÖëêÄÙÄ°Õ≈∞ËÅÕ—…•πú∞ÅŸÖ±’îËÅ’π≠πΩ›∏§ÄÙ¯ÅÏ(ÄÄÄÄÄÅŸÖ±’ïÃπ¡’Õ†°ŸÖ±’î§Ï(ÄÄÄÄÄÅç±Ö’ÕïÃπ¡’Õ†°Õ≈∞π…ï¡±Öçî†ú¸ú∞ÅÄêëÌŸÖ±’ïÃπ±ïπù—°ıÄ§§Ï(ÄÄÄÅÙÏ(ÄÄÄÅ•òÄ°ô•±—ï…ÃπëÖ—ï}ô…Ω¥§ÅÖëê†ùùç¥πµΩŸïµïπ—}ëÖ—îÄ¯ÙÄ¸ËÈQú∞ÅM—…•πú°ô•±—ï…ÃπëÖ—ï}ô…Ω¥§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…ÃπëÖ—ï}—º§ÅÖëê†ùùç¥πµΩŸïµïπ—}ëÖ—îÄÙÄ¸ËÈQú∞ÅM—…•πú°ô•±—ï…ÃπëÖ—ï}—º§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπç’……ïπç‰§ÅÖëê†ùùç¥πç’……ïπç‰ÄÙÄ¸ú∞ÅM—…•πú°ô•±—ï…Ãπç’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπ—Â¡î§ÅÖëê†ùùç¥πµΩŸïµïπ—}—Â¡îÄÙÄ¸ú∞ÅM—…•πú°ô•±—ï…Ãπ—Â¡î§π—ΩU¡¡ï…ÖÕî†§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπ±ïÖÕï}•ê§ÅÖëê†ùùç¥π±ïÖÕï}•êÄÙÄ¸ËÈ%9Pú∞Å9’µâï»°ô•±—ï…Ãπ±ïÖÕï}•ê§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπ—ïπÖπ—}•ê§ÅÖëê†ùùç¥π—ïπÖπ—}•êÄÙÄ¸ËÈ%9Pú∞Å9’µâï»°ô•±—ï…Ãπ—ïπÖπ—}•ê§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπ’Õï…}•ê§ÅÖëê†ùùç¥πç…ïÖ—ïë}â‰ÄÙÄ¸ËÈ%9Pú∞Å9’µâï»°ô•±—ï…Ãπ’Õï…}•ê§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπ¡ÖÂµïπ—}•ê§ÅÖëê†ùùç¥π¡ÖÂµïπ—}•êÄÙÄ¸ËÈ%9Pú∞Å9’µâï»°ô•±—ï…Ãπ¡ÖÂµïπ—}•ê§§Ï(ÄÄÄÅ…ï—’…∏ÅÏÅ›°ï…îËÅÅ]!IÄëÌç±Ö’ÕïÃπ©Ω•∏†úÅ9Äú•ıÄ∞ÅŸÖ±’ïÃÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅïπÕ’…ï’Ö…Öπ—ïïÖÕ°Mç°ïµÑ†§ÅÏ(ÄÄÄÅ•òÄ†Ñ°Ö›Ö•–Å—°•Ãπ—Öâ±ï·•Õ—Ã†ùù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—Ãú§§ÅÒÄÑ°Ö›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ù¡ÖÂµïπ—Ãú∞Äùù’Ö…Öπ—ïï}çÖÕ°}µΩŸïµïπ—}•êú§§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1ÑÅçÖ•ÕÕîÅëïÃÅùÖ…Öπ—•ïÃÅ±ΩçÖ—•ŸïÃÅ∏ÅïÕ–Å¡ÖÃÅïπçΩ…îÅçΩπô•ù’…ïî∏ú§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÕÂπë•çÖÕ°]°ï…î°ô•±—ï…ÃËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÄÙÅÌÙ§ÅÏ(ÄÄÄÅçΩπÕ–ÅŸÖ±’ïÃËÅ’π≠πΩ›πmtÄÙÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•tÏ(ÄÄÄÅçΩπÕ–Åç±Ö’ÕïÃÄÙÅlùÕç¥πΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒú∞ÄùÕç¥πëï±ï—ïë}Ö–Å%LÅ9U10ùtÏ(ÄÄÄÅçΩπÕ–ÅÖëêÄÙÄ°Õ≈∞ËÅÕ—…•πú∞ÅŸÖ±’îËÅ’π≠πΩ›∏§ÄÙ¯ÅÏ(ÄÄÄÄÄÅŸÖ±’ïÃπ¡’Õ†°ŸÖ±’î§Ï(ÄÄÄÄÄÅç±Ö’ÕïÃπ¡’Õ†°Õ≈∞π…ï¡±Öçî†ú¸ú∞ÅÄêëÌŸÖ±’ïÃπ±ïπù—°ıÄ§§Ï(ÄÄÄÅÙÏ(ÄÄÄÅ•òÄ°ô•±—ï…ÃπëÖ—ï}ô…Ω¥§ÅÖëê†ùÕç¥πµΩŸïµïπ—}ëÖ—îÄ¯ÙÄ¸ËÈQú∞ÅM—…•πú°ô•±—ï…ÃπëÖ—ï}ô…Ω¥§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…ÃπëÖ—ï}—º§ÅÖëê†ùÕç¥πµΩŸïµïπ—}ëÖ—îÄÙÄ¸ËÈQú∞ÅM—…•πú°ô•±—ï…ÃπëÖ—ï}—º§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπç’……ïπç‰§ÅÖëê†ùÕç¥πç’……ïπç‰ÄÙÄ¸ú∞ÅM—…•πú°ô•±—ï…Ãπç’……ïπç‰§π—ΩU¡¡ï…ÖÕî†§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπ¡ÖÂµïπ—}µï—°Ωê§ÅÖëê†ùÕç¥π¡ÖÂµïπ—}µï—°ΩêÄÙÄ¸ú∞ÅM—…•πú°ô•±—ï…Ãπ¡ÖÂµïπ—}µï—°Ωê§π—ΩU¡¡ï…ÖÕî†§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπ—…ïÖÕ’…Â}±ΩçÖ—•Ω∏§ÅÖëê†ùÕç¥π—…ïÖÕ’…Â}±ΩçÖ—•Ω∏ÄÙÄ¸ú∞ÅM—…•πú°ô•±—ï…Ãπ—…ïÖÕ’…Â}±ΩçÖ—•Ω∏§π—ΩU¡¡ï…ÖÕî†§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπ¡ÖÂµïπ—}•ê§ÅÖëê†ùÕç¥π¡ÖÂµïπ—}•êÄÙÄ¸ËÈ%9Pú∞Å9’µâï»°ô•±—ï…Ãπ¡ÖÂµïπ—}•ê§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπ•πŸΩ•çï}•ê§ÅÖëê†ùÕç¥π•πŸΩ•çï}•êÄÙÄ¸ËÈ%9Pú∞Å9’µâï»°ô•±—ï…Ãπ•πŸΩ•çï}•ê§§Ï(ÄÄÄÅ•òÄ°ô•±—ï…Ãπ—ïπÖπ—}•ê§ÅÖëê†ùÕç¥π—ïπÖπ—}•êÄÙÄ¸ËÈ%9Pú∞Å9’µâï»°ô•±—ï…Ãπ—ïπÖπ—}•ê§§Ï(ÄÄÄÅ…ï—’…∏ÅÏÅ›°ï…îËÅÅ]!IÄëÌç±Ö’ÕïÃπ©Ω•∏†úÅ9Äú•ıÄ∞ÅŸÖ±’ïÃÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅïπÕ’…ïMÂπë•çÖÕ°Mç°ïµÑ°ç±•ïπ–¸ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅçΩπÕ–Å≈’ï…‰ÄÙÅÅM1PÄƒ(ÄÄÄÄÄÄÅI=4Å•πôΩ…µÖ—•Ωπ}Õç°ïµÑπ—Öâ±ïÃ(ÄÄÄÄÄÄÅ]!IÅ—Öâ±ï}Õç°ïµÑÄÙÄù¡’â±•åú(ÄÄÄÄÄÄÄÄÅ9Å—Öâ±ï}πÖµîÄÙÄùÕÂπë•ç}çÖÕ°}µΩŸïµïπ—Ãú(ÄÄÄÄÄÄÅ1%5%PÄ≈ÄÏ(ÄÄÄÅçΩπÕ–Å…ïÕ’±–ÄÙÅç±•ïπ–(ÄÄÄÄÄÄ¸ÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰°≈’ï…‰§(ÄÄÄÄÄÄËÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰°≈’ï…‰§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅ…ïÕ’±–Ï(ÄÄÄÅ•òÄ†Ö…Ω›Õl¡t§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1ÑÅçÖ•ÕÕîÅÕÂπë•åÅ∏ÅïÕ–Å¡ÖÃÅïπçΩ…îÅçΩπô•ù’…ïî∏ú§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅÖ’ë•—’Ö…Öπ—ïïÖÕ†°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞ÅÖç—•Ω∏ËÅÕ—…•πú∞ÅµΩŸïµïπ—%êËÅπ’µâï»∞Åµï—ÖëÖ—ÑËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÅÖ’ë•—}±ΩùÃÄ°Ω…ùÖπ•ÈÖ—•Ωπ}•ê∞Å’Õï…}•ê∞ÅÖç—•Ω∏∞Å…ïÕΩ’…çî∞Å…ïÕΩ’…çï}•ê∞Åµï—°Ωê∞Å¡Ö—†∞ÅÕ—Ö—’Õ}çΩëî∞Åµï—ÖëÖ—Ñ§(ÄÄÄÄÄÄÅY1ULÄ†êƒ∞Äê»∞ÄêÃ∞Äùù’Ö…Öπ—ïï}çÖÕ†ú∞Äê–∞ÄùA=MPú∞Äê‘∞Ä»¿ƒ∞ÄêÿËÈ)M=9•Ä∞(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞(ÄÄÄÄÄÄÄÅ—°•ÃπçΩπ—ï·–π’Õï…%ê†§Ä¸¸Åπ’±∞∞(ÄÄÄÄÄÄÄÅÖç—•Ω∏∞(ÄÄÄÄÄÄÄÅM—…•πú°µΩŸïµïπ—%ê§∞(ÄÄÄÄÄÄÄÅÄΩÖ¡§Ωù’Ö…Öπ—ïîµçÖÕ†ΩµΩŸïµïπ—ÃºëÌµΩŸïµïπ—%ëıÄ∞(ÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°µï—ÖëÖ—Ñ§∞(ÄÄÄÄÄÅt∞(ÄÄÄÄ§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—ÖÕ°A•ïçï9’µâï»°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å—Â¡îËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–Å¡…ïô•‡ÄÙÅ—Â¡îÄÙÙÙÄù%8úÄ¸ÄùúÄËÄùúÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°5`°9U11%°MU	MQI%9°¡•ïçï}π’µâï»ÅI=4Äú°l¿¥Ât¨§êú§∞Äúú§ËÈ%9P§∞Ä¿§Ä¨ÄƒÅLÅŸÖ±’î(ÄÄÄÄÄÄÅI=4ÅçÖÕ°}µΩŸïµïπ—Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10Å9Å¡•ïçï}π’µâï»Å1%-Äê…Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅÄëÌ¡…ïô•·Ù¥ïÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÄëÌ¡…ïô•·Ù¥ëÌM—…•πú°…Ω›Õl¡t¸πŸÖ±’îÄ¸¸Äƒ§π¡ÖëM—Ö…–†–∞Äú¿ú•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ•πÕï…—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å—Öâ±îËÅÕ—…•πú∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞ÅÖ±±Ω›ïêËÅÕ—…•πùmt§ÅÏ(ÄÄÄÅçΩπÕ–Å¡ÖÂ±ΩÖêËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯ÄÙÅÏÄ∏∏πâΩë‰∞ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êËÅ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§ÅÙÏ(ÄÄÄÅçΩπÕ–Å≠ïÂÃÄÙÅl∏∏πÖ±±Ω›ïê∞ÄùΩ…ùÖπ•ÈÖ—•Ωπ}•êùtπô•±—ï»†°≠ï‰∞Å•πëï‡∞ÅÖ…»§ÄÙ¯ÅÖ…»π•πëï·=ò°≠ï‰§ÄÙÙÙÅ•πëï‡ÄòòÅ¡ÖÂ±ΩÖëm≠ïÂtÄÑÙÙÅ’πëïô•πïê§Ï(ÄÄÄÅ•òÄ†Ö≠ïÂÃπ±ïπù—†§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù9ºÅëÖ—ÑÅ¡…ΩŸ•ëïêú§Ï(ÄÄÄÅçΩπÕ–ÅŸÖ±’ïÃÄÙÅ≠ïÂÃπµÖ¿†°≠ï‰§ÄÙ¯Å¡ÖÂ±ΩÖëm≠ïÂt§Ï(ÄÄÄÅçΩπÕ–Å¡±Öçï°Ω±ëï…ÃÄÙÅ≠ïÂÃπµÖ¿†°|∞Å•πëï‡§ÄÙ¯ÅÄêëÌ•πëï‡Ä¨Ä≈ıÄ§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅ%9MIPÅ%9Q<ÄëÌ—Öâ±ïÙÄ†ëÌ≠ïÂÃπ©Ω•∏†ú∞Äú•Ù§ÅY1ULÄ†ëÌ¡±Öçï°Ω±ëï…Ãπ©Ω•∏†ú∞Äú•Ù§ÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅŸÖ±’ïÃ∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›Õl¡tÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—µ¡±ΩÂïï9’µâï»°ç±•ïπ–ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰°ÅM1PÅ¡ù}ÖëŸ•ÕΩ…Â}·Öç—}±Ωç¨°°ÖÕ°—ï·–†êƒ§•Ä∞ÅmÅïµ¡±ΩÂïîµπ’µâï»¥ëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ıÅt§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°5`°9U11%°…ïùï·¡}…ï¡±Öçî°ïµ¡±ΩÂïï}π’µâï»∞Äùmx¿¥Âtú∞Äúú∞Äùúú§∞Äúú§ËÈ%9P§∞Ä¿§Ä¨ÄƒÅLÅŸÖ±’î(ÄÄÄÄÄÄÅI=4Åïµ¡±ΩÂïïÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê≈Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÅ5@¥ëÌM—…•πú°…Ω›Õl¡t¸πŸÖ±’îÄ¸¸Äƒ§π¡ÖëM—Ö…–†ÿ∞Äú¿ú•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•Èï=¡—•ΩπÖ±AΩÕ•—•Ÿï%π–°ŸÖ±’îËÅ’π≠πΩ›∏§ÅÏ(ÄÄÄÅ•òÄ°ŸÖ±’îÄÙÙÙÅ’πëïô•πïêÅÒÅŸÖ±’îÄÙÙÙÅπ’±∞ÅÒÅŸÖ±’îÄÙÙÙÄúú§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅçΩπÕ–Å¡Ö…ÕïêÄÙÅ9’µâï»°ŸÖ±’î§Ï(ÄÄÄÅ•òÄ†Ö9’µâï»π•Õ%π—ïùï»°¡Ö…Õïê§ÅÒÅ¡Ö…ÕïêÄÙÄ¿§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù%ëïπ—•ô•Öπ–ÅëîÅÀ•õ•…ïπ—•ï∞ÅI Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å¡Ö…ÕïêÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ…ïÕΩ±Ÿï!…Ö—Ö±Ωù9Öµî†(ÄÄÄÅç±•ïπ–ËÅA•ç¨ÒÖ—ÖâÖÕïMï…Ÿ•çî∞Äù≈’ï…‰ú¯ÅÅAΩΩ±±•ïπ–∞(ÄÄÄÅ—Öâ±îËÄù°…}Õï…Ÿ•çïÃúÅÄù°…}¡ΩÕ•—•ΩπÃú∞(ÄÄÄÅ•êËÅπ’µâï»ÅÅπ’±∞∞(ÄÄÄÅôÖ±±âÖç≠YÖ±’îËÅ’π≠πΩ›∏∞(ÄÄ§ÅÏ(ÄÄÄÅ•òÄ°•ê§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Ä°ç±•ïπ–ÅÖÃÅÖπ‰§π≈’ï…‰†(ÄÄÄÄÄÄÄÅÅM1PÅπÖµî(ÄÄÄÄÄÄÄÄÅI=4ÄëÌ—Öâ±ïÙ(ÄÄÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U11Ä∞(ÄÄÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ•òÄ†Ö…Ω›Õl¡t¸ππÖµî§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°—Öâ±îÄÙÙÙÄù°…}Õï…Ÿ•çïÃúÄ¸ÄùMï…Ÿ•çîÅ•π—…Ω’ŸÖâ±î∏úÄËÄùΩπç—•Ω∏Å•π—…Ω’ŸÖâ±î∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ…ï—’…∏ÅM—…•πú°…Ω›Õl¡tππÖµî§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅôÖ±±âÖç¨ÄÙÅM—…•πú°ôÖ±±âÖç≠YÖ±’îÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅ…ï—’…∏ÅôÖ±±âÖç¨ÅÒÅπ’±∞Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•Èï!…Ö—Ö±ΩùAÖÂ±ΩÖê°âΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–ÅπÖµîÄÙÅM—…•πú°âΩë‰ππÖµîÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅ•òÄ†ÖπÖµî§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅπΩ¥ÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÕ—Ö—’ÃÄÙÅM—…•πú°âΩë‰πÕ—Ö—’ÃÄ¸¸ÄùQ%Yú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§ÅÒÄùQ%YúÏ(ÄÄÄÅ•òÄ†ÖlùQ%Yú∞Äù%9Q%Yùtπ•πç±’ëïÃ°Õ—Ö—’Ã§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùM—Ö—’–ÅI Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅçΩëîÄÙÅM—…•πú°âΩë‰πçΩëîÄ¸¸Äúú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅçΩëîËÅçΩëîÅÒÅπ’±∞∞(ÄÄÄÄÄÅπÖµî∞(ÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÅM—…•πú°âΩë‰πëïÕç…•¡—•Ω∏Ä¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅÕ—Ö—’Ã∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•Èï%π•—•Ö±µ¡±ΩÂïïΩπ—…Öç—AÖÂ±ΩÖê°âΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯∞ÅŸÖ±’ïÃËÅÏ(ÄÄÄÅçΩπ—…Öç—QÂ¡îËÅ’π≠πΩ›∏Ï(ÄÄÄÅÕ—Ö…—Ö—îËÅ’π≠πΩ›∏Ï(ÄÄÄÅïπëÖ—îËÅ’π≠πΩ›∏Ï(ÄÄÄÅÕÖ±Ö…ÂµΩ’π–ËÅ’π≠πΩ›∏Ï(ÄÄÄÅç’……ïπç‰ËÅ’π≠πΩ›∏Ï(ÄÄÄÅ©ΩâQ•—±îËÅ’π≠πΩ›∏Ï(ÄÄÄÅëï¡Ö…—µïπ–ËÅ’π≠πΩ›∏Ï(ÄÄÄÅΩâÕï…ŸÖ—•ΩπÃËÅ’π≠πΩ›∏Ï(ÄÄÄÅÕ—Ö—’ÃËÅ’π≠πΩ›∏Ï(ÄÅÙ§ÅÏ(ÄÄÄÅçΩπÕ–ÅçΩπ—…Öç—QÂ¡îÄÙÅM—…•πú°ŸÖ±’ïÃπçΩπ—…Öç—QÂ¡îÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅ•òÄ†ÖçΩπ—…Öç—QÂ¡î§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùQÂ¡îÅëîÅçΩπ—…Ö–Å…ï≈’•Ã∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÕ—Ö…—Ö—îÄÙÅ—°•ÃππΩ…µÖ±•Èï!…Ö—î°ŸÖ±’ïÃπÕ—Ö…—Ö—î∞ÄùëÖ—îÅëîÅì•â’–Åë‘ÅçΩπ—…Ö–ú∞Å—…’î§Ï(ÄÄÄÅçΩπÕ–ÅïπëÖ—îÄÙÅ—°•ÃππΩ…µÖ±•Èï!…Ö—î°ŸÖ±’ïÃπïπëÖ—î∞ÄùëÖ—îÅëîÅô•∏Åë‘ÅçΩπ—…Ö–ú§Ï(ÄÄÄÅ•òÄ°çΩπ—…Öç—QÂ¡îπ—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄùúÄòòÄÖïπëÖ—î§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùÖ—îÅëîÅô•∏ÅΩâ±•ùÖ—Ω•…îÅ¡Ω’»Å’∏Å∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ïπëÖ—îÄòòÅÕ—Ö…—Ö—îÄòòÅïπëÖ—îÄÙÅÕ—Ö…—Ö—î§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1ÑÅëÖ—îÅëîÅô•∏Åë‘ÅçΩπ—…Ö–ÅëΩ•–É©—…îÅ¡ΩÕ”•…•ï’…îÉÄÅ±ÑÅëÖ—îÅëîÅì•â’–∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÕÖ±Ö…ÂµΩ’π–ÄÙÅ9’µâï»°ŸÖ±’ïÃπÕÖ±Ö…ÂµΩ’π–Ä¸¸Ä¿§Ï(ÄÄÄÅ•òÄ†Ö9’µâï»π•Õ•π•—î°ÕÖ±Ö…ÂµΩ’π–§ÅÒÅÕÖ±Ö…ÂµΩ’π–ÄÄ¿§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùMÖ±Ö•…îÅëîÅçΩπ—…Ö–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Åç’……ïπç‰ÄÙÅM—…•πú°ŸÖ±’ïÃπç’……ïπç‰Ä¸¸ÄùUMú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅ•òÄ°ÕÖ±Ö…ÂµΩ’π–Ä¯Ä¿ÄòòÄÖç’……ïπç‰§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùïŸ•ÕîÅΩâ±•ùÖ—Ω•…îÅ¡Ω’»Å±îÅçΩπ—…Ö–∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÕ—Ö—’ÃÄÙÅM—…•πú°ŸÖ±’ïÃπÕ—Ö—’ÃÄ¸¸ÄùQ%Yú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§ÅÒÄùQ%YúÏ(ÄÄÄÅ•òÄ†ÖlùQ%Yú∞ÄùIPú∞ÄùA9%9ú∞ÄùUQUIú∞ÄùQI5%9Qùtπ•πç±’ëïÃ°Õ—Ö—’Ã§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùM—Ö—’–ÅëîÅçΩπ—…Ö–Å•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅçΩπ—…Öç—}—Â¡îËÅçΩπ—…Öç—QÂ¡î∞(ÄÄÄÄÄÅÕ—Ö…—}ëÖ—îËÅÕ—Ö…—Ö—î∞(ÄÄÄÄÄÅïπë}ëÖ—îËÅçΩπ—…Öç—QÂ¡îπ—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄù$úÄ¸Åπ’±∞ÄËÅïπëÖ—î∞(ÄÄÄÄÄÅÕÖ±Ö…Â}ÖµΩ’π–ËÅÕÖ±Ö…ÂµΩ’π–∞(ÄÄÄÄÄÅç’……ïπç‰ËÅç’……ïπç‰ÅÒÄùUMú∞(ÄÄÄÄÄÅ©Ωâ}—•—±îËÅM—…•πú°ŸÖ±’ïÃπ©ΩâQ•—±îÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅëï¡Ö…—µïπ–ËÅM—…•πú°ŸÖ±’ïÃπëï¡Ö…—µïπ–Ä¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅΩâÕï…ŸÖ—•ΩπÃËÅM—…•πú°ŸÖ±’ïÃπΩâÕï…ŸÖ—•ΩπÃÄ¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅÕ—Ö—’Ã∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•Èï!…Ö—î°ŸÖ±’îËÅ’π≠πΩ›∏∞Åô•ï±ë9ÖµîËÅÕ—…•πú∞Å…ï≈’•…ïêÄÙÅôÖ±Õî§ÅÏ(ÄÄÄÅ•òÄ°ŸÖ±’îÄÙÙÙÅ’πëïô•πïêÅÒÅŸÖ±’îÄÙÙÙÅπ’±∞ÅÒÅŸÖ±’îÄÙÙÙÄúú§ÅÏ(ÄÄÄÄÄÅ•òÄ°…ï≈’•…ïê§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°ÅÖ—îÅ…ï≈’•ÕîÅ¡Ω’»ÄëÌô•ï±ë9ÖµïÙπÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏Åπ’±∞Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å…Ö‹ÄÙÅM—…•πú°ŸÖ±’î§π—…•¥†§Ï(ÄÄÄÅ•òÄ†Ö…Ö‹§ÅÏ(ÄÄÄÄÄÅ•òÄ°…ï≈’•…ïê§Å—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°ÅÖ—îÅ…ï≈’•ÕîÅ¡Ω’»ÄëÌô•ï±ë9ÖµïÙπÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏Åπ’±∞Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å•ÕΩÖ—îÄÙÄΩyqëÏ—ÙµqëÏ…ÙµqëÏ…Ùºπï·ïå°…Ö‹§¸πl¡tÏ(ÄÄÄÅ•òÄ°•ÕΩÖ—î§Å…ï—’…∏Å•ÕΩÖ—îÏ(ÄÄÄÅçΩπÕ–Å¡Ö…ÕïêÄÙÅπï‹ÅÖ—î°…Ö‹§Ï(ÄÄÄÅ•òÄ°9’µâï»π•Õ9Ö8°¡Ö…Õïêπùï—Q•µî†§§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏°ÅÖ—îÅ•πŸÖ±•ëîÅ¡Ω’»ÄëÌô•ï±ë9ÖµïÙπÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å¡Ö…Õïêπ—Ω%M=M—…•πú†§πÕ±•çî†¿∞Äƒ¿§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅπΩ…µÖ±•ÈïÖÕ°·¡ïπÕïÖ—ïùΩ…ÂAÖÂ±ΩÖê°âΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–ÅπÖµîÄÙÅM—…•πú°âΩë‰ππÖµîÄ¸¸Äúú§π—…•¥†§Ï(ÄÄÄÅ•òÄ†ÖπÖµî§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ù1îÅπΩ¥ÅëîÅ±ÑÅçÖ”•ùΩ…•îÅïÕ–ÅΩâ±•ùÖ—Ω•…î∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÕ—Ö—’ÃÄÙÅM—…•πú°âΩë‰πÕ—Ö—’ÃÄ¸¸ÄùQ%Yú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§ÅÒÄùQ%YúÏ(ÄÄÄÅ•òÄ†ÖlùQ%Yú∞Äù%9Q%Yùtπ•πç±’ëïÃ°Õ—Ö—’Ã§§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùM—Ö—’–ÅëîÅçÖ”•ùΩ…•îÅëîÅì•¡ïπÕîÅ•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅçΩëîËÅ—°•Ãπâ’•±ëÖÕ°·¡ïπÕïÖ—ïùΩ…ÂΩëî°âΩë‰πçΩëî∞ÅπÖµî§∞(ÄÄÄÄÄÅπÖµî∞(ÄÄÄÄÄÅëïÕç…•¡—•Ω∏ËÅM—…•πú°âΩë‰πëïÕç…•¡—•Ω∏Ä¸¸Äúú§π—…•¥†§ÅÒÅπ’±∞∞(ÄÄÄÄÄÅÕ—Ö—’Ã∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅâ’•±ëÖÕ°·¡ïπÕïÖ—ïùΩ…ÂΩëî°ŸÖ±’îËÅ’π≠πΩ›∏∞ÅôÖ±±âÖç≠9ÖµîËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–Å…Ö‹ÄÙÅM—…•πú°ŸÖ±’îÄ¸¸Äúú§π—…•¥†§ÅÒÅôÖ±±âÖç≠9ÖµîÏ(ÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•ÈïêÄÙÅ…Ö‹(ÄÄÄÄÄÄππΩ…µÖ±•Èî†ù9ú§(ÄÄÄÄÄÄπ…ï¡±Öçî†Ωmq‘¿Ã¿¿µq‘¿ÃŸôtΩú∞Äúú§(ÄÄÄÄÄÄπ—ΩU¡¡ï…ÖÕî†§(ÄÄÄÄÄÄπ…ï¡±Öçî†Ωmyµh¿¥Ât¨Ωú∞Äù|ú§(ÄÄÄÄÄÄπ…ï¡±Öçî†Ωy|≠Ò|¨êΩú∞Äúú§(ÄÄÄÄÄÄπÕ±•çî†¿∞Ä–¿§Ï(ÄÄÄÅ•òÄ†ÖπΩ…µÖ±•Èïê§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹Å	ÖëIï≈’ïÕ—·çï¡—•Ω∏†ùΩëîÅëîÅçÖ”•ùΩ…•îÅëîÅì•¡ïπÕîÅ•πŸÖ±•ëî∏ú§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅπΩ…µÖ±•ÈïêÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅ°Öπë±ïÖÕ°·¡ïπÕïÖ—ïùΩ…ÂMç°ïµÖ……Ω»°ï……Ω»ËÅÖπ‰§ÅÏ(ÄÄÄÅ•òÄ°ï……Ω»¸πçΩëîÄÙÙÙÄú–…@¿ƒúÅÒÅï……Ω»¸πçΩëîÄÙÙÙÄú–»‹¿Ãú§ÅÏ(ÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅMï…Ÿ•çïUπÖŸÖ•±Öâ±ï·çï¡—•Ω∏†(ÄÄÄÄÄÄÄÄù1îÅÀ•õ•…ïπ—•ï∞ÅëïÃÅçÖ”•ùΩ…•ïÃÅëîÅì•¡ïπÕîÅªäeïÕ–Å¡ÖÃÅë•Õ¡Ωπ•â±î∏Å¡¡±•≈’ïËÅ±ÑÅµ•ù…Ö—•Ω∏Ä»¿»ÿ¿‹ƒ›}çÖÕ°}ï·¡ïπÕï}çÖ—ïùΩ…•ïÃπÕ≈∞∏ú∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅô•πëÖÕ°·¡ïπÕïÖ—ïùΩ…ÂΩ…Q…ÖÕ†°çΩëîËÅÕ—…•πú§ÅÏ(ÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•ÈïëΩëîÄÙÅM—…•πú°çΩëîÄ¸¸Äúú§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÅçΩπÕ–ÅÕ’¡¡Ω…—Õ%Õç—•ŸîÄÙÅÖ›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}ï·¡ïπÕï}çÖ—ïùΩ…•ïÃú∞Äù•Õ}Öç—•Ÿîú§Ï(ÄÄÄÅçΩπÕ–ÅÕ’¡¡Ω…—ÕM—Ö—’ÃÄÙÅÖ›Ö•–Å—°•ÃπçΩ±’µπ·•Õ—Ã†ùçÖÕ°}ï·¡ïπÕï}çÖ—ïùΩ…•ïÃú∞ÄùÕ—Ö—’Ãú§Ï(ÄÄÄÅçΩπÕ–ÅÖç—•Ÿï·¡…ïÕÕ•Ω∏ÄÙÅÕ’¡¡Ω…—Õ%Õç—•Ÿî(ÄÄÄÄÄÄ¸Äù=1M°•Õ}Öç—•Ÿî∞ÅQIU§ÄÙÅQIUú(ÄÄÄÄÄÄËÅÕ’¡¡Ω…—ÕM—Ö—’Ã(ÄÄÄÄÄÄÄÄ¸ÅÅ=1M°UAAH°Õ—Ö—’Ã§∞ÄùQ%Yú§ÄÙÄùQ%YùÄ(ÄÄÄÄÄÄÄÄËÄùQIUúÏ(ÄÄÄÅçΩπÕ–ÅÕï±ïç—ïëΩ±’µπÃÄÙÅl(ÄÄÄÄÄÄù•êú∞(ÄÄÄÄÄÄùçΩëîú∞(ÄÄÄÄÄÅÕ’¡¡Ω…—Õ%Õç—•Ÿî(ÄÄÄÄÄÄÄÄ¸Äù=1M°•Õ}Öç—•Ÿî∞ÅQIU§ÅLÅ•Õ}Öç—•Ÿîú(ÄÄÄÄÄÄÄÄËÅÕ’¡¡Ω…—ÕM—Ö—’Ã(ÄÄÄÄÄÄÄÄÄÄ¸ÅÅMÅ]!8Å=1M°UAAH°Õ—Ö—’Ã§∞ÄùQ%Yú§ÄÙÄùQ%YúÅQ!8ÅQIUÅ1MÅ1MÅ9ÅLÅ•Õ}Öç—•ŸïÄ(ÄÄÄÄÄÄÄÄÄÄËÄùQIUÅLÅ•Õ}Öç—•Ÿîú∞(ÄÄÄÅtπ©Ω•∏†ú∞Äú§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅM1PÄëÌÕï±ïç—ïëΩ±’µπÕÙ(ÄÄÄÄÄÄÅI=4ÅçÖÕ°}ï·¡ïπÕï}çÖ—ïùΩ…•ïÃ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÄÄÅ9ÅUAAH°QI%4°çΩëî§§ÄÙÄê»(ÄÄÄÄÄÄÄÄÅ9ÄëÌÖç—•Ÿï·¡…ïÕÕ•ΩπÙ(ÄÄÄÄÄÄÅ1%5%PÄ≈Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅπΩ…µÖ±•ÈïëΩëït∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅµÖ—ç°ïëÖ—ïùΩ…‰ËÅ…Ω›Õl¡tÄ¸¸Åπ’±∞∞(ÄÄÄÄÄÅπΩ…µÖ±•ÈïëΩëî∞(ÄÄÄÄÄÅï·•Õ—ÃËÅ	ΩΩ±ïÖ∏°…Ω›Õl¡t§∞(ÄÄÄÅÙÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅç…ïÖ—ï!…Ö—Ö±ΩùIΩ‹°—Öâ±îËÄù°…}Õï…Ÿ•çïÃúÅÄù°…}¡ΩÕ•—•ΩπÃú∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–Å¡ÖÂ±ΩÖêÄÙÅ—°•ÃππΩ…µÖ±•Èï!…Ö—Ö±ΩùAÖÂ±ΩÖê°âΩë‰§Ï(ÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÖ›Ö•–Å—°•Ãπëàπ—…ÖπÕÖç—•Ω∏°ÖÕÂπåÄ°ç±•ïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ¡ÖÂ±ΩÖêπçΩëîÄÙÅÖ›Ö•–Å—°•Ãππï·—!…Ö—Ö±ΩùΩëî°ç±•ïπ–∞Å—Öâ±î§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Å—°•Ãπ•πÕï…—%πQ…ÖπÕÖç—•Ω∏°ç±•ïπ–∞Å—Öâ±î∞Å¡ÖÂ±ΩÖê∞ÅlùçΩëîú∞ÄùπÖµîú∞ÄùëïÕç…•¡—•Ω∏ú∞ÄùÕ—Ö—’Ãùt§Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙÅçÖ—ç†Ä°ï……Ω»ËÅÖπ‰§ÅÏ(ÄÄÄÄÄÅ•òÄ°ï……Ω»¸πçΩëîÄÙÙÙÄú»Ã‘¿‘ú§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ùï——îÅŸÖ±ï’»Åï·•Õ—îÅì•´ÄÅëÖπÃÅ±îÅÀ•õ•…ïπ—•ï∞ÅI ∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ—°…Ω‹Åï……Ω»Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅ’¡ëÖ—ï!…Ö—Ö±ΩùIΩ‹°—Öâ±îËÄù°…}Õï…Ÿ•çïÃúÅÄù°…}¡ΩÕ•—•ΩπÃú∞Å•êËÅπ’µâï»∞ÅâΩë‰ËÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§ÅÏ(ÄÄÄÅçΩπÕ–Å¡ÖÂ±ΩÖêÄÙÅ—°•ÃππΩ…µÖ±•Èï!…Ö—Ö±ΩùAÖÂ±ΩÖê°âΩë‰§Ï(ÄÄÄÅëï±ï—îÄ°¡ÖÂ±ΩÖêÅÖÃÅIïçΩ…êÒÕ—…•πú∞Å’π≠πΩ›∏¯§πçΩëîÏ(ÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÖ›Ö•–Å—°•Ãπ’¡ëÖ—ï	Â%ê°—Öâ±î∞Å•ê∞Å¡ÖÂ±ΩÖê∞ÅlùπÖµîú∞ÄùëïÕç…•¡—•Ω∏ú∞ÄùÕ—Ö—’Ãùt§Ï(ÄÄÄÅÙÅçÖ—ç†Ä°ï……Ω»ËÅÖπ‰§ÅÏ(ÄÄÄÄÄÅ•òÄ°ï……Ω»¸πçΩëîÄÙÙÙÄú»Ã‘¿‘ú§ÅÏ(ÄÄÄÄÄÄÄÅ—°…Ω‹Åπï‹ÅΩπô±•ç—·çï¡—•Ω∏†ùï——îÅŸÖ±ï’»Åï·•Õ—îÅì•´ÄÅëÖπÃÅ±îÅÀ•õ•…ïπ—•ï∞ÅI ∏ú§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ—°…Ω‹Åï……Ω»Ï(ÄÄÄÅÙ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅëïÖç—•ŸÖ—ï!…Ö—Ö±ΩùIΩ‹°—Öâ±îËÄù°…}Õï…Ÿ•çïÃúÅÄù°…}¡ΩÕ•—•ΩπÃú∞Å•êËÅπ’µâï»§ÅÏ(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Å—°•Ãπëàπ≈’ï…‰†(ÄÄÄÄÄÅÅUAQÄëÌ—Öâ±ïÙ(ÄÄÄÄÄÄÅMPÅÕ—Ö—’ÃÄÙÄù%9Q%Yú∞(ÄÄÄÄÄÄÄÄÄÄÅ’¡ëÖ—ïë}Ö–ÄÙÅ9=\†§(ÄÄÄÄÄÄÅ]!IÅ•êÄÙÄêƒÅ9ÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê»Å9Åëï±ï—ïë}Ö–Å%LÅ9U10(ÄÄÄÄÄÄÅIQUI9%9Ä©Ä∞(ÄÄÄÄÄÅm•ê∞Å—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å…ï≈’•…ïIΩ‹°…Ω›Õl¡t∞Å—Öâ±î§Ï(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—µ¡±ΩÂïïΩπ—…Öç—9’µâï»°ç±•ïπ–ËÅAΩΩ±±•ïπ–§ÅÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰°ÅM1PÅ¡ù}ÖëŸ•ÕΩ…Â}·Öç—}±Ωç¨°°ÖÕ°—ï·–†êƒ§•Ä∞ÅmÅïµ¡±ΩÂïîµçΩπ—…Öç–¥ëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ıÅt§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°5`°9U11%°…ïùï·¡}…ï¡±Öçî°çΩπ—…Öç—}π’µâï»∞Äùmx¿¥Âtú∞Äúú∞Äùúú§∞Äúú§ËÈ%9P§∞Ä¿§Ä¨ÄƒÅLÅŸÖ±’î(ÄÄÄÄÄÄÅI=4Åïµ¡±ΩÂïï}çΩπ—…Öç—Ã(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄê≈Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•t∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÅQH¥ëÌM—…•πú°…Ω›Õl¡t¸πŸÖ±’îÄ¸¸Äƒ§π¡ÖëM—Ö…–†ÿ∞Äú¿ú•ıÄÏ(ÄÅÙ((ÄÅ¡…•ŸÖ—îÅÖÕÂπåÅπï·—!…Ö—Ö±ΩùΩëî°ç±•ïπ–ËÅAΩΩ±±•ïπ–∞Å—Öâ±îËÄù°…}Õï…Ÿ•çïÃúÅÄù°…}¡ΩÕ•—•ΩπÃú§ÅÏ(ÄÄÄÅçΩπÕ–Å¡…ïô•‡ÄÙÅ—Öâ±îÄÙÙÙÄù°…}Õï…Ÿ•çïÃúÄ¸ÄùMIXúÄËÄùPúÏ(ÄÄÄÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰°ÅM1PÅ¡ù}ÖëŸ•ÕΩ…Â}·Öç—}±Ωç¨°°ÖÕ°—ï·–†êƒ§•Ä∞ÅmÄëÌ—Öâ±ïÙµçΩëî¥ëÌ—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†•ıÅt§Ï(ÄÄÄÅçΩπÕ–ÅÏÅ…Ω›ÃÅÙÄÙÅÖ›Ö•–Åç±•ïπ–π≈’ï…‰†(ÄÄÄÄÄÅÅM1PÅ=1M°5`°9U11%°MU	MQI%9°çΩëîÅI=4Äú°l¿¥Ât¨§êú§∞Äúú§ËÈ%9P§∞Ä¿§Ä¨ÄƒÅLÅŸÖ±’î(ÄÄÄÄÄÄÅI=4ÄëÌ—Öâ±ïÙ(ÄÄÄÄÄÄÅ]!IÅΩ…ùÖπ•ÈÖ—•Ωπ}•êÄÙÄêƒ(ÄÄÄÄÄÄÄÄÅ9ÅçΩëîÅ1%-Äê…Ä∞(ÄÄÄÄÄÅm—°•ÃπçΩπ—ï·–πΩ…ùÖπ•ÈÖ—•Ωπ%ê†§∞ÅÄëÌ¡…ïô•·Ù¥ïÅt∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÄëÌ¡…ïô•·Ù¥ëÌM—…•πú°…Ω›Õl¡t¸πŸÖ±’îÄ¸¸Äƒ§π¡ÖëM—Ö…–†–∞Äú¿ú•ıÄÏ(ÄÅÙ)Ù

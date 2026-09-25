@@ -24,10 +24,16 @@ type StatementResponse = {
     closing_balance: number;
     invoices_count: number;
     payments_count: number;
+    refunds_count?: number;
   };
   movements: Array<StatementRow & { date: string; reference?: string; movement_type: string; label: string; debit: number; credit: number; currency: string; running_balance: number }>;
   invoices: StatementRow[];
   payments: StatementRow[];
+  tenant_credits: StatementRow[];
+  tenant_credit_refunds: StatementRow[];
+  tenant_credit_allocations: StatementRow[];
+  guarantees: StatementRow[];
+  guarantee_totals: { expected: number; paid: number; remaining: number };
 };
 
 const months = [
@@ -62,7 +68,7 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
   const navigate = useNavigate();
   const now = new Date();
   const [filters, setFilters] = useState({
-    month: String(now.getMonth() + 1),
+    month: '',
     year: String(now.getFullYear()),
     start: '',
     end: '',
@@ -111,6 +117,10 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
   const creditRows = movementRows.filter((row) => Number(row.credit ?? 0) > 0);
   const invoiceRows = statement?.invoices ?? [];
   const paymentRows = statement?.payments ?? [];
+  const tenantCreditRows = statement?.tenant_credits ?? [];
+  const tenantCreditRefundRows = statement?.tenant_credit_refunds ?? [];
+  const tenantCreditAllocationRows = statement?.tenant_credit_allocations ?? [];
+  const guaranteeRows = statement?.guarantees ?? [];
   const fileBase = `Releve_compte_${statementKindLabel(kind)}_${safePart(statement?.entity.title ?? kind)}_${statement?.period.start ?? '0000-00-00'}_${statement?.period.end ?? '0000-00-00'}`;
 
   function backPath() {
@@ -148,6 +158,9 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
       remaining_amount: Number(row.remaining_amount ?? 0),
       currency: String(row.currency ?? statement?.currency ?? 'USD'),
       status: String(row.status ?? '—'),
+      lines: Array.isArray(row.items)
+        ? row.items.map((item: StatementRow) => `${String(item.description ?? item.item_type ?? 'Ligne')}: ${Number(item.amount ?? 0).toFixed(2)}`).join(' | ')
+        : '',
     })) : [{ information: 'Aucune donnée' }];
   }
 
@@ -227,6 +240,10 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
           })) : [{ information: 'Aucune donnée' }] },
           { name: 'Factures', rows: invoiceExcelRows() },
           { name: 'Paiements', rows: paymentExcelRows() },
+          { name: 'Crédits locataires', rows: tenantCreditRows.length ? tenantCreditRows : [{ information: 'Aucune donnée' }] },
+          { name: 'Affectations crédits', rows: tenantCreditAllocationRows.length ? tenantCreditAllocationRows : [{ information: 'Aucune donnée' }] },
+          { name: 'Remboursements crédits', rows: tenantCreditRefundRows.length ? tenantCreditRefundRows : [{ information: 'Aucune donnée' }] },
+          { name: 'Garanties locatives', rows: guaranteeRows.length ? guaranteeRows : [{ information: 'Aucune donnée' }] },
           ...(kind === 'building'
             ? [
                 { name: 'Par appartement', rows: byUnitRows() },
@@ -303,6 +320,25 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
         },
       });
 
+      if (guaranteeRows.length) {
+        const previousTable = (doc as any).lastAutoTable;
+        autoTable(doc, {
+          startY: Number(previousTable?.finalY ?? 144) + 22,
+          head: [['Bail', 'Appartement', 'Garantie attendue', 'Payé', 'Reste', 'Statut']],
+          body: guaranteeRows.map((row) => [
+            row.lease_number ? `B-${String(row.lease_number).padStart(6, '0')}` : '—',
+            String(row.unit_number ?? '—'),
+            formatPdfAmount(row.amount, statement.currency),
+            formatPdfAmount(row.paid_amount, statement.currency),
+            formatPdfAmount(row.remaining_amount, statement.currency),
+            String(row.status ?? '—'),
+          ]),
+          styles: { fontSize: 8, cellPadding: 4 },
+          headStyles: { fillColor: [24, 91, 113] },
+          margin: { left: margin, right: margin },
+        });
+      }
+
       doc.save(`${fileBase}.pdf`);
     } catch (exception: any) {
       setError(exception?.message ?? 'Impossible de générer le PDF.');
@@ -358,6 +394,7 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
               <SummaryCard label="Solde de clôture" value={money(statement.totals.closing_balance)} />
               <SummaryCard label="Factures" value={statement.totals.invoices_count} />
               <SummaryCard label="Paiements" value={statement.totals.payments_count} />
+              <SummaryCard label="Remboursements crédit" value={statement.totals.refunds_count ?? 0} />
               <SummaryCard label="Devise" value={statement.currency} />
             </div>
           </section>
@@ -397,6 +434,37 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
               </table>
             </div>
           </section>
+
+          <section className="detail-section report-section">
+            <h4>Garanties locatives — suivi séparé du solde locatif</h4>
+            <div className="summary-band">
+              <SummaryCard label="Garantie attendue" value={money(statement.guarantee_totals?.expected ?? 0)} />
+              <SummaryCard label="Garantie payée" value={money(statement.guarantee_totals?.paid ?? 0)} />
+              <SummaryCard label="Garantie restante" value={money(statement.guarantee_totals?.remaining ?? 0)} />
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Bail</th><th>Locataire</th><th>Immeuble</th><th>Appartement</th><th>Paiements</th><th className="right">Attendu</th><th className="right">Payé</th><th className="right">Reste</th><th>Statut</th></tr></thead>
+                <tbody>
+                  {guaranteeRows.length ? guaranteeRows.map((row, index) => (
+                    <tr key={`guarantee-${row.id ?? index}`}>
+                      <td>{row.lease_number ? `B-${String(row.lease_number).padStart(6, '0')}` : '—'}</td>
+                      <td>{String(row.tenant_name ?? '—')}</td>
+                      <td>{String(row.building_name ?? '—')}</td>
+                      <td>{String(row.unit_number ?? '—')}</td>
+                      <td>{Array.isArray(row.payments) && row.payments.length
+                        ? row.payments.map((payment: StatementRow) => String(payment.receipt_number ?? payment.reference ?? `#${payment.id}`)).join(', ')
+                        : '—'}</td>
+                      <td className="right">{formatAmount(row.amount)}</td>
+                      <td className="right">{formatAmount(row.paid_amount)}</td>
+                      <td className="right">{formatAmount(row.remaining_amount)}</td>
+                      <td>{String(row.status ?? '—')}</td>
+                    </tr>
+                  )) : <tr><td colSpan={9}>Aucune garantie locative.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
         </>
       )}
     </section>
@@ -411,6 +479,8 @@ function movementLabel(type: string) {
   if (type === 'OPENING') return 'Solde initial';
   if (type === 'INVOICE') return 'Facture';
   if (type === 'TENANT_CREDIT') return 'Crédit locataire';
+  if (type === 'TENANT_CREDIT_ALLOCATION') return 'Affectation de crédit';
+  if (type === 'TENANT_CREDIT_REFUND') return 'Remboursement de crédit';
   if (type === 'PAYMENT') return 'Paiement';
   return type;
 }
