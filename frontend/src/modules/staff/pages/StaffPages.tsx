@@ -32,6 +32,8 @@ type Employee = {
   manager_name?: string;
   status: string;
   monthly_salary: number;
+  transport_allowance?: number;
+  other_expenses?: number;
   payment_method?: string;
   bank_name?: string;
   account_number?: string;
@@ -252,7 +254,7 @@ export function EmployeesPage() {
     const onLeave = employees.data.filter((row) => row.status === 'ON_LEAVE').length;
     const suspended = employees.data.filter((row) => row.status === 'SUSPENDED').length;
     const expiring = contracts.data.filter((row) => row.end_date && daysUntil(row.end_date) <= 45 && daysUntil(row.end_date) >= 0 && row.status === 'ACTIVE').length;
-    const payrollMass = employees.data.filter((row) => row.status !== 'INACTIVE').reduce((sum, row) => sum + Number(row.monthly_salary ?? 0), 0);
+    const payrollMass = employees.data.filter((row) => row.status !== 'INACTIVE').reduce((sum, row) => sum + employeeTotalSalary(row), 0);
     const openAdvances = advances.data.filter((row) => row.status !== 'PAID' && row.status !== 'REJECTED').length;
     const absentToday = attendance.data.filter((row) => row.attendance_date === today && (row.absence || row.status === 'ABSENT')).length;
     return { active, onLeave, suspended, expiring, payrollMass, openAdvances, absentToday };
@@ -329,7 +331,7 @@ export function EmployeesPage() {
     </div>
     {employees.loading ? <LoadingState /> : <div className="table-wrap">
       <table>
-        <thead><tr><th>Matricule</th><th>Nom complet</th><th>Téléphone</th><th>Service</th><th>Fonction</th><th>Type contrat</th><th className="right">Salaire</th><th>Devise</th><th>Statut</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Matricule</th><th>Nom complet</th><th>Téléphone</th><th>Service</th><th>Fonction</th><th>Type contrat</th><th className="right">Salaire total</th><th>Devise</th><th>Statut</th><th>Actions</th></tr></thead>
         <tbody>{filtered.map((row) => <tr key={row.id} className="clickable-row" onClick={() => navigate(`/personnel/employees/${row.id}`)}>
           <td>{employeeCode(row.employee_number, row.id)}</td>
           <td>{employeeName(row)}</td>
@@ -337,7 +339,7 @@ export function EmployeesPage() {
           <td>{row.department ?? '?'}</td>
           <td>{row.job_title}</td>
           <td>{row.current_contract_type ?? row.contract_type ?? '?'}</td>
-          <td className="right">{money(row.monthly_salary)}</td>
+          <td className="right">{money(employeeTotalSalary(row))}</td>
           <td>USD</td>
           <td>{employeeStatusLabel(row.status)}</td>
           <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}>
@@ -554,7 +556,10 @@ export function EmployeeDetailPage() {
       <div className="summary-item"><span>Service</span><strong>{detail.department ?? '?'}</strong></div>
       <div className="summary-item"><span>Fonction</span><strong>{detail.job_title}</strong></div>
       <div className="summary-item"><span>Statut</span><strong>{employeeStatusLabel(detail.status)}</strong></div>
-      <div className="summary-item"><span>Salaire</span><strong>{money(detail.monthly_salary)} USD</strong></div>
+      <div className="summary-item"><span>Salaire de base</span><strong>{money(detail.monthly_salary)} USD</strong></div>
+      <div className="summary-item"><span>Transport</span><strong>{money(detail.transport_allowance ?? 0)} USD</strong></div>
+      <div className="summary-item"><span>Autres dépenses</span><strong>{money(detail.other_expenses ?? 0)} USD</strong></div>
+      <div className="summary-item"><span>Salaire total</span><strong>{money(employeeTotalSalary(detail))} USD</strong></div>
       <div className="summary-item"><span>Contrat actuel</span><strong>{detail.current_contract?.contract_number ?? '?'}</strong></div>
     </div>
     <div className="mini-stats">
@@ -956,6 +961,9 @@ function EmployeeModal({ title, employee, services, positions, onClose, onSubmit
   const [serviceValue, setServiceValue] = useState(() => selectedCatalogValue(employee?.service_id, employee?.department));
   const [positionValue, setPositionValue] = useState(() => selectedCatalogValue(employee?.position_id, employee?.job_title));
   const [contractType, setContractType] = useState(employee?.contract_type ?? 'CDI');
+  const [baseSalary, setBaseSalary] = useState(Number(employee?.monthly_salary ?? 0));
+  const [transportAllowance, setTransportAllowance] = useState(Number(employee?.transport_allowance ?? 0));
+  const [otherExpenses, setOtherExpenses] = useState(Number(employee?.other_expenses ?? 0));
   const [submitting, setSubmitting] = useState(false);
   const serviceOptions = useMemo(() => catalogSelectOptions(availableServices, serviceValue, employee?.department), [availableServices, serviceValue, employee?.department]);
   const positionOptions = useMemo(() => catalogSelectOptions(availablePositions, positionValue, employee?.job_title), [availablePositions, positionValue, employee?.job_title]);
@@ -1019,7 +1027,10 @@ function EmployeeModal({ title, employee, services, positions, onClose, onSubmit
         <label>Statut<select name="status" defaultValue={employee?.status ?? 'ACTIVE'}>{employeeStatuses.map((value) => <option key={value} value={value}>{employeeStatusLabel(value)}</option>)}</select></label>
       </div></div>
       <div className="modal-section"><h3>Paie</h3><div className="maintenance-grid hr-form-grid">
-        <label>Salaire de base<input type="number" min="0" step="0.01" name="monthly_salary" defaultValue={employee?.monthly_salary ?? 0} /></label>
+        <label>Salaire de base<input type="number" min="0" step="0.01" name="monthly_salary" value={baseSalary} onChange={(event) => setBaseSalary(nonNegativeAmount(event.target.value))} /></label>
+        <label>Transport<input type="number" min="0" step="0.01" name="transport_allowance" value={transportAllowance} onChange={(event) => setTransportAllowance(nonNegativeAmount(event.target.value))} /></label>
+        <label>Autres dépenses<input type="number" min="0" step="0.01" name="other_expenses" value={otherExpenses} onChange={(event) => setOtherExpenses(nonNegativeAmount(event.target.value))} /></label>
+        <label className="locked-field">Salaire total<input value={`${money(baseSalary + transportAllowance + otherExpenses)} USD`} readOnly /></label>
         <label className="locked-field">Devise USD<input value="USD" readOnly /></label>
         <label>Mode paiement<select name="payment_method" defaultValue={employee?.payment_method ?? ''}><option value="">Sélectionner</option>{paymentMethods.map((value) => <option key={value} value={value}>{paymentMethodLabel(value)}</option>)}</select></label>
         <label>Banque<input name="bank_name" defaultValue={employee?.bank_name} /></label>
@@ -1197,6 +1208,8 @@ function employeePayload(form: FormData) {
     manager_name: optionalStringValue(form, 'manager_name'),
     status: stringValue(form, 'status') || 'ACTIVE',
     monthly_salary: Number(form.get('monthly_salary') ?? 0),
+    transport_allowance: Number(form.get('transport_allowance') ?? 0),
+    other_expenses: Number(form.get('other_expenses') ?? 0),
     payment_method: optionalStringValue(form, 'payment_method'),
     bank_name: optionalStringValue(form, 'bank_name'),
     account_number: optionalStringValue(form, 'account_number'),
@@ -1373,10 +1386,22 @@ function exportEmployeeRow(row: Employee) {
     service: row.department ?? '',
     fonction: row.job_title,
     type_contrat: row.current_contract_type ?? row.contract_type ?? '',
-    salaire: money(row.monthly_salary),
+    salaire_base: money(row.monthly_salary),
+    transport: money(row.transport_allowance ?? 0),
+    autres_depenses: money(row.other_expenses ?? 0),
+    salaire_total: money(employeeTotalSalary(row)),
     devise: 'USD',
     statut: employeeStatusLabel(row.status),
   };
+}
+
+function employeeTotalSalary(row: Pick<Employee, 'monthly_salary' | 'transport_allowance' | 'other_expenses'>) {
+  return Number(row.monthly_salary ?? 0) + Number(row.transport_allowance ?? 0) + Number(row.other_expenses ?? 0);
+}
+
+function nonNegativeAmount(value: string) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.max(amount, 0) : 0;
 }
 
 function employeeCode(value: string | undefined, id: number) {

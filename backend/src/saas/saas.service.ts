@@ -129,6 +129,21 @@ export class SaasService {
     return month;
   }
 
+  private normalizeCompensationAmount(value: unknown, label: string) {
+    const amount = Number(value ?? 0);
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw new BadRequestException(`${label} doit être un montant positif ou nul.`);
+    }
+    return Number(amount.toFixed(2));
+  }
+
+  private employeeCompensationTotal(source: Record<string, unknown>) {
+    const baseSalary = this.normalizeCompensationAmount(source.monthly_salary, 'Salaire de base');
+    const transportAllowance = this.normalizeCompensationAmount(source.transport_allowance, 'Transport');
+    const otherExpenses = this.normalizeCompensationAmount(source.other_expenses, 'Autres dépenses');
+    return Number((baseSalary + transportAllowance + otherExpenses).toFixed(2));
+  }
+
   private normalizeYear(value: unknown, fallback = new Date().getFullYear()) {
     const year = Number(value ?? fallback);
     if (!Number.isFinite(year) || year < 2000) {
@@ -240,7 +255,7 @@ export class SaasService {
 
   private async upsertEmployeeMonthlyAttendance(client: PoolClient, payload: ReturnType<SaasService['normalizeAttendancePayload']>) {
     const employee = await client.query(
-      `SELECT id, monthly_salary
+      `SELECT id, monthly_salary, transport_allowance, other_expenses
        FROM employees
        WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
       [payload.employeeId, this.context.organizationId()],
@@ -258,7 +273,7 @@ export class SaasService {
 
     const advancesTotal = await this.monthlyAdvanceTotal(client, payload.employeeId, payload.month, payload.year);
     const metrics = this.calculateMonthlyAttendanceMetrics(
-      Number(employeeRow.monthly_salary ?? 0),
+      this.employeeCompensationTotal(employeeRow),
       payload.workingDays,
       payload.unjustifiedAbsenceDays,
       advancesTotal,
@@ -1727,7 +1742,7 @@ export class SaasService {
         contractType: body.contract_type,
         startDate: body.contract_start_date ?? body.start_date ?? body.hire_date,
         endDate: body.contract_end_date ?? body.end_date,
-        salaryAmount: body.contract_salary_amount ?? body.salary_amount ?? body.monthly_salary,
+        salaryAmount: body.contract_salary_amount ?? body.salary_amount ?? this.employeeCompensationTotal(body),
         currency: body.contract_currency ?? body.currency,
         jobTitle: positionName,
         department: serviceName,
@@ -1741,13 +1756,15 @@ export class SaasService {
         department: serviceName,
         job_title: positionName,
         employee_number: employeeNumber,
-        monthly_salary: Number(body.monthly_salary ?? 0),
+        monthly_salary: this.normalizeCompensationAmount(body.monthly_salary, 'Salaire de base'),
+        transport_allowance: this.normalizeCompensationAmount(body.transport_allowance, 'Transport'),
+        other_expenses: this.normalizeCompensationAmount(body.other_expenses, 'Autres dépenses'),
         status: body.status ?? 'ACTIVE',
       };
       const employee = await this.insertInTransaction(client, 'employees', payload, [
         'employee_number', 'first_name', 'last_name', 'post_name', 'gender', 'birth_date', 'nationality', 'marital_status',
         'phone', 'secondary_phone', 'email', 'address', 'service_id', 'position_id', 'job_title', 'department', 'hire_date', 'contract_type',
-        'assigned_site', 'manager_name', 'status', 'monthly_salary', 'payment_method', 'bank_name', 'account_number',
+        'assigned_site', 'manager_name', 'status', 'monthly_salary', 'transport_allowance', 'other_expenses', 'payment_method', 'bank_name', 'account_number',
         'mobile_money_number', 'id_document_type', 'id_document_number', 'identity_attachment_name', 'cv_attachment_name',
         'signed_contract_attachment_name', 'emergency_contact_name', 'emergency_contact_phone', 'internal_notes',
       ]);
@@ -1791,12 +1808,14 @@ export class SaasService {
       position_id: positionId,
       department: serviceName,
       job_title: positionName,
-      monthly_salary: body.monthly_salary !== undefined ? Number(body.monthly_salary ?? 0) : undefined,
+      monthly_salary: body.monthly_salary !== undefined ? this.normalizeCompensationAmount(body.monthly_salary, 'Salaire de base') : undefined,
+      transport_allowance: body.transport_allowance !== undefined ? this.normalizeCompensationAmount(body.transport_allowance, 'Transport') : undefined,
+      other_expenses: body.other_expenses !== undefined ? this.normalizeCompensationAmount(body.other_expenses, 'Autres dépenses') : undefined,
     };
     return this.updateById('employees', id, payload, [
       'employee_number', 'first_name', 'last_name', 'post_name', 'gender', 'birth_date', 'nationality', 'marital_status',
       'phone', 'secondary_phone', 'email', 'address', 'service_id', 'position_id', 'job_title', 'department', 'hire_date', 'contract_type',
-      'assigned_site', 'manager_name', 'status', 'monthly_salary', 'payment_method', 'bank_name', 'account_number',
+      'assigned_site', 'manager_name', 'status', 'monthly_salary', 'transport_allowance', 'other_expenses', 'payment_method', 'bank_name', 'account_number',
       'mobile_money_number', 'id_document_type', 'id_document_number', 'identity_attachment_name', 'cv_attachment_name',
       'signed_contract_attachment_name', 'emergency_contact_name', 'emergency_contact_phone', 'internal_notes',
     ]);
@@ -2178,6 +2197,8 @@ export class SaasService {
       const attendance = await client.query(
         `SELECT ema.*,
                 e.monthly_salary,
+                e.transport_allowance,
+                e.other_expenses,
                 e.employee_number,
                 e.department,
                 e.job_title,
@@ -2211,7 +2232,10 @@ export class SaasService {
           continue;
         }
 
-        const gross = Number(entry.monthly_salary ?? 0);
+        const baseSalary = Number(entry.monthly_salary ?? 0);
+        const transportAllowance = Number(entry.transport_allowance ?? 0);
+        const otherExpenses = Number(entry.other_expenses ?? 0);
+        const gross = baseSalary + transportAllowance + otherExpenses;
         if (Number(entry.working_days ?? 0) <= 0) {
           throw new BadRequestException(`Jours ouvrables invalides pour ${entry.employee_name}.`);
         }
@@ -2233,14 +2257,18 @@ export class SaasService {
         const { rows } = await client.query(
           `INSERT INTO payrolls (
              employee_id, employee_monthly_attendance_id, month, year,
-             gross_salary, daily_salary, working_days, present_days, paid_leave_days, sick_days,
+             gross_salary, base_salary, transport_allowance, other_expenses,
+             daily_salary, working_days, present_days, paid_leave_days, sick_days,
              unjustified_absence_days, late_count, overtime_hours, advances_total, deductions_total,
              absence_deduction, bonus_amount, net_salary, status, organization_id
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
            ON CONFLICT (organization_id, employee_id, year, month) WHERE deleted_at IS NULL
            DO UPDATE SET employee_monthly_attendance_id = EXCLUDED.employee_monthly_attendance_id,
                          gross_salary = EXCLUDED.gross_salary,
+                         base_salary = EXCLUDED.base_salary,
+                         transport_allowance = EXCLUDED.transport_allowance,
+                         other_expenses = EXCLUDED.other_expenses,
                          daily_salary = EXCLUDED.daily_salary,
                          working_days = EXCLUDED.working_days,
                          present_days = EXCLUDED.present_days,
@@ -2263,6 +2291,9 @@ export class SaasService {
             month,
             year,
             gross,
+            baseSalary,
+            transportAllowance,
+            otherExpenses,
             metrics.dailySalary,
             entry.working_days,
             entry.present_days,
@@ -4556,7 +4587,7 @@ export class SaasService {
               e.department,
               e.job_title,
               e.employee_number,
-              e.monthly_salary
+              (e.monthly_salary + e.transport_allowance + e.other_expenses)::NUMERIC(12,2) AS monthly_salary
        FROM employee_monthly_attendance ema
        JOIN employees e ON e.id = ema.employee_id
        WHERE ema.organization_id = $1 AND ema.deleted_at IS NULL
@@ -4580,6 +4611,8 @@ export class SaasService {
               e.department,
               e.job_title,
               e.monthly_salary,
+              e.transport_allowance,
+              e.other_expenses,
               COALESCE(ema.id, 0) AS attendance_id,
               ema.status,
               ema.working_days,
@@ -4627,7 +4660,7 @@ export class SaasService {
         ? Number(row.present_days)
         : Math.max(effectiveWorkingDays - paidLeaveDays - sickDays - unjustifiedAbsenceDays, 0);
       const metrics = this.calculateMonthlyAttendanceMetrics(
-        Number(row.monthly_salary ?? 0),
+        this.employeeCompensationTotal(row),
         effectiveWorkingDays,
         unjustifiedAbsenceDays,
         Number(row.advances_total ?? 0),
@@ -4638,7 +4671,7 @@ export class SaasService {
         employee_name: row.employee_name,
         department: row.department,
         job_title: row.job_title,
-        monthly_salary: Number(row.monthly_salary ?? 0),
+        monthly_salary: this.employeeCompensationTotal(row),
         month: normalizedMonth,
         year: normalizedYear,
         attendance_id: Number(row.attendance_id || 0) || null,
