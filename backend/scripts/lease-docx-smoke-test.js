@@ -6,7 +6,10 @@ const {
   buildLeaseContractPdfBase64,
   ensureLeaseArticle2RateSentence,
   formatDateInTimeZone,
+  renderLeaseContractTemplate,
 } = require('../dist/leases/lease-contracts.js');
+const { DocumentRendererService } = require('../dist/documents/document-renderer.service.js');
+const { DocumentTemplateService } = require('../dist/documents/document-template.service.js');
 
 const sourcePath = path.resolve(__dirname, '..', 'templates', 'leases', 'LEASE_RESIDENTIAL_SOURCE.docx');
 const templatePath = path.resolve(__dirname, '..', 'templates', 'leases', 'LEASE_RESIDENTIAL.docx');
@@ -179,6 +182,77 @@ function run() {
     SIGNATURE_DATE: '12/07/2026',
     GENERATED_AT: '2026-07-12T10:00:00.000Z',
   };
+
+  const buildingWideVariables = {
+    ...variables,
+    PROPERTY_SCOPE: 'BUILDING',
+    PROPERTY_NATURE: 'Immeuble entier',
+    PROPERTY_COMPOSITION: 'Ensemble des 7 unités physiques, parties communes et dépendances',
+    PROPERTY_LEASE_DESCRIPTION: 'Le Bailleur donne à bail au Preneur, qui accepte, l’intégralité de l’immeuble dénommé « HOPE TOWER », situé à Avenue du Port, Gombe, Kinshasa.',
+    PROPERTY_VISIT_ACKNOWLEDGEMENT: 'Le Preneur reconnaît avoir visité l’immeuble loué, ses unités, parties communes et dépendances, et les connaître parfaitement.',
+    BUILDING_UNIT_COUNT: '7',
+    UNIT_NUMBER: 'IMMEUBLE ENTIER',
+  };
+  const legacyBuildingTemplate = [
+    'PRÉCISIONS SUR LE BIEN LOUÉ',
+    'Type | {{UNIT_FURNISHING}}',
+    'Appartement / unité | {{UNIT_NUMBER}}',
+    'Immeuble | {{BUILDING_NAME}}',
+    'Nombre de chambres | {{BEDROOM_COUNT}}',
+    'Nombre de parkings | {{PARKING_COUNT}}',
+    '',
+    'ARTICLE 01 - DESCRIPTION DES LIEUX',
+    "Le Bailleur donne à bail au Preneur, qui accepte, l'appartement {{UNIT_NUMBER}}, situé dans l'immeuble {{BUILDING_NAME}}, à l'adresse suivante : {{BUILDING_ADDRESS}}.",
+    "Le Preneur reconnaît avoir visité les lieux loués et les connaître parfaitement.",
+    'Pour un appartement de {{BEDROOM_COUNT}} chambre(s), l’occupation autorisée doit rester conforme aux capacités du logement.',
+  ].join('\n');
+  const buildingWideLegacyRendered = renderLeaseContractTemplate(legacyBuildingTemplate, buildingWideVariables);
+  assertTerms('BUILDING DOCX', buildingWideLegacyRendered, ['Nature du bien | Immeuble entier', 'Nombre d’unités | 7', 'l’intégralité de l’immeuble', 'parties communes et dépendances'], true);
+  assertTerms('BUILDING DOCX', buildingWideLegacyRendered, ['IMMEUBLE ENTIER', 'Appartement / unité', 'Nombre de chambres', 'Nombre de parkings', 'Pour un appartement'], false);
+  const unitLegacyRendered = renderLeaseContractTemplate(legacyBuildingTemplate, variables);
+  assertTerms('UNIT DOCX REGRESSION', unitLegacyRendered, ['Appartement / unité | 1-03', 'Nombre de chambres | 2', "l'appartement 1-03"], true);
+
+  const renderer = new DocumentRendererService();
+  const templateService = new DocumentTemplateService();
+  const basePdfSnapshot = {
+    ...variables,
+    bailleur: { raison_sociale: 'Société immobilière de gestion' },
+    locataire: { type: 'PERSONNE_PHYSIQUE', nom_complet: 'Locataire Test' },
+    bail: {
+      type_contrat: 'RESIDENTIAL', usage_label: 'Résidentiel', date_debut: '12/07/2026', date_fin: '11/07/2027',
+      duree_texte: '12 mois', loyer_base: '1300', frais_entretien: '700', frais_syndic: '150', autres_charges: '0',
+      garantie_nombre_mois: '3', devise: 'USD',
+    },
+  };
+  const buildingWideHtml = templateService.renderLeaseTemplate(renderer.buildLeaseRenderContext({
+    ...basePdfSnapshot,
+    bien: {
+      scope: 'BUILDING', nature_label: 'Immeuble entier', immeuble: 'HOPE TOWER', adresse_complete: 'Avenue du Port, Gombe, Kinshasa',
+      nombre_unites: '7', composition_label: 'Ensemble des 7 unités physiques, parties communes et dépendances', usage: 'Résidentiel',
+    },
+  })).html;
+  assertTerms('BUILDING PDF', buildingWideHtml, ['Nature du bien', 'Immeuble entier', 'Nombre d’unités', 'l’intégralité de l’immeuble', 'ses unités, parties communes et dépendances'], true);
+  assertTerms('BUILDING PDF', buildingWideHtml, ['Appartement / unité', 'Nombre de chambres', 'Non meublé', 'IMMEUBLE ENTIER', 'Pour un appartement de 0'], false);
+  ['RESIDENTIAL', 'COMMERCIAL', 'PROFESSIONAL', 'MIXED'].forEach((usage) => {
+    const html = templateService.renderLeaseTemplate(renderer.buildLeaseRenderContext({
+      ...basePdfSnapshot,
+      bail: { ...basePdfSnapshot.bail, type_contrat: usage, usage_label: usage, activite_destination: 'Gestion immobilière' },
+      bien: {
+        scope: 'BUILDING', nature_label: 'Immeuble entier', immeuble: 'HOPE TOWER', adresse_complete: 'Avenue du Port, Gombe, Kinshasa',
+        nombre_unites: '7', composition_label: 'Ensemble des 7 unités physiques, parties communes et dépendances', usage,
+      },
+    })).html;
+    assertTerms(`BUILDING PDF ${usage}`, html, ['Nature du bien', 'Immeuble entier', 'l’intégralité de l’immeuble'], true);
+    assertTerms(`BUILDING PDF ${usage}`, html, ['IMMEUBLE ENTIER', 'Appartement / unité', "l'unité IMMEUBLE ENTIER"], false);
+  });
+  const unitHtml = templateService.renderLeaseTemplate(renderer.buildLeaseRenderContext({
+    ...basePdfSnapshot,
+    bien: {
+      scope: 'UNIT', numero_unite: '1-03', immeuble: 'HOPE TOWER', adresse_complete: 'Avenue du Port, Gombe, Kinshasa',
+      nombre_chambres: '2', nombre_parkings: '1', meuble_label: 'Non meublé', usage: 'Résidentiel',
+    },
+  })).html;
+  assertTerms('UNIT PDF REGRESSION', unitHtml, ['Appartement / unité', '1-03', 'Nombre de chambres', 'Pour un appartement de 2 chambre(s)'], true);
   const buffer = buildLeaseContractDocxBuffer(variables, renderedContent);
 
   fs.writeFileSync(outputPath, buffer);
@@ -226,6 +300,8 @@ function run() {
   console.log(`TIMEZONE KINSHASA OK: ${timezoneDate}`);
   console.log(`TIMEZONE DOCX OK: Fait à Kinshasa, le ${timezoneDate}.`);
   console.log(`TIMEZONE PDF OK: ${timezonePdfBuffer.byteLength} bytes`);
+  console.log('WHOLE BUILDING PDF/DOCX OK: 1');
+  console.log('UNIT CONTRACT REGRESSION OK: 1');
   console.log('Occurrences mojibake -> 0');
 }
 

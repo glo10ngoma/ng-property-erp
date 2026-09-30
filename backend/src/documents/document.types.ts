@@ -37,11 +37,15 @@ export type LeaseDocumentRenderContext = {
     identityNumber: string;
   };
   property: {
+    scope: 'UNIT' | 'BUILDING';
+    natureLabel: string;
     type: string;
     unitLabel: string;
     buildingName: string;
     address: string;
     city: string;
+    unitCount: string;
+    compositionLabel: string;
     bedrooms: string;
     parkingSpaces: string;
     furnishedLabel: string;

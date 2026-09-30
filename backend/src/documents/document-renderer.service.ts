@@ -11,6 +11,9 @@ export class DocumentRendererService {
     const totalMonthly = baseRent + maintenanceFee + syndicFee + otherCharges;
     const guaranteeBaseAmount = baseRent + maintenanceFee;
     const guaranteeAmount = guaranteeBaseAmount * guaranteeMonths;
+    const propertyScope = String(snapshot?.bien?.scope ?? snapshot.PROPERTY_SCOPE).toUpperCase() === 'BUILDING'
+      ? 'BUILDING'
+      : 'UNIT';
     return {
       contract: {
         number: text(snapshot.LEASE_REFERENCE),
@@ -52,11 +55,15 @@ export class DocumentRendererService {
         identityNumber: text(snapshot?.locataire?.numero_piece_identite ?? snapshot.TENANT_ID),
       },
       property: {
+        scope: propertyScope,
+        natureLabel: text(snapshot?.bien?.nature_label ?? snapshot.PROPERTY_NATURE, propertyScope === 'BUILDING' ? 'Immeuble entier' : 'Unité / appartement'),
         type: text(snapshot?.bien?.usage ?? snapshot?.bail?.usage_label, this.labelForUsage(usage)),
         unitLabel: text(snapshot?.bien?.numero_unite ?? snapshot.UNIT_NUMBER),
         buildingName: text(snapshot?.bien?.immeuble ?? snapshot.BUILDING_NAME),
         address: text(snapshot?.bien?.adresse_complete ?? snapshot.BUILDING_ADDRESS),
         city: text(snapshot?.bien?.ville ?? snapshot.BUILDING_CITY),
+        unitCount: text(snapshot?.bien?.nombre_unites ?? snapshot.BUILDING_UNIT_COUNT, '0'),
+        compositionLabel: text(snapshot?.bien?.composition_label ?? snapshot.PROPERTY_COMPOSITION),
         bedrooms: text(snapshot?.bien?.nombre_chambres ?? snapshot.BEDROOM_COUNT, '0'),
         parkingSpaces: text(snapshot?.bien?.nombre_parkings ?? snapshot.PARKING_COUNT, '0'),
         furnishedLabel: text(snapshot?.bien?.meuble_label ?? snapshot.UNIT_FURNISHING),

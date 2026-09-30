@@ -47,7 +47,10 @@ export class DocumentTemplateService {
     const css = this.readTemplate(root, 'common/common.css');
     const signature = this.readTemplate(root, 'common/signature.html');
     const values = this.variables(context);
-    const propertyDetails = this.render(this.readTemplate(root, 'common/property-details.html'), values);
+    const propertyDetailsTemplate = context.property.scope === 'BUILDING'
+      ? 'common/property-details-building.html'
+      : 'common/property-details.html';
+    const propertyDetails = this.render(this.readTemplate(root, propertyDetailsTemplate), values);
     const body = this.render(this.readTemplate(root, TEMPLATE_FILE_BY_USAGE[usage]), {
       ...values,
       propertyDetails,
@@ -63,7 +66,7 @@ export class DocumentTemplateService {
       'common/base.html',
       'common/common.css',
       'common/signature.html',
-      'common/property-details.html',
+      propertyDetailsTemplate,
       TEMPLATE_FILE_BY_USAGE[usage],
     ].map((name) => `${name}:${this.fileHash(path.join(root, name))}`).join('|');
     return {
@@ -158,6 +161,12 @@ export class DocumentTemplateService {
       propertyCity: context.property.city,
       bedrooms: context.property.bedrooms,
       parkingSpaces: context.property.parkingSpaces,
+      propertyNature: context.property.natureLabel,
+      buildingUnitCount: context.property.unitCount,
+      propertyComposition: context.property.compositionLabel,
+      propertyLeaseDescription: propertyLeaseDescription(context),
+      propertyVisitAcknowledgement: propertyVisitAcknowledgement(context),
+      occupancyClause: occupancyClause(context),
       startDate: context.lease.startDate,
       endDate: context.lease.endDate,
       durationText: context.lease.durationText,
@@ -178,6 +187,28 @@ export class DocumentTemplateService {
       signature: '',
     };
   }
+}
+
+function propertyLeaseDescription(context: LeaseDocumentRenderContext) {
+  if (context.property.scope === 'BUILDING') {
+    return `Le Bailleur donne à bail au Preneur, qui accepte, l’intégralité de l’immeuble dénommé « ${context.property.buildingName} », situé à ${context.property.address}, comprenant l’ensemble de ses unités privatives, parties communes, dépendances et équipements expressément inclus dans le présent bail.`;
+  }
+  const propertyKind = context.lease.usage === 'RESIDENTIAL' ? 'appartement' : 'unité';
+  return `Le Bailleur donne à bail au Preneur, qui accepte, l’${propertyKind} ${context.property.unitLabel}, situé${propertyKind === 'unité' ? 'e' : ''} dans l’immeuble ${context.property.buildingName}, à l’adresse suivante : ${context.property.address}.`;
+}
+
+function propertyVisitAcknowledgement(context: LeaseDocumentRenderContext) {
+  if (context.property.scope === 'BUILDING') {
+    return 'Le Preneur reconnaît avoir visité l’immeuble loué, ses unités, parties communes et dépendances, et les connaître parfaitement.';
+  }
+  return "Le Preneur reconnaît avoir visité les lieux loués et les connaître parfaitement, sans qu’il soit nécessaire d’en faire une description plus détaillée.";
+}
+
+function occupancyClause(context: LeaseDocumentRenderContext) {
+  if (context.property.scope === 'BUILDING') {
+    return "L’occupation et l’utilisation de l’immeuble doivent rester conformes à sa destination, aux capacités des lieux et aux conditions convenues entre les Parties.";
+  }
+  return `Pour un appartement de ${context.property.bedrooms} chambre(s), l’occupation autorisée doit rester conforme aux conditions convenues entre les Parties et aux capacités du logement.`;
 }
 
 function observationsSection(value: string) {

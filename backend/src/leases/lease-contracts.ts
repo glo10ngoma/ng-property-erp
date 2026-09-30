@@ -192,9 +192,46 @@ function parseContractBlocks(content: string): ContractBlock[] {
 
 export function renderLeaseContractTemplate(template: string, variables: Record<string, unknown>) {
   const flattened = flattenVariables(variables);
-  return normalizeWhitespace(
+  const rendered = normalizeWhitespace(
     ensureLeaseArticle2RateSentence(template).replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, rawKey: string) => flattened[rawKey.trim()] ?? ''),
   );
+  return flattened.PROPERTY_SCOPE === 'BUILDING'
+    ? normalizeBuildingWideContractContent(rendered, flattened)
+    : rendered;
+}
+
+function normalizeBuildingWideContractContent(content: string, variables: Record<string, string>) {
+  const description = variables.PROPERTY_LEASE_DESCRIPTION;
+  const acknowledgement = variables.PROPERTY_VISIT_ACKNOWLEDGEMENT;
+  const composition = variables.PROPERTY_COMPOSITION;
+  const buildingName = variables.BUILDING_NAME;
+  const buildingAddress = [
+    variables.BUILDING_ADDRESS,
+    variables.BUILDING_COMMUNE,
+    variables.BUILDING_NEIGHBORHOOD,
+    variables.BUILDING_CITY,
+  ].filter(Boolean).join(', ');
+  const unitCount = variables.BUILDING_UNIT_COUNT || '0';
+  const lines = content.split('\n').flatMap((line) => {
+    const trimmed = line.trim();
+    if (/^(?:Type|Nature du bien)\s*\|/i.test(trimmed)) return ['Nature du bien | Immeuble entier'];
+    if (/^(?:Appartement\s*\/\s*unité|Unité|Nombre de chambres|Nombre de parkings)\s*\|/i.test(trimmed)) return [];
+    if (/^Immeuble\s*\|/i.test(trimmed)) {
+      return [
+        `Immeuble | ${buildingName}`,
+        `Adresse | ${buildingAddress}`,
+        `Composition | ${composition}`,
+        `Nombre d’unités | ${unitCount}`,
+      ];
+    }
+    if (/Le Bailleur donne à bail[\s\S]*(?:appartement|unité).*IMMEUBLE ENTIER/i.test(trimmed)) return [description];
+    if (/Le Preneur (?:reconnaît|connaît) avoir visité/i.test(trimmed)) return [acknowledgement];
+    if (/Pour (?:occuper )?(?:un|l['’])\s*\(?1?\)?\s*appartement/i.test(trimmed)) {
+      return ["L’occupation et l’utilisation de l’immeuble doivent rester conformes à sa destination, aux capacités des lieux et aux conditions convenues entre les Parties."];
+    }
+    return [line];
+  });
+  return normalizeWhitespace(lines.join('\n'));
 }
 
 export function ensureLeaseArticle2RateSentence(template: string) {
