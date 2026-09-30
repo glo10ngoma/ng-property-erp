@@ -37,6 +37,7 @@ type Unit = {
   electricity_meter_number?: string;
   description?: string;
   observations?: string;
+  is_building_wide?: boolean;
 };
 
 type Building = { id: number; name: string };
@@ -79,13 +80,14 @@ export function Units() {
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState({ building_id: '', type: '', status: '', availability: '', rent_range: '' });
   const [success, setSuccess] = useState('');
+  const physicalUnits = useMemo(() => data.filter((unit) => !unit.is_building_wide), [data]);
 
   const buildingOptions = useMemo(() => {
-    const merged = [...buildings.data, ...data.map((unit) => ({ id: unit.building_id, name: unit.building_name }))];
+    const merged = [...buildings.data, ...physicalUnits.map((unit) => ({ id: unit.building_id, name: unit.building_name }))];
     return Array.from(new Map(merged.map((building) => [building.id, building])).values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [buildings.data, data]);
+  }, [buildings.data, physicalUnits]);
 
-  const filtered = data
+  const filtered = physicalUnits
     .filter((unit) => includesText(unit, query))
     .filter((unit) => !filters.building_id || Number(unit.building_id) === Number(filters.building_id))
     .filter((unit) => !filters.type || unit.type === filters.type)
@@ -93,10 +95,10 @@ export function Units() {
     .filter((unit) => !filters.availability || unit.status === filters.availability)
     .filter((unit) => matchesRentRange(unit, filters.rent_range));
 
-  const occupied = data.filter((unit) => unit.status === 'OCCUPIED').length;
-  const vacant = data.filter((unit) => unit.status === 'VACANT').length;
-  const occupancyRate = data.length ? Math.round((occupied / data.length) * 100) : 0;
-  const averageRent = useMemo(() => data.length ? data.reduce((sum, unit) => sum + displayRentAmount(unit), 0) / data.length : 0, [data]);
+  const occupied = physicalUnits.filter((unit) => unit.status === 'OCCUPIED').length;
+  const vacant = physicalUnits.filter((unit) => unit.status === 'VACANT').length;
+  const occupancyRate = physicalUnits.length ? Math.round((occupied / physicalUnits.length) * 100) : 0;
+  const averageRent = useMemo(() => physicalUnits.length ? physicalUnits.reduce((sum, unit) => sum + displayRentAmount(unit), 0) / physicalUnits.length : 0, [physicalUnits]);
 
   async function save(form: FormData) {
     const buildingId = Number(form.get('building_id'));
@@ -135,7 +137,7 @@ export function Units() {
       const end = String(form.get('range_end') ?? '').trim();
       const generated = generateUnitNumbers(start, end);
       if (!generated.length) throw new Error('La plage de numeros est invalide.');
-      const existing = new Set(data.filter((unit) => Number(unit.building_id) === buildingId).map((unit) => unit.number.toLowerCase()));
+      const existing = new Set(physicalUnits.filter((unit) => Number(unit.building_id) === buildingId).map((unit) => unit.number.toLowerCase()));
       const duplicates = generated.filter((value) => existing.has(value.toLowerCase()));
       if (duplicates.length) throw new Error(`Numeros deja existants : ${duplicates.join(', ')}`);
       for (const number of generated) {
@@ -172,7 +174,7 @@ export function Units() {
       <PageHeader title="Appartements" action={can('units.create') ? <button onClick={() => setEditing({})}><Plus size={16} />Nouvel appartement</button> : undefined} />
       <SuccessMessage message={success} />
       <div className="mini-stats">
-        <div className="mini-stat"><span>Total</span><strong>{data.length}</strong></div>
+        <div className="mini-stat"><span>Total</span><strong>{physicalUnits.length}</strong></div>
         <div className="mini-stat"><span>Occupes</span><strong>{occupied}</strong></div>
         <div className="mini-stat"><span>Libres</span><strong>{vacant}</strong></div>
         <div className="mini-stat"><span>Taux d'occupation</span><strong>{occupancyRate}%</strong></div>

@@ -17,6 +17,7 @@ type Unit = {
   monthly_syndic_amount?: number;
   status: string;
   usage_type?: string;
+  is_building_wide?: boolean;
 };
 type Tenant = {
   id: number;
@@ -54,6 +55,7 @@ export function LeaseNew() {
 
   const [buildingId, setBuildingId] = useState('');
   const [unitId, setUnitId] = useState('');
+  const [leaseScope, setLeaseScope] = useState<'UNIT' | 'BUILDING'>('UNIT');
   const [tenantId, setTenantId] = useState<number | null>(null);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -75,7 +77,7 @@ export function LeaseNew() {
   const [submitting, setSubmitting] = useState(false);
 
   const availableUnits = useMemo(
-    () => units.data.filter((unit) => !buildingId || Number(unit.building_id) === Number(buildingId)),
+    () => units.data.filter((unit) => !unit.is_building_wide && (!buildingId || Number(unit.building_id) === Number(buildingId))),
     [units.data, buildingId],
   );
   const selectedUnit = availableUnits.find((unit) => Number(unit.id) === Number(unitId));
@@ -188,7 +190,8 @@ export function LeaseNew() {
     const activityDescriptionValue = requiresActivity ? leaseActivityDescription.trim() : '';
 
     if (!tenantValue) return setError('Selectionnez un locataire avant de creer le bail.');
-    if (!unitValue) return setError('Selectionnez une unite avant de creer le bail.');
+    if (!buildingId) return setError('Selectionnez un immeuble avant de creer le bail.');
+    if (leaseScope === 'UNIT' && !unitValue) return setError('Selectionnez une unite avant de creer le bail.');
     if (!startValue) return setError('Selectionnez une date de debut.');
     if (requiresActivity && !activityDescriptionValue) {
       return setError('Renseignez l activite ou la destination des lieux.');
@@ -196,7 +199,9 @@ export function LeaseNew() {
 
     const payload = {
       tenant_id: tenantValue,
-      unit_id: unitValue,
+      unit_id: leaseScope === 'UNIT' ? unitValue : null,
+      building_id: Number(buildingId),
+      lease_scope: leaseScope,
       start_date: startValue,
       end_date: form.get('end_date') || null,
       monthly_rent: rent,
@@ -245,8 +250,23 @@ export function LeaseNew() {
         <div className="detail-section report-section">
           <h4>Parties concernees</h4>
           <div className="lease-section-grid">
+            <label className="lease-field-wide">Type de location
+              <select value={leaseScope} onChange={(event) => {
+                const scope = event.target.value === 'BUILDING' ? 'BUILDING' : 'UNIT';
+                setLeaseScope(scope);
+                if (scope === 'BUILDING') setUnitId('');
+              }}>
+                <option value="UNIT">Une unite / un appartement</option>
+                <option value="BUILDING">Immeuble entier</option>
+              </select>
+              <small>Un bail « immeuble entier » bloque automatiquement toutes les unites pendant la periode du contrat.</small>
+            </label>
             <label className="lease-field-wide">Immeuble<SearchableSelect options={buildingOptions} value={buildingId ? Number(buildingId) : null} onChange={(value) => { setBuildingId(value ? String(value) : ''); setUnitId(''); }} placeholder="Rechercher un immeuble" emptyMessage="Aucun immeuble trouve" /></label>
-            <label className="lease-field-wide">Unite / Appartement<SearchableSelect options={unitOptions} value={unitId ? Number(unitId) : null} onChange={(value) => setUnitId(value ? String(value) : '')} placeholder="Selectionner un appartement" emptyMessage="Aucune unite trouvee" /><input name="unit_id" value={unitId || ''} readOnly type="hidden" /></label>
+            {leaseScope === 'UNIT' ? (
+              <label className="lease-field-wide">Unite / Appartement<SearchableSelect options={unitOptions} value={unitId ? Number(unitId) : null} onChange={(value) => setUnitId(value ? String(value) : '')} placeholder="Selectionner un appartement" emptyMessage="Aucune unite trouvee" /><input name="unit_id" value={unitId || ''} readOnly type="hidden" /></label>
+            ) : (
+              <div className="lease-field-wide info-banner">Le contrat et la facturation porteront sur l’ensemble de l’immeuble sélectionné.</div>
+            )}
             <label className="lease-field-wide">Locataire<TenantSearchSelect tenants={tenantOptions} value={tenantId} onChange={setTenantId} required /></label>
             <input name="tenant_id" value={tenantId ?? ''} readOnly type="hidden" />
           </div>

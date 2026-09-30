@@ -17,7 +17,7 @@ export class DashboardService {
       SELECT
         (SELECT COUNT(*)::INT FROM buildings WHERE organization_id = $1 AND deleted_at IS NULL AND ($2::INT IS NULL OR id = $2) AND ($3::TEXT IS NULL OR city = $3)) AS buildings,
         (SELECT COUNT(*)::INT FROM tenants WHERE organization_id = $1 AND deleted_at IS NULL AND status = 'ACTIVE') AS tenants,
-        (SELECT COUNT(*)::INT FROM units u JOIN buildings b ON b.id = u.building_id WHERE u.organization_id = $1 AND u.deleted_at IS NULL AND ($2::INT IS NULL OR b.id = $2) AND ($3::TEXT IS NULL OR b.city = $3)) AS units,
+        (SELECT COUNT(*)::INT FROM units u JOIN buildings b ON b.id = u.building_id WHERE u.organization_id = $1 AND u.deleted_at IS NULL AND COALESCE(u.is_building_wide, FALSE) = FALSE AND ($2::INT IS NULL OR b.id = $2) AND ($3::TEXT IS NULL OR b.city = $3)) AS units,
         (SELECT COUNT(*)::INT FROM invoices i LEFT JOIN buildings b ON b.id = i.building_id WHERE i.organization_id = $1 AND i.deleted_at IS NULL AND ($2::INT IS NULL OR b.id = $2) AND ($3::TEXT IS NULL OR b.city = $3)) AS invoices,
         (SELECT COUNT(*)::INT FROM payments WHERE organization_id = $1 AND deleted_at IS NULL) AS payments,
         (SELECT COALESCE(SUM(total), 0)::FLOAT FROM invoices i LEFT JOIN buildings b ON b.id = i.building_id WHERE i.organization_id = $1 AND i.deleted_at IS NULL AND ($2::INT IS NULL OR b.id = $2) AND ($3::TEXT IS NULL OR b.city = $3)) AS total_invoiced,
@@ -80,6 +80,7 @@ export class DashboardService {
          LEFT JOIN buildings b ON b.id = u.building_id
          WHERE u.organization_id = $1
            AND u.deleted_at IS NULL
+           AND COALESCE(u.is_building_wide, FALSE) = FALSE
            AND u.status IN ('VACANT', 'AVAILABLE')
            AND ($2::INT IS NULL OR b.id = $2)
            AND ($3::TEXT IS NULL OR b.city = $3)) AS vacant_units
@@ -89,7 +90,7 @@ export class DashboardService {
       SELECT b.id, b.name, b.city, COALESCE(SUM(i.total), 0)::FLOAT AS value,
              CASE WHEN COUNT(u.id) > 0 THEN ROUND((COUNT(*) FILTER (WHERE u.status = 'OCCUPIED')::NUMERIC / COUNT(u.id)::NUMERIC) * 100, 2)::FLOAT ELSE 0 END AS occupancy_rate
       FROM buildings b
-      LEFT JOIN units u ON u.building_id = b.id
+      LEFT JOIN units u ON u.building_id = b.id AND COALESCE(u.is_building_wide, FALSE) = FALSE
       LEFT JOIN tenants t ON t.unit_id = u.id
       LEFT JOIN invoices i ON i.tenant_id = t.id
       WHERE b.organization_id = $1 AND b.deleted_at IS NULL
@@ -101,7 +102,7 @@ export class DashboardService {
     const invoiceStatuses = await this.db.query(`
       SELECT status AS name, COUNT(*)::INT AS value
       FROM invoices
-      WHERE organization_id = $1 AND deleted_at IS NULL
+      WHERE organization_id = $1 AND deleted_at IS NULL AND COALESCE(is_building_wide, FALSE) = FALSE
       GROUP BY status
       ORDER BY status
     `, [organizationId]);
