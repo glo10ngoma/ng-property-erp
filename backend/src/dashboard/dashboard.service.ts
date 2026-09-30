@@ -102,14 +102,14 @@ export class DashboardService {
     const invoiceStatuses = await this.db.query(`
       SELECT status AS name, COUNT(*)::INT AS value
       FROM invoices
-      WHERE organization_id = $1 AND deleted_at IS NULL AND COALESCE(is_building_wide, FALSE) = FALSE
+      WHERE organization_id = $1 AND deleted_at IS NULL
       GROUP BY status
       ORDER BY status
     `, [organizationId]);
     const unitOccupancy = await this.db.query(`
       SELECT status AS name, COUNT(*)::INT AS value
       FROM units
-      WHERE organization_id = $1 AND deleted_at IS NULL
+      WHERE organization_id = $1 AND deleted_at IS NULL AND COALESCE(is_building_wide, FALSE) = FALSE
       GROUP BY status
       ORDER BY status
     `, [organizationId]);
