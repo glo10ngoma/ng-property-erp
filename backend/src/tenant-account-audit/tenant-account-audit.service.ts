@@ -159,7 +159,7 @@ export class TenantAccountAuditService {
        SELECT st.id AS tenant_id,
               st.tenant_name,
               COALESCE(ls.active_lease_count, 0)::INT AS active_lease_count,
-              COALESCE(ls.active_lease_refs, ARRAY[]::VARCHAR[]) AS active_lease_refs,
+              COALESCE(ls.active_lease_refs, ARRAY[]::TEXT[]) AS active_lease_refs,
               COALESCE(ls.monthly_count, 0)::INT AS monthly_count,
               COALESCE(ls.quarterly_count, 0)::INT AS quarterly_count,
               COALESCE(ls.other_frequency_count, 0)::INT AS other_frequency_count,
