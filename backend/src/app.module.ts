@@ -19,6 +19,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { SalesModule } from './sales/sales.module';
 import { SaasModule } from './saas/saas.module';
 import { TenantsModule } from './tenants/tenants.module';
+import { TenantAccountAuditModule } from './tenant-account-audit/tenant-account-audit.module';
 import { UnitsModule } from './units/units.module';
 
 @Module({
@@ -35,6 +36,7 @@ import { UnitsModule } from './units/units.module';
     BuildingsModule,
     UnitsModule,
     TenantsModule,
+    TenantAccountAuditModule,
     InvoicesModule,
     PaymentsModule,
     SalesModule,

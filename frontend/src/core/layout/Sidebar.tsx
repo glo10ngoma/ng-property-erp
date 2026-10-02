@@ -78,6 +78,7 @@ const navGroups: NavGroup[] = [
       { to: '/activity', label: "Centre d’activité", icon: Activity, permission: 'activity.read' },
       { to: '/dashboard', label: 'Dashboard BI', icon: Gauge, permission: 'dashboard.read' },
       { to: '/reports', label: 'Rapports', icon: FileText, permission: 'reports.read' },
+      { to: '/reports/tenant-accounts', label: 'Contrôle comptes', icon: ShieldCheck, permission: 'reports.read' },
     ],
   },
   {
@@ -383,9 +384,10 @@ function toggleOpenKey(label: string, setOpenKeys: Dispatch<SetStateAction<strin
 }
 
 function isEndRoute(route: string) {
-  return route === '/dashboard' || route === '/stock' || route === '/personnel/employees';
+  return route === '/dashboard' || route === '/reports' || route === '/stock' || route === '/personnel/employees';
 }
 
 function isRouteActive(pathname: string, route: string) {
+  if (route === '/reports') return pathname === route;
   return pathname === route || pathname.startsWith(`${route}/`);
 }
