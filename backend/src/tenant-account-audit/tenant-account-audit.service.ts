@@ -60,7 +60,7 @@ export class TenantAccountAuditService {
        lease_stats AS (
          SELECT tenant_id,
                 COUNT(*)::INT AS active_lease_count,
-                ARRAY_AGG(COALESCE(lease_number, CONCAT('B-', id)) ORDER BY start_date, id) AS active_lease_refs,
+                ARRAY_AGG(COALESCE(lease_number::TEXT, CONCAT('B-', id)) ORDER BY start_date, id) AS active_lease_refs,
                 COUNT(*) FILTER (WHERE billing_frequency_months = 1)::INT AS monthly_count,
                 COUNT(*) FILTER (WHERE billing_frequency_months = 3)::INT AS quarterly_count,
                 COUNT(*) FILTER (WHERE billing_frequency_months NOT IN (1, 3))::INT AS other_frequency_count,
