@@ -235,14 +235,16 @@ export class UnitsService {
 
   async create(dto: CreateUnitDto) {
     const organizationId = this.context.organizationId();
+    const parkingSpacesCount = dto.parking_spaces_count ?? (dto.has_parking ? 1 : 0);
+    const hasParking = parkingSpacesCount > 0;
     const { rows } = await this.db.query(
       `INSERT INTO units (
          building_id, number, floor, type, monthly_rent, monthly_syndic_amount, syndic_currency, status, organization_id,
-         surface_area, bedrooms_count, bathrooms_count, has_balcony, has_parking, is_furnished,
+         surface_area, bedrooms_count, bathrooms_count, has_balcony, has_parking, parking_spaces_count, is_furnished,
          has_air_conditioning, has_equipped_kitchen, has_internet, has_water_meter, water_meter_number,
          has_electricity_meter, electricity_meter_number, description, observations
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
        RETURNING *`,
       [
         dto.building_id,
@@ -258,7 +260,8 @@ export class UnitsService {
         dto.bedrooms_count ?? null,
         dto.bathrooms_count ?? null,
         Boolean(dto.has_balcony),
-        Boolean(dto.has_parking),
+        hasParking,
+        parkingSpacesCount,
         Boolean(dto.is_furnished),
         Boolean(dto.has_air_conditioning),
         Boolean(dto.has_equipped_kitchen),
@@ -276,6 +279,12 @@ export class UnitsService {
 
   async update(id: number, dto: UpdateUnitDto) {
     await this.findOne(id);
+    const parkingSpacesCount = dto.parking_spaces_count !== undefined
+      ? dto.parking_spaces_count
+      : dto.has_parking !== undefined
+        ? (dto.has_parking ? 1 : 0)
+        : undefined;
+    const hasParking = parkingSpacesCount !== undefined ? parkingSpacesCount > 0 : dto.has_parking;
     const { rows } = await this.db.query(
       `UPDATE units
        SET building_id = COALESCE($2, building_id),
@@ -291,17 +300,18 @@ export class UnitsService {
            bathrooms_count = COALESCE($12, bathrooms_count),
            has_balcony = COALESCE($13, has_balcony),
            has_parking = COALESCE($14, has_parking),
-           is_furnished = COALESCE($15, is_furnished),
-           has_air_conditioning = COALESCE($16, has_air_conditioning),
-           has_equipped_kitchen = COALESCE($17, has_equipped_kitchen),
-           has_internet = COALESCE($18, has_internet),
-           has_water_meter = COALESCE($19, has_water_meter),
-           water_meter_number = COALESCE($20, water_meter_number),
-           has_electricity_meter = COALESCE($21, has_electricity_meter),
-           electricity_meter_number = COALESCE($22, electricity_meter_number),
-           description = COALESCE($23, description),
-           observations = COALESCE($24, observations)
-       WHERE id = $1 AND organization_id = $25 AND deleted_at IS NULL RETURNING *`,
+           parking_spaces_count = COALESCE($15, parking_spaces_count),
+           is_furnished = COALESCE($16, is_furnished),
+           has_air_conditioning = COALESCE($17, has_air_conditioning),
+           has_equipped_kitchen = COALESCE($18, has_equipped_kitchen),
+           has_internet = COALESCE($19, has_internet),
+           has_water_meter = COALESCE($20, has_water_meter),
+           water_meter_number = COALESCE($21, water_meter_number),
+           has_electricity_meter = COALESCE($22, has_electricity_meter),
+           electricity_meter_number = COALESCE($23, electricity_meter_number),
+           description = COALESCE($24, description),
+           observations = COALESCE($25, observations)
+       WHERE id = $1 AND organization_id = $26 AND deleted_at IS NULL RETURNING *`,
       [
         id,
         dto.building_id,
@@ -316,7 +326,8 @@ export class UnitsService {
         dto.bedrooms_count,
         dto.bathrooms_count,
         dto.has_balcony,
-        dto.has_parking,
+        hasParking,
+        parkingSpacesCount,
         dto.is_furnished,
         dto.has_air_conditioning,
         dto.has_equipped_kitchen,

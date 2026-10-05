@@ -27,6 +27,7 @@ type Unit = {
   bathrooms_count?: number;
   has_balcony?: boolean;
   has_parking?: boolean;
+  parking_spaces_count?: number;
   is_furnished?: boolean;
   has_air_conditioning?: boolean;
   has_equipped_kitchen?: boolean;
@@ -103,6 +104,9 @@ export function Units() {
   async function save(form: FormData) {
     const buildingId = Number(form.get('building_id'));
     const createMultiple = form.get('create_multiple') === 'on';
+    const requestedParkingCount = optionalNumber(form.get('parking_spaces_count')) ?? 0;
+    const hasParking = form.has('has_parking') || requestedParkingCount > 0;
+    const parkingSpacesCount = hasParking ? Math.max(1, requestedParkingCount) : 0;
     const payload = {
       building_id: buildingId,
       number: String(form.get('number') ?? ''),
@@ -116,7 +120,8 @@ export function Units() {
       bedrooms_count: optionalNumber(form.get('bedrooms_count')),
       bathrooms_count: optionalNumber(form.get('bathrooms_count')),
       has_balcony: form.has('has_balcony'),
-      has_parking: form.has('has_parking'),
+      has_parking: hasParking,
+      parking_spaces_count: parkingSpacesCount,
       is_furnished: form.has('is_furnished'),
       has_air_conditioning: form.has('has_air_conditioning'),
       has_equipped_kitchen: form.has('has_equipped_kitchen'),
@@ -260,6 +265,7 @@ function UnitForm({ editing, buildings, onSubmit }: { editing: Partial<Unit>; bu
       <label>Syndic<input name="monthly_syndic_amount" type="number" min="0" step="0.01" defaultValue={editing.monthly_syndic_amount ?? 0} /></label>
       <label>Devise<input className="locked-field" value="USD" readOnly /></label>
       <label>Nombre de salles de bain<input name="bathrooms_count" type="number" min="0" defaultValue={editing.bathrooms_count ?? ''} /></label>
+      <label>Nombre de places de parking<input name="parking_spaces_count" type="number" min="0" step="1" defaultValue={editing.parking_spaces_count ?? (editing.has_parking ? 1 : 0)} /></label>
       <label>Statut<select name="status" defaultValue={editing.status ?? 'VACANT'}>{UNIT_STATUSES.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label>
       <div className="form-field-full unit-options">
         {[

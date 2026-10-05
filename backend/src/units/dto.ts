@@ -51,6 +51,11 @@ export class CreateUnitDto {
   has_parking?: boolean;
 
   @IsOptional()
+  @IsInt()
+  @Min(0)
+  parking_spaces_count?: number;
+
+  @IsOptional()
   is_furnished?: boolean;
 
   @IsOptional()

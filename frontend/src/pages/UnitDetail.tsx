@@ -37,6 +37,7 @@ type UnitDetailData = {
   bathrooms_count?: number;
   has_balcony?: boolean;
   has_parking?: boolean;
+  parking_spaces_count?: number;
   is_furnished?: boolean;
   has_air_conditioning?: boolean;
   has_equipped_kitchen?: boolean;
@@ -119,7 +120,7 @@ export function UnitDetail() {
         <div className="summary-band">
           <SummaryItem label="Etage" value={text(unit.floor)} />
           <SummaryItem label="Balcon" value={yesNo(unit.has_balcony)} />
-          <SummaryItem label="Parking" value={yesNo(unit.has_parking)} />
+          <SummaryItem label="Parking" value={unit.has_parking ? `${unit.parking_spaces_count ?? 1} place(s)` : 'Non'} />
           <SummaryItem label="Meuble" value={yesNo(unit.is_furnished)} />
           <SummaryItem label="Climatisation" value={yesNo(unit.has_air_conditioning)} />
           <SummaryItem label="Cuisine equipee" value={yesNo(unit.has_equipped_kitchen)} />
