@@ -26,7 +26,7 @@ type StatementResponse = {
     payments_count: number;
     refunds_count?: number;
   };
-  movements: Array<StatementRow & { date: string; reference?: string; movement_type: string; label: string; debit: number; credit: number; currency: string; running_balance: number }>;
+  movements: Array<StatementRow & { date: string; reference?: string; movement_type: string; label: string; debit: number; credit: number; currency: string; running_balance: number; lease_number?: string | number | null; unit_number?: string | null }>;
   invoices: StatementRow[];
   payments: StatementRow[];
   tenant_credits: StatementRow[];
@@ -131,12 +131,14 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
 
   function statementExcelRows() {
     return [
-      { date: '', reference: 'Solde d’ouverture', type: '', label: '', debit: 0, credit: 0, currency: statement?.currency ?? 'USD', balance: statement?.opening_balance ?? 0 },
+      { date: '', reference: 'Solde d’ouverture', type: '', label: '', bail_concerne: '', unite_concernee: '', debit: 0, credit: 0, currency: statement?.currency ?? 'USD', balance: statement?.opening_balance ?? 0 },
       ...movementRows.map((row) => ({
         date: formatDate(row.date),
         reference: String(row.reference ?? '—'),
         type: movementLabel(String(row.movement_type)),
         label: String(row.label ?? '—'),
+        bail_concerne: formatLeaseNumber(row.lease_number),
+        unite_concernee: String(row.unit_number ?? '—'),
         debit: Number(row.debit ?? 0),
         credit: Number(row.credit ?? 0),
         currency: row.currency ?? statement?.currency ?? 'USD',
@@ -152,6 +154,7 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
       issue_date: String(row.issue_date ?? '—'),
       due_date: String(row.due_date ?? '—'),
       tenant_name: String(row.tenant_name ?? '—'),
+      lease_number: formatLeaseNumber(row.lease_number),
       unit_number: String(row.unit_number ?? '—'),
       total: Number(row.total ?? 0),
       paid_amount: Number(row.paid_amount ?? 0),
@@ -170,6 +173,7 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
       receipt_number: String(row.receipt_number ?? row.reference ?? '—'),
       invoice_number: String(row.invoice_number ?? '—'),
       tenant_name: String(row.tenant_name ?? '—'),
+      lease_number: formatLeaseNumber(row.lease_number),
       unit_number: String(row.unit_number ?? '—'),
       amount: Number(row.amount ?? 0),
       payment_method: paymentMethodLabel(String(row.payment_method ?? '')),
@@ -291,24 +295,30 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
 
       autoTable(doc, {
         startY: 144,
-        head: [['Date', 'Référence', 'Libellé', 'Débit', 'Crédit', 'Solde']],
+        head: [['Date', 'Référence', 'Bail', 'Unité', 'Libellé', 'Débit', 'Crédit', 'Solde']],
         body: movementRows.length
           ? movementRows.map((row) => [
               formatDate(row.date),
               String(row.reference ?? '—'),
+              formatLeaseNumber(row.lease_number),
+              String(row.unit_number ?? '—'),
               String(row.label ?? '—'),
               formatPdfAmount(row.debit, statement.currency),
               formatPdfAmount(row.credit, statement.currency),
               formatPdfAmount(row.running_balance, statement.currency),
             ])
-          : [['—', '—', 'Aucun mouvement sur la période', formatPdfAmount(0, statement.currency), formatPdfAmount(0, statement.currency), formatPdfAmount(statement.opening_balance, statement.currency)]],
-        styles: { fontSize: 8, cellPadding: 4, overflow: 'linebreak' },
+          : [['—', '—', '—', '—', 'Aucun mouvement sur la période', formatPdfAmount(0, statement.currency), formatPdfAmount(0, statement.currency), formatPdfAmount(statement.opening_balance, statement.currency)]],
+        styles: { fontSize: 7, cellPadding: 3, overflow: 'linebreak' },
         headStyles: { fillColor: [45, 56, 72], halign: 'left' },
         alternateRowStyles: { fillColor: [247, 249, 252] },
         columnStyles: {
-          3: { halign: 'right', cellWidth: 80 },
-          4: { halign: 'right', cellWidth: 80 },
-          5: { halign: 'right', cellWidth: 90 },
+          0: { cellWidth: 50 },
+          1: { cellWidth: 64 },
+          2: { cellWidth: 54 },
+          3: { cellWidth: 46 },
+          5: { halign: 'right', cellWidth: 68 },
+          6: { halign: 'right', cellWidth: 68 },
+          7: { halign: 'right', cellWidth: 76 },
         },
         margin: { left: margin, right: margin },
         didDrawPage: (data: any) => {
@@ -409,6 +419,8 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
                     <th>Référence</th>
                     <th>Type mouvement</th>
                     <th>Libellé</th>
+                    <th>Bail concerné</th>
+                    <th>Unité concernée</th>
                     <th className="right">Débit</th>
                     <th className="right">Crédit</th>
                     <th>Devise</th>
@@ -422,13 +434,15 @@ function StatementPage({ kind, title, backLabel }: { kind: StatementKind; title:
                       <td>{String(row.reference ?? '—')}</td>
                       <td>{movementLabel(String(row.movement_type))}</td>
                       <td>{String(row.label ?? '—')}</td>
+                      <td>{formatLeaseNumber(row.lease_number)}</td>
+                      <td>{String(row.unit_number ?? '—')}</td>
                       <td className="right">{formatAmount(row.debit)}</td>
                       <td className="right">{formatAmount(row.credit)}</td>
                       <td>{row.currency ?? statement.currency}</td>
                       <td className="right">{formatAmount(row.running_balance)}</td>
                     </tr>
                   )) : (
-                    <tr><td colSpan={8}>Aucun mouvement sur la période.</td></tr>
+                    <tr><td colSpan={10}>Aucun mouvement sur la période.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -483,6 +497,12 @@ function movementLabel(type: string) {
   if (type === 'TENANT_CREDIT_REFUND') return 'Remboursement de crédit';
   if (type === 'PAYMENT') return 'Paiement';
   return type;
+}
+
+function formatLeaseNumber(value: unknown) {
+  if (value === null || value === undefined || value === '') return '—';
+  const text = String(value);
+  return /^B-/i.test(text) ? text : `B-${text.padStart(6, '0')}`;
 }
 
 function formatAmount(value: unknown) {

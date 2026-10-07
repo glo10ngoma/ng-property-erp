@@ -14723,7 +14723,7 @@ export class SaasService {
       ? `SELECT i.id, i.invoice_number, i.month, i.year, i.issue_date, i.due_date, i.status, i.total,
               i.last_reminder_at, COALESCE(i.reminder_count, 0)::INT AS reminder_count,
               i.tenant_id, CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '') ELSE TRIM(CONCAT_WS(' ', t.first_name, t.last_name, t.post_name)) END AS tenant_name, t.phone, t.email,
-              u.number AS unit_number,
+              l.lease_number, u.number AS unit_number,
               COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
               COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
          FROM invoices i
@@ -14741,7 +14741,7 @@ export class SaasService {
         ? `SELECT i.id, i.invoice_number, i.month, i.year, i.issue_date, i.due_date, i.status, i.total,
               i.last_reminder_at, COALESCE(i.reminder_count, 0)::INT AS reminder_count,
               i.tenant_id, CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '') ELSE TRIM(CONCAT_WS(' ', t.first_name, t.last_name, t.post_name)) END AS tenant_name, t.phone, t.email,
-              u.number AS unit_number, b.name AS building_name,
+              l.lease_number, u.number AS unit_number, b.name AS building_name,
               COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
               COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
          FROM invoices i
@@ -14759,7 +14759,7 @@ export class SaasService {
         : `SELECT i.id, i.invoice_number, i.month, i.year, i.issue_date, i.due_date, i.status, i.total,
               i.last_reminder_at, COALESCE(i.reminder_count, 0)::INT AS reminder_count,
               i.tenant_id, CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '') ELSE TRIM(CONCAT_WS(' ', t.first_name, t.last_name, t.post_name)) END AS tenant_name, t.phone, t.email,
-              u.number AS unit_number, b.name AS building_name,
+              l.lease_number, u.number AS unit_number, b.name AS building_name,
               COALESCE(s.paid_amount, 0)::FLOAT AS paid_amount,
               COALESCE(s.remaining_amount, i.total)::FLOAT AS remaining_amount
          FROM invoices i
@@ -14788,7 +14788,7 @@ export class SaasService {
               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
                    ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
               END AS tenant_name,
-              u.number AS unit_number, b.name AS building_name
+              l.lease_number, u.number AS unit_number, b.name AS building_name
        FROM payment_allocations pa
        JOIN payments p ON p.id = pa.payment_id
          AND p.organization_id = pa.organization_id AND p.deleted_at IS NULL
@@ -14814,7 +14814,7 @@ export class SaasService {
               CASE WHEN t.tenant_type = 'COMPANY' THEN COALESCE(t.company_name, '')
                    ELSE TRIM(CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, ''), ' ', COALESCE(t.post_name, '')))
               END AS tenant_name,
-              u.number AS unit_number, b.name AS building_name
+              l.lease_number, u.number AS unit_number, b.name AS building_name
        FROM payments p
        JOIN invoices i ON i.id = p.invoice_id
          AND i.organization_id = p.organization_id AND i.deleted_at IS NULL
@@ -14870,6 +14870,8 @@ export class SaasService {
         credit: 0,
         currency,
         source_id: invoice.id,
+        lease_number: invoice.lease_number ?? null,
+        unit_number: invoice.unit_number ?? null,
       })),
       ...payments.map((payment) => ({
         date: payment.payment_date,
@@ -14880,6 +14882,8 @@ export class SaasService {
         credit: Number(payment.amount ?? 0),
         currency,
         source_id: payment.id,
+        lease_number: payment.lease_number ?? null,
+        unit_number: payment.unit_number ?? null,
       })),
       ...tenantCredits.map((credit) => ({
         date: credit.payment_date,
@@ -14890,6 +14894,8 @@ export class SaasService {
         credit: Number(credit.statement_amount ?? credit.original_amount ?? credit.amount ?? 0),
         currency,
         source_id: credit.id,
+        lease_number: credit.lease_number ?? null,
+        unit_number: credit.unit_number ?? null,
       })),
       ...tenantCreditAllocations.map((allocation) => ({
         date: allocation.allocation_date,
@@ -14901,6 +14907,8 @@ export class SaasService {
         currency: String(allocation.currency ?? currency),
         source_id: allocation.id,
         informational_amount: Number(allocation.amount ?? 0),
+        lease_number: allocation.lease_number ?? null,
+        unit_number: allocation.unit_number ?? null,
       })),
       ...tenantCreditRefunds.map((refund) => ({
         date: refund.refund_date,
@@ -14911,6 +14919,8 @@ export class SaasService {
         credit: 0,
         currency,
         source_id: refund.id,
+        lease_number: refund.lease_number ?? null,
+        unit_number: refund.unit_number ?? null,
       })),
     ].sort((a, b) => {
       const dateDiff = new Date(String(a.date)).getTime() - new Date(String(b.date)).getTime();
