@@ -79,6 +79,7 @@ import { BuildingStatementPage, TenantStatementPage, UnitStatementPage } from '.
 import { StockDetailPage } from '../pages/StockDetailPage';
 import { TenantSituation } from '../pages/TenantSituation';
 import { TenantAccountAuditPage } from '../pages/TenantAccountAuditPage';
+import { OverdueTenantsReportPage } from '../pages/OverdueTenantsReportPage';
 import { TrashPage } from '../pages/TrashPage';
 import { UnitDetail } from '../pages/UnitDetail';
 import { InvoiceDetailPage } from '../modules/invoices/pages/InvoiceDetailPage';
@@ -211,6 +212,7 @@ export function AppRouter() {
           <Route path="/reports/stock" element={guarded('reports.read', <ReportsPage />)} />
           <Route path="/reports/maintenance" element={guarded('reports.read', <ReportsPage />)} />
           <Route path="/reports/tenant-accounts" element={guarded('reports.read', <TenantAccountAuditPage />)} />
+          <Route path="/reports/overdue-tenants" element={guarded('reports.read', <OverdueTenantsReportPage />)} />
           <Route path="/documents" element={guarded('documents.read', <DocumentsPage />)} />
           <Route path="/communications" element={guarded('communication.read', <CommunicationsPage />)} />
           <Route path="/workflows" element={guarded('workflow.read', <WorkflowsPage />)} />

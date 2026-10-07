@@ -79,6 +79,7 @@ const navGroups: NavGroup[] = [
       { to: '/dashboard', label: 'Dashboard BI', icon: Gauge, permission: 'dashboard.read' },
       { to: '/reports', label: 'Rapports', icon: FileText, permission: 'reports.read' },
       { to: '/reports/tenant-accounts', label: 'Contrôle comptes', icon: ShieldCheck, permission: 'reports.read' },
+      { to: '/reports/overdue-tenants', label: 'Locataires en retard', icon: ReceiptText, permission: 'reports.read' },
     ],
   },
   {

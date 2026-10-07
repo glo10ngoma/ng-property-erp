@@ -9,4 +9,9 @@ export class TenantAccountAuditController {
   report() {
     return this.service.report();
   }
+
+  @Get('overdue')
+  overdueReport() {
+    return this.service.overdueReport();
+  }
 }

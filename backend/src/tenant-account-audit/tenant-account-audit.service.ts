@@ -23,6 +23,17 @@ type AuditRow = {
   anomalies: string[];
 };
 
+type OverdueTenantRow = {
+  tenant_id: number;
+  tenant_name: string;
+  active_lease_refs: string[];
+  overdue_invoice_count: number;
+  overdue_invoice_refs: string[];
+  oldest_due_date: string;
+  maximum_days_overdue: number;
+  overdue_total: number;
+};
+
 @Injectable()
 export class TenantAccountAuditService {
   constructor(
@@ -223,6 +234,64 @@ export class TenantAccountAuditService {
         guarantee_remaining: this.sum(rows, 'guarantee_remaining'),
       },
       rows,
+    };
+  }
+
+  async overdueReport() {
+    const organizationId = this.context.organizationId();
+    const result = await this.db.query<OverdueTenantRow>(
+      `WITH overdue_invoices AS (
+         SELECT i.id,
+                i.tenant_id,
+                COALESCE(NULLIF(TRIM(i.invoice_number), ''), CONCAT('Facture #', i.id)) AS invoice_number,
+                i.due_date,
+                COALESCE(ips.remaining_amount, i.total, 0)::NUMERIC AS remaining_amount
+         FROM invoices i
+         LEFT JOIN invoice_payment_summary ips ON ips.invoice_id = i.id
+         WHERE i.organization_id = $1
+           AND i.deleted_at IS NULL
+           AND i.status <> 'CANCELLED'
+           AND i.due_date IS NOT NULL
+           AND i.due_date < (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Kinshasa')::DATE
+           AND COALESCE(ips.remaining_amount, i.total, 0) > 0.01
+       ),
+       active_lease_stats AS (
+         SELECT l.tenant_id,
+                ARRAY_AGG(COALESCE(l.lease_number::TEXT, CONCAT('B-', l.id)) ORDER BY l.start_date, l.id) AS active_lease_refs
+         FROM leases l
+         WHERE l.organization_id = $1
+           AND l.deleted_at IS NULL
+           AND l.archived_at IS NULL
+           AND l.status = 'ACTIVE'
+         GROUP BY l.tenant_id
+       )
+       SELECT t.id AS tenant_id,
+              COALESCE(NULLIF(TRIM(t.company_name), ''), NULLIF(TRIM(CONCAT_WS(' ', t.first_name, t.last_name)), ''), CONCAT('Locataire #', t.id)) AS tenant_name,
+              COALESCE(als.active_lease_refs, ARRAY[]::TEXT[]) AS active_lease_refs,
+              COUNT(oi.id)::INT AS overdue_invoice_count,
+              ARRAY_AGG(oi.invoice_number ORDER BY oi.due_date, oi.id) AS overdue_invoice_refs,
+              MIN(oi.due_date)::TEXT AS oldest_due_date,
+              MAX((CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Kinshasa')::DATE - oi.due_date)::INT AS maximum_days_overdue,
+              COALESCE(SUM(oi.remaining_amount), 0)::FLOAT AS overdue_total
+       FROM overdue_invoices oi
+       JOIN tenants t
+         ON t.id = oi.tenant_id
+        AND t.organization_id = $1
+        AND t.deleted_at IS NULL
+       LEFT JOIN active_lease_stats als ON als.tenant_id = t.id
+       GROUP BY t.id, t.company_name, t.first_name, t.last_name, als.active_lease_refs
+       ORDER BY overdue_total DESC, tenant_name, t.id`,
+      [organizationId],
+    );
+
+    return {
+      generated_at: new Date().toISOString(),
+      summary: {
+        overdue_tenant_count: result.rows.length,
+        overdue_invoice_count: result.rows.reduce((total, row) => total + Number(row.overdue_invoice_count ?? 0), 0),
+        overdue_total: this.sum(result.rows, 'overdue_total'),
+      },
+      rows: result.rows,
     };
   }
 
