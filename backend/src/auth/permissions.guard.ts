@@ -53,6 +53,7 @@ const routePermissions: Array<[RegExp, string]> = [
   [/^\/api\/reports/, 'reports'],
   [/^\/api\/leases/, 'documents'],
   [/^\/api\/sales(?:\/|$)/, 'sales'],
+  [/^\/api\/btp(?:\/|$)/, 'btp'],
 ];
 
 @Injectable()
@@ -151,6 +152,13 @@ export class PermissionsGuard implements CanActivate {
   }
 
   private permissionFor(path: string, method: string) {
+    if (/^\/api\/btp\/dashboard$/.test(path)) return 'btp.read';
+    if (/^\/api\/btp\/projects\/\d+$/.test(path)) return method === 'GET' ? 'btp.read' : 'btp.projects.update';
+    if (/^\/api\/btp\/projects$/.test(path)) return method === 'GET' ? 'btp.read' : 'btp.projects.create';
+    if (/^\/api\/btp\/phases\/\d+$/.test(path)) return 'btp.phases.manage';
+    if (/^\/api\/btp\/phases$/.test(path)) return 'btp.phases.manage';
+    if (/^\/api\/btp\/expenses\/\d+$/.test(path)) return 'btp.expenses.approve';
+    if (/^\/api\/btp\/expenses$/.test(path)) return method === 'GET' ? 'btp.read' : 'btp.expenses.create';
     if (/^\/api\/sales\/bootstrap$/.test(path)) {
       return 'sales.read';
     }

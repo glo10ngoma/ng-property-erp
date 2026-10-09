@@ -11,6 +11,7 @@ import {
   FolderOpen,
   Gauge,
   Home,
+  HardHat,
   Layers,
   LineChart,
   MessageSquare,
@@ -118,6 +119,7 @@ const navGroups: NavGroup[] = [
     icon: Wrench,
     items: [
       { to: '/maintenance', label: 'Maintenance', icon: Wrench, permission: 'maintenance.read' },
+      { to: '/btp', label: 'BTP & chantiers', icon: HardHat, permission: 'btp.read', moduleCode: 'BTP' },
     ],
   },
   {

@@ -7,6 +7,8 @@ import { resolvePostAuthDestination } from '../core/auth/auth.service';
 import { PlatformRoute, SuperAdminRoute } from '../core/auth/PlatformRoute';
 import { ActivityPage } from '../modules/activity/pages/ActivityPage';
 import { BuildingsPage } from '../modules/buildings/pages/BuildingsPage';
+import { BtpModuleGuard } from '../modules/btp/components/BtpModuleGuard';
+import { BtpDashboardPage, BtpExpensesPage, BtpProjectDetailPage, BtpProjectFormPage, BtpProjectsPage } from '../modules/btp/pages/BtpPages';
 import { CashPage } from '../modules/cash/pages/CashPage';
 import { CashExpenseCategoriesPage } from '../modules/cash/pages/CashExpenseCategoriesPage';
 import { CommunicationsPage } from '../modules/communications/pages/CommunicationsPage';
@@ -108,6 +110,10 @@ const salesPermissionGuarded = (permission: string, element: JSX.Element) => (
   <SalesModuleGuard>
     <PermissionGuard permission={permission}>{element}</PermissionGuard>
   </SalesModuleGuard>
+);
+
+const btpGuarded = (permission: string, element: JSX.Element) => (
+  <BtpModuleGuard><PermissionGuard permission={permission}>{element}</PermissionGuard></BtpModuleGuard>
 );
 
 export function AppRouter() {
@@ -243,6 +249,12 @@ export function AppRouter() {
           <Route path="/sales/collections" element={salesPermissionGuarded('sales_reports.collection', <SalesCollectionsV33Page />)} />
           <Route path="/sales/settings" element={<Navigate to="/sales/settings/numbering" replace />} />
           <Route path="/sales/settings/*" element={salesPermissionGuarded('sales.settings.manage', <SalesSettingsPage />)} />
+          <Route path="/btp" element={btpGuarded('btp.read', <BtpDashboardPage />)} />
+          <Route path="/btp/projects" element={btpGuarded('btp.read', <BtpProjectsPage />)} />
+          <Route path="/btp/projects/new" element={btpGuarded('btp.projects.create', <BtpProjectFormPage />)} />
+          <Route path="/btp/projects/:id" element={btpGuarded('btp.read', <BtpProjectDetailPage />)} />
+          <Route path="/btp/projects/:id/edit" element={btpGuarded('btp.projects.update', <BtpProjectFormPage />)} />
+          <Route path="/btp/expenses" element={btpGuarded('btp.read', <BtpExpensesPage />)} />
           <Route element={<SuperAdminRoute />}>
             <Route path="/users" element={guarded('users.read', <UsersPage />)} />
           </Route>

@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { PermissionsGuard } from './auth/permissions.guard';
 import { RequestContextInterceptor } from './auth/request-context.interceptor';
 import { BuildingsModule } from './buildings/buildings.module';
+import { BtpModule } from './btp/btp.module';
 import { CommunicationModule } from './communication/communication.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { DatabaseModule } from './database/database.module';
@@ -34,6 +35,7 @@ import { UnitsModule } from './units/units.module';
     CommunicationModule,
     DashboardModule,
     BuildingsModule,
+    BtpModule,
     UnitsModule,
     TenantsModule,
     TenantAccountAuditModule,

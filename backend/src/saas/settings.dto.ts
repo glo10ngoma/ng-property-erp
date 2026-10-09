@@ -36,6 +36,7 @@ const PLATFORM_MODULE_CODES = [
   'REPORTS',
   'WORKFLOW',
   'SALES',
+  'BTP',
 ] as const;
 const PLATFORM_ORGANIZATION_SORT_FIELDS = ['created_at', 'updated_at', 'name', 'slug', 'status'] as const;
 const SORT_DIRECTIONS = ['asc', 'desc'] as const;
