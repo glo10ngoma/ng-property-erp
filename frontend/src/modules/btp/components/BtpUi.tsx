@@ -15,7 +15,16 @@ export {
   SalesSection as BtpSection,
   SalesStatusBadge as BtpStatusBadge,
 } from "../../sales/components/SalesUi";
-export type BtpTab = "overview" | "projects" | "expenses";
+export type BtpTab =
+  | "overview"
+  | "projects"
+  | "budgets"
+  | "purchases"
+  | "stock"
+  | "operations"
+  | "finance"
+  | "reports"
+  | "expenses";
 export function BtpModulePage({
   title,
   subtitle,
@@ -32,6 +41,12 @@ export function BtpModulePage({
   const tabs = [
     { key: "overview", label: "Vue d’ensemble", to: "/btp" },
     { key: "projects", label: "Chantiers", to: "/btp/projects" },
+    { key: "budgets", label: "Budgets", to: "/btp/budgets" },
+    { key: "purchases", label: "Achats", to: "/btp/purchases" },
+    { key: "stock", label: "Matériaux", to: "/btp/stock" },
+    { key: "operations", label: "Suivi", to: "/btp/operations" },
+    { key: "finance", label: "Finance", to: "/btp/finance" },
+    { key: "reports", label: "Rapports", to: "/btp/reports" },
     { key: "expenses", label: "Dépenses", to: "/btp/expenses" },
   ] as const;
   return (

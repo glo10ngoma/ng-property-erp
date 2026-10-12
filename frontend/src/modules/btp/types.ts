@@ -75,3 +75,16 @@ export type BtpExpenseInput = Omit<
   BtpExpense,
   "id" | "project_name" | "phase_name"
 >;
+export type BtpOperationalRecord = {
+  id: number;
+  project_id: number;
+  phase_id?: number | null;
+  project_name?: string;
+  phase_name?: string | null;
+  [key: string]: unknown;
+};
+export type BtpReportRow = BtpProject & {
+  committed: number;
+  invoiced: number;
+  collected: number;
+};

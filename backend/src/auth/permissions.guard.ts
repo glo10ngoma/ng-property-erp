@@ -159,6 +159,12 @@ export class PermissionsGuard implements CanActivate {
     if (/^\/api\/btp\/phases$/.test(path)) return 'btp.phases.manage';
     if (/^\/api\/btp\/expenses\/\d+$/.test(path)) return 'btp.expenses.approve';
     if (/^\/api\/btp\/expenses$/.test(path)) return method === 'GET' ? 'btp.read' : 'btp.expenses.create';
+    if (/^\/api\/btp\/budgets$/.test(path)) return method === 'GET' ? 'btp.read' : 'btp.budgets.manage';
+    if (/^\/api\/btp\/purchases$/.test(path)) return method === 'GET' ? 'btp.read' : 'btp.purchases.manage';
+    if (/^\/api\/btp\/stock-movements$/.test(path)) return method === 'GET' ? 'btp.read' : 'btp.stock.manage';
+    if (/^\/api\/btp\/site-logs$/.test(path)) return method === 'GET' ? 'btp.read' : 'btp.operations.manage';
+    if (/^\/api\/btp\/(client-contracts|client-transactions)$/.test(path)) return method === 'GET' ? 'btp.read' : 'btp.finance.manage';
+    if (/^\/api\/btp\/reports$/.test(path)) return 'btp.reports.read';
     if (/^\/api\/sales\/bootstrap$/.test(path)) {
       return 'sales.read';
     }

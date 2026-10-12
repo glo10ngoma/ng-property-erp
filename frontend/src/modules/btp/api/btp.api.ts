@@ -8,6 +8,8 @@ import type {
   BtpPhaseInput,
   BtpProject,
   BtpProjectInput,
+  BtpOperationalRecord,
+  BtpReportRow,
 } from "../types";
 export const getBtpDashboard = async () =>
   (await api.get<BtpDashboard>("/btp/dashboard")).data;
@@ -35,3 +37,23 @@ export const updateBtpExpense = async (
   id: number,
   payload: Partial<BtpExpenseInput>,
 ) => (await api.patch<BtpExpense>(`/btp/expenses/${id}`, payload)).data;
+
+type BtpWorkspaceEndpoint =
+  | "budgets"
+  | "purchases"
+  | "stock-movements"
+  | "site-logs"
+  | "client-contracts"
+  | "client-transactions";
+export const listBtpWorkspace = async (
+  endpoint: BtpWorkspaceEndpoint,
+  params: Record<string, unknown> = {},
+) =>
+  (await api.get<BtpList<BtpOperationalRecord>>(`/btp/${endpoint}`, { params }))
+    .data;
+export const createBtpWorkspace = async (
+  endpoint: BtpWorkspaceEndpoint,
+  payload: Record<string, unknown>,
+) => (await api.post<BtpOperationalRecord>(`/btp/${endpoint}`, payload)).data;
+export const getBtpReports = async (params: Record<string, unknown> = {}) =>
+  (await api.get<BtpList<BtpReportRow>>("/btp/reports", { params })).data;

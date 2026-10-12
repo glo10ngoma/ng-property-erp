@@ -9,6 +9,7 @@ import { ActivityPage } from '../modules/activity/pages/ActivityPage';
 import { BuildingsPage } from '../modules/buildings/pages/BuildingsPage';
 import { BtpModuleGuard } from '../modules/btp/components/BtpModuleGuard';
 import { BtpDashboardPage, BtpExpensesPage, BtpProjectDetailPage, BtpProjectFormPage, BtpProjectsPage } from '../modules/btp/pages/BtpPages';
+import { BtpBudgetsPage, BtpFinancePage, BtpOperationsPage, BtpPurchasesPage, BtpReportsPage, BtpStockPage } from '../modules/btp/pages/BtpWorkspacePages';
 import { CashPage } from '../modules/cash/pages/CashPage';
 import { CashExpenseCategoriesPage } from '../modules/cash/pages/CashExpenseCategoriesPage';
 import { CommunicationsPage } from '../modules/communications/pages/CommunicationsPage';
@@ -255,6 +256,12 @@ export function AppRouter() {
           <Route path="/btp/projects/:id" element={btpGuarded('btp.read', <BtpProjectDetailPage />)} />
           <Route path="/btp/projects/:id/edit" element={btpGuarded('btp.projects.update', <BtpProjectFormPage />)} />
           <Route path="/btp/expenses" element={btpGuarded('btp.read', <BtpExpensesPage />)} />
+          <Route path="/btp/budgets" element={btpGuarded('btp.read', <BtpBudgetsPage />)} />
+          <Route path="/btp/purchases" element={btpGuarded('btp.read', <BtpPurchasesPage />)} />
+          <Route path="/btp/stock" element={btpGuarded('btp.read', <BtpStockPage />)} />
+          <Route path="/btp/operations" element={btpGuarded('btp.read', <BtpOperationsPage />)} />
+          <Route path="/btp/finance" element={btpGuarded('btp.read', <BtpFinancePage />)} />
+          <Route path="/btp/reports" element={btpGuarded('btp.reports.read', <BtpReportsPage />)} />
           <Route element={<SuperAdminRoute />}>
             <Route path="/users" element={guarded('users.read', <UsersPage />)} />
           </Route>
