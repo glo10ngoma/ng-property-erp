@@ -118,6 +118,8 @@ const btpGuarded = (permission: string, element: JSX.Element) => (
 );
 
 export function AppRouter() {
+  const { user } = useAuth();
+  const unifiedCash = user?.organization_id === 1 || user?.organization_id === 5;
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
@@ -177,7 +179,7 @@ export function AppRouter() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/cash" element={guarded('cash.read', <CashPage />)} />
           <Route path="/guarantee-cash" element={guarded('guarantee_cash.read', <GuaranteeCashPage />)} />
-          <Route path="/syndic-cash" element={guarded('cash.read', <SyndicCashPage />)} />
+          <Route path="/syndic-cash" element={unifiedCash ? <Navigate to="/cash" replace /> : guarded('cash.read', <SyndicCashPage />)} />
           <Route path="/cash/categories" element={guarded('cash.read', <CashExpenseCategoriesPage />)} />
           <Route path="/cash/:id" element={guarded('cash.read', <CashDetailPage />)} />
           <Route path="/staff" element={guarded('staff.read', <StaffPage />)} />

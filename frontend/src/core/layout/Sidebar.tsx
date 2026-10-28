@@ -191,10 +191,11 @@ export function Sidebar() {
       navGroups
         .map((group) => ({
           ...group,
-          items: filterEntries(group.items, hasPermission, hasRequiredModule, superAdmin),
+          items: filterEntries(group.items, hasPermission, hasRequiredModule, superAdmin)
+            .filter((entry) => !(entry.type !== 'subgroup' && entry.to === '/syndic-cash' && (user?.organization_id === 1 || user?.organization_id === 5))),
         }))
         .filter((group) => group.items.length > 0),
-    [canAccessSales, can, hasModule, superAdmin],
+    [canAccessSales, can, hasModule, superAdmin, user?.organization_id],
   );
 
   const requiredOpenGroups = useMemo(

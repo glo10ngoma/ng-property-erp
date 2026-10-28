@@ -2459,8 +2459,9 @@ export class SaasService {
     exchangeRateUsed?: number | null;
     exchangeRateDate?: string | null;
   }) {
-    await this.ensureSyndicCashSchema(client);
     const organizationId = this.context.organizationId();
+    // CATALYSE / Magic: syndic is analytical only; physical cash is unified.
+    if (![1, 5].includes(organizationId)) await this.ensureSyndicCashSchema(client);
     const allocationResult = await client.query(
       `SELECT pa.invoice_id,
               pa.amount::FLOAT AS allocated_amount,
@@ -2524,26 +2525,29 @@ export class SaasService {
       const rentAmount = Number((entry.amount - syndicAmount).toFixed(2));
       const rentEquivalentUsd = Number((entry.equivalentUsd - syndicEquivalentUsd).toFixed(2));
 
-      if (args.paymentMethod !== 'BANK' && rentAmount > 0) {
-        await this.createInvoicePaymentMovement(client, args.paymentId, args.primaryInvoiceId, rentAmount, args.reference, {
+      const unifiedCash = organizationId === 1 || organizationId === 5;
+      const cashAmount = unifiedCash ? entry.amount : rentAmount;
+      const cashEquivalentUsd = unifiedCash ? entry.equivalentUsd : rentEquivalentUsd;
+      if (args.paymentMethod !== 'BANK' && cashAmount > 0) {
+        await this.createInvoicePaymentMovement(client, args.paymentId, args.primaryInvoiceId, cashAmount, args.reference, {
           currency: entry.currency,
           exchangeRateUsed: entry.currency === 'CDF' ? args.exchangeRateUsed : null,
           exchangeRateDate: entry.currency === 'CDF' ? args.exchangeRateDate : null,
-          equivalentUsd: rentEquivalentUsd,
+          equivalentUsd: cashEquivalentUsd,
         });
         await client.query(
           `UPDATE cash_movements
            SET movement_date = $2,
-               description = 'Paiement loyer (hors syndic)'
+               description = $5
            WHERE payment_id = $1
              AND organization_id = $3
              AND currency = $4
              AND deleted_at IS NULL`,
-          [args.paymentId, args.paymentDate, organizationId, entry.currency],
+          [args.paymentId, args.paymentDate, organizationId, entry.currency, unifiedCash ? 'Paiement facture (loyer et syndic)' : 'Paiement loyer (hors syndic)'],
         );
       }
 
-      if (syndicAmount > 0) {
+      if (!unifiedCash && syndicAmount > 0) {
         await client.query(
           `INSERT INTO syndic_cash_movements (
              organization_id, type, movement_type, amount, currency, equivalent_usd,
@@ -11090,6 +11094,10 @@ export class SaasService {
     amountApplied: number;
     createdBy?: number | null;
   }) {
+    // Unified-cash tenants retain the full original credit receipt in main cash.
+    if (args.organizationId === 1 || args.organizationId === 5) {
+      return { syndic_amount: 0, skipped: true };
+    }
     await this.ensureSyndicCashSchema(client);
     const sourceResult = await client.query(
       `SELECT tc.source_payment_id,
