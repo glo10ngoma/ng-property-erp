@@ -480,6 +480,7 @@ export function BtpProjectDetailPage() {
   const { id } = useParams();
   const [project, setProject] = useState<BtpProject | null>(null);
   const [error, setError] = useState("");
+  const [detailTab, setDetailTab] = useState<"info" | "phases" | "expenses">("info");
   const [phase, setPhase] = useState({
     phase_ref: "",
     name: "",
@@ -588,6 +589,27 @@ export function BtpProjectDetailPage() {
           )}
         />
       </BtpKpiGrid>
+      <div role="tablist" aria-label="Sections du détail chantier" className="sales-v21-filter-bar" style={{ gap: 8, marginBottom: 16 }}>
+        {([
+          ["info", "Informations"],
+          ["phases", "Phases du chantier"],
+          ["expenses", "Dépenses"],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            id={`btp-detail-tab-${key}`}
+            aria-selected={detailTab === key}
+            aria-controls={`btp-detail-panel-${key}`}
+            className={`sales-v21-btn ${detailTab === key ? "sales-v21-btn-primary" : ""}`}
+            onClick={() => setDetailTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel" id="btp-detail-panel-info" aria-labelledby="btp-detail-tab-info" hidden={detailTab !== "info"}>
       <BtpSection title="Informations">
         <BtpInfoList
           items={[
@@ -603,6 +625,8 @@ export function BtpProjectDetailPage() {
           ]}
         />
       </BtpSection>
+      </div>
+      <div role="tabpanel" id="btp-detail-panel-phases" aria-labelledby="btp-detail-tab-phases" hidden={detailTab !== "phases"}>
       <BtpSection
         title="Phases du chantier"
         description="Découpage opérationnel et budgétaire."
@@ -681,6 +705,8 @@ export function BtpProjectDetailPage() {
           </button>
         </form>
       </BtpSection>
+      </div>
+      <div role="tabpanel" id="btp-detail-panel-expenses" aria-labelledby="btp-detail-tab-expenses" hidden={detailTab !== "expenses"}>
       <BtpSection
         title="Dépenses"
         description="Les montants approuvés et payés alimentent le réalisé."
@@ -758,6 +784,7 @@ export function BtpProjectDetailPage() {
           </button>
         </form>
       </BtpSection>
+      </div>
     </BtpModulePage>
   );
 }
