@@ -73,7 +73,7 @@ export class CreateBtpPurchaseDto {
 export class CreateBtpStockMovementDto {
   @Type(() => Number) @IsInt() @IsPositive() project_id!: number;
   @Type(() => Number) @IsInt() @IsPositive() @IsOptional() phase_id?: number;
-  @IsIn(["OUT", "RETURN", "ADJUSTMENT"]) movement_type!: string;
+  @IsIn(["IN", "OUT", "RETURN", "ADJUSTMENT"]) movement_type!: string;
   @IsDateString() movement_date!: string;
   @trim() @IsString() @MaxLength(180) material_name!: string;
   @Type(() => Number) @IsNumber() @IsPositive() quantity!: number;

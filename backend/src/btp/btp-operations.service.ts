@@ -112,23 +112,60 @@ export class BtpOperationsService {
   }
   async createStock(dto: CreateBtpStockMovementDto) {
     await this.assertProject(dto.project_id, dto.phase_id);
-    const r = await this.db.query(
-      `INSERT INTO btp_stock_movements (organization_id,project_id,phase_id,movement_type,movement_date,material_name,quantity,unit,reference,notes,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [
-        this.org(),
-        dto.project_id,
-        dto.phase_id ?? null,
-        dto.movement_type,
-        dto.movement_date,
-        dto.material_name,
-        dto.quantity,
-        dto.unit,
-        dto.reference ?? null,
-        dto.notes ?? null,
-        this.user(),
-      ],
+    // A project-level advisory lock serializes concurrent material movements.
+    // The stock ledger is scoped by organization, project, material and unit.
+    return this.db.transaction(async (client) => {
+      await client.query(
+        "SELECT pg_advisory_xact_lock($1::INT, $2::INT)",
+        [this.org(), dto.project_id],
+      );
+      const balance = await client.query(
+        `SELECT COALESCE(SUM(CASE
+           WHEN movement_type IN ('IN','RETURN') THEN quantity
+           WHEN movement_type IN ('OUT','ADJUSTMENT') THEN -quantity
+           ELSE 0 END),0)::NUMERIC AS available
+         FROM btp_stock_movements
+         WHERE organization_id=$1 AND project_id=$2
+           AND LOWER(TRIM(material_name))=LOWER(TRIM($3))
+           AND LOWER(TRIM(unit))=LOWER(TRIM($4))
+           AND deleted_at IS NULL`,
+        [this.org(), dto.project_id, dto.material_name, dto.unit],
+      );
+      const available = Number(balance.rows[0]?.available ?? 0);
+      if (["OUT", "ADJUSTMENT"].includes(dto.movement_type) && Number(dto.quantity) > available) {
+        throw new BadRequestException(
+          `Stock insuffisant pour ${dto.material_name} : disponible ${available} ${dto.unit}.`,
+        );
+      }
+      const r = await client.query(
+        `INSERT INTO btp_stock_movements (organization_id,project_id,phase_id,movement_type,movement_date,material_name,quantity,unit,reference,notes,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+        [this.org(), dto.project_id, dto.phase_id ?? null, dto.movement_type,
+          dto.movement_date, dto.material_name.trim(), dto.quantity, dto.unit.trim(),
+          dto.reference ?? null, dto.notes ?? null, this.user()],
+      );
+      return { ...r.rows[0], available_after: available +
+        (["IN", "RETURN"].includes(dto.movement_type) ? Number(dto.quantity) : -Number(dto.quantity)) };
+    });
+  }
+
+  async stockBalances(query: BtpScopeQueryDto) {
+    const params: unknown[] = [this.org()];
+    const projectFilter = query.project_id
+      ? (params.push(query.project_id), ` AND m.project_id=${params.length}`)
+      : "";
+    const result = await this.db.query(
+      `SELECT m.project_id,p.name AS project_name,
+              MIN(m.material_name) AS material_name, MIN(m.unit) AS unit,
+              SUM(CASE WHEN m.movement_type IN ('IN','RETURN') THEN m.quantity
+                       ELSE -m.quantity END)::FLOAT AS available
+       FROM btp_stock_movements m
+       JOIN btp_projects p ON p.id=m.project_id AND p.organization_id=m.organization_id
+       WHERE m.organization_id=$1 AND m.deleted_at IS NULL AND p.deleted_at IS NULL${projectFilter}
+       GROUP BY m.project_id,p.name,LOWER(TRIM(m.material_name)),LOWER(TRIM(m.unit))
+       ORDER BY p.name,material_name`,
+      params,
     );
-    return r.rows[0];
+    return { items: result.rows, total: result.rowCount };
   }
 
   async logs(query: BtpScopeQueryDto) {

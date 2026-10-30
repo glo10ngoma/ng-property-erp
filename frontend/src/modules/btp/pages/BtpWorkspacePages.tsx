@@ -41,6 +41,7 @@ const labels: Record<string, string> = {
   REQUEST: "Demande",
   ORDER: "Commande",
   DELIVERY: "Livraison",
+  IN: "Entrée",
   OUT: "Sortie",
   RETURN: "Retour",
   ADJUSTMENT: "Écart/Ajustement",
@@ -467,7 +468,7 @@ export function BtpStockPage() {
     <WorkspacePage
       tab="stock"
       title="Matériaux et stock"
-      subtitle="Tracez les sorties, retours, consommations et écarts par chantier."
+      subtitle="Enregistrez les entrées, sorties et retours de matériaux avec contrôle du disponible."
       endpoint="stock-movements"
       fields={({ form, set, projects }) => (
         <>
@@ -479,7 +480,7 @@ export function BtpStockPage() {
               onChange={(e) => set("movement_type", e.target.value)}
             >
               <option value="">Choisir</option>
-              {["OUT", "RETURN", "ADJUSTMENT"].map((v) => (
+              {["IN", "OUT", "RETURN", "ADJUSTMENT"].map((v) => (
                 <option key={v} value={v}>
                   {labels[v]}
                 </option>

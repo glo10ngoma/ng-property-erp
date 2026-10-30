@@ -33,6 +33,9 @@ export class BtpOperationsController {
   @Post("stock-movements") createStock(@Body() d: CreateBtpStockMovementDto) {
     return this.service.createStock(d);
   }
+  @Get("stock-balances") balances(@Query() q: BtpScopeQueryDto) {
+    return this.service.stockBalances(q);
+  }
   @Get("site-logs") logs(@Query() q: BtpScopeQueryDto) {
     return this.service.logs(q);
   }
