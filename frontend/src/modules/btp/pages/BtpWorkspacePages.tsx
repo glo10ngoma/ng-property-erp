@@ -831,65 +831,64 @@ export function BtpReportsPage() {
       .then((r) => setRows(r.items))
       .catch((e) => setError(message(e)));
   }, []);
+  const [currency, setCurrency] = useState("USD");
+  const filtered = rows.filter((r) => r.currency === currency);
   const total = (k: keyof BtpReportRow) =>
-    rows.reduce((s, r) => s + Number(r[k] ?? 0), 0);
+    filtered.reduce((sum, r) => sum + Number(r[k] ?? 0), 0);
   return (
     <BtpModulePage
       title="Rapports BTP"
-      subtitle="Analysez l’avancement physique, financier, les dépassements et la rentabilité."
+      subtitle="Budgets, engagements, dépenses, facturation et marges par chantier — sans mélanger USD et CDF."
       activeTab="reports"
     >
       {error ? <BtpNotice tone="danger">{error}</BtpNotice> : null}
+      <BtpSection title="Devise du reporting">
+        <select aria-label="Devise du reporting BTP" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+          <option value="USD">USD</option>
+          <option value="CDF">CDF</option>
+        </select>
+      </BtpSection>
       <BtpKpiGrid>
-        <BtpKpiCard
-          label="Budget total"
-          value={money(total("planned_budget"))}
-        />
-        <BtpKpiCard label="Engagé" value={money(total("committed"))} />
-        <BtpKpiCard label="Dépensé" value={money(total("spent"))} />
-        <BtpKpiCard label="Facturé" value={money(total("invoiced"))} />
-        <BtpKpiCard label="Encaissé" value={money(total("collected"))} />
+        <BtpKpiCard label="Budget total" value={money(total("planned_budget"), currency)} />
+        <BtpKpiCard label="Commandes engagées" value={money(total("committed"), currency)} />
+        <BtpKpiCard label="Dépenses validées" value={money(total("spent"), currency)} />
+        <BtpKpiCard label="Facturé" value={money(total("invoiced"), currency)} />
+        <BtpKpiCard label="Encaissé" value={money(total("collected"), currency)} />
       </BtpKpiGrid>
-      <BtpSection title="Avancement physique contre financier">
+      <BtpSection title="Situation financière par chantier" description="Les commandes et les dépenses sont affichées séparément : une commande peut déjà avoir été comptabilisée comme dépense.">
         <div className="sales-v21-table-wrap">
           <table className="sales-v21-table">
             <thead>
               <tr>
-                <th>Chantier</th>
-                <th>Physique</th>
-                <th>Budget</th>
-                <th>Engagé</th>
-                <th>Dépensé</th>
-                <th>Restant</th>
-                <th>Rentabilité</th>
+                <th>Chantier</th><th>Physique</th><th>Budget</th><th>Engagé</th><th>Dépensé</th>
+                <th>Écart budget</th><th>Facturé</th><th>Encaissé</th><th>À encaisser</th><th>Marge sur facturation</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td>
-                    <strong>{r.project_ref}</strong>
-                    <br />
-                    {r.name}
-                  </td>
-                  <td>{Number(r.progress_percent).toFixed(1)} %</td>
-                  <td>{money(r.planned_budget, r.currency)}</td>
-                  <td>{money(r.committed, r.currency)}</td>
-                  <td>{money(r.spent, r.currency)}</td>
-                  <td>
-                    {money(
-                      Number(r.planned_budget) - Number(r.spent),
-                      r.currency,
-                    )}
-                  </td>
-                  <td>
-                    {money(Number(r.collected) - Number(r.spent), r.currency)}
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((r) => {
+                const budget = Number(r.planned_budget ?? 0);
+                const spent = Number(r.spent ?? 0);
+                const invoiced = Number(r.invoiced ?? 0);
+                const collected = Number(r.collected ?? 0);
+                return (
+                  <tr key={r.id}>
+                    <td><strong>{r.project_ref}</strong><br />{r.name}</td>
+                    <td>{Number(r.progress_percent).toFixed(1)} %</td>
+                    <td>{money(budget, currency)}</td>
+                    <td>{money(r.committed, currency)}</td>
+                    <td>{money(spent, currency)}</td>
+                    <td>{money(budget - spent, currency)}{spent > budget ? " — Dépassement" : ""}</td>
+                    <td>{money(invoiced, currency)}</td>
+                    <td>{money(collected, currency)}</td>
+                    <td>{money(invoiced - collected, currency)}</td>
+                    <td>{money(invoiced - spent, currency)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
+        {!filtered.length ? <BtpEmptyState title="Aucun chantier dans cette devise" description="Sélectionnez une autre devise ou créez un chantier." /> : null}
       </BtpSection>
     </BtpModulePage>
   );
