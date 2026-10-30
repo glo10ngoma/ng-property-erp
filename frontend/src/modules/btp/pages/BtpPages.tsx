@@ -589,7 +589,7 @@ export function BtpProjectDetailPage() {
           )}
         />
       </BtpKpiGrid>
-      <div role="tablist" aria-label="Sections du détail chantier" className="sales-v21-filter-bar" style={{ display: "flex", flexWrap: "nowrap", alignItems: "center", gap: 8, marginBottom: 16, overflowX: "auto" }}>
+      <div role="tablist" aria-label="Sections du détail chantier" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 16, width: "100%" }}>
         {([
           ["info", "Informations"],
           ["phases", "Phases du chantier"],
@@ -603,7 +603,7 @@ export function BtpProjectDetailPage() {
             aria-selected={detailTab === key}
             aria-controls={`btp-detail-panel-${key}`}
             className={`sales-v21-btn ${detailTab === key ? "sales-v21-btn-primary" : ""}`}
-            style={{ flex: "0 0 auto", width: "auto", whiteSpace: "nowrap", padding: "10px 18px" }}
+            style={{ display: "block", minWidth: 0, width: "100%", whiteSpace: "nowrap", padding: "10px 12px" }}
             onClick={() => setDetailTab(key)}
           >
             {label}
