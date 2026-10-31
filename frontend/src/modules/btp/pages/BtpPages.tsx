@@ -481,6 +481,7 @@ export function BtpProjectDetailPage() {
   const [project, setProject] = useState<BtpProject | null>(null);
   const [error, setError] = useState("");
   const [detailTab, setDetailTab] = useState<"info" | "phases" | "expenses">("info");
+  const [entryDialog, setEntryDialog] = useState<"phase" | "expense" | null>(null);
   const [phase, setPhase] = useState({
     phase_ref: "",
     name: "",
@@ -513,6 +514,7 @@ export function BtpProjectDetailPage() {
         planned_budget: Number(phase.planned_budget || 0),
       });
       setPhase({ phase_ref: "", name: "", planned_budget: "0" });
+      setEntryDialog(null);
       void load();
     } catch (e) {
       setError(err(e));
@@ -531,6 +533,7 @@ export function BtpProjectDetailPage() {
         currency: expense.currency,
       });
       setExpense({ ...expense, description: "", amount: "", phase_id: "" });
+      setEntryDialog(null);
       void load();
     } catch (e) {
       setError(err(e));
@@ -678,7 +681,29 @@ export function BtpProjectDetailPage() {
             description="Ajoutez les lots ou étapes du chantier."
           />
         )}
-        <form className="sales-v21-filter-bar" onSubmit={addPhase}>
+        <button type="button" className="sales-v21-btn sales-v21-btn-primary" onClick={() => setEntryDialog("phase")}>+ Nouvelle phase</button>
+      </BtpSection>
+      </div>
+      <div role="tabpanel" id="btp-detail-panel-expenses" aria-labelledby="btp-detail-tab-expenses" hidden={detailTab !== "expenses"}>
+      <BtpSection
+        title="Dépenses"
+        description="Les montants approuvés et payés alimentent le réalisé."
+      >
+        {project.expenses?.length ? (
+          <ExpenseTable rows={project.expenses} />
+        ) : (
+          <BtpEmptyState
+            title="Aucune dépense"
+            description="Enregistrez la première dépense du chantier."
+          />
+        )}
+        <button type="button" className="sales-v21-btn sales-v21-btn-primary" onClick={() => setEntryDialog("expense")}>+ Nouvelle dépense</button>
+      </BtpSection>
+      </div>
+      {entryDialog && <div role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setEntryDialog(null); }} style={{ position: "fixed", inset: 0, background: "rgba(10,25,45,.55)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+        <div role="dialog" aria-modal="true" aria-label={entryDialog === "phase" ? "Nouvelle phase" : "Nouvelle dépense"} style={{ background: "#fff", color: "#142b45", borderRadius: 14, padding: 24, width: "min(100%, 640px)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 70px rgba(0,0,0,.25)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}><h3 style={{ margin: 0 }}>{entryDialog === "phase" ? "Nouvelle phase" : "Nouvelle dépense"}</h3><button type="button" className="sales-v21-btn" onClick={() => setEntryDialog(null)}>Fermer ×</button></div>
+          {entryDialog === "phase" ? <form style={{ display: "grid", gap: 14 }} onSubmit={addPhase}>
           <input
             required
             placeholder="Référence phase"
@@ -702,25 +727,9 @@ export function BtpProjectDetailPage() {
             }
           />
           <button className="sales-v21-btn sales-v21-btn-primary">
-            Ajouter la phase
+            Enregistrer la phase
           </button>
-        </form>
-      </BtpSection>
-      </div>
-      <div role="tabpanel" id="btp-detail-panel-expenses" aria-labelledby="btp-detail-tab-expenses" hidden={detailTab !== "expenses"}>
-      <BtpSection
-        title="Dépenses"
-        description="Les montants approuvés et payés alimentent le réalisé."
-      >
-        {project.expenses?.length ? (
-          <ExpenseTable rows={project.expenses} />
-        ) : (
-          <BtpEmptyState
-            title="Aucune dépense"
-            description="Enregistrez la première dépense du chantier."
-          />
-        )}
-        <form className="sales-v21-filter-bar" onSubmit={addExpense}>
+        </form> : <form style={{ display: "grid", gap: 14 }} onSubmit={addExpense}>
           <input
             type="date"
             required
@@ -783,9 +792,9 @@ export function BtpProjectDetailPage() {
           <button className="sales-v21-btn sales-v21-btn-primary">
             Ajouter
           </button>
-        </form>
-      </BtpSection>
-      </div>
+        </form>}
+        </div>
+      </div>}
     </BtpModulePage>
   );
 }
