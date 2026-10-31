@@ -439,39 +439,50 @@ function AttendanceBulkEditor({ employees, onCancel, onSaved, defaultMonth, defa
   }
 
   async function saveBulk(validateAfterSave = false) {
-    if (invalidRows) return;
+    if (invalidRows || submitting) return;
     setSubmitting(true);
-    const payload = {
-      month: Number(month),
-      year: Number(year),
-      working_days: Number(workingDays),
-      department: department || undefined,
-      rows: rows.map((row) => ({
-        employee_id: row.employee_id,
-        month: Number(month),
-        year: Number(year),
-        working_days: Number(workingDays),
-        present_days: row.present_days,
-        paid_leave_days: row.paid_leave_days,
-        sick_days: row.sick_days,
-        unjustified_absence_days: row.unjustified_absence_days,
-        late_count: row.late_count ?? 0,
-        overtime_hours: row.overtime_hours ?? 0,
-        observations: row.observations ?? '',
-        status: row.locked ? 'VALIDATED' : 'DRAFT',
-      })),
-    };
-    await api.post('/employee-attendance/bulk', payload);
-    if (validateAfterSave) {
-      await api.post('/employee-attendance/validate-month', {
-        month: Number(month),
-        year: Number(year),
-        department: department || undefined,
-        employee_ids: rows.map((row) => row.employee_id),
-      });
+    try {
+      // Already validated entries are immutable: never send them to the bulk upsert.
+      const editableRows = rows.filter((row) => !row.locked && row.status !== 'VALIDATED');
+      if (editableRows.length) {
+        await api.post('/employee-attendance/bulk', {
+          month: Number(month),
+          year: Number(year),
+          working_days: Number(workingDays),
+          department: department || undefined,
+          rows: editableRows.map((row) => ({
+            employee_id: row.employee_id,
+            month: Number(month),
+            year: Number(year),
+            working_days: Number(workingDays),
+            present_days: row.present_days,
+            paid_leave_days: row.paid_leave_days,
+            sick_days: row.sick_days,
+            unjustified_absence_days: row.unjustified_absence_days,
+            late_count: row.late_count ?? 0,
+            overtime_hours: row.overtime_hours ?? 0,
+            observations: row.observations ?? '',
+            status: 'DRAFT',
+          })),
+        });
+      }
+      if (validateAfterSave && editableRows.length) {
+        await api.post('/employee-attendance/validate-month', {
+          month: Number(month),
+          year: Number(year),
+          department: department || undefined,
+          employee_ids: editableRows.map((row) => row.employee_id),
+        });
+      }
+      await onSaved(validateAfterSave
+        ? 'Pointage mensuel collectif validé.'
+        : 'Pointage mensuel collectif enregistré.');
+    } catch (error) {
+      // Keep the editor open so the user can retry without losing their entries.
+      window.alert(error instanceof Error ? error.message : 'Impossible d’enregistrer le pointage. Réessayez.');
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
-    await onSaved(validateAfterSave ? 'Pointage mensuel collectif validé.' : 'Pointage mensuel collectif enregistré.');
   }
 
   const content = <div className="stock-purchase-modal">
