@@ -1,0 +1,101 @@
+import { jsPDF } from 'jspdf';
+
+export type PayrollBulletin = {
+  id: number;
+  employee_id: number;
+  employee_name: string;
+  employee_number?: string;
+  department?: string;
+  job_title?: string;
+  month: number;
+  year: number;
+  gross_salary: number;
+  daily_salary?: number;
+  working_days?: number;
+  present_days?: number;
+  paid_leave_days?: number;
+  sick_days?: number;
+  unjustified_absence_days?: number;
+  overtime_hours?: number;
+  advances_total?: number;
+  deductions_total?: number;
+  absence_deduction?: number;
+  bonus_amount?: number;
+  net_salary: number;
+  status: string;
+};
+
+const amount = (value: number | undefined) => new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value ?? 0));
+const clean = (value: string | undefined) => (value || '—').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, ' ');
+
+export function exportPayrollBulletinsPdf(rows: PayrollBulletin[], month: string, year: number) {
+  if (!rows.length) return;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  rows.forEach((p, index) => {
+    if (index) doc.addPage();
+    const line = (y: number) => doc.line(12, y, 198, y);
+    const cell = (label: string, value: string, y: number, x = 14) => {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+      doc.text(clean(label), x, y);
+      doc.setFont('helvetica', 'bold');
+      doc.text(clean(value), x + 39, y);
+    };
+    doc.setDrawColor(65);
+    doc.setLineWidth(0.25);
+    doc.rect(73, 11, 64, 9);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text('BULLETIN DE PAIE', 105, 17, { align: 'center' });
+    cell('SOCIETE', 'NG PROPERTY', 30, 112);
+    cell('PERIODE', month + ' ' + year, 37, 112);
+    cell('MATRICULE', p.employee_number || String(p.employee_id), 30);
+    cell('EMPLOYE', p.employee_name, 37);
+    cell('SERVICE', p.department || '—', 44);
+    cell('FONCTION', p.job_title || '—', 51);
+    cell('STATUT', p.status, 58);
+    line(65);
+    doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+    doc.text('DESIGNATION', 15, 72); doc.text('Q', 98, 72);
+    doc.text('PU', 119, 72); doc.text('A PAYER', 153, 72, { align: 'right' });
+    doc.text('A RETENIR', 195, 72, { align: 'right' });
+    line(75);
+    doc.line(91, 65, 91, 234); doc.line(109, 65, 109, 234);
+    doc.line(130, 65, 130, 234); doc.line(163, 65, 163, 234);
+    const entries: Array<[string, string, string, number, number]> = [];
+    const gross = Number(p.gross_salary || 0);
+    const bonus = Number(p.bonus_amount || 0);
+    const advance = Number(p.advances_total || 0);
+    const deduction = Number(p.deductions_total || 0);
+    entries.push(['SALAIRE MENSUEL', String(p.present_days ?? p.working_days ?? '—'), amount(p.daily_salary), gross, 0]);
+    if (bonus) entries.push(['PRIMES', '', '', bonus, 0]);
+    if (Number(p.absence_deduction || 0)) entries.push(['RETENUE ABSENCES', '', '', 0, Number(p.absence_deduction)]);
+    if (advance) entries.push(['AVANCES SUR SALAIRE', '', '', 0, advance]);
+    const other = deduction - Number(p.absence_deduction || 0);
+    if (Math.abs(other) > 0.005) entries.push(['AUTRES RETENUES', '', '', 0, other]);
+    const earnings = gross + bonus;
+    const totalWithholdings = earnings - Number(p.net_salary || 0);
+    const listedWithholdings = entries.reduce((sum, e) => sum + e[4], 0);
+    const difference = totalWithholdings - listedWithholdings;
+    if (Math.abs(difference) > 0.005) entries.push(['AJUSTEMENT NET', '', '', difference < 0 ? -difference : 0, difference > 0 ? difference : 0]);
+    doc.setFontSize(8);
+    entries.forEach((entry, n) => {
+      const y = 83 + n * 10;
+      doc.setFont('helvetica', 'normal');
+      doc.text(clean(entry[0]), 15, y);
+      if (entry[1]) doc.text(entry[1], 100, y, { align: 'center' });
+      if (entry[2]) doc.text(entry[2], 127, y, { align: 'right' });
+      if (entry[3]) doc.text(amount(entry[3]), 159, y, { align: 'right' });
+      if (entry[4]) doc.text(amount(entry[4]), 195, y, { align: 'right' });
+    });
+    line(234); line(245);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.text('NET A PAYER (A-B)', 15, 241);
+    doc.text(amount(p.net_salary) + ' USD', 87, 241, { align: 'right' });
+    doc.text('(A) ' + amount(earnings), 159, 241, { align: 'right' });
+    doc.text('(B) ' + amount(totalWithholdings), 195, 241, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
+    doc.text('Document genere a partir des donnees de paie enregistrees dans NG Property.', 105, 254, { align: 'center' });
+    doc.text('Les cotisations et taxes non detaillees dans le systeme ne sont pas estimees.', 105, 259, { align: 'center' });
+    doc.text('Page ' + (index + 1) + ' / ' + rows.length, 195, 285, { align: 'right' });
+  });
+  doc.save('Bulletins_paie_' + month.normalize('NFD').replace(/[\u0300-\u036f]/g, '') + '_' + year + '.pdf');
+}

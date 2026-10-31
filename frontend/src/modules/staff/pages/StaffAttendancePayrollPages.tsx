@@ -1,4 +1,4 @@
-import { ArrowLeft, Eye, FileSpreadsheet, Plus, Printer, RotateCcw, WalletCards } from 'lucide-react';
+import { ArrowLeft, Eye, FileDown, FileSpreadsheet, Plus, Printer, RotateCcw, WalletCards } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { api, exportXlsxWorkbook, includesText, money } from '../../../api';
 import { useAuth } from '../../../auth';
@@ -6,6 +6,7 @@ import { EmptyState, LoadingState, Modal, PageHeader, SuccessMessage } from '../
 import { useApiList } from '../../../hooks';
 import { StaffNav } from '../StaffNav';
 import { useNavigate, useParams } from 'react-router-dom';
+import { exportPayrollBulletinsPdf } from './payrollBulletinsPdf';
 
 type Employee = {
   id: number;
@@ -291,6 +292,7 @@ export function PayrollPage() {
       <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Statut</option><option value="DRAFT">Brouillon</option><option value="VALIDATED">Validée</option><option value="PAID">Payée</option></select>
       <select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Employé</option>{employees.data.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)}</option>)}</select>
       <button className="secondary" onClick={() => { setQuery(''); setMonth(String(new Date().getMonth() + 1)); setYear(String(new Date().getFullYear())); setDepartment(''); setStatus(''); setEmployeeId(''); }}><RotateCcw size={15} />Réinitialiser</button>
+      <button className="secondary" disabled={loading || filtered.length === 0} onClick={() => exportPayrollBulletinsPdf(filtered, monthLabel(Number(month)), Number(year))}><FileDown size={15} />PDF - fiches du mois</button>
       <button className="secondary" onClick={() => exportXlsxWorkbook('RH_Paie_Mensuelle.xlsx', payrollWorkbook(filtered))}><FileSpreadsheet size={15} />Excel</button>
     </div>
     {loading ? <LoadingState /> : <div className="table-wrap">
@@ -628,6 +630,7 @@ export function PayrollDetailPage() {
     {message && <SuccessMessage message={message} />}
     <div className="actions-row">
       <button className="secondary" onClick={() => navigate('/personnel/payroll')}><ArrowLeft size={16} />Retour</button>
+      <button className="secondary" onClick={() => exportPayrollBulletinsPdf([payroll], monthLabel(payroll.month), payroll.year)}><FileDown size={15} />PDF</button>
       <button className="secondary" onClick={() => window.print()}><Printer size={15} />Imprimer</button>
       <button className="secondary" onClick={() => exportXlsxWorkbook(`Paie_${employeeCode(payroll.employee_number, payroll.employee_id)}_${payroll.month}_${payroll.year}.xlsx`, payrollWorkbook([payroll]))}><FileSpreadsheet size={15} />Excel</button>
       {payroll.status !== 'PAID' && <button onClick={() => void pay()}><WalletCards size={15} />Marquer payée</button>}
