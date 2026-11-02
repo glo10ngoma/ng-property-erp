@@ -634,6 +634,7 @@ export function BtpProjectDetailPage() {
       <BtpSection
         title="Phases du chantier"
         description="Découpage opérationnel et budgétaire."
+        action={<button type="button" className="sales-v21-btn sales-v21-btn-primary" onClick={() => setEntryDialog("phase")}>+ Nouvelle phase</button>}
       >
         {project.phases?.length ? (
           <BtpDataTable
@@ -681,13 +682,13 @@ export function BtpProjectDetailPage() {
             description="Ajoutez les lots ou étapes du chantier."
           />
         )}
-        <button type="button" className="sales-v21-btn sales-v21-btn-primary" onClick={() => setEntryDialog("phase")}>+ Nouvelle phase</button>
       </BtpSection>
       </div>
       <div role="tabpanel" id="btp-detail-panel-expenses" aria-labelledby="btp-detail-tab-expenses" hidden={detailTab !== "expenses"}>
       <BtpSection
         title="Dépenses"
         description="Les montants approuvés et payés alimentent le réalisé."
+        action={<button type="button" className="sales-v21-btn sales-v21-btn-primary" onClick={() => setEntryDialog("expense")}>+ Nouvelle dépense</button>}
       >
         {project.expenses?.length ? (
           <ExpenseTable rows={project.expenses} />
@@ -697,7 +698,6 @@ export function BtpProjectDetailPage() {
             description="Enregistrez la première dépense du chantier."
           />
         )}
-        <button type="button" className="sales-v21-btn sales-v21-btn-primary" onClick={() => setEntryDialog("expense")}>+ Nouvelle dépense</button>
       </BtpSection>
       </div>
       {entryDialog && <div role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setEntryDialog(null); }} style={{ position: "fixed", inset: 0, background: "rgba(10,25,45,.55)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
