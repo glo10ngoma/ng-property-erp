@@ -7,6 +7,8 @@ import { DatabaseService } from "../database/database.service";
 import { RequestContext } from "../auth/request-context";
 import {
   BtpListQueryDto,
+  CreateBtpDqeLineDto,
+  CreateBtpScheduleTaskDto,
   CreateBtpExpenseDto,
   CreateBtpPhaseDto,
   CreateBtpProjectDto,
@@ -312,4 +314,33 @@ export class BtpService {
     );
     return rows[0];
   }
+  async listDqe(projectId:number) {
+    await this.getProject(projectId);
+    const r=await this.db.query(`SELECT d.*, (d.quantity*d.unit_price)::FLOAT AS total, ph.name AS phase_name FROM btp_dqe_lines d LEFT JOIN btp_phases ph ON ph.id=d.phase_id AND ph.organization_id=d.organization_id WHERE d.organization_id=$1 AND d.project_id=$2 AND d.deleted_at IS NULL ORDER BY d.item_code,d.id`,[this.context.organizationId(),projectId]);
+    return {items:r.rows,total:r.rows.length};
+  }
+  async createDqe(dto:CreateBtpDqeLineDto) {
+    const project:any=await this.getProject(dto.project_id);
+    if(dto.currency!==project.currency) throw new BadRequestException("La devise doit correspondre à celle du chantier.");
+    if(dto.phase_id && !project.phases.some((p:any)=>Number(p.id)===dto.phase_id)) throw new BadRequestException("Phase invalide pour ce chantier.");
+    const r=await this.db.query(`INSERT INTO btp_dqe_lines(organization_id,project_id,phase_id,item_code,designation,unit,quantity,unit_price,currency,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,[this.context.organizationId(),dto.project_id,dto.phase_id??null,dto.item_code,dto.designation,dto.unit,dto.quantity,dto.unit_price,dto.currency,this.context.userId()]);
+    return r.rows[0];
+  }
+  async listSchedule(projectId:number) {
+    await this.getProject(projectId);
+    const r=await this.db.query(`SELECT t.*,ph.name AS phase_name FROM btp_schedule_tasks t LEFT JOIN btp_phases ph ON ph.id=t.phase_id AND ph.organization_id=t.organization_id WHERE t.organization_id=$1 AND t.project_id=$2 AND t.deleted_at IS NULL ORDER BY t.start_date,t.id`,[this.context.organizationId(),projectId]);
+    return {items:r.rows,total:r.rows.length};
+  }
+  async createSchedule(dto:CreateBtpScheduleTaskDto) {
+    const project:any=await this.getProject(dto.project_id);
+    if(dto.end_date<dto.start_date) throw new BadRequestException("La date de fin doit être postérieure au début.");
+    if(dto.phase_id && !project.phases.some((p:any)=>Number(p.id)===dto.phase_id)) throw new BadRequestException("Phase invalide pour ce chantier.");
+    if(dto.predecessor_id) {
+      const r=await this.db.query("SELECT id FROM btp_schedule_tasks WHERE id=$1 AND organization_id=$2 AND project_id=$3 AND deleted_at IS NULL",[dto.predecessor_id,this.context.organizationId(),dto.project_id]);
+      if(!r.rows.length) throw new BadRequestException("Tâche précédente invalide.");
+    }
+    const r=await this.db.query(`INSERT INTO btp_schedule_tasks(organization_id,project_id,phase_id,task_code,title,assignee,start_date,end_date,status,progress_percent,predecessor_id,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,[this.context.organizationId(),dto.project_id,dto.phase_id??null,dto.task_code,dto.title,dto.assignee??null,dto.start_date,dto.end_date,dto.status??"NOT_STARTED",dto.progress_percent??0,dto.predecessor_id??null,this.context.userId()]);
+    return r.rows[0];
+  }
+
 }

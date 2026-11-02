@@ -57,3 +57,8 @@ export const createBtpWorkspace = async (
 ) => (await api.post<BtpOperationalRecord>(`/btp/${endpoint}`, payload)).data;
 export const getBtpReports = async (params: Record<string, unknown> = {}) =>
   (await api.get<BtpList<BtpReportRow>>("/btp/reports", { params })).data;
+
+export const listBtpDqe = async (id:number) => (await api.get<{items:any[]}>(`/btp/projects/${id}/dqe`)).data;
+export const createBtpDqe = async (payload:Record<string,unknown>) => (await api.post("/btp/dqe",payload)).data;
+export const listBtpSchedule = async (id:number) => (await api.get<{items:any[]}>(`/btp/projects/${id}/schedule`)).data;
+export const createBtpSchedule = async (payload:Record<string,unknown>) => (await api.post("/btp/schedule",payload)).data;

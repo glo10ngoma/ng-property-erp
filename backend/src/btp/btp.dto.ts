@@ -105,3 +105,26 @@ export class CreateBtpExpenseDto {
 }
 
 export class UpdateBtpExpenseDto extends PartialType(CreateBtpExpenseDto) {}
+
+export class CreateBtpDqeLineDto {
+ @Type(() => Number) @IsInt() @IsPositive() project_id!: number;
+ @Type(() => Number) @IsInt() @IsPositive() @IsOptional() phase_id?: number;
+ @trim() @IsString() @MaxLength(60) item_code!: string;
+ @trim() @IsString() designation!: string;
+ @trim() @IsString() @MaxLength(30) unit!: string;
+ @Type(() => Number) @IsNumber() @IsPositive() quantity!: number;
+ @Type(() => Number) @IsNumber() @Min(0) unit_price!: number;
+ @IsIn(["USD","CDF"]) currency!: string;
+}
+export class CreateBtpScheduleTaskDto {
+ @Type(() => Number) @IsInt() @IsPositive() project_id!: number;
+ @Type(() => Number) @IsInt() @IsPositive() @IsOptional() phase_id?: number;
+ @trim() @IsString() @MaxLength(60) task_code!: string;
+ @trim() @IsString() @MaxLength(220) title!: string;
+ @trim() @IsString() @MaxLength(180) @IsOptional() assignee?: string;
+ @IsDateString() start_date!: string;
+ @IsDateString() end_date!: string;
+ @IsIn(["NOT_STARTED","IN_PROGRESS","BLOCKED","COMPLETED"]) @IsOptional() status?: string;
+ @Type(() => Number) @IsNumber() @Min(0) @Max(100) @IsOptional() progress_percent?: number;
+ @Type(() => Number) @IsInt() @IsPositive() @IsOptional() predecessor_id?: number;
+}

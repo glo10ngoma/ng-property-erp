@@ -2,6 +2,10 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   createBtpExpense,
+  createBtpDqe,
+  createBtpSchedule,
+  listBtpDqe,
+  listBtpSchedule,
   createBtpPhase,
   createBtpProject,
   getBtpDashboard,
@@ -480,8 +484,12 @@ export function BtpProjectDetailPage() {
   const { id } = useParams();
   const [project, setProject] = useState<BtpProject | null>(null);
   const [error, setError] = useState("");
-  const [detailTab, setDetailTab] = useState<"info" | "phases" | "expenses">("info");
-  const [entryDialog, setEntryDialog] = useState<"phase" | "expense" | null>(null);
+  const [detailTab, setDetailTab] = useState<"info" | "phases" | "expenses" | "dqe" | "planning">("info");
+  const [entryDialog, setEntryDialog] = useState<"phase" | "expense" | "dqe" | "planning" | null>(null);
+  const [dqeRows,setDqeRows] = useState<any[]>([]);
+  const [taskRows,setTaskRows] = useState<any[]>([]);
+  const [dqe,setDqe] = useState({item_code:"",designation:"",unit:"m³",quantity:"1",unit_price:"0",phase_id:""});
+  const [task,setTask] = useState({task_code:"",title:"",assignee:"",start_date:todayInKinshasa(),end_date:todayInKinshasa(),phase_id:"",status:"NOT_STARTED",progress_percent:"0",predecessor_id:""});
   const [phase, setPhase] = useState({
     phase_ref: "",
     name: "",
@@ -498,7 +506,7 @@ export function BtpProjectDetailPage() {
   const load = () => {
     if (!id) return Promise.resolve();
     return getBtpProject(Number(id))
-      .then(setProject)
+      .then((p) => { setProject(p); return Promise.all([listBtpDqe(Number(id)),listBtpSchedule(Number(id))]).then(([d,t])=>{setDqeRows(d.items);setTaskRows(t.items);}); })
       .catch((e) => setError(err(e)));
   };
   useEffect(() => {
@@ -538,6 +546,16 @@ export function BtpProjectDetailPage() {
     } catch (e) {
       setError(err(e));
     }
+  };
+  const addDqe = async (e:FormEvent) => {
+    e.preventDefault();
+    try { await createBtpDqe({project_id:Number(id),phase_id:dqe.phase_id?Number(dqe.phase_id):undefined,item_code:dqe.item_code,designation:dqe.designation,unit:dqe.unit,quantity:Number(dqe.quantity),unit_price:Number(dqe.unit_price),currency:project?.currency}); setEntryDialog(null); setDqe({...dqe,item_code:"",designation:""}); void load(); }
+    catch(e){setError(err(e));}
+  };
+  const addTask = async (e:FormEvent) => {
+    e.preventDefault();
+    try { await createBtpSchedule({project_id:Number(id),phase_id:task.phase_id?Number(task.phase_id):undefined,predecessor_id:task.predecessor_id?Number(task.predecessor_id):undefined,task_code:task.task_code,title:task.title,assignee:task.assignee,start_date:task.start_date,end_date:task.end_date,status:task.status,progress_percent:Number(task.progress_percent)});setEntryDialog(null);setTask({...task,task_code:"",title:""});void load();}
+    catch(e){setError(err(e));}
   };
   if (!project)
     return (
@@ -592,11 +610,13 @@ export function BtpProjectDetailPage() {
           )}
         />
       </BtpKpiGrid>
-      <div role="tablist" aria-label="Sections du détail chantier" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 16, width: "100%" }}>
+      <div role="tablist" aria-label="Sections du détail chantier" style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 8, marginBottom: 16, width: "100%" }}>
         {([
           ["info", "Informations"],
           ["phases", "Phases du chantier"],
           ["expenses", "Dépenses"],
+          ["dqe", "DQE"],
+          ["planning", "Planning"],
         ] as const).map(([key, label]) => (
           <button
             key={key}
@@ -700,10 +720,43 @@ export function BtpProjectDetailPage() {
         )}
       </BtpSection>
       </div>
+
+      <div role="tabpanel" hidden={detailTab!=="dqe"}>
+        <BtpSection title="Devis quantitatif et estimatif (DQE)" description="Quantités et prix unitaires par ouvrage. Le total ne modifie pas automatiquement le budget validé." action={<button type="button" className="sales-v21-btn sales-v21-btn-primary" onClick={()=>setEntryDialog("dqe")}>+ Nouvelle ligne DQE</button>}>
+          <div className="sales-v21-table-wrap"><table className="sales-v21-table"><thead><tr><th>Code</th><th>Ouvrage</th><th>Phase</th><th>Qté</th><th>Unité</th><th>PU</th><th>Total</th></tr></thead><tbody>
+          {dqeRows.map((r)=><tr key={r.id}><td>{r.item_code}</td><td>{r.designation}</td><td>{r.phase_name||"—"}</td><td>{r.quantity}</td><td>{r.unit}</td><td>{money(r.unit_price,r.currency)}</td><td>{money(r.total,r.currency)}</td></tr>)}
+          </tbody></table></div>
+          <strong>Total DQE : {money(dqeRows.reduce((sum,r)=>sum+Number(r.total||0),0),project.currency)}</strong>
+        </BtpSection>
+      </div>
+      <div role="tabpanel" hidden={detailTab!=="planning"}>
+        <BtpSection title="Planning du chantier" description="Tâches, jalons et suivi de l'avancement." action={<button type="button" className="sales-v21-btn sales-v21-btn-primary" onClick={()=>setEntryDialog("planning")}>+ Nouvelle tâche</button>}>
+          <div className="sales-v21-table-wrap"><table className="sales-v21-table"><thead><tr><th>Code</th><th>Tâche</th><th>Phase</th><th>Responsable</th><th>Début</th><th>Fin</th><th>Statut</th><th>Avancement</th></tr></thead><tbody>
+          {taskRows.map((r)=><tr key={r.id}><td>{r.task_code}</td><td>{r.title}</td><td>{r.phase_name||"—"}</td><td>{r.assignee||"—"}</td><td>{date(r.start_date)}</td><td>{date(r.end_date)}</td><td>{r.status}</td><td>{r.progress_percent}%</td></tr>)}
+          </tbody></table></div>
+        </BtpSection>
+      </div>
       {entryDialog && <div role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setEntryDialog(null); }} style={{ position: "fixed", inset: 0, background: "rgba(10,25,45,.55)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-        <div role="dialog" aria-modal="true" aria-label={entryDialog === "phase" ? "Nouvelle phase" : "Nouvelle dépense"} style={{ background: "#fff", color: "#142b45", borderRadius: 14, padding: 24, width: "min(100%, 640px)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 70px rgba(0,0,0,.25)" }}>
+        <div role="dialog" aria-modal="true" aria-label={entryDialog === "phase" ? "Nouvelle phase" : entryDialog === "expense" ? "Nouvelle dépense" : entryDialog === "dqe" ? "Nouvelle ligne DQE" : "Nouvelle tâche"} style={{ background: "#fff", color: "#142b45", borderRadius: 14, padding: 24, width: "min(100%, 640px)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 70px rgba(0,0,0,.25)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}><h3 style={{ margin: 0 }}>{entryDialog === "phase" ? "Nouvelle phase" : "Nouvelle dépense"}</h3><button type="button" className="sales-v21-btn" onClick={() => setEntryDialog(null)}>Fermer ×</button></div>
-          {entryDialog === "phase" ? <form style={{ display: "grid", gap: 14 }} onSubmit={addPhase}>
+          {entryDialog === "dqe" ? <form onSubmit={addDqe} style={{display:"grid",gap:12}}>
+            <label>Code ouvrage<input required maxLength={60} value={dqe.item_code} onChange={e=>setDqe({...dqe,item_code:e.target.value})}/></label>
+            <label>Désignation<input required value={dqe.designation} onChange={e=>setDqe({...dqe,designation:e.target.value})}/></label>
+            <label>Phase<select value={dqe.phase_id} onChange={e=>setDqe({...dqe,phase_id:e.target.value})}><option value="">Sans phase</option>{project.phases?.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+            <label>Unité<input required value={dqe.unit} onChange={e=>setDqe({...dqe,unit:e.target.value})}/></label>
+            <label>Quantité<input type="number" min="0.001" step="0.001" required value={dqe.quantity} onChange={e=>setDqe({...dqe,quantity:e.target.value})}/></label>
+            <label>Prix unitaire ({project.currency})<input type="number" min="0" step="0.01" required value={dqe.unit_price} onChange={e=>setDqe({...dqe,unit_price:e.target.value})}/></label>
+            <button className="sales-v21-btn sales-v21-btn-primary">Enregistrer</button>
+          </form> : entryDialog === "planning" ? <form onSubmit={addTask} style={{display:"grid",gap:12}}>
+            <label>Code tâche<input required value={task.task_code} onChange={e=>setTask({...task,task_code:e.target.value})}/></label>
+            <label>Tâche<input required value={task.title} onChange={e=>setTask({...task,title:e.target.value})}/></label>
+            <label>Phase<select value={task.phase_id} onChange={e=>setTask({...task,phase_id:e.target.value})}><option value="">Sans phase</option>{project.phases?.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+            <label>Responsable<input value={task.assignee} onChange={e=>setTask({...task,assignee:e.target.value})}/></label>
+            <label>Début<input type="date" required value={task.start_date} onChange={e=>setTask({...task,start_date:e.target.value})}/></label>
+            <label>Fin<input type="date" min={task.start_date} required value={task.end_date} onChange={e=>setTask({...task,end_date:e.target.value})}/></label>
+            <label>Précédent<select value={task.predecessor_id} onChange={e=>setTask({...task,predecessor_id:e.target.value})}><option value="">Aucun</option>{taskRows.map(t=><option key={t.id} value={t.id}>{t.title}</option>)}</select></label>
+            <button className="sales-v21-btn sales-v21-btn-primary">Enregistrer</button>
+          </form> : {entryDialog === "phase" ? <form style={{ display: "grid", gap: 14 }} onSubmit={addPhase}>
           <input
             required
             placeholder="Référence phase"

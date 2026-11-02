@@ -11,6 +11,8 @@ import {
 import { RequireOrganizationModule } from "../sales/sales-module.decorator";
 import {
   BtpListQueryDto,
+  CreateBtpDqeLineDto,
+  CreateBtpScheduleTaskDto,
   CreateBtpExpenseDto,
   CreateBtpPhaseDto,
   CreateBtpProjectDto,
@@ -24,6 +26,10 @@ import { BtpService } from "./btp.service";
 @RequireOrganizationModule("BTP")
 export class BtpController {
   constructor(private readonly btp: BtpService) {}
+  @Get("projects/:id/dqe") listDqe(@Param("id",ParseIntPipe) id:number) { return this.btp.listDqe(id); }
+  @Post("dqe") createDqe(@Body() dto:CreateBtpDqeLineDto) { return this.btp.createDqe(dto); }
+  @Get("projects/:id/schedule") listSchedule(@Param("id",ParseIntPipe) id:number) { return this.btp.listSchedule(id); }
+  @Post("schedule") createSchedule(@Body() dto:CreateBtpScheduleTaskDto) { return this.btp.createSchedule(dto); }
   @Get("dashboard") dashboard() {
     return this.btp.dashboard();
   }
