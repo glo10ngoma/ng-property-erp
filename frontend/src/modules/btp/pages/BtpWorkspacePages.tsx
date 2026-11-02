@@ -128,6 +128,27 @@ function RecordsTable({
   );
 }
 
+function EntryDialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      style={{ position: "fixed", inset: 0, zIndex: 2000, background: "rgba(10,25,45,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div role="dialog" aria-modal="true" aria-label={title}
+        style={{ background: "#fff", color: "#142b45", borderRadius: 14, padding: 24, width: "min(100%, 740px)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 70px rgba(0,0,0,.25)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18 }}>
+          <h2 style={{ margin: 0 }}>{title}</h2>
+          <button type="button" className="sales-v21-btn" onClick={onClose}>Fermer ×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function WorkspacePage({
   tab,
   title,
@@ -163,6 +184,7 @@ function WorkspacePage({
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
   const [saving, setSaving] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const load = useCallback(
     () =>
       listBtpWorkspace(endpoint)
@@ -193,6 +215,7 @@ function WorkspacePage({
           payload[k] = Number(payload[k]);
       await createBtpWorkspace(endpoint, payload);
       setOk("Enregistrement effectué.");
+      setDialogOpen(false);
       setForm((s) => ({
         project_id: "",
         currency: s.currency || "USD",
@@ -209,7 +232,16 @@ function WorkspacePage({
   };
   return (
     <BtpModulePage title={title} subtitle={subtitle} activeTab={tab}>
-      <BtpFormSection title={`Nouvelle écriture — ${title}`}>
+      {error ? <BtpNotice tone="danger">{error}</BtpNotice> : null}
+      {ok ? <BtpNotice tone="success">{ok}</BtpNotice> : null}
+      <BtpSection
+        title={title}
+        description={`${rows.length} élément(s) enregistré(s).`}
+        action={<button type="button" className="sales-v21-btn sales-v21-btn-primary" onClick={() => setDialogOpen(true)}>+ Nouvelle écriture — {title}</button>}
+      >
+        <RecordsTable rows={rows} columns={columns} />
+      </BtpSection>
+      {dialogOpen && <EntryDialog title={`Nouvelle écriture — ${title}`} onClose={() => { if (!saving) setDialogOpen(false); }}>
         <form onSubmit={submit}>
           <div className="sales-v21-form-grid">
             {fields({ form, set, projects })}
@@ -223,15 +255,7 @@ function WorkspacePage({
             </button>
           </BtpFormActions>
         </form>
-      </BtpFormSection>
-      {error ? <BtpNotice tone="danger">{error}</BtpNotice> : null}
-      {ok ? <BtpNotice tone="success">{ok}</BtpNotice> : null}
-      <BtpSection
-        title={title}
-        description={`${rows.length} élément(s) enregistré(s).`}
-      >
-        <RecordsTable rows={rows} columns={columns} />
-      </BtpSection>
+      </EntryDialog>}
     </BtpModulePage>
   );
 }
@@ -656,6 +680,8 @@ function FinanceBlock({
     transaction_date: today(),
   });
   const [notice, setNotice] = useState("");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const load = useCallback(
     () => listBtpWorkspace(endpoint).then((r) => setRows(r.items)),
     [endpoint],
@@ -666,6 +692,8 @@ function FinanceBlock({
   const set = (k: string, v: string) => setForm((s) => ({ ...s, [k]: v }));
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (saving) return;
+    setSaving(true);
     try {
       const payload: Record<string, unknown> = {
         ...form,
@@ -675,14 +703,18 @@ function FinanceBlock({
         if (form[k]) payload[k] = Number(form[k]);
       await createBtpWorkspace(endpoint, payload);
       setNotice("Enregistrement effectué.");
+      setDialogOpen(false);
       setForm({ project_id: "", currency: "USD", transaction_date: today() });
       await load();
     } catch (x) {
       setNotice(message(x));
+    } finally {
+      setSaving(false);
     }
   };
   return (
-    <BtpSection title={title}>
+    <BtpSection title={title} action={<button type="button" className="sales-v21-btn sales-v21-btn-primary" onClick={() => setDialogOpen(true)}>+ {type === "contract" ? "Nouveau contrat client" : "Nouvelle facture / encaissement"}</button>}>
+      {dialogOpen && <EntryDialog title={type === "contract" ? "Nouveau contrat client" : "Nouvelle facture / encaissement"} onClose={() => { if (!saving) setDialogOpen(false); }}>
       <form onSubmit={submit}>
         <div className="sales-v21-form-grid">
           {projectField({ form, set, projects })}
@@ -756,11 +788,12 @@ function FinanceBlock({
           {currencyField(form, set)}
         </div>
         <BtpFormActions>
-          <button className="sales-v21-btn sales-v21-btn-primary">
-            Enregistrer
+          <button className="sales-v21-btn sales-v21-btn-primary" disabled={saving}>
+            {saving ? "Enregistrement…" : "Enregistrer"}
           </button>
         </BtpFormActions>
       </form>
+      </EntryDialog>}
       {notice ? (
         <BtpNotice tone={notice.includes("effectué") ? "success" : "danger"}>
           {notice}
