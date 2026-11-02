@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import "../../sales/sales.css";
+import "../btp.css";
 export {
   SalesDataTable as BtpDataTable,
   SalesEmptyState as BtpEmptyState,
@@ -50,7 +51,7 @@ export function BtpModulePage({
     { key: "expenses", label: "Dépenses", to: "/btp/expenses" },
   ] as const;
   return (
-    <div className="sales-v21-page">
+    <div className="sales-v21-page btp-ui">
       <div className="sales-v21-shell">
         <header className="sales-v21-header">
           <div>

@@ -1,0 +1,53 @@
+/* BTP visual system — scoped to avoid altering the Sales module. */
+.btp-ui { --btp-ink: #18304f; --btp-muted: #63758c; --btp-border: #e2e9f2; background: #f5f8fc; color: var(--btp-ink); }
+.btp-ui .sales-v21-shell { max-width: 1600px; padding: 22px clamp(14px, 2.2vw, 32px) 48px; }
+.btp-ui .sales-v21-header { align-items: center; margin-bottom: 20px; }
+.btp-ui .sales-v21-header h1 { font-size: clamp(1.45rem, 2vw, 1.95rem); line-height: 1.2; letter-spacing: -.025em; }
+.btp-ui .sales-v21-header p { line-height: 1.5; }
+.btp-ui .sales-v21-nav { flex-wrap: nowrap; overflow-x: auto; gap: 5px; padding: 5px; border: 1px solid var(--btp-border); background: #fff; border-radius: 14px; scrollbar-width: thin; }
+.btp-ui .sales-v21-nav-link { flex: 0 0 auto; border: 0; border-radius: 9px; padding: 0 13px; min-height: 39px; font-size: .88rem; white-space: nowrap; }
+.btp-ui .sales-v21-nav-link.is-active { background: #eaf2ff; box-shadow: inset 0 0 0 1px #b8d3fb; }
+.btp-ui .sales-v21-content { gap: 16px; min-width: 0; }
+.btp-ui .sales-v21-section { min-width: 0; padding: clamp(14px, 1.5vw, 22px); gap: 16px; border-color: var(--btp-border); border-radius: 15px; box-shadow: 0 2px 10px rgba(25,48,80,.035); }
+.btp-ui .sales-v21-section-head { align-items: center; }
+.btp-ui .sales-v21-section-head h2 { font-size: 1.08rem; letter-spacing: -.01em; }
+.btp-ui .sales-v21-section-head p { font-size: .85rem; line-height: 1.45; }
+.btp-ui .sales-v21-section-head .sales-v21-btn { white-space: normal; text-align: center; max-width: 100%; }
+.btp-ui .sales-v21-kpi-grid { gap: 10px; }
+.btp-ui .sales-v21-kpi-card { min-height: 95px; padding: 15px; border-color: var(--btp-border); border-radius: 13px; box-shadow: 0 2px 10px rgba(25,48,80,.025); }
+.btp-ui .sales-v21-kpi-card strong { font-size: clamp(1.05rem, 1.45vw, 1.3rem); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.btp-ui .sales-v21-table-wrap { min-width: 0; max-width: 100%; border-color: var(--btp-border); border-radius: 11px; overflow-x: auto; }
+.btp-ui .sales-v21-table { min-width: 650px; width: 100%; table-layout: auto; }
+.btp-ui .sales-v21-table thead th { padding: 11px 12px; font-size: .72rem; white-space: nowrap; background: #f4f7fb; border-bottom-color: var(--btp-border); }
+.btp-ui .sales-v21-table tbody td { padding: 11px 12px; font-size: .86rem; line-height: 1.4; max-width: 290px; overflow-wrap: anywhere; }
+.btp-ui .sales-v21-table tbody tr:nth-child(even) { background: #fafcff; }
+.btp-ui .sales-v21-table tbody tr:hover { background: #f1f7ff; }
+.btp-ui .sales-v21-table tbody td:has(> strong) { font-weight: 600; }
+.btp-ui .sales-v21-info-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.btp-ui .sales-v21-info-item { min-width: 0; border: 1px solid var(--btp-border); border-radius: 10px; padding: 12px 14px; background: #fbfdff; }
+.btp-ui .sales-v21-info-item dt { font-size: .79rem; }
+.btp-ui .sales-v21-info-item dd { overflow-wrap: anywhere; }
+.btp-ui .sales-v21-btn { min-height: 38px; padding: 8px 13px; font-size: .87rem; line-height: 1.25; border-radius: 9px; }
+.btp-ui .sales-v21-form-grid { gap: 14px; }
+.btp-ui .sales-v21-field { min-width: 0; }
+.btp-ui .sales-v21-field input, .btp-ui .sales-v21-field select, .btp-ui .sales-v21-field textarea { max-width: 100%; }
+.btp-ui [role="tablist"] { min-width: 0; }
+.btp-ui [role="tabpanel"] { min-width: 0; }
+.btp-ui [role="dialog"] { border: 1px solid var(--btp-border); }
+.btp-ui [role="dialog"] .sales-v21-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.btp-ui [role="dialog"] input, .btp-ui [role="dialog"] select, .btp-ui [role="dialog"] textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+@media (max-width: 900px) {
+  .btp-ui .sales-v21-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .btp-ui .sales-v21-section-head { flex-direction: row; align-items: center; }
+}
+@media (max-width: 640px) {
+  .btp-ui .sales-v21-shell { padding: 14px 12px 30px; }
+  .btp-ui .sales-v21-header { align-items: flex-start; }
+  .btp-ui .sales-v21-section { padding: 13px; }
+  .btp-ui .sales-v21-section-head { flex-direction: column; align-items: stretch; gap: 10px; }
+  .btp-ui .sales-v21-section-head .sales-v21-btn { width: 100%; }
+  .btp-ui .sales-v21-info-list { grid-template-columns: 1fr; }
+  .btp-ui [role="dialog"] .sales-v21-form-grid { grid-template-columns: 1fr; }
+  .btp-ui .sales-v21-table { min-width: 620px; }
+  .btp-ui .sales-v21-kpi-card { min-height: 85px; padding: 11px; }
+}
