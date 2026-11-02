@@ -738,7 +738,7 @@ export function BtpProjectDetailPage() {
       </div>
       {entryDialog && <div role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setEntryDialog(null); }} style={{ position: "fixed", inset: 0, background: "rgba(10,25,45,.55)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
         <div role="dialog" aria-modal="true" aria-label={entryDialog === "phase" ? "Nouvelle phase" : entryDialog === "expense" ? "Nouvelle dépense" : entryDialog === "dqe" ? "Nouvelle ligne DQE" : "Nouvelle tâche"} style={{ background: "#fff", color: "#142b45", borderRadius: 14, padding: 24, width: "min(100%, 640px)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 70px rgba(0,0,0,.25)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}><h3 style={{ margin: 0 }}>{entryDialog === "phase" ? "Nouvelle phase" : "Nouvelle dépense"}</h3><button type="button" className="sales-v21-btn" onClick={() => setEntryDialog(null)}>Fermer ×</button></div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}><h3 style={{ margin: 0 }}>{entryDialog === "phase" ? "Nouvelle phase" : entryDialog === "expense" ? "Nouvelle dépense" : entryDialog === "dqe" ? "Nouvelle ligne DQE" : "Nouvelle tâche"}</h3><button type="button" className="sales-v21-btn" onClick={() => setEntryDialog(null)}>Fermer ×</button></div>
           {entryDialog === "dqe" ? <form onSubmit={addDqe} style={{display:"grid",gap:12}}>
             <label>Code ouvrage<input required maxLength={60} value={dqe.item_code} onChange={e=>setDqe({...dqe,item_code:e.target.value})}/></label>
             <label>Désignation<input required value={dqe.designation} onChange={e=>setDqe({...dqe,designation:e.target.value})}/></label>
@@ -756,7 +756,7 @@ export function BtpProjectDetailPage() {
             <label>Fin<input type="date" min={task.start_date} required value={task.end_date} onChange={e=>setTask({...task,end_date:e.target.value})}/></label>
             <label>Précédent<select value={task.predecessor_id} onChange={e=>setTask({...task,predecessor_id:e.target.value})}><option value="">Aucun</option>{taskRows.map(t=><option key={t.id} value={t.id}>{t.title}</option>)}</select></label>
             <button className="sales-v21-btn sales-v21-btn-primary">Enregistrer</button>
-          </form> : {entryDialog === "phase" ? <form style={{ display: "grid", gap: 14 }} onSubmit={addPhase}>
+          </form> : entryDialog === "phase" ? <form style={{ display: "grid", gap: 14 }} onSubmit={addPhase}>
           <input
             required
             placeholder="Référence phase"
