@@ -505,8 +505,20 @@ export function BtpProjectDetailPage() {
   });
   const load = () => {
     if (!id) return Promise.resolve();
+    setError("");
     return getBtpProject(Number(id))
-      .then((p) => { setProject(p); return Promise.all([listBtpDqe(Number(id)),listBtpSchedule(Number(id))]).then(([d,t])=>{setDqeRows(d.items);setTaskRows(t.items);}); })
+      .then(async (p) => {
+        setProject(p);
+        const [dqeResult, scheduleResult] = await Promise.allSettled([
+          listBtpDqe(Number(id)),
+          listBtpSchedule(Number(id)),
+        ]);
+        if (dqeResult.status === "fulfilled") setDqeRows(dqeResult.value.items);
+        if (scheduleResult.status === "fulfilled") setTaskRows(scheduleResult.value.items);
+        if (dqeResult.status === "rejected" || scheduleResult.status === "rejected") {
+          setError("Certaines données DQE ou Planning n'ont pas pu être chargées. Les informations du chantier restent accessibles.");
+        }
+      })
       .catch((e) => setError(err(e)));
   };
   useEffect(() => {
