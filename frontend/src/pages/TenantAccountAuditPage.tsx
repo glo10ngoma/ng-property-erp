@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download, RefreshCw } from 'lucide-react';
-import { api, exportCsv, money } from '../api';
+import { api, exportXlsxWorkbook, money } from '../api';
 import { PageHeader } from '../components';
 
 type AuditRow = {
@@ -93,8 +93,8 @@ export function TenantAccountAuditPage() {
     });
   }, [filter, query, report]);
 
-  function exportReport() {
-    exportCsv('controle-comptes-locataires.csv', filteredRows.map((row) => ({
+  async function exportReport() {
+    await exportXlsxWorkbook('controle-comptes-locataires.xlsx', [{ name: 'Contrôle des comptes', rows: filteredRows.map((row) => ({
       locataire: row.tenant_name,
       baux_actifs: row.active_lease_refs.join(', '),
       periodicite: frequencyLabel(row),
@@ -110,7 +110,7 @@ export function TenantAccountAuditPage() {
       situation_financiere: row.financial_status,
       controle: row.audit_status,
       anomalies: row.anomalies.map((code) => anomalyLabels[code] ?? code).join(' | '),
-    })));
+    })) }]);
   }
 
   return (
@@ -122,8 +122,8 @@ export function TenantAccountAuditPage() {
             <button type="button" className="secondary" onClick={() => void load()} disabled={loading}>
               <RefreshCw size={16} /> Actualiser
             </button>
-            <button type="button" onClick={exportReport} disabled={!filteredRows.length}>
-              <Download size={16} /> Exporter CSV
+            <button type="button" onClick={() => void exportReport()} disabled={!filteredRows.length}>
+              <Download size={16} /> Exporter Excel
             </button>
           </div>
         )}
