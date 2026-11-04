@@ -1,4 +1,4 @@
-import { Download, Eye, FileSpreadsheet, Pencil, Plus, Printer, Trash2, X } from 'lucide-react';
+import { Download, Eye, RefreshCw, FileSpreadsheet, Pencil, Plus, Printer, Trash2, X } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { api, exportCsv, exportXlsxWorkbook, includesText, invoiceDisplayStatus, itemLabel, money, shortDate, statusLabel } from '../api';
@@ -45,12 +45,56 @@ type Lease = { id: number; lease_number?: number; tenant_id: number; tenant_name
 const lineTypes = ['Water', 'Electricity', 'Maintenance', 'Parking', 'Internet', 'Common charges', 'Penalty', 'Other'];
 const emptyFilters = { month: '', year: '', status: '', building: '', tenant: '', type: '', automatic: '', email: '', whatsapp: '' };
 
+type RegenerationPreview = {
+  invoice_number: string; current_total: number; proposed_total: number;
+  allocated_payments: number; proposed_balance: number;
+  warnings: string[]; can_confirm: boolean;
+};
+
 export function Invoices() {
   const { can } = useAuth();
   const { data, reload } = useApiList<Invoice>('/invoices');
   const tenants = useApiList<Tenant>('/tenants');
   const leases = useApiList<Lease>('/leases');
   const [open, setOpen] = useState(false);
+  const [regenerationId, setRegenerationId] = useState<number | null>(null);
+  const [regenerationPreview, setRegenerationPreview] = useState<RegenerationPreview | null>(null);
+  const [regenerationReason, setRegenerationReason] = useState('');
+  const [regenerationError, setRegenerationError] = useState('');
+  const [regenerationBusy, setRegenerationBusy] = useState(false);
+  async function openRegeneration(id: number) {
+    setRegenerationId(id);
+    setRegenerationPreview(null);
+    setRegenerationReason('');
+    setRegenerationError('');
+    setRegenerationBusy(true);
+    try {
+      const response = await api.get<RegenerationPreview>(`/invoices/${id}/regeneration-preview`);
+      setRegenerationPreview(response.data);
+    } catch {
+      setRegenerationError('Impossible de prévisualiser cette facture. Vérifiez les droits et le bail.');
+    } finally {
+      setRegenerationBusy(false);
+    }
+  }
+  async function confirmRegeneration() {
+    if (!regenerationId || !regenerationPreview) return;
+    setRegenerationBusy(true);
+    setRegenerationError('');
+    try {
+      await api.post(`/invoices/${regenerationId}/regenerate`, {
+        reason: regenerationReason,
+        expected_total: regenerationPreview.proposed_total,
+      });
+      setRegenerationId(null);
+      setSuccess('Facture régénérée sans modifier les encaissements.');
+      reload();
+    } catch {
+      setRegenerationError('Régénération bloquée : vérifiez les paiements ou relancez la prévisualisation.');
+    } finally {
+      setRegenerationBusy(false);
+    }
+  }
   const [otherChargeOpen, setOtherChargeOpen] = useState(false);
   const [tenantId, setTenantId] = useState<number | null>(null);
   const [leaseId, setLeaseId] = useState<number | null>(null);
@@ -248,6 +292,7 @@ export function Invoices() {
                 <td><StatusBadge value={invoiceDisplayStatus(invoice.status, invoice.due_date)} /></td>
                 <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}>
                   <Link className="icon-btn" title="Voir" to={`/invoices/${invoice.id}`}><Eye size={16} /></Link>
+                  {can('invoices.update') && invoice.invoice_type === 'RENT' && <button className="icon-btn" title="Prévisualiser la régénération" onClick={() => openRegeneration(invoice.id)}><RefreshCw size={16} /></button>}
                   {can('invoices.update') && <Link className="icon-btn" title="Modifier" to={`/invoices/${invoice.id}?edit=1`}><Pencil size={16} /></Link>}
                   <Link className="icon-btn" title="Imprimer" to={`/invoices/${invoice.id}/print`}><Printer size={16} /></Link>
                   {can('invoices.delete') && <button className="icon-btn danger" title="Supprimer" onClick={() => remove(invoice.id)}><Trash2 size={16} /></button>}
@@ -259,6 +304,29 @@ export function Invoices() {
         {!filtered.length && <EmptyState />}
       </div>
 
+      {regenerationId !== null && (
+        <Modal title="Régénération sécurisée de facture" onClose={() => setRegenerationId(null)}>
+          {regenerationBusy && <p>Analyse en cours…</p>}
+          {regenerationError && <p role="alert">{regenerationError}</p>}
+          {regenerationPreview && (
+            <div className="invoice-modal-body">
+              <p><strong>{regenerationPreview.invoice_number}</strong></p>
+              <p>Ancien montant : {money(regenerationPreview.current_total)}</p>
+              <p>Nouveau montant : <strong>{money(regenerationPreview.proposed_total)}</strong></p>
+              <p>Paiements déjà affectés : {money(regenerationPreview.allocated_payments)}</p>
+              <p>Solde après recalcul : {money(regenerationPreview.proposed_balance)}</p>
+              {regenerationPreview.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
+              <label>Motif de correction
+                <textarea value={regenerationReason} onChange={(event) => setRegenerationReason(event.target.value)} rows={3} />
+              </label>
+              <div className="actions">
+                <button type="button" className="secondary" onClick={() => setRegenerationId(null)}>Annuler</button>
+                <button type="button" disabled={regenerationBusy || regenerationReason.trim().length < 8 || !regenerationPreview.can_confirm} onClick={confirmRegeneration}>Confirmer la régénération</button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
       {open && (
         <Modal title="Nouvelle facture" onClose={() => setOpen(false)}>
           <div className="invoice-modal-body">
