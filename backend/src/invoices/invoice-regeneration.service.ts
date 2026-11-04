@@ -43,7 +43,7 @@ export class InvoiceRegenerationService {
       if (['CANCELLED', 'DRAFT'].includes(String(locked[0].status).toUpperCase())) {
         throw new BadRequestException('Facture annulée ou brouillon : réémission contrôlée nécessaire.');
       }
-      const preview = await this.preview(invoiceId);
+      const preview = await this.preview(invoiceId, client);
       if (Math.round(preview.proposed_total * 100) !== Math.round(expectedTotal * 100)) {
         throw new BadRequestException('Le montant a changé depuis la simulation : relancez la prévisualisation.');
       }
@@ -86,10 +86,10 @@ export class InvoiceRegenerationService {
     });
   }
 
-  async preview(invoiceId: number) {
+  async preview(invoiceId: number, client?: PoolClient) {
     this.assertAdmin();
     const organizationId = this.context.organizationId();
-    const { rows } = await this.db.query(
+    const { rows } = await (client ?? this.db).query(
       `SELECT i.id, i.invoice_number, i.invoice_type, i.status, i.total,
               i.period_start::text, i.period_end::text, i.discount_amount,
               i.lease_id, l.start_date::text AS lease_start,
@@ -130,14 +130,14 @@ export class InvoiceRegenerationService {
       if (line.component_code === 'SYNDIC') line.amount = Math.round(syndic * 100) / 100;
     }
     cycle.total_amount = Math.round(cycle.lines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
-    const { rows: allocations } = await this.db.query(
+    const { rows: allocations } = await (client ?? this.db).query(
       `SELECT COALESCE(SUM(pa.amount), 0)::numeric AS allocated
          FROM payment_allocations pa
          JOIN payments p ON p.id = pa.payment_id AND p.organization_id = pa.organization_id
         WHERE pa.organization_id = $1 AND pa.invoice_id = $2 AND pa.deleted_at IS NULL AND p.deleted_at IS NULL`,
       [organizationId, invoiceId],
     );
-    const { rows: credits } = await this.db.query(
+    const { rows: credits } = await (client ?? this.db).query(
       `SELECT COALESCE(SUM(amount_applied), 0)::numeric AS credit_allocated
          FROM tenant_credit_allocations
         WHERE organization_id = $1 AND invoice_id = $2 AND deleted_at IS NULL`,
