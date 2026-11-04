@@ -38,7 +38,14 @@ export class InvoiceRegenerationService {
     if (!invoice) throw new NotFoundException('Facture ou bail introuvable dans cette organisation.');
     if (invoice.invoice_type !== 'RENT') throw new BadRequestException('Seules les factures de loyer sont prises en charge.');
     const start = String(invoice.period_start).slice(0, 10);
-    const end = String(invoice.period_end).slice(0, 10);
+    const storedEnd = String(invoice.period_end).slice(0, 10);
+    // The stored period may be truncated by the old billing engine (e.g. 30 Oct).
+    // For a monthly rent invoice, calculate through the actual last day of its month.
+    const monthStart = start.slice(0, 7);
+    const storedEndMonth = storedEnd.slice(0, 7);
+    const end = monthStart === storedEndMonth
+      ? `${start.slice(0, 7)}-${String(new Date(Number(start.slice(0, 4)), Number(start.slice(5, 7)), 0).getDate()).padStart(2, '0')}`
+      : storedEnd;
     const leaseStart = String(invoice.lease_start).slice(0, 10);
     const effectiveStart = start < leaseStart ? leaseStart : start;
     if (effectiveStart > end) throw new BadRequestException('Période antérieure au début du bail.');
