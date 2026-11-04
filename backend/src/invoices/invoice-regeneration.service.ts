@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { PoolClient } from 'pg';
 import { DatabaseService } from '../database/database.service';
 import { RequestContext } from '../auth/request-context';
 import { calculateBillingCycleForPeriod, parseDate } from '../utils/billing-period';
@@ -17,6 +18,72 @@ export class InvoiceRegenerationService {
     if (!user || !['ADMIN', 'OWNER', 'SUPER_ADMIN', 'ORG_ADMIN', 'ADMINISTRATOR'].includes(role)) {
       throw new ForbiddenException('Régénération réservée aux administrateurs de l’organisation.');
     }
+  }
+
+  /**
+   * Conservative transactional regeneration. Existing payments and credit allocations
+   * remain untouched. Cancelled invoices and over-allocations require a separate
+   * explicit accounting workflow, never silent resurrection or reassignment.
+   */
+  async confirm(invoiceId: number, reason: string, expectedTotal: number) {
+    this.assertAdmin();
+    if (!reason?.trim() || reason.trim().length < 8) {
+      throw new BadRequestException('Motif de régénération obligatoire (8 caractères minimum).');
+    }
+    if (!Number.isFinite(expectedTotal) || expectedTotal < 0) {
+      throw new BadRequestException('Montant attendu invalide.');
+    }
+    const organizationId = this.context.organizationId();
+    return this.db.transaction(async (client: PoolClient) => {
+      const { rows: locked } = await client.query(
+        'SELECT id, status, total FROM invoices WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL FOR UPDATE',
+        [invoiceId, organizationId],
+      );
+      if (!locked.length) throw new NotFoundException('Facture introuvable.');
+      if (['CANCELLED', 'DRAFT'].includes(String(locked[0].status).toUpperCase())) {
+        throw new BadRequestException('Facture annulée ou brouillon : réémission contrôlée nécessaire.');
+      }
+      const preview = await this.preview(invoiceId);
+      if (Math.round(preview.proposed_total * 100) !== Math.round(expectedTotal * 100)) {
+        throw new BadRequestException('Le montant a changé depuis la simulation : relancez la prévisualisation.');
+      }
+      const { rows: allocations } = await client.query(
+        `SELECT COALESCE(SUM(pa.amount), 0)::numeric AS paid
+           FROM payment_allocations pa
+           JOIN payments p ON p.id = pa.payment_id AND p.organization_id = pa.organization_id
+          WHERE pa.organization_id = $1 AND pa.invoice_id = $2
+            AND pa.deleted_at IS NULL AND p.deleted_at IS NULL`,
+        [organizationId, invoiceId],
+      );
+      const paid = Number(allocations[0]?.paid ?? 0);
+      if (paid > preview.proposed_total + 0.00001) {
+        throw new BadRequestException('Paiements supérieurs au nouveau total : réconciliation manuelle requise.');
+      }
+      // Avoid changing any payment or credit record.
+      await client.query(
+        'UPDATE invoice_items SET deleted_at = NOW(), deleted_by = $3 WHERE invoice_id = $1 AND organization_id = $2 AND deleted_at IS NULL',
+        [invoiceId, organizationId, this.context.userId()],
+      );
+      for (const line of preview.lines) {
+        await client.query(
+          `INSERT INTO invoice_items (invoice_id, organization_id, item_type, description, amount)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [invoiceId, organizationId, line.component_code === 'RENT' ? 'MONTHLY RENT' : line.component_code, line.component_label, line.amount],
+        );
+      }
+      const nextStatus = paid <= 0 ? 'UNPAID' : paid + 0.00001 < preview.proposed_total ? 'PARTIAL' : 'PAID';
+      await client.query(
+        `UPDATE invoices SET total = $3, period_start = $4, period_end = $5,
+               status = $6, internal_notes = CONCAT_WS(E'\\n', NULLIF(internal_notes, ''),
+               $7)
+          WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+        [invoiceId, organizationId, preview.proposed_total, preview.period_start, preview.period_end, nextStatus,
+          '[REGENERATION] ' + new Date().toISOString() + ' | user=' + this.context.userId()
+          + ' | ancien=' + locked[0].total + ' | nouveau=' + preview.proposed_total + ' | motif=' + reason.trim()],
+      );
+      return { invoice_id: invoiceId, old_total: Number(locked[0].total),
+        new_total: preview.proposed_total, preserved_allocations: paid, status: nextStatus };
+    });
   }
 
   async preview(invoiceId: number) {
@@ -64,9 +131,10 @@ export class InvoiceRegenerationService {
     }
     cycle.total_amount = Math.round(cycle.lines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
     const { rows: allocations } = await this.db.query(
-      `SELECT COALESCE(SUM(amount), 0)::numeric AS allocated
-         FROM payment_allocations
-        WHERE organization_id = $1 AND invoice_id = $2 AND deleted_at IS NULL`,
+      `SELECT COALESCE(SUM(pa.amount), 0)::numeric AS allocated
+         FROM payment_allocations pa
+         JOIN payments p ON p.id = pa.payment_id AND p.organization_id = pa.organization_id
+        WHERE pa.organization_id = $1 AND pa.invoice_id = $2 AND pa.deleted_at IS NULL AND p.deleted_at IS NULL`,
       [organizationId, invoiceId],
     );
     const { rows: credits } = await this.db.query(
