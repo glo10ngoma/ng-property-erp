@@ -161,7 +161,7 @@ export class InvoiceRegenerationService {
         ...(creditAllocated > 0 ? ['Crédits locataires : vérifier les affectations inter-factures.'] : []),
         'Simulation uniquement : aucune écriture financière modifiée.',
       ],
-      can_confirm: false,
+      can_confirm: !['CANCELLED', 'DRAFT'].includes(String(invoice.status).toUpperCase()) && allocated <= proposedTotal,
     };
   }
 }
