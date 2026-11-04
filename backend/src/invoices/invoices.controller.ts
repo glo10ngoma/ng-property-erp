@@ -22,6 +22,14 @@ export class InvoicesController {
     return this.regeneration.preview(id);
   }
 
+  @Post(':id/regenerate')
+  regenerate(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { reason: string; expected_total: number },
+  ) {
+    return this.regeneration.confirm(id, body?.reason, Number(body?.expected_total));
+  }
+
   @Get(':id/pdf')
   async pdf(
     @Param('id', ParseIntPipe) id: number,
