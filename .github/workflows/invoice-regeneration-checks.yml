@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'backend/**'
+      - 'frontend/**'
       - '.github/workflows/invoice-regeneration-checks.yml'
   workflow_dispatch:
 jobs:
@@ -19,4 +20,10 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
       - name: Compile backend
+        run: npm run build
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+      - name: Compile frontend
+        working-directory: frontend
         run: npm run build
