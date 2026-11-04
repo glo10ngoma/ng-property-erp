@@ -50,6 +50,12 @@ export class InvoiceRegenerationService {
       { code: 'SYNDIC', label: 'Syndic', monthlyAmount: syndic },
       ...(other ? [{ code: 'OTHER', label: 'Autres charges', monthlyAmount: other }] : []),
     ]);
+    // Business rule: syndic is a fixed monthly charge, not prorated.
+    // Each monthly syndic line is charged in full even in the initial partial month.
+    for (const line of cycle.lines) {
+      if (line.component_code === 'SYNDIC') line.amount = Math.round(syndic * 100) / 100;
+    }
+    cycle.total_amount = Math.round(cycle.lines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
     const { rows: allocations } = await this.db.query(
       `SELECT COALESCE(SUM(amount), 0)::numeric AS allocated
          FROM payment_allocations
