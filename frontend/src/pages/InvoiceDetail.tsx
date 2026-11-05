@@ -61,6 +61,14 @@ type Invoice = {
   automation_run?: { id: number; automation_code: string; execution_mode: string; billing_month: number; billing_year: number; status: string; started_at: string; completed_at?: string | null } | null;
 };
 
+type BankAccount = {
+  id: number;
+  bank_name: string;
+  account_name: string;
+  currency: 'USD' | 'CDF';
+  status: string;
+};
+
 type ExchangeRate = {
   rate: number;
   effectiveDate?: string;
@@ -175,6 +183,37 @@ export function InvoiceDetail() {
   const [usdAmount, setUsdAmount] = useState('');
   const [cdfAmount, setCdfAmount] = useState('');
   const [paymentRate, setPaymentRate] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'BANK' | 'MOBILE_MONEY'>('CASH');
+  const [bankAccountId, setBankAccountId] = useState('');
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [bankAccountsLoading, setBankAccountsLoading] = useState(false);
+  const [bankAccountsError, setBankAccountsError] = useState('');
+  const compatibleBankAccounts = bankAccounts.filter((account) =>
+    account.status === 'ACTIVE' && account.currency === paymentCurrency
+  );
+  async function openPayment() {
+    setPaymentError('');
+    setBankAccountsError('');
+    setBankAccountId('');
+    setPaymentMethod('CASH');
+    setPaymentOpen(true);
+    setBankAccountsLoading(true);
+    try {
+      const response = await api.get<BankAccount[]>('/bank-accounts');
+      setBankAccounts(response.data);
+    } catch {
+      setBankAccounts([]);
+      setBankAccountsError('Impossible de charger les comptes bancaires. Réessayez.');
+    } finally {
+      setBankAccountsLoading(false);
+    }
+  }
+  useEffect(() => {
+    if (paymentMethod !== 'BANK' || paymentCurrency === 'MIXED' ||
+      !compatibleBankAccounts.some((account) => String(account.id) === bankAccountId)) {
+      setBankAccountId('');
+    }
+  }, [paymentMethod, paymentCurrency, bankAccounts]);
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   const printTitleRef = useRef<string | null>(null);
@@ -267,6 +306,17 @@ export function InvoiceDetail() {
     const amountCdf = Number(form.get('amount_cdf') ?? 0);
     const rate = Number(form.get('exchange_rate_used') ?? paymentRate ?? exchangeRate?.rate ?? 0) || null;
     const amount = Number(form.get('amount') ?? 0);
+    const method = String(form.get('payment_method') ?? 'CASH');
+    if (method === 'BANK') {
+      if (paymentCurrency === 'MIXED') {
+        setPaymentError('Un paiement bancaire doit utiliser une seule devise.');
+        return;
+      }
+      if (!bankAccountId || !compatibleBankAccounts.some((account) => String(account.id) === bankAccountId)) {
+        setPaymentError('Sélectionnez un compte bancaire actif correspondant à la devise.');
+        return;
+      }
+    }
     if (!Number.isFinite(amountUsd) || !Number.isFinite(amountCdf) || !Number.isFinite(amount)) {
       setPaymentError('Montant de paiement invalide.');
       return;
@@ -294,7 +344,8 @@ export function InvoiceDetail() {
         amount_cdf: amountCdf,
         exchange_rate_used: rate ?? undefined,
         exchange_rate_date: form.get('exchange_rate_date'),
-        payment_method: form.get('payment_method'),
+        payment_method: method,
+        bank_account_id: method === 'BANK' ? Number(bankAccountId) : undefined,
         reference: form.get('reference'),
         notes: form.get('notes'),
         payer_name: form.get('payer_name'),
@@ -563,7 +614,7 @@ export function InvoiceDetail() {
               ))}
             </details>
           )}
-          {can('payments.create') && <button title="Enregistrer un paiement" onClick={() => setPaymentOpen(true)}><CreditCard size={16} />Paiement</button>}
+          {can('payments.create') && <button title="Enregistrer un paiement" onClick={() => void openPayment()}><CreditCard size={16} />Paiement</button>}
           {can('communication.send') && <button className="secondary" title="Envoyer par WhatsApp" onClick={openWhatsappReminder}><MessageCircle size={16} />WhatsApp</button>}
           {can('communication.send') && <button className="secondary" title="Envoyer par e-mail" onClick={() => openEmailModal('reminder')}><Mail size={16} />Email</button>}
           {can('communication.send') && <button className="secondary" title="Envoyer par SMS" onClick={() => sendReminder('SMS')}><Smartphone size={16} />SMS</button>}
@@ -859,7 +910,24 @@ export function InvoiceDetail() {
                 <label>Taux appliqué<input name="exchange_rate_used" type="number" step="0.000001" min="0" value={paymentRate} onChange={(event) => setPaymentRate(event.target.value)} /></label>
                 <label>Équivalent USD du CDF<input readOnly className="locked-field" value={money(invoiceCdfEquivalentUsd)} /></label>
                 <label>Total équivalent USD<input name="amount" type="number" readOnly className="locked-field" value={invoiceTotalEquivalentUsd} /></label>
-                <label>Mode de paiement<select name="payment_method"><option value="CASH">{paymentMethodLabel('CASH')}</option><option value="BANK">{paymentMethodLabel('BANK')}</option><option value="MOBILE_MONEY">{paymentMethodLabel('MOBILE_MONEY')}</option></select></label>
+                <label>Mode de paiement
+                  <select name="payment_method" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as 'CASH' | 'BANK' | 'MOBILE_MONEY')}>
+                    <option value="CASH">{paymentMethodLabel('CASH')}</option>
+                    <option value="BANK" disabled={paymentCurrency === 'MIXED'}>{paymentMethodLabel('BANK')}</option>
+                    <option value="MOBILE_MONEY">{paymentMethodLabel('MOBILE_MONEY')}</option>
+                  </select>
+                </label>
+                {paymentMethod === 'BANK' && (
+                  <label>Compte bancaire de destination *
+                    <select name="bank_account_id" required value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value)} disabled={bankAccountsLoading || !compatibleBankAccounts.length}>
+                      <option value="">{bankAccountsLoading ? 'Chargement des comptes...' : compatibleBankAccounts.length ? 'Sélectionner un compte bancaire' : 'Aucun compte actif compatible'}</option>
+                      {compatibleBankAccounts.map((account) => (
+                        <option key={account.id} value={account.id}>{account.bank_name} — {account.account_name} ({account.currency})</option>
+                      ))}
+                    </select>
+                    {bankAccountsError && <small role="alert">{bankAccountsError}</small>}
+                  </label>
+                )}
                 <label>Reference<input name="reference" placeholder="Reference" /></label>
               </div>
             </div>
