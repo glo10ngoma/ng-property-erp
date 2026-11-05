@@ -237,7 +237,7 @@ export function Payments() {
 
   return (
     <section>
-      <PageHeader title={paymentsBranding.modulePlural} action={can('payments.create') ? <button onClick={() => { setOpen(true); refreshExchangeRate(); }}><Plus size={16} />{paymentsBranding.newActionLabel}</button> : undefined} />
+      <PageHeader title={paymentsBranding.modulePlural} action={can('payments.create') ? <button onClick={() => { bankAccounts.reload(); setOpen(true); refreshExchangeRate(); }}><Plus size={16} />{paymentsBranding.newActionLabel}</button> : undefined} />
       <SuccessMessage message={success} />
       {paymentsError ? <div className="error-banner">{paymentsError}</div> : null}
 
@@ -686,7 +686,7 @@ function PaymentModal({
             </label>
             {paymentMethod === 'BANK' ? (
               <label>
-                Compte bancaire
+                Compte bancaire de destination *
                 <select
                   name="bank_account_id"
                   value={bankAccountId}
@@ -701,6 +701,7 @@ function PaymentModal({
                     </option>
                   ))}
                 </select>
+                {compatibleBankAccounts.length === 0 && <small role="alert">Aucun compte bancaire actif en {paymentCurrency} disponible. Vérifiez la configuration des comptes bancaires.</small>}
               </label>
             ) : null}
             <label>Référence<input name="reference" placeholder="Référence" /></label>
@@ -720,7 +721,7 @@ function PaymentModal({
         <div className="detail-section compact-modal-section">
           <summary>Informations complémentaires</summary>
           <div className="lease-section-grid">
-            <label>Banque<input name="payer_name" placeholder="Banque / payeur" /></label>
+            <label>Banque émettrice / payeur<input name="payer_name" placeholder="Banque émettrice / payeur (facultatif)" /></label>
             <label>Numéro transaction<input name="transaction_number" placeholder="Numéro transaction" /></label>
             <label>Chèque<input name="check_number" placeholder="Chèque" /></label>
             <label>Observations<textarea name="notes" rows={2} placeholder="Observations" /></label>
