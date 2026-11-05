@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, StreamableFile } from '@nestjs/common';
 import { CreateInvoiceDto, UpdateInvoiceDto } from './dto';
+import { InvoiceRegenerationService } from './invoice-regeneration.service';
 import { InvoicePdfService } from './invoice-pdf.service';
 import { InvoicesService } from './invoices.service';
 
@@ -8,11 +9,25 @@ export class InvoicesController {
   constructor(
     private readonly invoices: InvoicesService,
     private readonly invoicePdf: InvoicePdfService,
+    private readonly regeneration: InvoiceRegenerationService,
   ) {}
 
   @Get()
   findAll() {
     return this.invoices.findAll();
+  }
+
+  @Get(':id/regeneration-preview')
+  regenerationPreview(@Param('id', ParseIntPipe) id: number) {
+    return this.regeneration.preview(id);
+  }
+
+  @Post(':id/regenerate')
+  regenerate(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { reason: string; expected_total: number },
+  ) {
+    return this.regeneration.confirm(id, body?.reason, Number(body?.expected_total));
   }
 
   @Get(':id/pdf')
