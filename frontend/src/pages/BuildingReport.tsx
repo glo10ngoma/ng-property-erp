@@ -132,34 +132,6 @@ export function BuildingReport() {
       />
       {success && <div className="success-message">{success}</div>}
 
-      <nav className="building-report-tabs" aria-label="Navigation du rapport immeuble" role="tablist">
-        <button type="button" role="tab" id="building-report-tab-information" aria-controls="building-report-panel" aria-selected={activeTab === 'information'} className={activeTab === 'information' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('information')}>Informations immeuble</button>
-        <button type="button" role="tab" id="building-report-tab-finances" aria-controls="building-report-panel" aria-selected={activeTab === 'finances'} className={activeTab === 'finances' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('finances')}>Résumé financier</button>
-        <button type="button" role="tab" id="building-report-tab-tenants" aria-controls="building-report-panel" aria-selected={activeTab === 'tenants'} className={activeTab === 'tenants' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('tenants')}>Locataires de cet immeuble</button>
-        <button type="button" role="tab" id="building-report-tab-units" aria-controls="building-report-panel" aria-selected={activeTab === 'units'} className={activeTab === 'units' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('units')}>Unités / appartements occupés</button>
-        <button type="button" role="tab" id="building-report-tab-invoices" aria-controls="building-report-panel" aria-selected={activeTab === 'invoices'} className={activeTab === 'invoices' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('invoices')}>Factures de la période</button>
-        <button type="button" role="tab" id="building-report-tab-paid" aria-controls="building-report-panel" aria-selected={activeTab === 'paid'} className={activeTab === 'paid' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('paid')}>Locataires ayant payé</button>
-        <button type="button" role="tab" id="building-report-tab-unpaid" aria-controls="building-report-panel" aria-selected={activeTab === 'unpaid'} className={activeTab === 'unpaid' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('unpaid')}>Locataires n'ayant pas payé</button>
-        <button type="button" role="tab" id="building-report-tab-overdue" aria-controls="building-report-panel" aria-selected={activeTab === 'overdue'} className={activeTab === 'overdue' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('overdue')}>Factures en retard</button>
-      </nav>
-      {report && activeTab === 'information' && (
-        <section className="detail-section report-section">
-          <h4>Informations immeuble</h4>
-          <div className="summary-band">
-            <SummaryCard label="Nom immeuble" value={text(report.building.name)} />
-            <SummaryCard label="Type" value={text(report.building.building_type, 'Residence')} />
-            <SummaryCard label="Ville" value={text(report.building.city)} />
-            <SummaryCard label="Statut" value={text(report.building.status, 'Actif')} />
-            <SummaryCard label="Unites" value={report.units_total} />
-            <SummaryCard label="Occupees" value={report.occupied_units} />
-            <SummaryCard label="Libres" value={report.vacant_units} />
-            <SummaryCard label="Occupation" value={`${report.occupancy_rate}%`} />
-            <SummaryCard label="Periode" value={`${shortDate(report.period.start)} - ${shortDate(report.period.end)}`} wide />
-            <SummaryCard label="Adresse" value={text(report.building.address)} wide />
-          </div>
-        </section>
-      )}
-
       <section className="detail-section report-section">
         <h4>Filtres</h4>
         <div className="quick-form">
@@ -189,9 +161,36 @@ export function BuildingReport() {
         </div>
       </section>
 
+      <nav className="building-report-tabs" aria-label="Navigation du rapport immeuble" role="tablist">
+        <button type="button" role="tab" id="building-report-tab-information" aria-controls="building-report-panel" aria-selected={activeTab === 'information'} className={activeTab === 'information' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('information')}>Informations immeuble</button>
+        <button type="button" role="tab" id="building-report-tab-finances" aria-controls="building-report-panel" aria-selected={activeTab === 'finances'} className={activeTab === 'finances' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('finances')}>Résumé financier</button>
+        <button type="button" role="tab" id="building-report-tab-tenants" aria-controls="building-report-panel" aria-selected={activeTab === 'tenants'} className={activeTab === 'tenants' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('tenants')}>Locataires de cet immeuble</button>
+        <button type="button" role="tab" id="building-report-tab-units" aria-controls="building-report-panel" aria-selected={activeTab === 'units'} className={activeTab === 'units' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('units')}>Unités / appartements occupés</button>
+        <button type="button" role="tab" id="building-report-tab-invoices" aria-controls="building-report-panel" aria-selected={activeTab === 'invoices'} className={activeTab === 'invoices' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('invoices')}>Factures de la période</button>
+        <button type="button" role="tab" id="building-report-tab-paid" aria-controls="building-report-panel" aria-selected={activeTab === 'paid'} className={activeTab === 'paid' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('paid')}>Locataires ayant payé</button>
+        <button type="button" role="tab" id="building-report-tab-unpaid" aria-controls="building-report-panel" aria-selected={activeTab === 'unpaid'} className={activeTab === 'unpaid' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('unpaid')}>Locataires n'ayant pas payé</button>
+        <button type="button" role="tab" id="building-report-tab-overdue" aria-controls="building-report-panel" aria-selected={activeTab === 'overdue'} className={activeTab === 'overdue' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('overdue')}>Factures en retard</button>
+      </nav>
       {!report && <EmptyState message={loading ? 'Chargement...' : 'Aucune donnee.'} />}
       {report && (
         <div id="building-report-panel" role="tabpanel" aria-labelledby={`building-report-tab-${activeTab}`}>
+          {report && activeTab === 'information' && (
+            <section className="detail-section report-section">
+              <h4>Informations immeuble</h4>
+              <div className="summary-band">
+                <SummaryCard label="Nom immeuble" value={text(report.building.name)} />
+                <SummaryCard label="Type" value={text(report.building.building_type, 'Residence')} />
+                <SummaryCard label="Ville" value={text(report.building.city)} />
+                <SummaryCard label="Statut" value={text(report.building.status, 'Actif')} />
+                <SummaryCard label="Unites" value={report.units_total} />
+                <SummaryCard label="Occupees" value={report.occupied_units} />
+                <SummaryCard label="Libres" value={report.vacant_units} />
+                <SummaryCard label="Occupation" value={`${report.occupancy_rate}%`} />
+                <SummaryCard label="Periode" value={`${shortDate(report.period.start)} - ${shortDate(report.period.end)}`} wide />
+                <SummaryCard label="Adresse" value={text(report.building.address)} wide />
+              </div>
+            </section>
+          )}
           {activeTab === 'finances' && <section className="detail-section report-section">
             <h4>Resume financier</h4>
             <div className="mini-stats">
