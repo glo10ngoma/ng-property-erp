@@ -1,3 +1,4 @@
+import './building-report-tabs.css';
 import { ArrowLeft, Download, FileSpreadsheet, FileText, Printer, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -67,6 +68,7 @@ export function BuildingReport() {
   const [report, setReport] = useState<BuildingReportData | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
+  const [activeTab, setActiveTab] = useState('information');
 
   const queryParams = useMemo(() => {
     const params: Record<string, string> = {};
@@ -130,7 +132,17 @@ export function BuildingReport() {
       />
       {success && <div className="success-message">{success}</div>}
 
-      {report && (
+      <nav className="building-report-tabs" aria-label="Navigation du rapport immeuble" role="tablist">
+        <button type="button" role="tab" id="building-report-tab-information" aria-controls="building-report-panel" aria-selected={activeTab === 'information'} className={activeTab === 'information' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('information')}>Informations immeuble</button>
+        <button type="button" role="tab" id="building-report-tab-finances" aria-controls="building-report-panel" aria-selected={activeTab === 'finances'} className={activeTab === 'finances' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('finances')}>Résumé financier</button>
+        <button type="button" role="tab" id="building-report-tab-tenants" aria-controls="building-report-panel" aria-selected={activeTab === 'tenants'} className={activeTab === 'tenants' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('tenants')}>Locataires de cet immeuble</button>
+        <button type="button" role="tab" id="building-report-tab-units" aria-controls="building-report-panel" aria-selected={activeTab === 'units'} className={activeTab === 'units' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('units')}>Unités / appartements occupés</button>
+        <button type="button" role="tab" id="building-report-tab-invoices" aria-controls="building-report-panel" aria-selected={activeTab === 'invoices'} className={activeTab === 'invoices' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('invoices')}>Factures de la période</button>
+        <button type="button" role="tab" id="building-report-tab-paid" aria-controls="building-report-panel" aria-selected={activeTab === 'paid'} className={activeTab === 'paid' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('paid')}>Locataires ayant payé</button>
+        <button type="button" role="tab" id="building-report-tab-unpaid" aria-controls="building-report-panel" aria-selected={activeTab === 'unpaid'} className={activeTab === 'unpaid' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('unpaid')}>Locataires n'ayant pas payé</button>
+        <button type="button" role="tab" id="building-report-tab-overdue" aria-controls="building-report-panel" aria-selected={activeTab === 'overdue'} className={activeTab === 'overdue' ? 'building-report-tab is-active' : 'building-report-tab'} onClick={() => setActiveTab('overdue')}>Factures en retard</button>
+      </nav>
+      {report && activeTab === 'information' && (
         <section className="detail-section report-section">
           <h4>Informations immeuble</h4>
           <div className="summary-band">
@@ -179,8 +191,8 @@ export function BuildingReport() {
 
       {!report && <EmptyState message={loading ? 'Chargement...' : 'Aucune donnee.'} />}
       {report && (
-        <>
-          <section className="detail-section report-section">
+        <div id="building-report-panel" role="tabpanel" aria-labelledby={`building-report-tab-${activeTab}`}>
+          {activeTab === 'finances' && <section className="detail-section report-section">
             <h4>Resume financier</h4>
             <div className="mini-stats">
               <div className="mini-stat"><span>Locataires ayant paye</span><strong>{report.tenants_paid.length}</strong></div>
@@ -194,15 +206,15 @@ export function BuildingReport() {
               <div className="mini-stat"><span>Total encaisse</span><strong>{money(report.finances.total_paid)}</strong></div>
               <div className="mini-stat"><span>Reste a encaisser</span><strong>{money(report.finances.remaining)}</strong></div>
             </div>
-          </section>
+          </section>}
 
-          <TenantTable rows={tenants} />
-          <UnitTable title="Unites / appartements occupes" rows={occupiedUnits} />
-          <InvoiceTable title="Factures de la periode" rows={invoices} />
-          <TenantContactTable title="Locataires ayant paye" rows={report.tenants_paid} />
-          <TenantContactTable title="Locataires n'ayant pas paye" rows={report.tenants_unpaid} onRemind={sendReminder} />
-          <InvoiceTable title="Factures en retard" rows={report.overdue_invoices} onRemind={sendReminder} />
-        </>
+          {activeTab === 'tenants' && <TenantTable rows={tenants} />}
+          {activeTab === 'units' && <UnitTable title="Unites / appartements occupes" rows={occupiedUnits} />}
+          {activeTab === 'invoices' && <InvoiceTable title="Factures de la periode" rows={invoices} />}
+          {activeTab === 'paid' && <TenantContactTable title="Locataires ayant paye" rows={report.tenants_paid} />}
+          {activeTab === 'unpaid' && <TenantContactTable title="Locataires n'ayant pas paye" rows={report.tenants_unpaid} onRemind={sendReminder} />}
+          {activeTab === 'overdue' && <InvoiceTable title="Factures en retard" rows={report.overdue_invoices} onRemind={sendReminder} />}
+        </div>
       )}
     </section>
   );
