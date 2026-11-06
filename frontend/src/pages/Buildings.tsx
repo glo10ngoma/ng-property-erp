@@ -1,4 +1,5 @@
-import { BarChart3, Eye, FileSpreadsheet, FileText, Pencil, Plus, Printer, RotateCcw, Trash2 } from 'lucide-react';
+import './buildings-dashboard.css';
+import { BarChart3, Building2, CheckCircle2, DoorOpen, Eye, FileSpreadsheet, FileText, MapPin, Pencil, Plus, Printer, RotateCcw, Search, Trash2, TrendingUp, Wrench } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, exportCsv, exportExcel, includesText } from '../api';
@@ -96,6 +97,10 @@ export function Buildings() {
 
   const sorted = [...filtered].sort((a, b) => compareBuildings(a, b, sort));
   const summary = summarizeBuildings(filtered);
+  const allSummary = summarizeBuildings(data);
+  const activeFilters = Object.values(filters).filter(Boolean).length + (query.trim() ? 1 : 0);
+  const maintenanceCount = filtered.filter((building) => building.state === 'MAINTENANCE').length;
+  const activeCount = filtered.filter((building) => (building.status ?? 'ACTIVE') === 'ACTIVE').length;
 
   async function save(form: FormData) {
     const payload = cleanPayload(Object.fromEntries(form) as Record<string, string>);
@@ -148,16 +153,32 @@ export function Buildings() {
       <PageHeader title="Immeubles" action={can('buildings.create') ? <button onClick={() => { setError(''); setEditing({}); }}><Plus size={16} />Nouvel immeuble</button> : undefined} />
       <SuccessMessage message={success} />
 
-      <div className="summary-band buildings-summary">
-        <SummaryItem label="Immeubles" value={summary.buildings} />
-        <SummaryItem label="Unités" value={summary.units} />
-        <SummaryItem label="Occupées" value={summary.occupied} />
-        <SummaryItem label="Libres" value={summary.vacant} />
-        <SummaryItem label="Taux d'occupation" value={`${summary.occupancyRate}%`} />
+      <div className="buildings-overview">
+        <div className="buildings-overview-copy">
+          <span className="buildings-eyebrow"><Building2 size={15} /> Vue d'ensemble du patrimoine</span>
+          <h2>Votre parc immobilier, en un coup d'œil</h2>
+          <p>Suivez les immeubles, les unités et l'occupation de votre portefeuille.</p>
+        </div>
+        <div className="buildings-overview-meta">
+          <span><MapPin size={15} /> {cities.length} {cities.length > 1 ? 'villes' : 'ville'}</span>
+          <strong>{allSummary.buildings} immeubles au total</strong>
+        </div>
+      </div>
+      <div className="buildings-kpi-grid" aria-label="Indicateurs du patrimoine">
+        <BuildingKpi label="Immeubles" value={summary.buildings} detail={`${activeCount} actifs dans la sélection`} icon={<Building2 size={21} />} tone="navy" />
+        <BuildingKpi label="Unités au total" value={summary.units} detail="Unités recensées" icon={<DoorOpen size={21} />} tone="blue" />
+        <BuildingKpi label="Unités occupées" value={summary.occupied} detail="Occupation du parc" icon={<CheckCircle2 size={21} />} tone="green" />
+        <BuildingKpi label="Unités libres" value={summary.vacant} detail="Disponibles à la location" icon={<DoorOpen size={21} />} tone="amber" />
+        <BuildingKpi label="Taux d'occupation" value={`${summary.occupancyRate}%`} detail="Unités occupées / total" icon={<TrendingUp size={21} />} tone="teal" progress={summary.occupancyRate} />
+        <BuildingKpi label="En maintenance" value={maintenanceCount} detail="Immeubles concernés" icon={<Wrench size={21} />} tone="slate" />
+      </div>
+      <div className="buildings-section-heading">
+        <div><h3>Répertoire des immeubles</h3><p>{sorted.length} résultat{sorted.length > 1 ? 's' : ''}{activeFilters ? ` · ${activeFilters} filtre(s) actif(s)` : ''}</p></div>
+        {activeFilters > 0 && <button type="button" className="secondary" onClick={() => { setFilters(initialFilters); setQuery(''); }}><RotateCcw size={15} /> Effacer les filtres</button>}
       </div>
 
-      <div className="buildings-filter-bar">
-        <input className="filter-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" />
+      <div className="buildings-filter-bar" aria-label="Filtres des immeubles">
+        <label className="buildings-search"><Search size={17} /><input className="filter-search" aria-label="Rechercher un immeuble" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un immeuble, une adresse..." /></label>
         <select value={filters.city} onChange={(event) => setFilters({ ...filters, city: event.target.value })}>
           <option value="">Ville</option>
           {cities.map((city) => <option key={city.value} value={city.value}>{city.label}</option>)}
@@ -209,13 +230,13 @@ export function Buildings() {
           <tbody>
             {sorted.map((building) => (
               <tr key={building.id} className="clickable-row" onClick={() => openReport(building)}>
-                <td>{building.name}</td>
+                <td><span className="buildings-name-cell"><span className="buildings-name-icon"><Building2 size={17} /></span><strong>{building.name}</strong></span></td>
                 <td>{building.building_type ?? 'Résidence'}</td>
                 <td><span className={`badge ${stateClass(building.state)}`}>{stateLabel(building.state)}</span></td>
                 <td className="truncate-cell" title={building.address}>{building.address}</td>
                 <td>{building.city}</td>
                 <td>{building.commune ?? '-'}</td>
-                <td className="right">{building.unit_count}</td>
+                <td className="right"><strong>{building.unit_count}</strong><span className="buildings-units-detail">{Number(building.occupied_count ?? 0)} occupées · {Number(building.vacant_count ?? 0)} libres</span></td>
                 <td className="actions actions-compact" onClick={(event) => event.stopPropagation()}>
                   <button className="icon-btn" title="Voir" onClick={() => openReport(building)}><Eye size={16} /></button>
                   <button className="icon-btn" title="Rapport" onClick={() => openReport(building)}><BarChart3 size={16} /></button>
@@ -262,8 +283,22 @@ function SortableTh({ label, column, sort, onSort, alignRight }: { label: string
   return <th className={alignRight ? 'right' : undefined}><button type="button" className="table-sort" onClick={() => onSort(column)}>{label} {marker}</button></th>;
 }
 
-function SummaryItem({ label, value }: { label: string; value: string | number }) {
-  return <span className="summary-item"><span>{label}</span><strong>{value}</strong></span>;
+function BuildingKpi({ label, value, detail, icon, tone, progress }: {
+  label: string;
+  value: string | number;
+  detail: string;
+  icon: React.ReactNode;
+  tone: 'navy' | 'blue' | 'green' | 'amber' | 'teal' | 'slate';
+  progress?: number;
+}) {
+  return (
+    <div className={`buildings-kpi buildings-kpi--${tone}`}>
+      <div className="buildings-kpi-top"><span>{label}</span><span className="buildings-kpi-icon">{icon}</span></div>
+      <strong className="buildings-kpi-value">{value}</strong>
+      {progress !== undefined && <div className="buildings-kpi-progress" role="progressbar" aria-label="Taux d'occupation" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} /></div>}
+      <span className="buildings-kpi-detail">{detail}</span>
+    </div>
+  );
 }
 
 function uniqueValues(values: Array<string | undefined>) {
